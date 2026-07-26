@@ -10,7 +10,22 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
+
+const DefaultR2PublishWorkers = 4
+
+const (
+	R2PublishPhaseValidate    = "validate"
+	R2PublishPhaseMaterialize = "materialize"
+)
+
+type R2PublishProgress struct {
+	Phase          string
+	Completed      int
+	Total          int
+	BytesProcessed int64
+}
 
 type R2PublishOptions struct {
 	BaseDir          string
@@ -19,6 +34,8 @@ type R2PublishOptions struct {
 	ResourceVersion  string
 	ResourcesBaseURL string
 	DryRun           bool
+	Workers          int
+	OnProgress       func(R2PublishProgress)
 }
 
 type R2PublishEntry struct {
@@ -54,7 +71,9 @@ func PrepareR2Publish(options R2PublishOptions) (R2PublishResult, error) {
 		return result, err
 	}
 
-	for _, entry := range result.Entries {
+	var materializedBytes int64
+	reportR2PublishProgress(options, R2PublishPhaseMaterialize, 0, len(result.Entries), 0)
+	for i, entry := range result.Entries {
 		target := filepath.Join(options.OutputDir, filepath.FromSlash(entry.Key))
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			return result, fmt.Errorf("create output directory for %s: %w", entry.Key, err)
@@ -63,6 +82,8 @@ func PrepareR2Publish(options R2PublishOptions) (R2PublishResult, error) {
 		if err := linkOrCopy(source, target); err != nil {
 			return result, fmt.Errorf("materialize %s: %w", entry.Key, err)
 		}
+		materializedBytes += entry.Size
+		reportR2PublishProgress(options, R2PublishPhaseMaterialize, i+1, len(result.Entries), materializedBytes)
 	}
 
 	manifest, err := json.MarshalIndent(result, "", "  ")
@@ -101,9 +122,7 @@ func buildR2PublishPlan(options R2PublishOptions) (R2PublishResult, error) {
 		return R2PublishResult{}, fmt.Errorf("no list.bin found for revision %s", options.Revision)
 	}
 
-	byKey := make(map[string]R2PublishEntry)
-	var missing []string
-	var collisions []string
+	var jobs []r2PublishJob
 	for _, platform := range platforms {
 		index, ok := loadListBinIndex(options.BaseDir, options.Revision, platform)
 		if !ok {
@@ -114,58 +133,36 @@ func buildR2PublishPlan(options R2PublishOptions) (R2PublishResult, error) {
 			objectIDs = append(objectIDs, objectID)
 		}
 		sort.Strings(objectIDs)
-
 		for _, objectID := range objectIDs {
-			if !safeObjectID(objectID) {
-				missing = append(missing, fmt.Sprintf("%s:%q has an unsafe object ID", publishPlatformName(platform), objectID))
+			jobs = append(jobs, r2PublishJob{
+				platform: platform,
+				objectID: objectID,
+			})
+		}
+	}
+
+	jobResults := runR2PublishJobs(options, keyPrefix, jobs)
+	byKey := make(map[string]R2PublishEntry)
+	var missing []string
+	var collisions []string
+	for _, jobResult := range jobResults {
+		if jobResult.err != nil {
+			return R2PublishResult{}, jobResult.err
+		}
+		if jobResult.missing != "" {
+			missing = append(missing, jobResult.missing)
+		}
+		for _, entry := range jobResult.entries {
+			if previous, exists := byKey[entry.Key]; exists {
+				if previous.Size != entry.Size || !strings.EqualFold(previous.MD5, entry.MD5) {
+					collisions = append(collisions, fmt.Sprintf(
+						"%s differs between %s (%s) and %s (%s)",
+						entry.Key, previous.Platform, previous.MD5, entry.Platform, entry.MD5,
+					))
+				}
 				continue
 			}
-			found := false
-			for _, assetType := range []string{"assetbundle", "resources"} {
-				candidates, listSize, ok := objectIdToFilePathCandidates(
-					options.BaseDir, options.Revision, platform, assetType, objectID,
-				)
-				if !ok {
-					continue
-				}
-				source, size, md5sum, ok := selectPublishCandidate(candidates, listSize)
-				if !ok {
-					continue
-				}
-				relativeSource, err := filepath.Rel(options.BaseDir, source)
-				if err != nil || relativeSource == ".." || strings.HasPrefix(relativeSource, ".."+string(filepath.Separator)) {
-					return R2PublishResult{}, fmt.Errorf("asset source %s is outside assets directory %s", source, options.BaseDir)
-				}
-				found = true
-				key := path.Join(
-					keyPrefix,
-					"resource-bundle-server",
-					"unso-"+options.ResourceVersion+"-"+assetType,
-					objectID,
-				)
-				entry := R2PublishEntry{
-					Key:      key,
-					Platform: publishPlatformName(platform),
-					Type:     assetType,
-					ObjectID: objectID,
-					Source:   filepath.ToSlash(relativeSource),
-					Size:     size,
-					MD5:      md5sum,
-				}
-				if previous, exists := byKey[key]; exists {
-					if previous.Size != entry.Size || !strings.EqualFold(previous.MD5, entry.MD5) {
-						collisions = append(collisions, fmt.Sprintf(
-							"%s differs between %s (%s) and %s (%s)",
-							key, previous.Platform, previous.MD5, entry.Platform, entry.MD5,
-						))
-					}
-					continue
-				}
-				byKey[key] = entry
-			}
-			if !found {
-				missing = append(missing, fmt.Sprintf("%s:%q has no valid local asset", publishPlatformName(platform), objectID))
-			}
+			byKey[entry.Key] = entry
 		}
 	}
 	if len(collisions) > 0 {
@@ -194,6 +191,136 @@ func buildR2PublishPlan(options R2PublishOptions) (R2PublishResult, error) {
 		ResourceVersion:  options.ResourceVersion,
 		Entries:          entries,
 	}, nil
+}
+
+type r2PublishJob struct {
+	platform string
+	objectID string
+}
+
+type r2PublishJobResult struct {
+	entries []R2PublishEntry
+	missing string
+	err     error
+	bytes   int64
+}
+
+type indexedR2PublishJob struct {
+	index int
+	job   r2PublishJob
+}
+
+type indexedR2PublishJobResult struct {
+	index  int
+	result r2PublishJobResult
+}
+
+func runR2PublishJobs(options R2PublishOptions, keyPrefix string, jobs []r2PublishJob) []r2PublishJobResult {
+	results := make([]r2PublishJobResult, len(jobs))
+	reportR2PublishProgress(options, R2PublishPhaseValidate, 0, len(jobs), 0)
+	if len(jobs) == 0 {
+		return results
+	}
+
+	workerCount := r2PublishWorkerCount(options.Workers, len(jobs))
+	jobCh := make(chan indexedR2PublishJob)
+	resultCh := make(chan indexedR2PublishJobResult, workerCount)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for indexedJob := range jobCh {
+				resultCh <- indexedR2PublishJobResult{
+					index:  indexedJob.index,
+					result: resolveR2PublishJob(options, keyPrefix, indexedJob.job),
+				}
+			}
+		}()
+	}
+	go func() {
+		for i, job := range jobs {
+			jobCh <- indexedR2PublishJob{index: i, job: job}
+		}
+		close(jobCh)
+	}()
+
+	var bytesProcessed int64
+	for completed := 1; completed <= len(jobs); completed++ {
+		indexedResult := <-resultCh
+		results[indexedResult.index] = indexedResult.result
+		bytesProcessed += indexedResult.result.bytes
+		reportR2PublishProgress(options, R2PublishPhaseValidate, completed, len(jobs), bytesProcessed)
+	}
+	workers.Wait()
+	return results
+}
+
+func resolveR2PublishJob(options R2PublishOptions, keyPrefix string, job r2PublishJob) r2PublishJobResult {
+	if !safeObjectID(job.objectID) {
+		return r2PublishJobResult{
+			missing: fmt.Sprintf("%s:%q has an unsafe object ID", publishPlatformName(job.platform), job.objectID),
+		}
+	}
+
+	var result r2PublishJobResult
+	for _, assetType := range []string{"assetbundle", "resources"} {
+		candidates, listSize, ok := objectIdToFilePathCandidates(
+			options.BaseDir, options.Revision, job.platform, assetType, job.objectID,
+		)
+		if !ok {
+			continue
+		}
+		source, size, md5sum, ok := selectPublishCandidate(candidates, listSize)
+		if !ok {
+			continue
+		}
+		relativeSource, err := filepath.Rel(options.BaseDir, source)
+		if err != nil || relativeSource == ".." || strings.HasPrefix(relativeSource, ".."+string(filepath.Separator)) {
+			result.err = fmt.Errorf("asset source %s is outside assets directory %s", source, options.BaseDir)
+			return result
+		}
+		result.entries = append(result.entries, R2PublishEntry{
+			Key: path.Join(
+				keyPrefix,
+				"resource-bundle-server",
+				"unso-"+options.ResourceVersion+"-"+assetType,
+				job.objectID,
+			),
+			Platform: publishPlatformName(job.platform),
+			Type:     assetType,
+			ObjectID: job.objectID,
+			Source:   filepath.ToSlash(relativeSource),
+			Size:     size,
+			MD5:      md5sum,
+		})
+		result.bytes += size
+	}
+	if len(result.entries) == 0 {
+		result.missing = fmt.Sprintf("%s:%q has no valid local asset", publishPlatformName(job.platform), job.objectID)
+	}
+	return result
+}
+
+func r2PublishWorkerCount(requested, total int) int {
+	if requested <= 0 {
+		requested = DefaultR2PublishWorkers
+	}
+	if total > 0 {
+		requested = min(requested, total)
+	}
+	return max(requested, 1)
+}
+
+func reportR2PublishProgress(options R2PublishOptions, phase string, completed, total int, bytesProcessed int64) {
+	if options.OnProgress != nil {
+		options.OnProgress(R2PublishProgress{
+			Phase:          phase,
+			Completed:      completed,
+			Total:          total,
+			BytesProcessed: bytesProcessed,
+		})
+	}
 }
 
 func availablePublishPlatforms(baseDir, revision string) []string {

@@ -14,12 +14,17 @@ func TestBuildR2PublishPlan(t *testing.T) {
 	baseDir := t.TempDir()
 	writePublishFixture(t, baseDir, "android", "object1", bytesOf('a', 300))
 
+	var progress []R2PublishProgress
 	result, err := buildR2PublishPlan(R2PublishOptions{
 		BaseDir:          baseDir,
 		Revision:         "0",
 		ResourceVersion:  "300116832",
 		ResourcesBaseURL: "https://assets.example.com",
 		DryRun:           true,
+		Workers:          2,
+		OnProgress: func(update R2PublishProgress) {
+			progress = append(progress, update)
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -33,6 +38,16 @@ func TestBuildR2PublishPlan(t *testing.T) {
 	}
 	if entry.Platform != "android" {
 		t.Fatalf("platform = %q, want android", entry.Platform)
+	}
+	if len(progress) == 0 {
+		t.Fatal("no validation progress reported")
+	}
+	lastProgress := progress[len(progress)-1]
+	if lastProgress.Phase != R2PublishPhaseValidate ||
+		lastProgress.Completed != 1 ||
+		lastProgress.Total != 1 ||
+		lastProgress.BytesProcessed != 300 {
+		t.Fatalf("last progress = %+v", lastProgress)
 	}
 }
 
@@ -51,6 +66,46 @@ func TestBuildR2PublishPlanRejectsPlatformCollision(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "platform collisions") {
 		t.Fatalf("error = %v, want platform collision", err)
+	}
+}
+
+func TestPrepareR2PublishReportsMaterializationProgress(t *testing.T) {
+	resetAssetCaches()
+	baseDir := t.TempDir()
+	writePublishFixture(t, baseDir, "android", "android-object", bytesOf('a', 300))
+	writePublishFixture(t, baseDir, "ios", "ios-object", bytesOf('b', 400))
+	outputDir := filepath.Join(t.TempDir(), "publish")
+
+	var progress []R2PublishProgress
+	result, err := PrepareR2Publish(R2PublishOptions{
+		BaseDir:          baseDir,
+		OutputDir:        outputDir,
+		Revision:         "0",
+		ResourceVersion:  "300116832",
+		ResourcesBaseURL: "https://assets.example.com",
+		Workers:          2,
+		OnProgress: func(update R2PublishProgress) {
+			progress = append(progress, update)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Entries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(result.Entries))
+	}
+	if len(progress) == 0 {
+		t.Fatal("no progress reported")
+	}
+	lastProgress := progress[len(progress)-1]
+	if lastProgress.Phase != R2PublishPhaseMaterialize ||
+		lastProgress.Completed != 2 ||
+		lastProgress.Total != 2 ||
+		lastProgress.BytesProcessed != 700 {
+		t.Fatalf("last progress = %+v", lastProgress)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "manifest.json")); err != nil {
+		t.Fatalf("manifest: %v", err)
 	}
 }
 

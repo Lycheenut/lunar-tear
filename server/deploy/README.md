@@ -34,6 +34,10 @@ go run ./cmd/prepare-r2 \
   --output r2-publish
 ```
 
+The command validates four files concurrently by default and prints progress,
+elapsed time, and ETA for both validation and materialization. Use
+`--workers N` to tune the concurrency for the local disk.
+
 Configure an R2 remote in rclone, then upload from the local workstation
 directly to the bucket. Do not route this transfer through ECS:
 
