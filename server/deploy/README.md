@@ -95,9 +95,11 @@ chmod 600 .env.production
 ```
 
 Replace every example domain and token in `.env.production` and
-`nginx/lunar-tear.conf`. Set `AUTH_ALLOWED_REDIRECT_URIS` to the exact Android
-and iOS callback URIs emitted by the patched clients. Install a Cloudflare
-Origin CA certificate covering the three ECS hostnames.
+`nginx/lunar-tear.conf`. The current Android WebView-only patch emits
+`fbconnect://success`, which is already set in the example. If another client
+uses a different login path, set `AUTH_ALLOWED_REDIRECT_URIS` to its exact
+`redirect_uri` value as well. Install a Cloudflare Origin CA certificate
+covering the three ECS hostnames.
 
 Set `OCTO_RESOURCES_BASE_URL` to the R2 custom domain used in step 1. Do not
 temporarily point it at the ECS `octo` hostname.
