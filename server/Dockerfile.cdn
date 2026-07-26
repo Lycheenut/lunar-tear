@@ -1,4 +1,22 @@
-FROM golang:1.25.12-alpine3.24 AS builder
+FROM alpine:latest AS builder
+
+ARG GO_VERSION=1.25.12
+RUN apk add --no-cache ca-certificates curl tar && \
+    case "$(apk --print-arch)" in \
+      x86_64) GO_ARCH=amd64; GO_SHA256=234828b7a89e0e303d2556310ee549fbcf253d28de937bac3da13d6294262ac1 ;; \
+      aarch64) GO_ARCH=arm64; GO_SHA256=8b5884aef89600aef5b0b051fb971f11f49bb996521e911f30f02a66884f7bd2 ;; \
+      *) echo "unsupported architecture: $(apk --print-arch)" >&2; exit 1 ;; \
+    esac && \
+    curl --fail --location --retry 3 \
+      "https://golang.google.cn/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" \
+      --output /tmp/go.tar.gz && \
+    echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - && \
+    tar -C /usr/local -xzf /tmp/go.tar.gz && \
+    rm /tmp/go.tar.gz
+
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    CGO_ENABLED=0 \
+    GOTOOLCHAIN=local
 
 WORKDIR /usr/local/src
 COPY . .
