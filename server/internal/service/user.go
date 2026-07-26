@@ -29,6 +29,7 @@ type UserServiceServer struct {
 	sessions   store.SessionRepository
 	holder     *runtime.Holder
 	authURL    string
+	authClient *http.Client
 	noRegister bool
 }
 
@@ -36,7 +37,14 @@ func NewUserServiceServer(users store.UserRepository, sessions store.SessionRepo
 	if authURL != "" && !strings.Contains(authURL, "://") {
 		authURL = "http://" + authURL
 	}
-	return &UserServiceServer{users: users, sessions: sessions, holder: holder, authURL: authURL, noRegister: noRegister}
+	return &UserServiceServer{
+		users:      users,
+		sessions:   sessions,
+		holder:     holder,
+		authURL:    strings.TrimRight(authURL, "/"),
+		authClient: &http.Client{Timeout: 5 * time.Second},
+		noRegister: noRegister,
+	}
 }
 
 func (s *UserServiceServer) RegisterUser(ctx context.Context, req *pb.RegisterUserRequest) (*pb.RegisterUserResponse, error) {
@@ -258,12 +266,17 @@ func (s *UserServiceServer) GetUserGamePlayNote(ctx context.Context, req *pb.Get
 	return &pb.GetUserGamePlayNoteResponse{}, nil
 }
 
-func (s *UserServiceServer) resolveAuthToken(token string) (facebookId int64, err error) {
+func (s *UserServiceServer) resolveAuthToken(ctx context.Context, token string) (facebookId int64, err error) {
 	if s.authURL == "" {
 		return 0, status.Error(codes.FailedPrecondition, "auth server not configured (--auth-url)")
 	}
 
-	resp, err := http.Get(s.authURL + "/me?access_token=" + token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.authURL+"/me", nil)
+	if err != nil {
+		return 0, status.Errorf(codes.Internal, "create auth request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := s.authClient.Do(req)
 	if err != nil {
 		return 0, status.Errorf(codes.Internal, "auth server unreachable: %v", err)
 	}
@@ -294,7 +307,7 @@ func (s *UserServiceServer) resolveAuthToken(token string) (facebookId int64, er
 func (s *UserServiceServer) SetFacebookAccount(ctx context.Context, req *pb.SetFacebookAccountRequest) (*pb.SetFacebookAccountResponse, error) {
 	log.Printf("[UserService] SetFacebookAccount")
 
-	fbId, err := s.resolveAuthToken(req.Token)
+	fbId, err := s.resolveAuthToken(ctx, req.Token)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +334,7 @@ func (s *UserServiceServer) UnsetFacebookAccount(ctx context.Context, _ *emptypb
 func (s *UserServiceServer) TransferUserByFacebook(ctx context.Context, req *pb.TransferUserByFacebookRequest) (*pb.TransferUserByFacebookResponse, error) {
 	log.Printf("[UserService] TransferUserByFacebook: uuid=%s", req.Uuid)
 
-	fbId, err := s.resolveAuthToken(req.Token)
+	fbId, err := s.resolveAuthToken(ctx, req.Token)
 	if err != nil {
 		return nil, err
 	}

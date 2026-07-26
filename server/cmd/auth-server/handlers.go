@@ -14,6 +14,8 @@ import (
 	"strings"
 )
 
+const maxOAuthFormBytes = 16 << 10
+
 //go:embed login.html
 var loginFS embed.FS
 
@@ -40,13 +42,30 @@ var oauthRedirectTmpl = template.Must(template.New("oauthRedirect").Parse(
 `))
 
 type Handlers struct {
-	store      *auth.AuthStore
-	tok        *auth.TokenService
-	noRegister bool
+	store             *auth.AuthStore
+	tok               *auth.TokenService
+	noRegister        bool
+	allowedRedirects  map[string]struct{}
+	restrictRedirects bool
 }
 
-func NewHandlers(store *auth.AuthStore, tok *auth.TokenService, noRegister bool) *Handlers {
-	return &Handlers{store: store, tok: tok, noRegister: noRegister}
+func NewHandlers(store *auth.AuthStore, tok *auth.TokenService, noRegister bool, allowedRedirectURIs []string) *Handlers {
+	allowedRedirects := make(map[string]struct{}, len(allowedRedirectURIs))
+	for _, raw := range allowedRedirectURIs {
+		canonical, ok := canonicalRedirectURI(raw)
+		if !ok {
+			log.Printf("ignoring invalid configured OAuth redirect URI %q", raw)
+			continue
+		}
+		allowedRedirects[canonical] = struct{}{}
+	}
+	return &Handlers{
+		store:             store,
+		tok:               tok,
+		noRegister:        noRegister,
+		allowedRedirects:  allowedRedirects,
+		restrictRedirects: len(allowedRedirectURIs) > 0,
+	}
 }
 
 type loginPageData struct {
@@ -97,8 +116,13 @@ func (h *Handlers) HandleOAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) oauthGet(w http.ResponseWriter, r *http.Request) {
+	redirectURI := r.URL.Query().Get("redirect_uri")
+	if !h.isAllowedRedirectURI(redirectURI) {
+		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
 	data := loginPageData{
-		RedirectURI: r.URL.Query().Get("redirect_uri"),
+		RedirectURI: redirectURI,
 		State:       r.URL.Query().Get("state"),
 		Scope:       r.URL.Query().Get("scope"),
 	}
@@ -109,6 +133,7 @@ func (h *Handlers) oauthGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) oauthPost(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxOAuthFormBytes)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
@@ -120,6 +145,10 @@ func (h *Handlers) oauthPost(w http.ResponseWriter, r *http.Request) {
 	redirectURI := r.FormValue("redirect_uri")
 	state := r.FormValue("state")
 	scope := r.FormValue("scope")
+	if !h.isAllowedRedirectURI(redirectURI) {
+		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
 
 	renderErr := func(msg string) {
 		data := loginPageData{
@@ -208,8 +237,14 @@ func (h *Handlers) oauthPost(w http.ResponseWriter, r *http.Request) {
 		fragment.Set("state", state)
 	}
 
-	target := redirectURI + "?" + fragment.Encode()
-	log.Printf("redirecting to %s", target)
+	target, err := buildOAuthRedirectTarget(redirectURI, fragment)
+	if err != nil {
+		log.Printf("build OAuth redirect: %v", err)
+		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
+	callback, _ := url.Parse(redirectURI)
+	log.Printf("redirecting to OAuth callback scheme=%s host=%s", callback.Scheme, callback.Host)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := oauthRedirectTmpl.Execute(w, target); err != nil {
 		log.Printf("render oauth redirect: %v", err)
@@ -251,4 +286,68 @@ func (h *Handlers) HandleMe(w http.ResponseWriter, r *http.Request) {
 		"id":   strconv.FormatInt(claims.Sub, 10),
 		"name": claims.Name,
 	})
+}
+
+func (h *Handlers) isAllowedRedirectURI(raw string) bool {
+	canonical, ok := canonicalRedirectURI(raw)
+	if !ok {
+		return false
+	}
+	if h.restrictRedirects {
+		_, ok := h.allowedRedirects[canonical]
+		return ok
+	}
+	return true
+}
+
+func canonicalRedirectURI(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	if u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" || u.Port() != "" {
+		return "", false
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	allowed := false
+	switch {
+	case scheme == "fbconnect":
+		allowed = host == "success" ||
+			(strings.HasPrefix(host, "cct.") && len(strings.TrimPrefix(host, "cct.")) > 0)
+	case strings.HasPrefix(scheme, "fb") && allASCIIDigits(strings.TrimPrefix(scheme, "fb")):
+		allowed = host == "authorize"
+	}
+	if !allowed {
+		return "", false
+	}
+	u.Scheme = scheme
+	u.Host = host
+	u.Path = strings.TrimRight(u.Path, "/")
+	return u.String(), true
+}
+
+func allASCIIDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func buildOAuthRedirectTarget(redirectURI string, values url.Values) (string, error) {
+	if _, ok := canonicalRedirectURI(redirectURI); !ok {
+		return "", fmt.Errorf("redirect URI is not allowed")
+	}
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		return "", err
+	}
+	u.RawQuery = values.Encode()
+	return u.String(), nil
 }
