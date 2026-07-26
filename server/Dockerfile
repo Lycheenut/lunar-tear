@@ -16,7 +16,9 @@ RUN apk add --no-cache ca-certificates curl tar && \
 
 ENV PATH="/usr/local/go/bin:${PATH}" \
     CGO_ENABLED=0 \
-    GOTOOLCHAIN=local
+    GOTOOLCHAIN=local \
+    GOPROXY="https://mirrors.aliyun.com/goproxy/" \
+    GOSUMDB="sum.golang.google.cn"
 
 WORKDIR /usr/local/src
 COPY . .
@@ -28,9 +30,9 @@ RUN apk add --no-cache \
     make \
     libcap
 
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest &&\
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest &&\
-    go install github.com/pressly/goose/v3/cmd/goose@latest &&\
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 &&\
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2 &&\
+    go install github.com/pressly/goose/v3/cmd/goose@v3.27.1 &&\
     PATH="$PATH:$(go env GOPATH)/bin" make proto &&\
     go build -o lunar-tear ./cmd/lunar-tear &&\
     setcap cap_net_bind_service=+ep ./lunar-tear
