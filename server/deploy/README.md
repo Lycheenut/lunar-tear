@@ -127,6 +127,64 @@ The auth token secret is generated once at `${DATA_DIR}/db/auth.secret` with
 mode 0600 and reused after restarts. Do not delete it while users have active
 tokens.
 
+### Repair auth database permissions
+
+The production services deliberately drop every Linux capability with
+`cap_drop: ALL`. As a result, merely adding `--user 0:0` to a one-off
+container does not give it permission to run `chown`.
+
+If auth startup reports `load token secret: open db/auth.secret: permission
+denied`, stop both database users and repair the exact bind mount through a
+one-off container. Add the required capabilities only to that repair
+container:
+
+```sh
+docker compose --env-file .env.production \
+  -f docker-compose.production.yaml stop auth server
+
+docker compose --env-file .env.production \
+  -f docker-compose.production.yaml \
+  run --rm --no-deps \
+  --user 0:0 \
+  --cap-add CHOWN \
+  --cap-add FOWNER \
+  --cap-add DAC_OVERRIDE \
+  --entrypoint /bin/sh \
+  auth -c '
+    set -eu
+    chown -R 1000:1000 /opt/auth-server/db
+    chmod 700 /opt/auth-server/db
+    find /opt/auth-server/db -type d -exec chmod 700 {} \;
+    find /opt/auth-server/db -type f -exec chmod 600 {} \;
+  '
+```
+
+Verify access as the unprivileged runtime user before restarting:
+
+```sh
+docker compose --env-file .env.production \
+  -f docker-compose.production.yaml \
+  run --rm --no-deps \
+  --user 1000:1000 \
+  --entrypoint /bin/sh \
+  auth -c '
+    set -eu
+    test -r /opt/auth-server/db/auth.secret
+    test -w /opt/auth-server/db
+    touch /opt/auth-server/db/.permission-test
+    rm /opt/auth-server/db/.permission-test
+    echo "permissions ok"
+  '
+
+docker compose --env-file .env.production \
+  -f docker-compose.production.yaml up -d auth server
+```
+
+Do not add these capabilities to the persistent `auth` service. If the repair
+container still cannot change ownership, check whether `${DATA_DIR}` is on a
+read-only, NFS, CIFS, or FUSE mount; keep the SQLite databases on a local
+ext4/xfs filesystem instead.
+
 Install `nginx/lunar-tear.conf`, validate with `nginx -t`, and reload nginx.
 Restrict ECS port 443 to Cloudflare IP ranges and port 22 to administrator IPs.
 Do not open ports 3000, 8003, 8080, or 8082.
