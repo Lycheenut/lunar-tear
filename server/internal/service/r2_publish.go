@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -60,14 +62,17 @@ type R2PublishResult struct {
 // client under OutputDir. Files are hard-linked when possible and copied
 // otherwise.
 func PrepareR2Publish(options R2PublishOptions) (R2PublishResult, error) {
+	if !options.DryRun {
+		if options.OutputDir == "" {
+			return R2PublishResult{}, fmt.Errorf("output directory is required")
+		}
+		if err := requireEmptyDirectory(options.OutputDir); err != nil {
+			return R2PublishResult{}, err
+		}
+	}
+
 	result, err := buildR2PublishPlan(options)
 	if err != nil || options.DryRun {
-		return result, err
-	}
-	if options.OutputDir == "" {
-		return result, fmt.Errorf("output directory is required")
-	}
-	if err := requireEmptyDirectory(options.OutputDir); err != nil {
 		return result, err
 	}
 
@@ -138,6 +143,19 @@ func buildR2PublishPlan(options R2PublishOptions) (R2PublishResult, error) {
 				platform: platform,
 				objectID: objectID,
 			})
+		}
+	}
+	if !options.DryRun {
+		first, second, collision := firstCaseInsensitiveObjectIDCollision(jobs)
+		if collision {
+			if err := ensureCaseSensitiveOutputDirectory(options.OutputDir); err != nil {
+				return R2PublishResult{}, fmt.Errorf(
+					"R2 object IDs %q and %q differ only by case: %w",
+					first,
+					second,
+					err,
+				)
+			}
 		}
 	}
 
@@ -321,6 +339,92 @@ func reportR2PublishProgress(options R2PublishOptions, phase string, completed, 
 			BytesProcessed: bytesProcessed,
 		})
 	}
+}
+
+func firstCaseInsensitiveObjectIDCollision(jobs []r2PublishJob) (string, string, bool) {
+	seen := make(map[string]string, len(jobs))
+	for _, job := range jobs {
+		folded := strings.ToLower(job.objectID)
+		previous, exists := seen[folded]
+		if exists && previous != job.objectID {
+			return previous, job.objectID, true
+		}
+		if !exists {
+			seen[folded] = job.objectID
+		}
+	}
+	return "", "", false
+}
+
+func ensureCaseSensitiveOutputDirectory(dir string) error {
+	supported, err := directorySupportsCaseSensitiveNames(dir)
+	if err != nil {
+		return fmt.Errorf("check whether output directory is case-sensitive: %w", err)
+	}
+	if supported {
+		return nil
+	}
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("output directory %s is on a case-insensitive filesystem", dir)
+	}
+
+	absoluteDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
+	output, commandErr := exec.Command(
+		"fsutil.exe",
+		"file",
+		"setCaseSensitiveInfo",
+		absoluteDir,
+		"enable",
+	).CombinedOutput()
+	if commandErr != nil {
+		return fmt.Errorf(
+			"output directory must be case-sensitive; run PowerShell as Administrator and execute `fsutil.exe file setCaseSensitiveInfo \"%s\" enable` (automatic enable failed: %v: %s)",
+			absoluteDir,
+			commandErr,
+			strings.TrimSpace(string(output)),
+		)
+	}
+
+	supported, err = directorySupportsCaseSensitiveNames(dir)
+	if err != nil {
+		return fmt.Errorf("verify case-sensitive output directory: %w", err)
+	}
+	if !supported {
+		return fmt.Errorf("output directory %s remains case-insensitive after enabling it", absoluteDir)
+	}
+	return nil
+}
+
+func directorySupportsCaseSensitiveNames(dir string) (bool, error) {
+	firstPath := filepath.Join(dir, ".r2-case-probe")
+	secondPath := filepath.Join(dir, ".R2-CASE-PROBE")
+
+	first, err := os.OpenFile(firstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return false, err
+	}
+	if err := first.Close(); err != nil {
+		os.Remove(firstPath)
+		return false, err
+	}
+	defer os.Remove(firstPath)
+
+	second, err := os.OpenFile(secondPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if os.IsExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := second.Close(); err != nil {
+		os.Remove(secondPath)
+		return false, err
+	}
+	defer os.Remove(secondPath)
+	return true, nil
 }
 
 func availablePublishPlatforms(baseDir, revision string) []string {

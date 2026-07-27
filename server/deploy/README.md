@@ -38,6 +38,12 @@ The command validates four files concurrently by default and prints progress,
 elapsed time, and ETA for both validation and materialization. Use
 `--workers N` to tune the concurrency for the local disk.
 
+Some R2 object IDs differ only by letter case. On Windows, the command checks
+the empty output directory before hashing and automatically tries to enable
+NTFS per-directory case sensitivity. If that requires elevation, run the
+reported `fsutil.exe file setCaseSensitiveInfo ... enable` command once from an
+Administrator PowerShell, then rerun `prepare-r2`.
+
 Configure an R2 remote in rclone, then upload from the local workstation
 directly to the bucket. Do not route this transfer through ECS:
 

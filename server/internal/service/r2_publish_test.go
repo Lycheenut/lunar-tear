@@ -109,6 +109,62 @@ func TestPrepareR2PublishReportsMaterializationProgress(t *testing.T) {
 	}
 }
 
+func TestFirstCaseInsensitiveObjectIDCollision(t *testing.T) {
+	first, second, collision := firstCaseInsensitiveObjectIDCollision([]r2PublishJob{
+		{platform: "android", objectID: "9TUNGO"},
+		{platform: "android", objectID: "different"},
+		{platform: "ios", objectID: "9TUnGO"},
+	})
+	if !collision || first != "9TUNGO" || second != "9TUnGO" {
+		t.Fatalf("collision = (%q, %q, %t)", first, second, collision)
+	}
+}
+
+func TestFirstCaseInsensitiveObjectIDCollisionAllowsExactDuplicates(t *testing.T) {
+	_, _, collision := firstCaseInsensitiveObjectIDCollision([]r2PublishJob{
+		{platform: "android", objectID: "same"},
+		{platform: "ios", objectID: "same"},
+	})
+	if collision {
+		t.Fatal("exact duplicate reported as a case-insensitive collision")
+	}
+}
+
+func TestPrepareR2PublishRejectsNonEmptyOutputBeforeValidation(t *testing.T) {
+	outputDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outputDir, "partial"), []byte("partial"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	progressReported := false
+	_, err := PrepareR2Publish(R2PublishOptions{
+		OutputDir: outputDir,
+		OnProgress: func(R2PublishProgress) {
+			progressReported = true
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be empty") {
+		t.Fatalf("error = %v, want non-empty output error", err)
+	}
+	if progressReported {
+		t.Fatal("validation started before checking the output directory")
+	}
+}
+
+func TestDirectorySupportsCaseSensitiveNamesCleansUpProbes(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := directorySupportsCaseSensitiveNames(dir); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("probe files were not removed: %v", entries)
+	}
+}
+
 func writePublishFixture(t *testing.T, baseDir, platform, objectID string, content []byte) {
 	t.Helper()
 	revisionDir := filepath.Join(baseDir, "assets", "revisions", "0", platform)

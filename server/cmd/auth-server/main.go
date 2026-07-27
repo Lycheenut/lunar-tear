@@ -58,6 +58,7 @@ func main() {
 	h := NewHandlers(store, tok, *noRegister, splitRedirectURIs(*allowedRedirects))
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/", h.HandleOAuth)
 	mux.HandleFunc("/me", h.HandleMe)
 	mux.HandleFunc("/check-username", h.HandleCheckUsername)
@@ -88,6 +89,18 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
+	}
+}
+
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodGet {
+		_, _ = w.Write([]byte("ok\n"))
 	}
 }
 

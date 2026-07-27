@@ -66,3 +66,17 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestHealthz(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+
+	handleHealthz(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Body.String(); got != "ok\n" {
+		t.Fatalf("body = %q, want %q", got, "ok\n")
+	}
+}

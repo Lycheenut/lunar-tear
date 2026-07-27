@@ -34,8 +34,10 @@ services:
       - 127.0.0.1:8003:8003
       - 127.0.0.1:8082:8082
     depends_on:
-      - auth
-      - cdn
+      auth:
+        condition: service_healthy
+      cdn:
+        condition: service_started
     stop_grace_period: 30s
 
   cdn:
@@ -77,4 +79,10 @@ services:
       - ${DATA_DIR:?set DATA_DIR}/db:/opt/auth-server/db
     ports:
       - 127.0.0.1:3000:3000
+    healthcheck:
+      test: ["CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     stop_grace_period: 30s
