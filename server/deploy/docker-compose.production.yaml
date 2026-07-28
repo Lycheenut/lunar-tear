@@ -15,6 +15,10 @@ x-service-defaults: &service-defaults
 services:
   server:
     <<: *service-defaults
+    security_opt:
+      - no-new-privileges:false
+    cap_add:
+      - NET_BIND_SERVICE
     build:
       context: ..
       dockerfile: Dockerfile
@@ -42,6 +46,10 @@ services:
 
   cdn:
     <<: *service-defaults
+    security_opt:
+      - no-new-privileges:false
+    cap_add:
+      - NET_BIND_SERVICE
     build:
       context: ..
       dockerfile: Dockerfile.cdn
@@ -80,7 +88,7 @@ services:
     ports:
       - 127.0.0.1:3000:3000
     healthcheck:
-      test: ["CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/healthz"]
+      test: [ "CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/healthz" ]
       interval: 10s
       timeout: 3s
       retries: 3
