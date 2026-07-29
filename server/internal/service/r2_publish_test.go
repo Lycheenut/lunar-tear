@@ -33,8 +33,11 @@ func TestBuildR2PublishPlan(t *testing.T) {
 		t.Fatalf("entry count = %d, want 1", len(result.Entries))
 	}
 	entry := result.Entries[0]
-	if !strings.HasSuffix(entry.Key, "/resource-bundle-server/unso-300116832-assetbundle/object1") {
+	if !strings.HasSuffix(entry.Key, "/unso-300116832-assetbundle/object1") {
 		t.Fatalf("unexpected key %q", entry.Key)
+	}
+	if strings.Contains(entry.Key, "/resource-bundle-server/") {
+		t.Fatalf("entry key contains obsolete path segment: %q", entry.Key)
 	}
 	if entry.Platform != "android" {
 		t.Fatalf("platform = %q, want android", entry.Platform)

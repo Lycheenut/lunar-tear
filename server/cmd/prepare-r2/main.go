@@ -15,7 +15,7 @@ func main() {
 	baseDir := flag.String("assets-dir", ".", "root directory containing the assets/ tree")
 	outputDir := flag.String("output", "r2-publish", "empty output directory to create")
 	revision := flag.String("revision", "0", "asset revision to publish")
-	resourceVersion := flag.String("resource-version", "", "resource URL version used in unso-<version>-<type> paths")
+	resourceVersion := flag.String("resource-version", "", "Octo asset URL version used in unso-<version>-<type> paths (not the master-data version)")
 	resourcesBaseURL := flag.String("resources-base-url", "", "R2 custom-domain base URL embedded in list.bin")
 	dryRun := flag.Bool("dry-run", false, "validate and print the plan without creating files")
 	workers := flag.Int("workers", service.DefaultR2PublishWorkers, "number of files to validate concurrently")

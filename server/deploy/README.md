@@ -14,12 +14,16 @@ this command. The custom domain must be short enough for the fixed-width URL
 in `list.bin`. The command pads a shorter URL with an `r` path segment and
 creates matching object keys:
 
+The bundled client uses Octo asset version `200116832`. This is separate from
+the master-data version `300116832`; using the latter here makes every
+`unso-200116832-*` asset request return 404.
+
 ```sh
 cd server
 go run ./cmd/prepare-r2 \
   --assets-dir . \
   --resources-base-url https://assets.example.com \
-  --resource-version 300116832 \
+  --resource-version 200116832 \
   --dry-run
 ```
 
@@ -30,7 +34,7 @@ directory:
 go run ./cmd/prepare-r2 \
   --assets-dir . \
   --resources-base-url https://assets.example.com \
-  --resource-version 300116832 \
+  --resource-version 200116832 \
   --output r2-publish
 ```
 
@@ -44,23 +48,68 @@ NTFS per-directory case sensitivity. If that requires elevation, run the
 reported `fsutil.exe file setCaseSensitiveInfo ... enable` command once from an
 Administrator PowerShell, then rerun `prepare-r2`.
 
-Configure an R2 remote in rclone, then upload from the local workstation
-directly to the bucket. Do not route this transfer through ECS:
+Configure an R2 remote named `r2`, then upload from Windows PowerShell on the
+local workstation directly to the `lunar-tear` bucket. Do not route this
+transfer through ECS:
 
-```sh
-rclone copy r2-publish r2:lunar-tear-assets \
-  --exclude manifest.json \
-  --transfers 32 \
-  --checkers 64 \
-  --fast-list \
-  --progress \
-  --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+```powershell
+rclone copy .\r2-publish r2:lunar-tear `
+  --exclude manifest.json `
+  --transfers 32 `
+  --checkers 64 `
+  --fast-list `
+  --progress `
+  --header-upload "Cache-Control: public, max-age=31536000, immutable" `
   --header-upload "Content-Type: application/octet-stream"
 
-rclone check r2-publish r2:lunar-tear-assets \
-  --exclude manifest.json \
-  --one-way \
+rclone check .\r2-publish r2:lunar-tear `
+  --exclude manifest.json `
+  --one-way `
   --checksum
+```
+
+If assets were published under the master-data version `300116832`, copy both
+object prefixes to the Octo asset version `200116832` from Windows PowerShell:
+
+```powershell
+rclone copy `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-assetbundle" `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-assetbundle" `
+  --transfers 32 `
+  --checkers 64 `
+  --fast-list `
+  --progress
+
+rclone copy `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-resources" `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-resources" `
+  --transfers 32 `
+  --checkers 64 `
+  --fast-list `
+  --progress
+
+rclone check `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-assetbundle" `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-assetbundle" `
+  --one-way `
+  --checksum
+
+rclone check `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-resources" `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-resources" `
+  --one-way `
+  --checksum
+```
+
+After both checks pass, Cloudflare's cached 404 responses are purged, and the
+client reaches the player-creation flow, remove the obsolete version prefixes:
+
+```powershell
+rclone purge `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-assetbundle"
+
+rclone purge `
+  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-resources"
 ```
 
 The preparation command fails before writing files if an object is missing,
@@ -188,6 +237,19 @@ ext4/xfs filesystem instead.
 Install `nginx/lunar-tear.conf`, validate with `nginx -t`, and reload nginx.
 Restrict ECS port 443 to Cloudflare IP ranges and port 22 to administrator IPs.
 Do not open ports 3000, 8003, 8080, or 8082.
+
+Build the Android client with `--grpc-tls` when its gRPC address points to this
+Cloudflare/nginx TLS endpoint. The patcher's default plaintext gRPC mode is for
+direct local-server connections and will be rejected before nginx can log an
+HTTP/2 request. Apply the TLS patch mode to a freshly decompiled original APK:
+
+```sh
+python3 android/patch_apk.py patched \
+  --grpc-addr grpc.example.com:443 \
+  --grpc-tls \
+  --http-addr <existing-cdn-host:port> \
+  --auth-host <existing-auth-host:port>
+```
 
 The current shared `list.bin` is about 27 MB. Add a Cloudflare Cache Rule for
 the `octo` hostname and `/v1/list/` and `/v2/.../list/` request paths so repeat

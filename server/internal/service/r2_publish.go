@@ -301,7 +301,6 @@ func resolveR2PublishJob(options R2PublishOptions, keyPrefix string, job r2Publi
 		result.entries = append(result.entries, R2PublishEntry{
 			Key: path.Join(
 				keyPrefix,
-				"resource-bundle-server",
 				"unso-"+options.ResourceVersion+"-"+assetType,
 				job.objectID,
 			),

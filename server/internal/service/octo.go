@@ -300,7 +300,7 @@ func (s *OctoHTTPServer) handleOctoV2(w http.ResponseWriter, r *http.Request, pa
 // serveOctoV1List handles GET /v1/list/{version}/{revision} — serves assets/revisions/{revision}/{platform}/list.bin.
 func (s *OctoHTTPServer) serveOctoV1List(w http.ResponseWriter, r *http.Request, path, platform string) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	// ["v1", "list", "300116832", "0"] -> revision = last segment
+	// ["v1", "list", "{asset-version}", "0"] -> revision = last segment
 	requestedRevision := "0"
 	if len(parts) >= 4 {
 		requestedRevision = parts[len(parts)-1]
