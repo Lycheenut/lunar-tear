@@ -6,6 +6,37 @@ PROTO_USED = proto/banner.proto proto/battle.proto proto/bighunt.proto proto/cag
 PROTOC ?= protoc
 GOOSE ?= goose
 
+# Android client patching. Paths are relative to server/.
+ifeq ($(OS),Windows_NT)
+  PYTHON ?= python
+else
+  PYTHON ?= python3
+endif
+APKTOOL ?= apktool
+ZIPALIGN ?= zipalign
+APKSIGNER ?= apksigner
+KEYTOOL ?= keytool
+
+INPUT_APK ?= ../client/client.apk
+OUTPUT_APK ?= ../client/client-patched.apk
+PATCHED_UNALIGNED_APK ?= $(basename $(OUTPUT_APK))-unaligned$(suffix $(OUTPUT_APK))
+PATCHED_DIR ?= $(basename $(OUTPUT_APK))-work
+PATCH_APK_SCRIPT ?= ../scripts/android/patch_apk.py
+KEYSTORE ?= ../client/debug.keystore
+KEY_ALIAS ?= key
+KEYSTORE_PASS ?= android
+KEY_PASS ?= android
+
+GRPC_ADDR ?= 10.0.2.2:8003
+GRPC_TLS ?= false
+HTTP_ADDR ?= 10.0.2.2:8080
+AUTH_HOST ?= 10.0.2.2:3000
+DEFAULT_TEXT_LANGUAGE ?= en
+DEFAULT_VOICE_LANGUAGE ?= en
+PATCH_AUTH_ARG = $(if $(strip $(AUTH_HOST)),--auth-host "$(AUTH_HOST)")
+PATCH_GRPC_TLS_ARG = $(if $(filter 1 true TRUE yes YES,$(GRPC_TLS)),--grpc-tls)
+PATCH_LANGUAGE_ARGS = --default-text-language "$(DEFAULT_TEXT_LANGUAGE)" --default-voice-language "$(DEFAULT_VOICE_LANGUAGE)"
+
 EXE =
 ifeq ($(OS),Windows_NT)
   EXE = .exe
@@ -42,6 +73,68 @@ build-all:
 	go build -o bin/octo-cdn$(EXE) ./cmd/octo-cdn
 	go build -o bin/lunar-tear$(EXE) ./cmd/lunar-tear
 
+ifeq ($(OS),Windows_NT)
+client-check:
+	@if not exist "$(INPUT_APK)" (echo Missing input APK: $(INPUT_APK) 1>&2 & exit /b 1)
+	@if not exist "$(PATCH_APK_SCRIPT)" (echo Missing patch script: $(PATCH_APK_SCRIPT) 1>&2 & exit /b 1)
+	@where "$(firstword $(PYTHON))" >nul 2>&1 || (echo Missing Python command: $(PYTHON) 1>&2 & exit /b 1)
+	@where "$(firstword $(APKTOOL))" >nul 2>&1 || (echo Missing apktool command: $(APKTOOL) 1>&2 & exit /b 1)
+	@where "$(firstword $(ZIPALIGN))" >nul 2>&1 || (echo Missing zipalign command: $(ZIPALIGN) 1>&2 & exit /b 1)
+	@where "$(firstword $(APKSIGNER))" >nul 2>&1 || (echo Missing apksigner command: $(APKSIGNER) 1>&2 & exit /b 1)
+	@if not exist "$(KEYSTORE)" (where "$(firstword $(KEYTOOL))" >nul 2>&1 || (echo Missing keytool command: $(KEYTOOL) 1>&2 & exit /b 1))
+	@if "$(GRPC_ADDR)"=="" (echo GRPC_ADDR must not be empty 1>&2 & exit /b 1)
+	@if "$(HTTP_ADDR)"=="" (echo HTTP_ADDR must not be empty 1>&2 & exit /b 1)
+else
+client-check:
+	@test -f "$(INPUT_APK)" || { echo "Missing input APK: $(INPUT_APK)" >&2; exit 1; }
+	@test -f "$(PATCH_APK_SCRIPT)" || { echo "Missing patch script: $(PATCH_APK_SCRIPT)" >&2; exit 1; }
+	@command -v "$(PYTHON)" >/dev/null 2>&1 || { echo "Missing Python command: $(PYTHON)" >&2; exit 1; }
+	@command -v "$(APKTOOL)" >/dev/null 2>&1 || { echo "Missing apktool command: $(APKTOOL)" >&2; exit 1; }
+	@command -v "$(ZIPALIGN)" >/dev/null 2>&1 || { echo "Missing zipalign command: $(ZIPALIGN)" >&2; exit 1; }
+	@command -v "$(APKSIGNER)" >/dev/null 2>&1 || { echo "Missing apksigner command: $(APKSIGNER)" >&2; exit 1; }
+	@if [ ! -f "$(KEYSTORE)" ]; then \
+		command -v "$(KEYTOOL)" >/dev/null 2>&1 || { echo "Missing keytool command: $(KEYTOOL)" >&2; exit 1; }; \
+	fi
+	@test -n "$(GRPC_ADDR)" || { echo "GRPC_ADDR must not be empty" >&2; exit 1; }
+	@test -n "$(HTTP_ADDR)" || { echo "HTTP_ADDR must not be empty" >&2; exit 1; }
+endif
+
+# Usage:
+#   make client GRPC_ADDR=10.0.2.2:8003 GRPC_TLS=false HTTP_ADDR=10.0.2.2:8080 AUTH_HOST=10.0.2.2:3000 DEFAULT_TEXT_LANGUAGE=ja DEFAULT_VOICE_LANGUAGE=ja INPUT_APK=/path/to/original.apk OUTPUT_APK=/path/to/patched.apk
+# Set GRPC_TLS=true for a TLS reverse proxy and AUTH_HOST= to skip the Facebook login redirect patch.
+ifeq ($(OS),Windows_NT)
+client: client-check
+	@if not exist "$(dir $(OUTPUT_APK))" mkdir "$(dir $(OUTPUT_APK))"
+	@if not exist "$(dir $(KEYSTORE))" mkdir "$(dir $(KEYSTORE))"
+	$(APKTOOL) d "$(INPUT_APK)" -o "$(PATCHED_DIR)" -f
+	$(PYTHON) "$(PATCH_APK_SCRIPT)" "$(PATCHED_DIR)" --grpc-addr "$(GRPC_ADDR)" $(PATCH_GRPC_TLS_ARG) --http-addr "$(HTTP_ADDR)" $(PATCH_AUTH_ARG) $(PATCH_LANGUAGE_ARGS)
+	$(APKTOOL) b "$(PATCHED_DIR)" -o "$(PATCHED_UNALIGNED_APK)"
+	$(ZIPALIGN) -p -f 4 "$(PATCHED_UNALIGNED_APK)" "$(OUTPUT_APK)"
+	@if not exist "$(KEYSTORE)" (echo Generating signing keystore: $(KEYSTORE) & $(KEYTOOL) -genkeypair -noprompt -keystore "$(KEYSTORE)" -alias "$(KEY_ALIAS)" -storepass "$(KEYSTORE_PASS)" -keypass "$(KEY_PASS)" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug")
+	$(APKSIGNER) sign --ks "$(KEYSTORE)" --ks-key-alias "$(KEY_ALIAS)" --ks-pass pass:"$(KEYSTORE_PASS)" --key-pass pass:"$(KEY_PASS)" "$(OUTPUT_APK)"
+	$(ZIPALIGN) -c -p 4 "$(OUTPUT_APK)"
+	$(APKSIGNER) verify "$(OUTPUT_APK)"
+	@echo Patched APK: $(OUTPUT_APK)
+else
+client: client-check
+	@mkdir -p "$(dir $(OUTPUT_APK))" "$(dir $(KEYSTORE))"
+	$(APKTOOL) d "$(INPUT_APK)" -o "$(PATCHED_DIR)" -f
+	$(PYTHON) "$(PATCH_APK_SCRIPT)" "$(PATCHED_DIR)" --grpc-addr "$(GRPC_ADDR)" $(PATCH_GRPC_TLS_ARG) --http-addr "$(HTTP_ADDR)" $(PATCH_AUTH_ARG) $(PATCH_LANGUAGE_ARGS)
+	$(APKTOOL) b "$(PATCHED_DIR)" -o "$(PATCHED_UNALIGNED_APK)"
+	$(ZIPALIGN) -p -f 4 "$(PATCHED_UNALIGNED_APK)" "$(OUTPUT_APK)"
+	@if [ ! -f "$(KEYSTORE)" ]; then \
+		echo "Generating signing keystore: $(KEYSTORE)"; \
+		$(KEYTOOL) -genkeypair -noprompt -keystore "$(KEYSTORE)" \
+			-alias "$(KEY_ALIAS)" -storepass "$(KEYSTORE_PASS)" -keypass "$(KEY_PASS)" \
+			-keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug"; \
+	fi
+	$(APKSIGNER) sign --ks "$(KEYSTORE)" --ks-key-alias "$(KEY_ALIAS)" \
+		--ks-pass pass:"$(KEYSTORE_PASS)" --key-pass pass:"$(KEY_PASS)" "$(OUTPUT_APK)"
+	$(ZIPALIGN) -c -p 4 "$(OUTPUT_APK)"
+	$(APKSIGNER) verify "$(OUTPUT_APK)"
+	@echo "Patched APK: $(OUTPUT_APK)"
+endif
+
 clean:
 	rm -rf bin/*
 
@@ -63,4 +156,4 @@ ifndef UUID
 endif
 	go run ./cmd/import-snapshot --snapshot $(SNAPSHOT) --uuid $(UUID)
 
-.PHONY: proto build build-cdn build-auth build-import build-claim-account build-register-account build-dev build-all clean dev migrate restore import
+.PHONY: proto build build-cdn build-auth build-import build-claim-account build-register-account build-dev build-all client-check client clean dev migrate restore import

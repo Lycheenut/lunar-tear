@@ -7,8 +7,8 @@ services:
     restart: unless-stopped
     environment:
       LUNAR_LISTEN: 0.0.0.0:8003
-      LUNAR_PUBLIC_ADDR: 127.0.0.1:8003
-      LUNAR_OCTO_URL: http://cdn:8080
+      LUNAR_PUBLIC_ADDR: ${LUNAR_PUBLIC_ADDR:-127.0.0.1:8003}
+      LUNAR_OCTO_URL: ${LUNAR_OCTO_URL:-http://127.0.0.1:8080}
       LUNAR_AUTH_URL: http://auth:3000
       LUNAR_ADMIN_LISTEN: 0.0.0.0:8082
       LUNAR_ADMIN_TOKEN: ${LUNAR_ADMIN_TOKEN:-}
@@ -16,7 +16,7 @@ services:
       - ./db:/opt/lunar-tear/db
       - ./assets:/opt/lunar-tear/assets
     ports:
-      - 8003:8003
+      - 127.0.0.1:8003:8003
       - 127.0.0.1:8082:8082
     depends_on:
       - cdn
@@ -28,11 +28,11 @@ services:
       dockerfile: Dockerfile.cdn
     image: kretts/octo-cdn:latest
     restart: unless-stopped
-    command: ["--listen", "0.0.0.0:8080", "--public-addr", "10.0.2.2:8080"]
+    command: ["--listen", "0.0.0.0:8080", "--public-addr", "${LUNAR_CDN_PUBLIC_ADDR:-127.0.0.1:8080}"]
     volumes:
       - ./assets:/opt/octo-cdn/assets
     ports:
-      - 8080:8080
+      - 127.0.0.1:8080:8080
 
   auth:
     build:
@@ -40,8 +40,8 @@ services:
       dockerfile: Dockerfile.auth
     image: kretts/auth-server:latest
     restart: unless-stopped
-    command: ["--listen", "0.0.0.0:3000", "--db", "db/auth.db"]
+    command: ["--listen", "0.0.0.0:3000", "--db", "db/auth.db", "--secret-file", "db/auth.secret", "--allowed-redirect-uris", "${LUNAR_AUTH_REDIRECT_URIS:-}"]
     volumes:
       - ./db:/opt/auth-server/db
     ports:
-      - 3000:3000
+      - 127.0.0.1:3000:3000

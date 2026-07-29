@@ -23,6 +23,7 @@ node_modules/
 server/vendor/
 server/certs/
 server/assets/
+server/r2-publish/
 db/
 
 # Snapshots (recorded user state)
@@ -47,3 +48,5 @@ Thumbs.db
 
 frida/
 scripts/
+
+server/deploy/.env.production

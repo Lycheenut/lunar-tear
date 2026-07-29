@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"lunar-tear/server/internal/service"
@@ -21,18 +20,19 @@ import (
 func main() {
 	listen := flag.String("listen", "0.0.0.0:8080", "local bind address (host:port)")
 	publicAddr := flag.String("public-addr", "127.0.0.1:8080", "externally-reachable host:port used for list.bin URL rewriting")
+	resourcesBaseURLFlag := flag.String("resources-base-url", "", "public HTTP(S) resource base URL embedded in list.bin; padded to the required 43 bytes")
 	assetsDir := flag.String("assets-dir", ".", "root directory containing the assets/ tree")
 	flag.Parse()
 
-	// Build resourcesBaseURL from public-addr (must be exactly 43 chars to fit in list.bin protobuf).
-	prefix := "http://" + *publicAddr + "/"
-	padLen := 43 - len(prefix)
-	resourcesBaseURL := ""
-	if padLen < 1 {
-		log.Printf("[config] public-addr too long for 43-char resource URL; list.bin will be served unchanged")
-	} else {
-		resourcesBaseURL = prefix + strings.Repeat("r", padLen)
+	resourcesBaseURLInput := *resourcesBaseURLFlag
+	if resourcesBaseURLInput == "" {
+		resourcesBaseURLInput = "http://" + *publicAddr
 	}
+	resourcesBaseURL, err := service.NormalizeResourcesBaseURL(resourcesBaseURLInput)
+	if err != nil {
+		log.Fatalf("[config] resources base URL: %v", err)
+	}
+	log.Printf("[config] resources base URL: %s", resourcesBaseURL)
 
 	octoServer := service.NewOctoHTTPServer(resourcesBaseURL, *assetsDir)
 	h2s := &http2.Server{}

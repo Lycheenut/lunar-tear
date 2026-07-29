@@ -242,6 +242,7 @@ Security defaults are fail-closed:
 | --------------- | ---------------- | --------------------------------------------------------- |
 | `--listen`      | `0.0.0.0:8080`   | local bind address                                        |
 | `--public-addr` | `127.0.0.1:8080` | externally-reachable address (used in list.bin rewriting) |
+| `--resources-base-url` | _(derived from `--public-addr`)_ | public HTTP(S) resource URL embedded in `list.bin`; padded to 43 bytes |
 | `--assets-dir`  | `.`              | root directory containing the `assets/` tree              |
 
 ### Docker
@@ -253,7 +254,14 @@ cd server
 docker compose up -d
 ```
 
-The `db/` directory is mounted as a volume so both `game.db` and `auth.db` persist across restarts. Make sure `assets/` is populated before starting.
+The `db/` directory is mounted as a volume so `game.db`, `auth.db`, and the
+generated `auth.secret` persist across restarts. Published ports bind to
+`127.0.0.1` by default; use a TLS reverse proxy or explicitly override the
+bindings when remote access is intended. Make sure `assets/` is populated
+before starting.
+
+For the hardened ECS configuration, nginx template, and R2 publication
+workflow, see [`server/deploy/README.md`](server/deploy/README.md).
 
 Each service has its own image and can be deployed independently:
 
@@ -288,6 +296,8 @@ All targets run from the `server/` directory.
 | `make build-auth`             | Build the auth server binary                           |
 | `make build-dev`              | Build the dev runner binary to `bin/`                  |
 | `make build-all`              | Build all service binaries to `bin/`                   |
+| `make client-check`           | Validate Android client build inputs and tools         |
+| `make client`                 | Patch, rebuild, align, and sign the Android client     |
 | `make build-import`           | Build the import-snapshot tool                         |
 | `make build-claim-account`    | Build the claim-account tool                           |
 | `make build-register-account` | Build the register-account tool                        |
@@ -296,6 +306,12 @@ All targets run from the `server/` directory.
 | `make migrate`                | Run goose migrations on `db/game.db`                   |
 | `make restore`                | Interactive restore of `db/game.db` from `db/backups/` |
 | `make import`                 | Import a snapshot (`SNAPSHOT=... UUID=...` required)   |
+
+`make client` defaults to local emulator addresses and runs `client-check`
+before decoding the APK. Set `GRPC_TLS=true` when `GRPC_ADDR` terminates TLS,
+set `AUTH_HOST=` to omit the Facebook login redirect patch, and use
+`DEFAULT_TEXT_LANGUAGE` / `DEFAULT_VOICE_LANGUAGE` to select initial language
+defaults.
 
 ## Claim Account
 
@@ -326,7 +342,9 @@ go run ./cmd/auth-server \
   --db db/auth.db
 ```
 
-The `--secret` flag accepts a hex-encoded HMAC key. If omitted, a random key is generated on startup and printed to the console — pass it back on the next restart to keep existing tokens valid.
+By default, the server generates a random token key in `db/auth.secret` and
+reuses it across restarts. The key value is never printed. Use `--secret` only
+when an external secret manager supplies at least 32 bytes directly.
 
 ### Flags
 
@@ -334,7 +352,9 @@ The `--secret` flag accepts a hex-encoded HMAC key. If omitted, a random key is 
 | --------------- | -------------- | -------------------------------------------------------------------------- |
 | `--listen`      | `0.0.0.0:3000` | HTTP listen address (host:port)                                            |
 | `--db`          | `db/auth.db`   | SQLite database path for auth users                                        |
-| `--secret`      | _(generated)_  | Hex-encoded HMAC secret for token signing                                  |
+| `--secret`      | _(empty)_      | Explicit HMAC secret for token signing (minimum 32 bytes)                   |
+| `--secret-file` | next to `--db` | Persistent hex-encoded HMAC secret; generated with mode `0600` when absent |
+| `--allowed-redirect-uris` | _(compatible Facebook schemes)_ | Comma-separated exact OAuth callbacks; required by the production template |
 | `--no-register` | `false`        | Disable new user registrations (only already registered users can log in). |
 
 ## Create account

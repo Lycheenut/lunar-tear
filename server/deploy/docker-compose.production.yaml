@@ -1,0 +1,96 @@
+name: lunar-tear
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+services:
+  server:
+    <<: *service-defaults
+    security_opt:
+      - no-new-privileges:false
+    cap_add:
+      - NET_BIND_SERVICE
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: lunar-tear-server:${IMAGE_TAG:-local}
+    environment:
+      LUNAR_LISTEN: 0.0.0.0:8003
+      LUNAR_PUBLIC_ADDR: ${GRPC_PUBLIC_ADDR:?set GRPC_PUBLIC_ADDR}
+      LUNAR_OCTO_URL: ${OCTO_PUBLIC_URL:?set OCTO_PUBLIC_URL}
+      LUNAR_AUTH_URL: http://auth:3000
+      LUNAR_ADMIN_LISTEN: 0.0.0.0:8082
+      LUNAR_ADMIN_TOKEN: ${LUNAR_ADMIN_TOKEN:?set LUNAR_ADMIN_TOKEN}
+      LUNAR_NO_REGISTER: "true"
+    volumes:
+      - ${DATA_DIR:?set DATA_DIR}/db:/opt/lunar-tear/db
+      - ${DATA_DIR:?set DATA_DIR}/assets:/opt/lunar-tear/assets
+    ports:
+      - 127.0.0.1:8003:8003
+      - 127.0.0.1:8082:8082
+    depends_on:
+      auth:
+        condition: service_healthy
+      cdn:
+        condition: service_started
+    stop_grace_period: 30s
+
+  cdn:
+    <<: *service-defaults
+    security_opt:
+      - no-new-privileges:false
+    cap_add:
+      - NET_BIND_SERVICE
+    build:
+      context: ..
+      dockerfile: Dockerfile.cdn
+    image: lunar-tear-cdn:${IMAGE_TAG:-local}
+    command:
+      - --listen
+      - 0.0.0.0:8080
+      - --public-addr
+      - 127.0.0.1:8080
+      - --resources-base-url
+      - ${OCTO_RESOURCES_BASE_URL:?set OCTO_RESOURCES_BASE_URL}
+    volumes:
+      - ${DATA_DIR:?set DATA_DIR}/assets:/opt/octo-cdn/assets:ro
+    ports:
+      - 127.0.0.1:8080:8080
+    stop_grace_period: 30s
+
+  auth:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: Dockerfile.auth
+    image: lunar-tear-auth:${IMAGE_TAG:-local}
+    command:
+      - --listen
+      - 0.0.0.0:3000
+      - --db
+      - db/auth.db
+      - --secret-file
+      - db/auth.secret
+      - --allowed-redirect-uris
+      - ${AUTH_ALLOWED_REDIRECT_URIS:?set AUTH_ALLOWED_REDIRECT_URIS}
+      - --no-register
+    volumes:
+      - ${DATA_DIR:?set DATA_DIR}/db:/opt/auth-server/db
+    ports:
+      - 127.0.0.1:3000:3000
+    healthcheck:
+      test: [ "CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/healthz" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s
