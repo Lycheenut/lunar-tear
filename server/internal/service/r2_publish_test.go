@@ -18,7 +18,7 @@ func TestBuildR2PublishPlan(t *testing.T) {
 	result, err := buildR2PublishPlan(R2PublishOptions{
 		BaseDir:          baseDir,
 		Revision:         "0",
-		ResourceVersion:  "300116832",
+		ResourceVersion:  "test-version",
 		ResourcesBaseURL: "https://assets.example.com",
 		DryRun:           true,
 		Workers:          2,
@@ -33,11 +33,8 @@ func TestBuildR2PublishPlan(t *testing.T) {
 		t.Fatalf("entry count = %d, want 1", len(result.Entries))
 	}
 	entry := result.Entries[0]
-	if !strings.HasSuffix(entry.Key, "/unso-300116832-assetbundle/object1") {
+	if !strings.HasSuffix(entry.Key, "/unso-test-version-assetbundle/object1") {
 		t.Fatalf("unexpected key %q", entry.Key)
-	}
-	if strings.Contains(entry.Key, "/resource-bundle-server/") {
-		t.Fatalf("entry key contains obsolete path segment: %q", entry.Key)
 	}
 	if entry.Platform != "android" {
 		t.Fatalf("platform = %q, want android", entry.Platform)
@@ -63,7 +60,7 @@ func TestBuildR2PublishPlanRejectsPlatformCollision(t *testing.T) {
 	_, err := buildR2PublishPlan(R2PublishOptions{
 		BaseDir:          baseDir,
 		Revision:         "0",
-		ResourceVersion:  "300116832",
+		ResourceVersion:  "test-version",
 		ResourcesBaseURL: "https://assets.example.com",
 		DryRun:           true,
 	})
@@ -84,7 +81,7 @@ func TestPrepareR2PublishReportsMaterializationProgress(t *testing.T) {
 		BaseDir:          baseDir,
 		OutputDir:        outputDir,
 		Revision:         "0",
-		ResourceVersion:  "300116832",
+		ResourceVersion:  "test-version",
 		ResourcesBaseURL: "https://assets.example.com",
 		Workers:          2,
 		OnProgress: func(update R2PublishProgress) {

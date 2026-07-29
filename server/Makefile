@@ -28,11 +28,13 @@ KEYSTORE_PASS ?= android
 KEY_PASS ?= android
 
 GRPC_ADDR ?= 10.0.2.2:8003
+GRPC_TLS ?= false
 HTTP_ADDR ?= 10.0.2.2:8080
 AUTH_HOST ?= 10.0.2.2:3000
 DEFAULT_TEXT_LANGUAGE ?= en
 DEFAULT_VOICE_LANGUAGE ?= en
 PATCH_AUTH_ARG = $(if $(strip $(AUTH_HOST)),--auth-host "$(AUTH_HOST)")
+PATCH_GRPC_TLS_ARG = $(if $(filter 1 true TRUE yes YES,$(GRPC_TLS)),--grpc-tls)
 PATCH_LANGUAGE_ARGS = --default-text-language "$(DEFAULT_TEXT_LANGUAGE)" --default-voice-language "$(DEFAULT_VOICE_LANGUAGE)"
 
 EXE =
@@ -98,14 +100,14 @@ client-check:
 endif
 
 # Usage:
-#   make client GRPC_ADDR=10.0.2.2:8003 HTTP_ADDR=10.0.2.2:8080 AUTH_HOST=10.0.2.2:3000 DEFAULT_TEXT_LANGUAGE=ja DEFAULT_VOICE_LANGUAGE=ja INPUT_APK=/path/to/original.apk OUTPUT_APK=/path/to/patched.apk
-# Set AUTH_HOST= to skip the Facebook login redirect patch.
+#   make client GRPC_ADDR=10.0.2.2:8003 GRPC_TLS=false HTTP_ADDR=10.0.2.2:8080 AUTH_HOST=10.0.2.2:3000 DEFAULT_TEXT_LANGUAGE=ja DEFAULT_VOICE_LANGUAGE=ja INPUT_APK=/path/to/original.apk OUTPUT_APK=/path/to/patched.apk
+# Set GRPC_TLS=true for a TLS reverse proxy and AUTH_HOST= to skip the Facebook login redirect patch.
 ifeq ($(OS),Windows_NT)
 client: client-check
 	@if not exist "$(dir $(OUTPUT_APK))" mkdir "$(dir $(OUTPUT_APK))"
 	@if not exist "$(dir $(KEYSTORE))" mkdir "$(dir $(KEYSTORE))"
 	$(APKTOOL) d "$(INPUT_APK)" -o "$(PATCHED_DIR)" -f
-	$(PYTHON) "$(PATCH_APK_SCRIPT)" "$(PATCHED_DIR)" --grpc-addr "$(GRPC_ADDR)" --http-addr "$(HTTP_ADDR)" $(PATCH_AUTH_ARG) $(PATCH_LANGUAGE_ARGS)
+	$(PYTHON) "$(PATCH_APK_SCRIPT)" "$(PATCHED_DIR)" --grpc-addr "$(GRPC_ADDR)" $(PATCH_GRPC_TLS_ARG) --http-addr "$(HTTP_ADDR)" $(PATCH_AUTH_ARG) $(PATCH_LANGUAGE_ARGS)
 	$(APKTOOL) b "$(PATCHED_DIR)" -o "$(PATCHED_UNALIGNED_APK)"
 	$(ZIPALIGN) -p -f 4 "$(PATCHED_UNALIGNED_APK)" "$(OUTPUT_APK)"
 	@if not exist "$(KEYSTORE)" (echo Generating signing keystore: $(KEYSTORE) & $(KEYTOOL) -genkeypair -noprompt -keystore "$(KEYSTORE)" -alias "$(KEY_ALIAS)" -storepass "$(KEYSTORE_PASS)" -keypass "$(KEY_PASS)" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug")
@@ -117,7 +119,7 @@ else
 client: client-check
 	@mkdir -p "$(dir $(OUTPUT_APK))" "$(dir $(KEYSTORE))"
 	$(APKTOOL) d "$(INPUT_APK)" -o "$(PATCHED_DIR)" -f
-	$(PYTHON) "$(PATCH_APK_SCRIPT)" "$(PATCHED_DIR)" --grpc-addr "$(GRPC_ADDR)" --http-addr "$(HTTP_ADDR)" $(PATCH_AUTH_ARG) $(PATCH_LANGUAGE_ARGS)
+	$(PYTHON) "$(PATCH_APK_SCRIPT)" "$(PATCHED_DIR)" --grpc-addr "$(GRPC_ADDR)" $(PATCH_GRPC_TLS_ARG) --http-addr "$(HTTP_ADDR)" $(PATCH_AUTH_ARG) $(PATCH_LANGUAGE_ARGS)
 	$(APKTOOL) b "$(PATCHED_DIR)" -o "$(PATCHED_UNALIGNED_APK)"
 	$(ZIPALIGN) -p -f 4 "$(PATCHED_UNALIGNED_APK)" "$(OUTPUT_APK)"
 	@if [ ! -f "$(KEYSTORE)" ]; then \

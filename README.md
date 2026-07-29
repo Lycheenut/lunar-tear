@@ -296,6 +296,8 @@ All targets run from the `server/` directory.
 | `make build-auth`             | Build the auth server binary                           |
 | `make build-dev`              | Build the dev runner binary to `bin/`                  |
 | `make build-all`              | Build all service binaries to `bin/`                   |
+| `make client-check`           | Validate Android client build inputs and tools         |
+| `make client`                 | Patch, rebuild, align, and sign the Android client     |
 | `make build-import`           | Build the import-snapshot tool                         |
 | `make build-claim-account`    | Build the claim-account tool                           |
 | `make build-register-account` | Build the register-account tool                        |
@@ -304,6 +306,12 @@ All targets run from the `server/` directory.
 | `make migrate`                | Run goose migrations on `db/game.db`                   |
 | `make restore`                | Interactive restore of `db/game.db` from `db/backups/` |
 | `make import`                 | Import a snapshot (`SNAPSHOT=... UUID=...` required)   |
+
+`make client` defaults to local emulator addresses and runs `client-check`
+before decoding the APK. Set `GRPC_TLS=true` when `GRPC_ADDR` terminates TLS,
+set `AUTH_HOST=` to omit the Facebook login redirect patch, and use
+`DEFAULT_TEXT_LANGUAGE` / `DEFAULT_VOICE_LANGUAGE` to select initial language
+defaults.
 
 ## Claim Account
 

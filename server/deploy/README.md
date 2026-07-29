@@ -5,7 +5,7 @@ interface. Nginx is the only public application listener.
 
 Resource bundles must be uploaded from the local workstation directly to R2.
 They are never copied to or served by ECS. ECS only needs the master-data file
-and `list.bin` (about 34 MB with the current asset set).
+and `list.bin`.
 
 ## 1. Prepare and upload R2 objects locally
 
@@ -14,9 +14,9 @@ this command. The custom domain must be short enough for the fixed-width URL
 in `list.bin`. The command pads a shorter URL with an `r` path segment and
 creates matching object keys:
 
-The bundled client uses Octo asset version `200116832`. This is separate from
-the master-data version `300116832`; using the latter here makes every
-`unso-200116832-*` asset request return 404.
+The bundled client requests `unso-200116832-*`, so publish with Octo asset
+version `200116832`. This compatibility value is independent of the
+master-data version.
 
 ```sh
 cd server
@@ -68,50 +68,6 @@ rclone check .\r2-publish r2:lunar-tear `
   --checksum
 ```
 
-If assets were published under the master-data version `300116832`, copy both
-object prefixes to the Octo asset version `200116832` from Windows PowerShell:
-
-```powershell
-rclone copy `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-assetbundle" `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-assetbundle" `
-  --transfers 32 `
-  --checkers 64 `
-  --fast-list `
-  --progress
-
-rclone copy `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-resources" `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-resources" `
-  --transfers 32 `
-  --checkers 64 `
-  --fast-list `
-  --progress
-
-rclone check `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-assetbundle" `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-assetbundle" `
-  --one-way `
-  --checksum
-
-rclone check `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-resources" `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-200116832-resources" `
-  --one-way `
-  --checksum
-```
-
-After both checks pass, Cloudflare's cached 404 responses are purged, and the
-client reaches the player-creation flow, remove the obsolete version prefixes:
-
-```powershell
-rclone purge `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-assetbundle"
-
-rclone purge `
-  "r2:lunar-tear/rrrrrrrrrrrrrrr/unso-300116832-resources"
-```
-
 The preparation command fails before writing files if an object is missing,
 its MD5 is invalid, or Android and iOS map different bytes to the same public
 URL. In that collision case, keep serving assets through `octo-cdn` until a
@@ -154,14 +110,14 @@ chmod 600 .env.production
 ```
 
 Replace every example domain and token in `.env.production` and
-`nginx/lunar-tear.conf`. The current Android WebView-only patch emits
+`nginx/lunar-tear.conf`. The Android WebView login flow uses
 `fbconnect://success`, which is already set in the example. If another client
 uses a different login path, set `AUTH_ALLOWED_REDIRECT_URIS` to its exact
 `redirect_uri` value as well. Install a Cloudflare Origin CA certificate
 covering the three ECS hostnames.
 
-Set `OCTO_RESOURCES_BASE_URL` to the R2 custom domain used in step 1. Do not
-temporarily point it at the ECS `octo` hostname.
+Set `OCTO_RESOURCES_BASE_URL` to the R2 custom domain used in step 1, not the
+ECS `octo` hostname.
 
 ## 4. Validate and start
 
@@ -176,64 +132,6 @@ The auth token secret is generated once at `${DATA_DIR}/db/auth.secret` with
 mode 0600 and reused after restarts. Do not delete it while users have active
 tokens.
 
-### Repair auth database permissions
-
-The production services deliberately drop every Linux capability with
-`cap_drop: ALL`. As a result, merely adding `--user 0:0` to a one-off
-container does not give it permission to run `chown`.
-
-If auth startup reports `load token secret: open db/auth.secret: permission
-denied`, stop both database users and repair the exact bind mount through a
-one-off container. Add the required capabilities only to that repair
-container:
-
-```sh
-docker compose --env-file .env.production \
-  -f docker-compose.production.yaml stop auth server
-
-docker compose --env-file .env.production \
-  -f docker-compose.production.yaml \
-  run --rm --no-deps \
-  --user 0:0 \
-  --cap-add CHOWN \
-  --cap-add FOWNER \
-  --cap-add DAC_OVERRIDE \
-  --entrypoint /bin/sh \
-  auth -c '
-    set -eu
-    chown -R 1000:1000 /opt/auth-server/db
-    chmod 700 /opt/auth-server/db
-    find /opt/auth-server/db -type d -exec chmod 700 {} \;
-    find /opt/auth-server/db -type f -exec chmod 600 {} \;
-  '
-```
-
-Verify access as the unprivileged runtime user before restarting:
-
-```sh
-docker compose --env-file .env.production \
-  -f docker-compose.production.yaml \
-  run --rm --no-deps \
-  --user 1000:1000 \
-  --entrypoint /bin/sh \
-  auth -c '
-    set -eu
-    test -r /opt/auth-server/db/auth.secret
-    test -w /opt/auth-server/db
-    touch /opt/auth-server/db/.permission-test
-    rm /opt/auth-server/db/.permission-test
-    echo "permissions ok"
-  '
-
-docker compose --env-file .env.production \
-  -f docker-compose.production.yaml up -d auth server
-```
-
-Do not add these capabilities to the persistent `auth` service. If the repair
-container still cannot change ownership, check whether `${DATA_DIR}` is on a
-read-only, NFS, CIFS, or FUSE mount; keep the SQLite databases on a local
-ext4/xfs filesystem instead.
-
 Install `nginx/lunar-tear.conf`, validate with `nginx -t`, and reload nginx.
 Restrict ECS port 443 to Cloudflare IP ranges and port 22 to administrator IPs.
 Do not open ports 3000, 8003, 8080, or 8082.
@@ -241,20 +139,27 @@ Do not open ports 3000, 8003, 8080, or 8082.
 Build the Android client with `--grpc-tls` when its gRPC address points to this
 Cloudflare/nginx TLS endpoint. The patcher's default plaintext gRPC mode is for
 direct local-server connections and will be rejected before nginx can log an
-HTTP/2 request. Apply the TLS patch mode to a freshly decompiled original APK:
+HTTP/2 request. Build from a fresh original APK through the repository's
+canonical target:
 
 ```sh
-python3 android/patch_apk.py patched \
-  --grpc-addr grpc.example.com:443 \
-  --grpc-tls \
-  --http-addr <existing-cdn-host:port> \
-  --auth-host <existing-auth-host:port>
+cd server
+make client \
+  INPUT_APK=../client/client.apk \
+  OUTPUT_APK=../client/client-production.apk \
+  GRPC_ADDR=grpc.example.com:443 \
+  GRPC_TLS=true \
+  HTTP_ADDR=octo.example.com:443 \
+  AUTH_HOST=auth.example.com:443
 ```
 
-The current shared `list.bin` is about 27 MB. Add a Cloudflare Cache Rule for
-the `octo` hostname and `/v1/list/` and `/v2/.../list/` request paths so repeat
-downloads are served from the edge. Keep its edge TTL short enough to purge or
-roll out a changed list safely.
+The target requires Python 3, `apktool`, `zipalign`, `apksigner`, and `keytool`.
+Use `DEFAULT_TEXT_LANGUAGE` and `DEFAULT_VOICE_LANGUAGE` to change the initial
+language, or override the keystore variables in `server/Makefile` for signing.
+
+Add a Cloudflare Cache Rule for the `octo` hostname and `/v1/list/` and
+`/v2/.../list/` request paths so repeat downloads are served from the edge.
+Keep its edge TTL short enough to purge or roll out a changed list safely.
 
 ## 5. Backups
 

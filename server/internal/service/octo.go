@@ -333,7 +333,7 @@ func (s *OctoHTTPServer) serveUnsoAsset(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	// segment = "unso-200116832-assetbundle" -> type = last part after "-"
+	// segment = "unso-{version}-assetbundle" -> type = last part after "-"
 	segParts := strings.Split(segment, "-")
 	if len(segParts) < 2 {
 		log.Printf("[HTTP] Asset request segment malformed: %s", segment)
