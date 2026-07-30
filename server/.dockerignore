@@ -5,7 +5,7 @@ bin
 certs
 db
 deploy
-r2-publish
+tmp/r2-publish
 *.db
 *.db-shm
 *.db-wal

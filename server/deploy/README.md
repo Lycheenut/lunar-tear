@@ -35,7 +35,7 @@ go run ./cmd/prepare-r2 \
   --assets-dir . \
   --resources-base-url https://assets.example.com \
   --resource-version 200116832 \
-  --output r2-publish
+  --output tmp/r2-publish
 ```
 
 The command validates four files concurrently by default and prints progress,
@@ -53,7 +53,7 @@ local workstation directly to the `lunar-tear` bucket. Do not route this
 transfer through ECS:
 
 ```powershell
-rclone copy .\r2-publish r2:lunar-tear `
+rclone copy .\tmp\r2-publish r2:lunar-tear `
   --exclude manifest.json `
   --transfers 32 `
   --checkers 64 `
@@ -62,7 +62,7 @@ rclone copy .\r2-publish r2:lunar-tear `
   --header-upload "Cache-Control: public, max-age=31536000, immutable" `
   --header-upload "Content-Type: application/octet-stream"
 
-rclone check .\r2-publish r2:lunar-tear `
+rclone check .\tmp\r2-publish r2:lunar-tear `
   --exclude manifest.json `
   --one-way `
   --checksum

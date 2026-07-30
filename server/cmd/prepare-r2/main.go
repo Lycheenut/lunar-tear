@@ -13,7 +13,7 @@ import (
 
 func main() {
 	baseDir := flag.String("assets-dir", ".", "root directory containing the assets/ tree")
-	outputDir := flag.String("output", "r2-publish", "empty output directory to create")
+	outputDir := flag.String("output", "tmp/r2-publish", "empty output directory to create")
 	revision := flag.String("revision", "0", "asset revision to publish")
 	resourceVersion := flag.String("resource-version", "", "Octo asset URL version used in unso-<version>-<type> paths (not the master-data version)")
 	resourcesBaseURL := flag.String("resources-base-url", "", "R2 custom-domain base URL embedded in list.bin")
