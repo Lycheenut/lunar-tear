@@ -90,6 +90,8 @@ func SeedUserState(userId int64, uuid string, nowMillis int64, platform model.Cl
 		Notifications: NotificationState{
 			GiftNotReceiveCount: 1,
 		},
+		Friends:                  make(map[int64]FriendState),
+		FriendRequests:           make(map[int64]int64),
 		Characters:               make(map[int32]CharacterState),
 		Costumes:                 make(map[string]CostumeState),
 		Weapons:                  make(map[string]WeaponState),

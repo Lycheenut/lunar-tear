@@ -34,7 +34,7 @@ func (s *NotificationServiceServer) GetHeaderNotification(ctx context.Context, r
 	}
 	return &pb.GetHeaderNotificationResponse{
 		GiftNotReceiveCount:       claimableGiftCount(user.Gifts.NotReceived, gametime.NowMillis()),
-		FriendRequestReceiveCount: user.Notifications.FriendRequestReceiveCount,
+		FriendRequestReceiveCount: int32(len(user.FriendRequests)),
 		IsExistUnreadInformation:  user.Notifications.IsExistUnreadInformation,
 	}, nil
 }

@@ -4,6 +4,8 @@ import "maps"
 
 func CloneUserState(u UserState) UserState {
 	out := u
+	out.Friends = maps.Clone(u.Friends)
+	out.FriendRequests = maps.Clone(u.FriendRequests)
 	out.Tutorials = maps.Clone(u.Tutorials)
 	out.Characters = maps.Clone(u.Characters)
 	out.Costumes = maps.Clone(u.Costumes)

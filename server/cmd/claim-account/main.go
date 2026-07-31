@@ -10,6 +10,8 @@ import (
 )
 
 var childTables = []string{
+	"user_friend_requests",
+	"user_friends",
 	"user_cage_ornament_rewards",
 	"user_shop_replaceable_lineup",
 	"user_shop_items",
@@ -139,6 +141,12 @@ func main() {
 		log.Fatalf("begin transaction: %v", err)
 	}
 	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM user_friend_requests WHERE requester_user_id = ?`, latestId); err != nil {
+		log.Fatalf("delete outgoing friend requests: %v", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM user_friends WHERE friend_user_id = ?`, latestId); err != nil {
+		log.Fatalf("delete inbound friend relationships: %v", err)
+	}
 
 	for _, t := range childTables {
 		if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id = ?`, t), latestId); err != nil {

@@ -72,6 +72,27 @@ func (s *SQLiteStore) GetUserByPlayerId(playerId int64) (int64, error) {
 	return userId, nil
 }
 
+func (s *SQLiteStore) ListUserIds() ([]int64, error) {
+	rows, err := s.db.Query(`SELECT user_id FROM users ORDER BY user_id`)
+	if err != nil {
+		return nil, fmt.Errorf("query user ids: %w", err)
+	}
+	defer rows.Close()
+
+	var userIds []int64
+	for rows.Next() {
+		var userId int64
+		if err := rows.Scan(&userId); err != nil {
+			return nil, fmt.Errorf("scan user id: %w", err)
+		}
+		userIds = append(userIds, userId)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user ids: %w", err)
+	}
+	return userIds, nil
+}
+
 func (s *SQLiteStore) DefaultUserId() (int64, error) {
 	var userId int64
 	err := s.db.QueryRow(`SELECT min(user_id) FROM users`).Scan(&userId)
@@ -87,6 +108,14 @@ func (s *SQLiteStore) ImportUser(u *store.UserState) error {
 	s.userWriteMu.Lock()
 	defer s.userWriteMu.Unlock()
 
+	// A single-user snapshot cannot restore the other side of friendships or
+	// outgoing requests. Drop cross-user social state instead of importing an
+	// inconsistent half relationship.
+	imported := store.CloneUserState(*u)
+	imported.Friends = make(map[int64]store.FriendState)
+	imported.FriendRequests = make(map[int64]int64)
+	u = &imported
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -94,8 +123,17 @@ func (s *SQLiteStore) ImportUser(u *store.UserState) error {
 	defer tx.Rollback()
 
 	uid := u.UserId
+	if _, err := tx.Exec(`DELETE FROM user_friend_requests WHERE requester_user_id = ?`, uid); err != nil {
+		return fmt.Errorf("delete outgoing friend requests: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM user_friends WHERE friend_user_id = ?`, uid); err != nil {
+		return fmt.Errorf("delete inbound friend relationships: %w", err)
+	}
+
 	// Child tables in reverse-dependency order (matches schema's goose Down).
 	childTables := []string{
+		"user_friend_requests",
+		"user_friends",
 		"user_event_quest_labyrinth_stages",
 		"user_event_quest_labyrinth_seasons",
 		"user_event_quest_tower_accumulation_rewards",

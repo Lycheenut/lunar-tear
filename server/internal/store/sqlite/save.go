@@ -150,6 +150,21 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 		return err
 	}
 
+	for friendUserId, friend := range u.Friends {
+		if err := exec(`INSERT INTO user_friends (user_id, friend_user_id, is_friend, cheer_sent_datetime,
+			cheer_received_datetime, stamina_received_datetime) VALUES (?,?,?,?,?,?)`,
+			uid, friendUserId, boolToInt(friend.IsFriend), friend.CheerSentDatetime, friend.CheerReceivedDatetime,
+			friend.StaminaReceivedDatetime); err != nil {
+			return err
+		}
+	}
+	for requesterUserId, requestDatetime := range u.FriendRequests {
+		if err := exec(`INSERT INTO user_friend_requests (user_id, requester_user_id, request_datetime) VALUES (?,?,?)`,
+			uid, requesterUserId, requestDatetime); err != nil {
+			return err
+		}
+	}
+
 	for _, v := range u.Characters {
 		if err := exec(`INSERT INTO user_characters (user_id, character_id, level, exp, latest_version) VALUES (?,?,?,?,?)`,
 			uid, v.CharacterId, v.Level, v.Exp, v.LatestVersion); err != nil {
@@ -730,6 +745,39 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 			boolToInt(after.Gacha.RewardAvailable), after.Gacha.TodaysCurrentDrawCount, after.Gacha.DailyMaxCount,
 			after.Gacha.LastRewardDrawDate, obtainItemId, obtainCount, uid); err != nil {
 			return err
+		}
+	}
+
+	for friendUserId, friend := range after.Friends {
+		if old, exists := before.Friends[friendUserId]; !exists || old != friend {
+			if err := exec(`INSERT OR REPLACE INTO user_friends (user_id, friend_user_id, is_friend, cheer_sent_datetime,
+				cheer_received_datetime, stamina_received_datetime) VALUES (?,?,?,?,?,?)`,
+				uid, friendUserId, boolToInt(friend.IsFriend), friend.CheerSentDatetime, friend.CheerReceivedDatetime,
+				friend.StaminaReceivedDatetime); err != nil {
+				return err
+			}
+		}
+	}
+	for friendUserId := range before.Friends {
+		if _, exists := after.Friends[friendUserId]; !exists {
+			if err := exec(`DELETE FROM user_friends WHERE user_id=? AND friend_user_id=?`, uid, friendUserId); err != nil {
+				return err
+			}
+		}
+	}
+	for requesterUserId, requestDatetime := range after.FriendRequests {
+		if old, exists := before.FriendRequests[requesterUserId]; !exists || old != requestDatetime {
+			if err := exec(`INSERT OR REPLACE INTO user_friend_requests (user_id, requester_user_id, request_datetime) VALUES (?,?,?)`,
+				uid, requesterUserId, requestDatetime); err != nil {
+				return err
+			}
+		}
+	}
+	for requesterUserId := range before.FriendRequests {
+		if _, exists := after.FriendRequests[requesterUserId]; !exists {
+			if err := exec(`DELETE FROM user_friend_requests WHERE user_id=? AND requester_user_id=?`, uid, requesterUserId); err != nil {
+				return err
+			}
 		}
 	}
 

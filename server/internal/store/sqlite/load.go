@@ -36,6 +36,8 @@ func (s *SQLiteStore) LoadUser(userId int64) (store.UserState, error) {
 }
 
 func initMaps(u *store.UserState) {
+	u.Friends = make(map[int64]store.FriendState)
+	u.FriendRequests = make(map[int64]int64)
 	u.Tutorials = make(map[int32]store.TutorialProgressState)
 	u.Characters = make(map[int32]store.CharacterState)
 	u.Costumes = make(map[string]store.CostumeState)
@@ -253,6 +255,24 @@ func load1to1(db *sql.DB, uid int64, u *store.UserState) {
 }
 
 func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
+	queryRows(db, `SELECT friend_user_id, is_friend, cheer_sent_datetime, cheer_received_datetime,
+		stamina_received_datetime FROM user_friends WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var friendUserId int64
+			var isFriend int
+			var friend store.FriendState
+			rows.Scan(&friendUserId, &isFriend, &friend.CheerSentDatetime, &friend.CheerReceivedDatetime,
+				&friend.StaminaReceivedDatetime)
+			friend.IsFriend = isFriend != 0
+			u.Friends[friendUserId] = friend
+		})
+	queryRows(db, `SELECT requester_user_id, request_datetime FROM user_friend_requests WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var requesterUserId, requestDatetime int64
+			rows.Scan(&requesterUserId, &requestDatetime)
+			u.FriendRequests[requesterUserId] = requestDatetime
+		})
+
 	queryRows(db, `SELECT character_id, level, exp, latest_version FROM user_characters WHERE user_id=?`, uid,
 		func(rows *sql.Rows) {
 			var v store.CharacterState

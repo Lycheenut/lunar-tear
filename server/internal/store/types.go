@@ -57,10 +57,12 @@ type UserState struct {
 	BigHuntBattleDetail      BigHuntBattleDetail
 	BigHuntDeckNumber        int32
 
-	Battle        BattleState
-	Gifts         GiftState
-	Gacha         GachaState
-	Notifications NotificationState
+	Battle         BattleState
+	Gifts          GiftState
+	Gacha          GachaState
+	Notifications  NotificationState
+	Friends        map[int64]FriendState
+	FriendRequests map[int64]int64
 
 	Characters               map[int32]CharacterState
 	Costumes                 map[string]CostumeState
@@ -123,6 +125,12 @@ type UserState struct {
 }
 
 func (u *UserState) EnsureMaps() {
+	if u.Friends == nil {
+		u.Friends = make(map[int64]FriendState)
+	}
+	if u.FriendRequests == nil {
+		u.FriendRequests = make(map[int64]int64)
+	}
 	if u.Tutorials == nil {
 		u.Tutorials = make(map[int32]TutorialProgressState)
 	}
@@ -987,6 +995,13 @@ type NotificationState struct {
 	GiftNotReceiveCount       int32
 	FriendRequestReceiveCount int32
 	IsExistUnreadInformation  bool
+}
+
+type FriendState struct {
+	IsFriend                bool
+	CheerSentDatetime       int64
+	CheerReceivedDatetime   int64
+	StaminaReceivedDatetime int64
 }
 
 type GiftState struct {

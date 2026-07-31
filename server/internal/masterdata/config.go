@@ -40,6 +40,11 @@ type GameConfig struct {
 	PossessionCountLimitWeapon         int32
 	PossessionCountLimitParts          int32
 	PossessionCountLimitImportantItem  int32
+
+	UserFriendMaxNumber               int32
+	UserFriendReceiveCheerMaxNumber   int32
+	UserFriendReceiveRequestMaxNumber int32
+	UserFriendSendCheerMaxNumber      int32
 }
 
 func LoadGameConfig() (*GameConfig, error) {
@@ -87,6 +92,11 @@ func LoadGameConfig() (*GameConfig, error) {
 	cfg.PossessionCountLimitWeapon = parseInt32(kv, "POSSESSION_COUNT_LIMIT_WEAPON")
 	cfg.PossessionCountLimitParts = parseInt32(kv, "POSSESSION_COUNT_LIMIT_PARTS")
 	cfg.PossessionCountLimitImportantItem = parseInt32(kv, "POSSESSION_COUNT_LIMIT_IMPORTANT_ITEM")
+
+	cfg.UserFriendMaxNumber = parseInt32(kv, "USER_FRIEND_MAX_NUMBER")
+	cfg.UserFriendReceiveCheerMaxNumber = parseInt32(kv, "USER_FRIEND_RECEIVE_CHEER_MAX_NUMBER")
+	cfg.UserFriendReceiveRequestMaxNumber = parseInt32(kv, "USER_FRIEND_RECEIVE_REQUEST_MAX_NUMBER")
+	cfg.UserFriendSendCheerMaxNumber = parseInt32(kv, "USER_FRIEND_SEND_CHEER_MAX_NUMBER")
 
 	return cfg, nil
 }

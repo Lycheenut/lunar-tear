@@ -199,6 +199,12 @@ func (s *UserServiceServer) GetUserProfile(ctx context.Context, req *pb.GetUserP
 	}
 
 	isFriend := false
+	if requesterUserId != 0 && requesterUserId != targetUserId {
+		requester, loadErr := s.users.LoadUser(requesterUserId)
+		if loadErr == nil {
+			isFriend = requester.Friends[targetUserId].IsFriend
+		}
+	}
 
 	return buildUserProfile(user, s.holder.Get(), isFriend), nil
 }
