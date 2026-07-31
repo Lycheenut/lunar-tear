@@ -9,6 +9,9 @@ import (
 )
 
 func (s *SQLiteStore) CreateUser(uuid string, platform model.ClientPlatform) (int64, error) {
+	s.userWriteMu.Lock()
+	defer s.userWriteMu.Unlock()
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, fmt.Errorf("begin tx: %w", err)
@@ -57,6 +60,18 @@ func (s *SQLiteStore) GetUserByUUID(uuid string) (int64, error) {
 	return userId, nil
 }
 
+func (s *SQLiteStore) GetUserByPlayerId(playerId int64) (int64, error) {
+	var userId int64
+	err := s.db.QueryRow(`SELECT user_id FROM users WHERE player_id = ? ORDER BY user_id LIMIT 1`, playerId).Scan(&userId)
+	if err == sql.ErrNoRows {
+		return 0, store.ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("query user by player_id: %w", err)
+	}
+	return userId, nil
+}
+
 func (s *SQLiteStore) DefaultUserId() (int64, error) {
 	var userId int64
 	err := s.db.QueryRow(`SELECT min(user_id) FROM users`).Scan(&userId)
@@ -69,6 +84,9 @@ func (s *SQLiteStore) DefaultUserId() (int64, error) {
 // ImportUser replaces all data for u.UserId in the database with the
 // contents of u.  Any pre-existing rows for that user are deleted first.
 func (s *SQLiteStore) ImportUser(u *store.UserState) error {
+	s.userWriteMu.Lock()
+	defer s.userWriteMu.Unlock()
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -76,7 +94,6 @@ func (s *SQLiteStore) ImportUser(u *store.UserState) error {
 	defer tx.Rollback()
 
 	uid := u.UserId
-
 	// Child tables in reverse-dependency order (matches schema's goose Down).
 	childTables := []string{
 		"user_event_quest_labyrinth_stages",
@@ -195,6 +212,9 @@ func (s *SQLiteStore) ImportUser(u *store.UserState) error {
 }
 
 func (s *SQLiteStore) SetFacebookId(userId int64, facebookId int64) error {
+	s.userWriteMu.Lock()
+	defer s.userWriteMu.Unlock()
+
 	_, err := s.db.Exec(`UPDATE users SET facebook_id = ? WHERE user_id = ?`, facebookId, userId)
 	if err != nil {
 		return fmt.Errorf("set facebook_id: %w", err)
@@ -224,6 +244,9 @@ func (s *SQLiteStore) GetFacebookId(userId int64) (int64, error) {
 }
 
 func (s *SQLiteStore) ClearFacebookId(userId int64) error {
+	s.userWriteMu.Lock()
+	defer s.userWriteMu.Unlock()
+
 	_, err := s.db.Exec(`UPDATE users SET facebook_id = NULL WHERE user_id = ?`, userId)
 	if err != nil {
 		return fmt.Errorf("clear facebook_id: %w", err)
@@ -232,6 +255,9 @@ func (s *SQLiteStore) ClearFacebookId(userId int64) error {
 }
 
 func (s *SQLiteStore) UpdateUUID(userId int64, newUuid string) error {
+	s.userWriteMu.Lock()
+	defer s.userWriteMu.Unlock()
+
 	_, err := s.db.Exec(`UPDATE users SET uuid = ? WHERE user_id = ?`, newUuid, userId)
 	if err != nil {
 		return fmt.Errorf("update uuid: %w", err)
@@ -240,27 +266,61 @@ func (s *SQLiteStore) UpdateUUID(userId int64, newUuid string) error {
 }
 
 func (s *SQLiteStore) UpdateUser(userId int64, mutate func(*store.UserState)) (store.UserState, error) {
-	before, err := s.LoadUser(userId)
+	updated, err := s.UpdateUsers([]int64{userId}, func(users map[int64]*store.UserState) error {
+		mutate(users[userId])
+		return nil
+	})
 	if err != nil {
 		return store.UserState{}, err
 	}
+	return updated[userId], nil
+}
 
-	after := store.CloneUserState(before)
-	mutate(&after)
+func (s *SQLiteStore) UpdateUsers(userIds []int64, mutate func(map[int64]*store.UserState) error) (map[int64]store.UserState, error) {
+	// SQLiteStore is shared by all services in one server process. Keep the
+	// complete read-modify-write sequence serialized so callbacks always see
+	// the state committed by the previous user update.
+	s.userWriteMu.Lock()
+	defer s.userWriteMu.Unlock()
+
+	before := make(map[int64]store.UserState, len(userIds))
+	after := make(map[int64]*store.UserState, len(userIds))
+	uniqueUserIds := make([]int64, 0, len(userIds))
+	for _, userId := range userIds {
+		if _, exists := before[userId]; exists {
+			continue
+		}
+		user, err := s.LoadUser(userId)
+		if err != nil {
+			return nil, err
+		}
+		before[userId] = user
+		cloned := store.CloneUserState(user)
+		after[userId] = &cloned
+		uniqueUserIds = append(uniqueUserIds, userId)
+	}
+	if err := mutate(after); err != nil {
+		return nil, err
+	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return store.UserState{}, fmt.Errorf("begin tx: %w", err)
+		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
-
-	if err := diffAndSave(tx, userId, &before, &after); err != nil {
-		return store.UserState{}, fmt.Errorf("diff and save: %w", err)
+	for _, userId := range uniqueUserIds {
+		old := before[userId]
+		if err := diffAndSave(tx, userId, &old, after[userId]); err != nil {
+			return nil, fmt.Errorf("diff and save user %d: %w", userId, err)
+		}
 	}
-
 	if err := tx.Commit(); err != nil {
-		return store.UserState{}, fmt.Errorf("commit: %w", err)
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 
-	return after, nil
+	updated := make(map[int64]store.UserState, len(after))
+	for userId, user := range after {
+		updated[userId] = *user
+	}
+	return updated, nil
 }

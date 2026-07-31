@@ -19,10 +19,17 @@ type LoginBonusReward struct {
 	Count          int32
 }
 
+type LoginBonusTerm struct {
+	StartDatetime           int64
+	EndDatetime             int64
+	StampReceiveEndDatetime int64
+}
+
 type LoginBonusCatalog struct {
 	stamps     map[loginBonusStampKey]LoginBonusReward
 	bonusPages map[int32][]int32
 	totalPages map[int32]int32
+	terms      map[int32]LoginBonusTerm
 }
 
 func (c *LoginBonusCatalog) LookupStampReward(loginBonusId, pageNumber, stampNumber int32) (LoginBonusReward, bool) {
@@ -46,6 +53,11 @@ func (c *LoginBonusCatalog) TotalPageCount(loginBonusId int32) int32 {
 	return c.totalPages[loginBonusId]
 }
 
+func (c *LoginBonusCatalog) LookupTerm(loginBonusId int32) (LoginBonusTerm, bool) {
+	term, ok := c.terms[loginBonusId]
+	return term, ok
+}
+
 func LoadLoginBonusCatalog() *LoginBonusCatalog {
 	stamps, err := utils.ReadTable[EntityMLoginBonusStamp]("m_login_bonus_stamp")
 	if err != nil {
@@ -61,10 +73,16 @@ func LoadLoginBonusCatalog() *LoginBonusCatalog {
 		stamps:     make(map[loginBonusStampKey]LoginBonusReward, len(stamps)),
 		bonusPages: make(map[int32][]int32),
 		totalPages: make(map[int32]int32, len(bonuses)),
+		terms:      make(map[int32]LoginBonusTerm, len(bonuses)),
 	}
 
 	for _, b := range bonuses {
 		cat.totalPages[b.LoginBonusId] = b.TotalPageCount
+		cat.terms[b.LoginBonusId] = LoginBonusTerm{
+			StartDatetime:           b.StartDatetime,
+			EndDatetime:             b.EndDatetime,
+			StampReceiveEndDatetime: b.StampReceiveEndDatetime,
+		}
 	}
 
 	seenPages := make(map[loginBonusStampKey]struct{})

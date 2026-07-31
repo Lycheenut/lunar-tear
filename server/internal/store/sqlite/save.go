@@ -46,9 +46,11 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 		uid, u.Gem.PaidGem, u.Gem.FreeGem); err != nil {
 		return err
 	}
-	if err := exec(`INSERT INTO user_profile (user_id, name, name_update_datetime, message, message_update_datetime, favorite_costume_id, favorite_costume_id_update_datetime, latest_version) VALUES (?,?,?,?,?,?,?,?)`,
+	if err := exec(`INSERT INTO user_profile (user_id, name, name_update_datetime, message, message_update_datetime, favorite_costume_id, favorite_costume_id_update_datetime, current_pvp_rank, current_pvp_grade_id, max_pvp_season_rank, latest_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		uid, u.Profile.Name, u.Profile.NameUpdateDatetime, u.Profile.Message, u.Profile.MessageUpdateDatetime,
-		u.Profile.FavoriteCostumeId, u.Profile.FavoriteCostumeIdUpdateDatetime, u.Profile.LatestVersion); err != nil {
+		u.Profile.FavoriteCostumeId, u.Profile.FavoriteCostumeIdUpdateDatetime,
+		u.Profile.CurrentPvpRank, u.Profile.CurrentPvpGradeId, u.Profile.MaxPvpSeasonRank,
+		u.Profile.LatestVersion); err != nil {
 		return err
 	}
 	if err := exec(`INSERT INTO user_login (user_id, total_login_count, continual_login_count, max_continual_login_count, last_login_datetime, last_comeback_login_datetime, latest_version) VALUES (?,?,?,?,?,?,?)`,
@@ -595,9 +597,11 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 	if before.Profile != after.Profile {
-		if err := exec(`UPDATE user_profile SET name=?, name_update_datetime=?, message=?, message_update_datetime=?, favorite_costume_id=?, favorite_costume_id_update_datetime=?, latest_version=? WHERE user_id=?`,
+		if err := exec(`UPDATE user_profile SET name=?, name_update_datetime=?, message=?, message_update_datetime=?, favorite_costume_id=?, favorite_costume_id_update_datetime=?, current_pvp_rank=?, current_pvp_grade_id=?, max_pvp_season_rank=?, latest_version=? WHERE user_id=?`,
 			after.Profile.Name, after.Profile.NameUpdateDatetime, after.Profile.Message, after.Profile.MessageUpdateDatetime,
-			after.Profile.FavoriteCostumeId, after.Profile.FavoriteCostumeIdUpdateDatetime, after.Profile.LatestVersion, uid); err != nil {
+			after.Profile.FavoriteCostumeId, after.Profile.FavoriteCostumeIdUpdateDatetime,
+			after.Profile.CurrentPvpRank, after.Profile.CurrentPvpGradeId, after.Profile.MaxPvpSeasonRank,
+			after.Profile.LatestVersion, uid); err != nil {
 			return err
 		}
 	}

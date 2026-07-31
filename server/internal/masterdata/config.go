@@ -33,6 +33,13 @@ type GameConfig struct {
 
 	CostumeLotteryEffectUnlockSlotConsumeGold int32
 	CostumeLotteryEffectDrawSlotConsumeGold   int32
+
+	PossessionCountLimitMaterial       int32
+	PossessionCountLimitConsumableItem int32
+	PossessionCountLimitMoney          int32
+	PossessionCountLimitWeapon         int32
+	PossessionCountLimitParts          int32
+	PossessionCountLimitImportantItem  int32
 }
 
 func LoadGameConfig() (*GameConfig, error) {
@@ -73,6 +80,13 @@ func LoadGameConfig() (*GameConfig, error) {
 
 	cfg.CostumeLotteryEffectUnlockSlotConsumeGold = parseInt32(kv, "COSTUME_LOTTERY_EFFECT_UNLOCK_SLOT_CONSUME_GOLD")
 	cfg.CostumeLotteryEffectDrawSlotConsumeGold = parseInt32(kv, "COSTUME_LOTTERY_EFFECT_DRAW_SLOT_CONSUME_GOLD")
+
+	cfg.PossessionCountLimitMaterial = parseInt32(kv, "POSSESSION_COUNT_LIMIT_MATERIAL")
+	cfg.PossessionCountLimitConsumableItem = parseInt32(kv, "POSSESSION_COUNT_LIMIT_CONSUMABLE_ITEM")
+	cfg.PossessionCountLimitMoney = parseInt32(kv, "POSSESSION_COUNT_LIMIT_MONEY")
+	cfg.PossessionCountLimitWeapon = parseInt32(kv, "POSSESSION_COUNT_LIMIT_WEAPON")
+	cfg.PossessionCountLimitParts = parseInt32(kv, "POSSESSION_COUNT_LIMIT_PARTS")
+	cfg.PossessionCountLimitImportantItem = parseInt32(kv, "POSSESSION_COUNT_LIMIT_IMPORTANT_ITEM")
 
 	return cfg, nil
 }

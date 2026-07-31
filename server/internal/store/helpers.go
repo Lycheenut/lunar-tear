@@ -133,34 +133,67 @@ type PossessionGranter struct {
 
 	PartsSellPriceL1ByRarity map[int32]int32
 	GoldConsumableItemId     int32
-
-	LastChangedStoryWeaponIds []int32
+	CostumeDupExchange       map[int32][]model.DupExchangeEntry
+	CompanionDupExchange     map[int32][]model.DupExchangeEntry
 }
 
-func (g *PossessionGranter) DrainChangedStoryWeaponIds() []int32 {
-	ids := g.LastChangedStoryWeaponIds
-	g.LastChangedStoryWeaponIds = nil
-	return ids
+type GrantStatus int
+
+const (
+	GrantStatusGranted GrantStatus = iota
+	GrantStatusOverflow
+	GrantStatusUnsupported
+	GrantStatusInvalid
+)
+
+type GrantResult struct {
+	Status                GrantStatus
+	ChangedStoryWeaponIds []int32
 }
 
-func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.PossessionType, possessionId, count int32, nowMillis int64) {
+func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.PossessionType, possessionId, count int32, nowMillis int64) GrantResult {
+	if count <= 0 {
+		return GrantResult{Status: GrantStatusInvalid}
+	}
+	result := GrantResult{Status: GrantStatusGranted}
 	switch possessionType {
 	case model.PossessionTypeCostume, model.PossessionTypeCostumeEnhanced:
-		g.GrantCostume(user, possessionId, nowMillis)
+		for range count {
+			g.GrantCostume(user, possessionId, nowMillis)
+		}
 	case model.PossessionTypeWeapon, model.PossessionTypeWeaponEnhanced:
-		g.GrantWeapon(user, possessionId, nowMillis)
+		for range count {
+			result.ChangedStoryWeaponIds = append(result.ChangedStoryWeaponIds, g.GrantWeapon(user, possessionId, nowMillis)...)
+		}
 	case model.PossessionTypeCompanion, model.PossessionTypeCompanionEnhanced:
-		g.GrantCompanion(user, possessionId, nowMillis)
+		for range count {
+			g.GrantCompanion(user, possessionId, nowMillis)
+		}
 	case model.PossessionTypeParts, model.PossessionTypePartsEnhanced:
-		g.GrantParts(user, possessionId, nowMillis)
-	default:
+		for range count {
+			g.GrantParts(user, possessionId, nowMillis)
+		}
+	case model.PossessionTypeThought:
+		for range count {
+			g.GrantThought(user, possessionId, nowMillis)
+		}
+	case model.PossessionTypeMaterial,
+		model.PossessionTypeConsumableItem,
+		model.PossessionTypePaidGem,
+		model.PossessionTypeFreeGem,
+		model.PossessionTypeImportantItem,
+		model.PossessionTypePremiumItem:
 		GrantPossession(user, possessionType, possessionId, count)
+	default:
+		result.Status = GrantStatusUnsupported
 	}
+	return result
 }
 
 func (g *PossessionGranter) GrantCostume(user *UserState, costumeId int32, nowMillis int64) {
 	for _, row := range user.Costumes {
 		if row.CostumeId == costumeId {
+			grantDuplicateExchange(user, g.CostumeDupExchange[costumeId])
 			return
 		}
 	}
@@ -190,6 +223,7 @@ func (g *PossessionGranter) GrantCostume(user *UserState, costumeId int32, nowMi
 func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, nowMillis int64) {
 	for _, row := range user.Companions {
 		if row.CompanionId == companionId {
+			grantDuplicateExchange(user, g.CompanionDupExchange[companionId])
 			return
 		}
 	}
@@ -200,6 +234,22 @@ func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, n
 		Level:               1,
 		HeadupDisplayViewId: 1,
 		AcquisitionDatetime: nowMillis,
+	}
+}
+
+func grantDuplicateExchange(user *UserState, exchange []model.DupExchangeEntry) {
+	for _, item := range exchange {
+		GrantPossession(user, model.PossessionType(item.PossessionType), item.PossessionId, item.Count)
+	}
+}
+
+func (g *PossessionGranter) GrantThought(user *UserState, thoughtId int32, nowMillis int64) {
+	key := uuid.New().String()
+	user.Thoughts[key] = ThoughtState{
+		UserThoughtUuid:     key,
+		ThoughtId:           thoughtId,
+		AcquisitionDatetime: nowMillis,
+		LatestVersion:       nowMillis,
 	}
 }
 
@@ -307,7 +357,7 @@ func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, ch
 	log.Printf("[GrantParts] chosen=%d group=%d rarity=%d preUnlockedSubs=%d", chosenPartsId, chosenRef.PartsGroupId, chosenRef.RarityType, initialCount-1)
 }
 
-func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMillis int64) {
+func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMillis int64) []int32 {
 	key := uuid.New().String()
 	user.Weapons[key] = WeaponState{
 		UserWeaponUuid:      key,
@@ -326,7 +376,7 @@ func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMill
 	}
 	weapon, ok := g.WeaponById[weaponId]
 	if !ok {
-		return
+		return nil
 	}
 
 	g.populateWeaponSkillsAbilities(user, key, weapon)
@@ -347,9 +397,10 @@ func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMill
 			}
 		}
 		if changed {
-			g.LastChangedStoryWeaponIds = append(g.LastChangedStoryWeaponIds, weaponId)
+			return []int32{weaponId}
 		}
 	}
+	return nil
 }
 
 func (g *PossessionGranter) populateWeaponSkillsAbilities(user *UserState, weaponUuid string, weapon WeaponRef) {

@@ -84,6 +84,12 @@ func buildCatalogs() (*Catalogs, error) {
 		return nil, fmt.Errorf("enrich dup exchange: %w", err)
 	}
 	log.Printf("dup exchange loaded: %d entries (%d derived from limit-break materials)", len(dupExchange), dupAdded)
+	companionDupExchange, err := masterdata.LoadCompanionDupExchange()
+	if err != nil {
+		return nil, fmt.Errorf("load companion duplicate exchange: %w", err)
+	}
+	questHandler.Granter.CostumeDupExchange = dupExchange
+	questHandler.Granter.CompanionDupExchange = companionDupExchange
 
 	gachaHandler := gacha.NewGachaHandler(gachaPool, gameConfig, questHandler.Granter, medalInfo, dupExchange)
 

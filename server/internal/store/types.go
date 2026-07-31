@@ -403,6 +403,9 @@ type UserProfileState struct {
 	MessageUpdateDatetime           int64
 	FavoriteCostumeId               int32
 	FavoriteCostumeIdUpdateDatetime int64
+	CurrentPvpRank                  int32
+	CurrentPvpGradeId               int32
+	MaxPvpSeasonRank                int32
 	LatestVersion                   int64
 }
 

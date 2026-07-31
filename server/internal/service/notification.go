@@ -5,6 +5,7 @@ import (
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/store"
 
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
@@ -32,7 +33,7 @@ func (s *NotificationServiceServer) GetHeaderNotification(ctx context.Context, r
 		}, nil
 	}
 	return &pb.GetHeaderNotificationResponse{
-		GiftNotReceiveCount:       int32(len(user.Gifts.NotReceived)),
+		GiftNotReceiveCount:       claimableGiftCount(user.Gifts.NotReceived, gametime.NowMillis()),
 		FriendRequestReceiveCount: user.Notifications.FriendRequestReceiveCount,
 		IsExistUnreadInformation:  user.Notifications.IsExistUnreadInformation,
 	}, nil

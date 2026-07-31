@@ -2,14 +2,16 @@ package sqlite
 
 import (
 	"database/sql"
+	"sync"
 	"time"
 
 	"lunar-tear/server/internal/store"
 )
 
 type SQLiteStore struct {
-	db    *sql.DB
-	clock store.Clock
+	db          *sql.DB
+	clock       store.Clock
+	userWriteMu sync.Mutex
 }
 
 var (
