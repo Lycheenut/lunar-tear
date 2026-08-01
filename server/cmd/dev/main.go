@@ -12,8 +12,10 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"syscall"
+	"time"
 )
 
 var (
@@ -102,8 +104,14 @@ func main() {
 
 	// dev utility output config
 	noColor := flag.Bool("no-color", false, "disable colored output")
+	readyFile := flag.String("ready-file", "", "write the supervisor PID here after all services start")
+	stopFile := flag.String("stop-file", "", "shut down when this file is created")
 
 	flag.Parse()
+	removeControlFile(*readyFile)
+	removeControlFile(*stopFile)
+	defer removeControlFile(*readyFile)
+	defer removeControlFile(*stopFile)
 
 	if *grpcOctoURL == "" {
 		*grpcOctoURL = fmt.Sprintf("http://%s", *cdnPublicAddr)
@@ -130,6 +138,9 @@ func main() {
 	ext := binExt()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *stopFile != "" {
+		go watchStopFile(ctx, *stopFile, stop)
+	}
 
 	noreg_s := ""
 	if *noRegister {
@@ -170,15 +181,24 @@ func main() {
 		svc := &services[i]
 		stdout, err := svc.cmd.StdoutPipe()
 		if err != nil {
-			log.Fatalf("[%s] stdout pipe: %v", svc.label, err)
+			log.Printf("[%s] stdout pipe: %v", svc.label, err)
+			stop()
+			wg.Wait()
+			return
 		}
 		stderr, err := svc.cmd.StderrPipe()
 		if err != nil {
-			log.Fatalf("[%s] stderr pipe: %v", svc.label, err)
+			log.Printf("[%s] stderr pipe: %v", svc.label, err)
+			stop()
+			wg.Wait()
+			return
 		}
 
 		if err := svc.cmd.Start(); err != nil {
-			log.Fatalf("[%s] start: %v", svc.label, err)
+			log.Printf("[%s] start: %v", svc.label, err)
+			stop()
+			wg.Wait()
+			return
 		}
 
 		prefix := fmt.Sprintf("%s[%s]%s ", svc.color, svc.label, colorReset)
@@ -197,6 +217,13 @@ func main() {
 		log.Printf("%s%s started (pid %d)%s", svc.color, svc.label, svc.cmd.Process.Pid, colorReset)
 	}
 
+	if err := writeReadyFile(*readyFile); err != nil {
+		log.Printf("write ready file: %v", err)
+		stop()
+		wg.Wait()
+		return
+	}
+
 	select {
 	case <-ctx.Done():
 		log.Println("shutting down all services...")
@@ -206,6 +233,44 @@ func main() {
 	}
 
 	wg.Wait()
+}
+
+func removeControlFile(path string) {
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		log.Printf("remove control file %s: %v", path, err)
+	}
+}
+
+func writeReadyFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"), 0644)
+}
+
+func watchStopFile(ctx context.Context, path string, stop context.CancelFunc) {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := os.Stat(path); err == nil {
+				log.Printf("stop requested through %s", path)
+				stop()
+				return
+			} else if !os.IsNotExist(err) {
+				log.Printf("check stop file %s: %v", path, err)
+			}
+		}
+	}
 }
 
 func prefixLines(wg *sync.WaitGroup, prefix string, r io.Reader) {
