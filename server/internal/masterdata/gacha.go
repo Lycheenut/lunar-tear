@@ -28,6 +28,28 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 	if err != nil {
 		return nil, nil, fmt.Errorf("load mom banner table: %w", err)
 	}
+	eventChapters, err := utils.ReadTable[EntityMEventQuestChapter]("m_event_quest_chapter")
+	if err != nil {
+		return nil, nil, fmt.Errorf("load event quest chapter table: %w", err)
+	}
+	eventLinks, err := utils.ReadTable[EntityMEventQuestLink]("m_event_quest_link")
+	if err != nil {
+		return nil, nil, fmt.Errorf("load event quest link table: %w", err)
+	}
+	linkById := make(map[int32]EntityMEventQuestLink)
+	for _, link := range eventLinks {
+		linkById[link.EventQuestLinkId] = link
+	}
+	// This master-data snapshot has no authoritative event-box inventory table.
+	// Keep the linked ids out of the catalog instead of treating UI display items
+	// as drawable stock with fabricated counts and rarity.
+	eventGachaIds := make(map[int32]bool)
+	for _, chapter := range eventChapters {
+		link := linkById[chapter.EventQuestLinkId]
+		if link.DestinationDomainType == model.MomBannerDomainGacha {
+			eventGachaIds[link.DestinationDomainId] = true
+		}
+	}
 
 	gachaToMedal := make(map[int32]EntityMGachaMedal)
 	medalInfoByGacha := make(map[int32]GachaMedalInfo)
@@ -49,6 +71,9 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 			continue
 		}
 		gachaId := b.DestinationDomainId
+		if eventGachaIds[gachaId] {
+			continue
+		}
 
 		if strings.HasPrefix(b.BannerAssetName, model.BannerPrefixStepUp) {
 			if _, hasMedal := gachaToMedal[gachaId]; !hasMedal {
@@ -72,7 +97,6 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 			labelType = model.GachaLabelChapter
 			modeType = model.GachaModeBox
 		}
-
 		medal, hasMedal := gachaToMedal[gachaId]
 		if !hasMedal && !isChapter {
 			continue
@@ -123,10 +147,16 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 			DescriptionTextId:         descriptionTextId,
 		})
 	}
-
+	seenGacha := make(map[int32]bool, len(entries))
+	for _, entry := range entries {
+		seenGacha[entry.GachaId] = true
+	}
 	for _, steps := range stepupSteps {
 		first := steps[0]
 		gachaId := first.DestinationDomainId
+		if seenGacha[gachaId] {
+			continue
+		}
 
 		medal := gachaToMedal[first.DestinationDomainId]
 		medalId := medal.GachaMedalId
@@ -159,9 +189,34 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 			PricePhases:           pricePhases,
 			MaxStepNumber:         maxStep,
 		})
+		seenGacha[gachaId] = true
 	}
 
 	return entries, medalInfoByGacha, nil
+}
+
+func EnrichGachaUnlockConditions(entries []store.GachaCatalogEntry, quests *QuestCatalog) {
+	lastQuestByChapter := make(map[int32]int32)
+	for _, questId := range quests.OrderedQuestIds {
+		if chapterId := quests.MainQuestChapterIdByQuestId[questId]; chapterId != 0 {
+			lastQuestByChapter[chapterId] = questId
+		}
+	}
+	for i := range entries {
+		if entries[i].RelatedMainQuestChapterId != 0 {
+			if questId := lastQuestByChapter[entries[i].RelatedMainQuestChapterId]; questId != 0 {
+				entries[i].UnlockConditions = []store.GachaUnlockConditionEntry{{GachaUnlockConditionType: model.GachaUnlockMainQuestClear, ConditionValue: questId}}
+			}
+		}
+		if entries[i].RelatedEventQuestChapterId != 0 {
+			for _, questId := range quests.EventUnlockQuestIdsForChapter(entries[i].RelatedEventQuestChapterId) {
+				entries[i].UnlockConditions = append(entries[i].UnlockConditions, store.GachaUnlockConditionEntry{GachaUnlockConditionType: model.GachaUnlockMainQuestClear, ConditionValue: questId})
+			}
+		}
+		if len(entries[i].UnlockConditions) == 0 {
+			entries[i].UnlockConditions = []store.GachaUnlockConditionEntry{{GachaUnlockConditionType: model.GachaUnlockNone}}
+		}
+	}
 }
 
 const chapterPromoMaxItems = 4
@@ -169,6 +224,10 @@ const maxSlideFeatured = 13
 
 func EnrichCatalogPromotions(entries []store.GachaCatalogEntry, pool *GachaCatalog) {
 	for i := range entries {
+		if entries[i].GachaLabelType == model.GachaLabelEvent {
+			entries[i].PromotionItems = buildBoxPromotionItems(entries[i].BoxItems)
+			continue
+		}
 		if entries[i].GachaLabelType == model.GachaLabelChapter {
 			entries[i].PromotionItems = buildChapterPromotionItems(pool.Materials)
 			continue
@@ -257,6 +316,15 @@ func buildChapterPromotionItems(materials []GachaPoolItem) []store.GachaPromotio
 	items := make([]store.GachaPromotionItem, 0, limit)
 	for _, m := range materials[:limit] {
 		items = append(items, toPromoItem(m))
+	}
+	return items
+}
+
+func buildBoxPromotionItems(boxItems []store.GachaBoxItemEntry) []store.GachaPromotionItem {
+	limit := min(chapterPromoMaxItems, len(boxItems))
+	items := make([]store.GachaPromotionItem, 0, limit)
+	for _, item := range boxItems[:limit] {
+		items = append(items, store.GachaPromotionItem{PossessionType: item.PossessionType, PossessionId: item.PossessionId, IsTarget: true})
 	}
 	return items
 }

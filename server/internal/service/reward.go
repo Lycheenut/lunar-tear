@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
@@ -43,7 +45,7 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 	var weeklyRewards []*pb.BigHuntReward
 	isReceived := false
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		for bossQuestId, bossQuest := range bhCatalog.BossQuestById {
 			st := user.BigHuntStatuses[bossQuestId]
 			if st.LastDailyRewardReceivedDayVersion >= today {
@@ -124,6 +126,9 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 			isReceived = true
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("receive big hunt reward: %w", err)
+	}
 
 	if weeklyRewards == nil {
 		weeklyRewards = []*pb.BigHuntReward{}
@@ -148,15 +153,95 @@ func (s *RewardServiceServer) ReceivePvpReward(ctx context.Context, _ *emptypb.E
 }
 
 func (s *RewardServiceServer) ReceiveLabyrinthSeasonReward(ctx context.Context, _ *emptypb.Empty) (*pb.ReceiveLabyrinthSeasonRewardResponse, error) {
-	log.Printf("[RewardService] ReceiveLabyrinthSeasonReward (stub)")
+	log.Printf("[RewardService] ReceiveLabyrinthSeasonReward")
+	cat := s.holder.Get()
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	var results []*pb.LabyrinthSeasonResult
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		for _, chapter := range cat.Labyrinth.ChaptersByOrder {
+			chapterId := chapter.EventQuestChapterId
+			state := user.LabyrinthSeasons[chapterId]
+			season, ok := cat.Labyrinth.LatestEndedSeason(chapterId, nowMillis)
+			if !ok || season.SeasonNumber <= state.LastSeasonRewardReceivedSeasonNumber {
+				continue
+			}
+
+			milestones := cat.Labyrinth.SeasonMilestonesFor(season)
+			if len(milestones) == 0 {
+				continue
+			}
+			var earned masterdata.LabyrinthSeasonMilestone
+			hasEarnedReward := false
+			for _, milestone := range milestones {
+				quest, cleared := user.Quests[milestone.HeadQuestId]
+				if cleared && quest.QuestStateType == model.UserQuestStateTypeCleared && (!hasEarnedReward || milestone.HeadStageOrder > earned.HeadStageOrder) {
+					earned = milestone
+					hasEarnedReward = true
+				}
+			}
+			state.EventQuestChapterId = chapterId
+			state.LastSeasonRewardReceivedSeasonNumber = season.SeasonNumber
+			state.LatestVersion = nowMillis
+			user.LabyrinthSeasons[chapterId] = state
+			if !hasEarnedReward {
+				continue
+			}
+
+			result := &pb.LabyrinthSeasonResult{EventQuestChapterId: chapterId, HeadQuestId: earned.HeadQuestId, HeadStageOrder: earned.HeadStageOrder}
+			for _, reward := range earned.Rewards {
+				cat.QuestHandler.Granter.GrantFull(user, model.PossessionType(reward.PossessionType), reward.PossessionId, reward.Count, nowMillis)
+				result.SeasonReward = append(result.SeasonReward, &pb.LabyrinthReward{PossessionType: reward.PossessionType, PossessionId: reward.PossessionId, Count: reward.Count})
+			}
+			results = append(results, result)
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("receive labyrinth season reward: %w", err)
+	}
 	return &pb.ReceiveLabyrinthSeasonRewardResponse{
+		SeasonResult: results,
 		DiffUserData: map[string]*pb.DiffData{},
 	}, nil
 }
 
 func (s *RewardServiceServer) ReceiveMissionPassRemainingReward(ctx context.Context, _ *emptypb.Empty) (*pb.ReceiveMissionPassRemainingRewardResponse, error) {
-	log.Printf("[RewardService] ReceiveMissionPassRemainingReward (stub)")
-	return &pb.ReceiveMissionPassRemainingRewardResponse{
-		DiffUserData: map[string]*pb.DiffData{},
-	}, nil
+	log.Printf("[RewardService] ReceiveMissionPassRemainingReward")
+	cat := s.holder.Get()
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	var receivedPassId int32
+	var claimErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		receivedPassId, claimErr = claimMissionPassRemainingReward(cat, user, nowMillis)
+	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("receive remaining mission pass reward: %w", updateErr)
+	}
+	if claimErr != nil {
+		return nil, claimErr
+	}
+	return &pb.ReceiveMissionPassRemainingRewardResponse{RewardReceivedMissionPassId: receivedPassId}, nil
+}
+
+func claimMissionPassRemainingReward(cat *runtime.Catalogs, user *store.UserState, nowMillis int64) (int32, error) {
+	var receivedPassId int32
+	var latestEnd int64
+	for passId, pass := range cat.Mission.PassById {
+		if !missionPassEnded(pass.Definition, nowMillis) || user.MissionPassRemaining[passId].RewardReceived {
+			continue
+		}
+		if receivedPassId == 0 || pass.Definition.EndDatetime > latestEnd || (pass.Definition.EndDatetime == latestEnd && passId < receivedPassId) {
+			latestEnd = pass.Definition.EndDatetime
+			receivedPassId = passId
+		}
+	}
+	if receivedPassId == 0 {
+		return 0, nil
+	}
+	if _, err := claimMissionPassRewards(cat, user, receivedPassId, nowMillis, true); err != nil {
+		return 0, err
+	}
+	user.MissionPassRemaining[receivedPassId] = store.MissionPassRemainingState{MissionPassId: receivedPassId, RewardReceived: true, RewardReceiveDatetime: nowMillis, LatestVersion: nowMillis}
+	return receivedPassId, nil
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -79,9 +80,11 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
-	user, err := s.users.LoadUser(session.UserId)
+	user, err := s.users.UpdateUser(session.UserId, func(user *store.UserState) {
+		advanceLoginState(&user.Login, gametime.NowMillis())
+	})
 	if err != nil {
-		return nil, fmt.Errorf("load user: %w", err)
+		return nil, fmt.Errorf("update login state: %w", err)
 	}
 
 	return &pb.AuthUserResponse{
@@ -90,6 +93,29 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 		Signature:      req.Signature,
 		UserId:         user.UserId,
 	}, nil
+}
+
+func advanceLoginState(login *store.UserLoginState, nowMillis int64) {
+	today := startOfUTCDayMillis(nowMillis)
+	lastDay := startOfUTCDayMillis(login.LastLoginDatetime)
+
+	if login.LastLoginDatetime == 0 {
+		login.TotalLoginCount = 1
+		login.ContinualLoginCount = 1
+		login.MaxContinualLoginCount = max(login.MaxContinualLoginCount, 1)
+	} else if today > lastDay {
+		login.TotalLoginCount++
+		if today-lastDay == int64(24*time.Hour/time.Millisecond) {
+			login.ContinualLoginCount++
+		} else {
+			login.ContinualLoginCount = 1
+		}
+		login.MaxContinualLoginCount = max(login.MaxContinualLoginCount, login.ContinualLoginCount)
+	}
+	if nowMillis > login.LastLoginDatetime {
+		login.LastLoginDatetime = nowMillis
+	}
+	login.LatestVersion = nowMillis
 }
 
 func (s *UserServiceServer) GameStart(ctx context.Context, _ *emptypb.Empty) (*pb.GameStartResponse, error) {
@@ -160,34 +186,56 @@ func (s *UserServiceServer) SetUserFavoriteCostumeId(ctx context.Context, req *p
 
 func (s *UserServiceServer) GetUserProfile(ctx context.Context, req *pb.GetUserProfileRequest) (*pb.GetUserProfileResponse, error) {
 	log.Printf("[UserService] GetUserProfile: playerId=%d", req.PlayerId)
-	userId := req.PlayerId
-	if userId == 0 {
-		userId = CurrentUserId(ctx, s.users, s.sessions)
+	requesterUserId := CurrentUserId(ctx, s.users, s.sessions)
+	targetUserId := requesterUserId
+	if req.PlayerId != 0 {
+		var err error
+		targetUserId, err = s.users.GetUserByPlayerId(req.PlayerId)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, status.Error(codes.NotFound, "player not found")
+			}
+			return nil, fmt.Errorf("look up player: %w", err)
+		}
 	}
-	user, err := s.users.LoadUser(userId)
+	user, err := s.users.LoadUser(targetUserId)
 	if err != nil {
-		return &pb.GetUserProfileResponse{}, nil
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "player not found")
+		}
+		return nil, fmt.Errorf("load player: %w", err)
 	}
 
-	deckCharacters := []*pb.ProfileDeckCharacter{}
-	if deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 1}]; ok && deck.UserDeckCharacterUuid01 != "" {
-		if deckCharacter, ok := user.DeckCharacters[deck.UserDeckCharacterUuid01]; ok {
-			costumeId := int32(0)
-			if costume, ok := user.Costumes[deckCharacter.UserCostumeUuid]; ok {
-				costumeId = costume.CostumeId
-			}
-			mainWeaponId := int32(0)
-			mainWeaponLevel := int32(0)
-			if weapon, ok := user.Weapons[deckCharacter.MainUserWeaponUuid]; ok {
-				mainWeaponId = weapon.WeaponId
-				mainWeaponLevel = weapon.Level
-			}
-			deckCharacters = append(deckCharacters, &pb.ProfileDeckCharacter{
-				CostumeId:       costumeId,
-				MainWeaponId:    mainWeaponId,
-				MainWeaponLevel: mainWeaponLevel,
-			})
+	isFriend := false
+	if requesterUserId != 0 && requesterUserId != targetUserId {
+		requester, loadErr := s.users.LoadUser(requesterUserId)
+		if loadErr == nil {
+			isFriend = requester.Friends[targetUserId].IsFriend
 		}
+	}
+
+	return buildUserProfile(user, s.holder.Get(), isFriend), nil
+}
+
+func buildUserProfile(user store.UserState, catalogs *runtime.Catalogs, isFriend bool) *pb.GetUserProfileResponse {
+	deck, _ := latestUsedQuestDeck(user)
+	deckCharacters := make([]*pb.ProfileDeckCharacter, 0, 3)
+	for _, deckCharacterUuid := range []string{
+		deck.UserDeckCharacterUuid01,
+		deck.UserDeckCharacterUuid02,
+		deck.UserDeckCharacterUuid03,
+	} {
+		deckCharacter, ok := user.DeckCharacters[deckCharacterUuid]
+		if !ok || deckCharacterUuid == "" {
+			continue
+		}
+		costume := user.Costumes[deckCharacter.UserCostumeUuid]
+		weapon := user.Weapons[deckCharacter.MainUserWeaponUuid]
+		deckCharacters = append(deckCharacters, &pb.ProfileDeckCharacter{
+			CostumeId:       costume.CostumeId,
+			MainWeaponId:    weapon.WeaponId,
+			MainWeaponLevel: weapon.Level,
+		})
 	}
 
 	return &pb.GetUserProfileResponse{
@@ -195,17 +243,156 @@ func (s *UserServiceServer) GetUserProfile(ctx context.Context, req *pb.GetUserP
 		Name:              user.Profile.Name,
 		FavoriteCostumeId: user.Profile.FavoriteCostumeId,
 		Message:           user.Profile.Message,
-		IsFriend:          false,
+		IsFriend:          isFriend,
 		LatestUsedDeck: &pb.ProfileDeck{
-			Power:         100,
+			Power:         deck.Power,
 			DeckCharacter: deckCharacters,
 		},
-		PvpInfo: &pb.ProfilePvpInfo{},
-		GamePlayHistory: &pb.GamePlayHistory{
-			HistoryItem:              []*pb.PlayHistoryItem{},
-			HistoryCategoryGraphItem: []*pb.PlayHistoryCategoryGraphItem{},
+		PvpInfo: &pb.ProfilePvpInfo{
+			CurrentRank:    user.Profile.CurrentPvpRank,
+			CurrentGradeId: user.Profile.CurrentPvpGradeId,
+			MaxSeasonRank:  user.Profile.MaxPvpSeasonRank,
 		},
-	}, nil
+		GamePlayHistory: buildGamePlayHistory(user, catalogs),
+	}
+}
+
+func latestUsedQuestDeck(user store.UserState) (store.DeckState, bool) {
+	deckNumber := int32(0)
+	latestStart := int64(-1)
+	for _, quest := range user.Quests {
+		if quest.UserDeckNumber > 0 && quest.LatestStartDatetime > latestStart {
+			deckNumber = quest.UserDeckNumber
+			latestStart = quest.LatestStartDatetime
+		}
+	}
+	if deckNumber > 0 {
+		if deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: deckNumber}]; ok {
+			return deck, true
+		}
+	}
+	if deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 1}]; ok {
+		return deck, true
+	}
+	var selected store.DeckState
+	found := false
+	selectedNumber := int32(0)
+	for key, deck := range user.Decks {
+		if key.DeckType != model.DeckTypeQuest || found && key.UserDeckNumber >= selectedNumber {
+			continue
+		}
+		selected = deck
+		selectedNumber = key.UserDeckNumber
+		found = true
+	}
+	return selected, found
+}
+
+const (
+	playHistoryTotalLogin int32 = iota + 1
+	playHistoryQuestClear
+	playHistoryBattleFinish
+	playHistoryCostumeOwned
+	playHistoryWeaponOwned
+	playHistoryCompanionOwned
+	playHistoryPartsOwned
+	playHistoryGachaDraw
+	playHistoryMissionClear
+)
+
+func buildGamePlayHistory(user store.UserState, catalogs *runtime.Catalogs) *pb.GamePlayHistory {
+	items := make([]*pb.PlayHistoryItem, 0, 9)
+	for id := playHistoryTotalLogin; id <= playHistoryMissionClear; id++ {
+		items = append(items, &pb.PlayHistoryItem{HistoryItemId: id, Count: gamePlayHistoryValue(user, id)})
+	}
+
+	questTotal, questMissionTotal, costumeTotal, weaponTotal, companionTotal := 0, 0, 0, 0, 0
+	if catalogs != nil {
+		if catalogs.Quest != nil {
+			questTotal = len(catalogs.Quest.QuestById)
+			questMissionTotal = len(catalogs.Quest.MissionById)
+		}
+		if catalogs.Costume != nil {
+			costumeTotal = len(catalogs.Costume.Costumes)
+		}
+		if catalogs.Weapon != nil {
+			weaponTotal = len(catalogs.Weapon.Weapons)
+		}
+		if catalogs.Companion != nil {
+			companionTotal = len(catalogs.Companion.CompanionById)
+		}
+	}
+
+	clearedQuests := 0
+	for _, quest := range user.Quests {
+		if quest.QuestStateType == model.UserQuestStateTypeCleared {
+			clearedQuests++
+		}
+	}
+	clearedQuestMissions := 0
+	for _, mission := range user.QuestMissions {
+		if mission.IsClear {
+			clearedQuestMissions++
+		}
+	}
+	ownedWeaponIds := make(map[int32]struct{}, len(user.Weapons))
+	for _, weapon := range user.Weapons {
+		ownedWeaponIds[weapon.WeaponId] = struct{}{}
+	}
+	graph := []*pb.PlayHistoryCategoryGraphItem{
+		{CategoryTypeId: 1, ProgressPermil: progressPermil(clearedQuests, questTotal)},
+		{CategoryTypeId: 2, ProgressPermil: progressPermil(clearedQuestMissions, questMissionTotal)},
+		{CategoryTypeId: 3, ProgressPermil: progressPermil(len(user.Costumes), costumeTotal)},
+		{CategoryTypeId: 4, ProgressPermil: progressPermil(len(ownedWeaponIds), weaponTotal)},
+		{CategoryTypeId: 5, ProgressPermil: progressPermil(len(user.Companions), companionTotal)},
+	}
+	return &pb.GamePlayHistory{HistoryItem: items, HistoryCategoryGraphItem: graph}
+}
+
+func gamePlayHistoryValue(user store.UserState, historyTypeId int32) int64 {
+	switch historyTypeId {
+	case playHistoryTotalLogin:
+		return int64(user.Login.TotalLoginCount)
+	case playHistoryQuestClear:
+		var count int64
+		for _, quest := range user.Quests {
+			count += int64(quest.ClearCount)
+		}
+		return count
+	case playHistoryBattleFinish:
+		return int64(user.Battle.FinishCount)
+	case playHistoryCostumeOwned:
+		return int64(len(user.Costumes))
+	case playHistoryWeaponOwned:
+		return int64(len(user.Weapons))
+	case playHistoryCompanionOwned:
+		return int64(len(user.Companions))
+	case playHistoryPartsOwned:
+		return int64(len(user.Parts))
+	case playHistoryGachaDraw:
+		var count int64
+		for _, banner := range user.Gacha.BannerStates {
+			count += int64(banner.DrawCount)
+		}
+		return count
+	case playHistoryMissionClear:
+		var count int64
+		for _, mission := range user.Missions {
+			if mission.MissionProgressStatusType >= int32(model.MissionProgressStatusTypeClear) {
+				count++
+			}
+		}
+		return count
+	default:
+		return 0
+	}
+}
+
+func progressPermil(current, total int) int32 {
+	if current <= 0 || total <= 0 {
+		return 0
+	}
+	return int32(min(1000, current*1000/total))
 }
 
 func (s *UserServiceServer) SetBirthYearMonth(ctx context.Context, req *pb.SetBirthYearMonthRequest) (*pb.SetBirthYearMonthResponse, error) {
@@ -263,7 +450,16 @@ func (s *UserServiceServer) CheckTransferSetting(ctx context.Context, _ *emptypb
 }
 
 func (s *UserServiceServer) GetUserGamePlayNote(ctx context.Context, req *pb.GetUserGamePlayNoteRequest) (*pb.GetUserGamePlayNoteResponse, error) {
-	return &pb.GetUserGamePlayNoteResponse{}, nil
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	user, err := s.users.LoadUser(userId)
+	if err != nil {
+		return nil, fmt.Errorf("load user: %w", err)
+	}
+	value := gamePlayHistoryValue(user, req.GamePlayHistoryTypeId)
+	if value > int64(^uint32(0)>>1) {
+		value = int64(^uint32(0) >> 1)
+	}
+	return &pb.GetUserGamePlayNoteResponse{ProgressValue: int32(value)}, nil
 }
 
 func (s *UserServiceServer) resolveAuthToken(ctx context.Context, token string) (facebookId int64, err error) {

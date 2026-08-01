@@ -51,26 +51,8 @@ func sortedQuestRecords(user store.UserState) []map[string]any {
 }
 
 func sortedQuestMissionRecords(user store.UserState) []map[string]any {
-	questMissions := make(map[store.QuestMissionKey]store.UserQuestMissionState, len(user.QuestMissions))
-	for key, qm := range user.QuestMissions {
-		questMissions[key] = qm
-	}
-	// Force-clear hidden-story quest-missions so their report gimmicks unlock.
-	for _, key := range hiddenStoryRequirements().QuestMissions {
-		if existing, ok := questMissions[key]; ok && existing.IsClear {
-			continue
-		}
-		questMissions[key] = store.UserQuestMissionState{
-			QuestId:             key.QuestId,
-			QuestMissionId:      key.QuestMissionId,
-			IsClear:             true,
-			LatestClearDatetime: user.GameStartDatetime,
-			LatestVersion:       user.GameStartDatetime,
-		}
-	}
-
-	keys := make([]store.QuestMissionKey, 0, len(questMissions))
-	for key := range questMissions {
+	keys := make([]store.QuestMissionKey, 0, len(user.QuestMissions))
+	for key := range user.QuestMissions {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool {
@@ -81,7 +63,7 @@ func sortedQuestMissionRecords(user store.UserState) []map[string]any {
 	})
 	records := make([]map[string]any, 0, len(keys))
 	for _, key := range keys {
-		row := questMissions[key]
+		row := user.QuestMissions[key]
 		records = append(records, map[string]any{
 			"userId":              user.UserId,
 			"questId":             row.QuestId,
@@ -285,10 +267,74 @@ func init() {
 		})
 		return out
 	})
-	registerStatic(
-		"IUserEventQuestDailyGroupCompleteReward",
-		"IUserQuestReplayFlowRewardGroup",
-		"IUserQuestSceneChoice",
-		"IUserQuestSceneChoiceHistory",
-	)
+	register("IUserEventQuestDailyGroupCompleteReward", func(user store.UserState) string {
+		records := make([]map[string]any, 0, len(user.EventQuestDailyRewards))
+		ids := make([]int, 0, len(user.EventQuestDailyRewards))
+		for id := range user.EventQuestDailyRewards {
+			ids = append(ids, int(id))
+		}
+		sort.Ints(ids)
+		for _, id := range ids {
+			row := user.EventQuestDailyRewards[int32(id)]
+			records = append(records, map[string]any{"userId": user.UserId, "eventQuestDailyGroupId": row.EventQuestDailyGroupId, "rewardReceiveDatetime": row.RewardReceiveDatetime, "latestVersion": row.LatestVersion})
+		}
+		s, _ := utils.EncodeJSONMaps(records...)
+		return s
+	})
+	register("IUserQuestReplayFlowRewardGroup", func(user store.UserState) string {
+		records := make([]map[string]any, 0, len(user.QuestReplayFlowRewards))
+		ids := make([]int, 0, len(user.QuestReplayFlowRewards))
+		for id := range user.QuestReplayFlowRewards {
+			ids = append(ids, int(id))
+		}
+		sort.Ints(ids)
+		for _, id := range ids {
+			row := user.QuestReplayFlowRewards[int32(id)]
+			records = append(records, map[string]any{"userId": user.UserId, "questReplayFlowRewardGroupId": row.QuestReplayFlowRewardGroupId, "rewardReceiveDatetime": row.RewardReceiveDatetime, "latestVersion": row.LatestVersion})
+		}
+		s, _ := utils.EncodeJSONMaps(records...)
+		return s
+	})
+	projectChoices := func(user store.UserState, rows map[store.QuestSceneChoiceKey]store.QuestSceneChoiceState) string {
+		records := make([]map[string]any, 0, len(rows))
+		keys := make([]store.QuestSceneChoiceKey, 0, len(rows))
+		for key := range rows {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			if keys[i].QuestSceneId != keys[j].QuestSceneId {
+				return keys[i].QuestSceneId < keys[j].QuestSceneId
+			}
+			return keys[i].QuestFlowType < keys[j].QuestFlowType
+		})
+		for _, key := range keys {
+			row := rows[key]
+			records = append(records, map[string]any{"userId": user.UserId, "questSceneId": row.QuestSceneId, "questFlowType": row.QuestFlowType, "choiceNumber": row.ChoiceNumber, "choiceDatetime": row.ChoiceDatetime, "latestVersion": row.LatestVersion})
+		}
+		s, _ := utils.EncodeJSONMaps(records...)
+		return s
+	}
+	register("IUserQuestSceneChoice", func(user store.UserState) string { return projectChoices(user, user.QuestSceneChoices) })
+	register("IUserQuestSceneChoiceHistory", func(user store.UserState) string {
+		records := make([]map[string]any, 0, len(user.QuestSceneChoiceHistory))
+		keys := make([]store.QuestSceneChoiceHistoryKey, 0, len(user.QuestSceneChoiceHistory))
+		for key := range user.QuestSceneChoiceHistory {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			if keys[i].QuestSceneId != keys[j].QuestSceneId {
+				return keys[i].QuestSceneId < keys[j].QuestSceneId
+			}
+			if keys[i].QuestFlowType != keys[j].QuestFlowType {
+				return keys[i].QuestFlowType < keys[j].QuestFlowType
+			}
+			return keys[i].ChoiceNumber < keys[j].ChoiceNumber
+		})
+		for _, key := range keys {
+			row := user.QuestSceneChoiceHistory[key]
+			records = append(records, map[string]any{"userId": user.UserId, "questSceneId": row.QuestSceneId, "questFlowType": row.QuestFlowType, "choiceNumber": row.ChoiceNumber, "choiceDatetime": row.ChoiceDatetime, "latestVersion": row.LatestVersion})
+		}
+		s, _ := utils.EncodeJSONMaps(records...)
+		return s
+	})
 }

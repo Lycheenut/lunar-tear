@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
@@ -41,7 +42,7 @@ func (s *LabyrinthServiceServer) ReceiveStageAccumulationReward(ctx context.Cont
 		StageOrder:          req.StageOrder,
 	}
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		rec := user.LabyrinthStages[key]
 		old := rec.AccumulationRewardReceivedQuestMissionCount
 
@@ -65,6 +66,9 @@ func (s *LabyrinthServiceServer) ReceiveStageAccumulationReward(ctx context.Cont
 		log.Printf("[LabyrinthService] ReceiveStageAccumulationReward: chapter=%d stage=%d granted %d item(s), claimed %d -> %d",
 			req.EventQuestChapterId, req.StageOrder, len(items), old, highest)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("receive labyrinth accumulation reward: %w", err)
+	}
 
 	return &pb.ReceiveStageAccumulationRewardResponse{}, nil
 }
@@ -85,14 +89,13 @@ func (s *LabyrinthServiceServer) ReceiveStageClearReward(ctx context.Context, re
 		StageOrder:          req.StageOrder,
 	}
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		rec := user.LabyrinthStages[key]
 		if rec.IsReceivedStageClearReward {
 			log.Printf("[LabyrinthService] ReceiveStageClearReward: already claimed chapter=%d stage=%d",
 				req.EventQuestChapterId, req.StageOrder)
 			return
 		}
-
 		items := laby.StageClearReward(req.EventQuestChapterId, req.StageOrder)
 		for _, it := range items {
 			granter.GrantFull(user, model.PossessionType(it.PossessionType), it.PossessionId, it.Count, nowMillis)
@@ -107,6 +110,9 @@ func (s *LabyrinthServiceServer) ReceiveStageClearReward(ctx context.Context, re
 		log.Printf("[LabyrinthService] ReceiveStageClearReward: chapter=%d stage=%d granted %d item(s)",
 			req.EventQuestChapterId, req.StageOrder, len(items))
 	})
+	if err != nil {
+		return nil, fmt.Errorf("receive labyrinth stage clear reward: %w", err)
+	}
 
 	return &pb.ReceiveStageClearRewardResponse{}, nil
 }

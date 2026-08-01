@@ -13,6 +13,8 @@ import (
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -55,7 +57,7 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 
 	gachaList := make([]*pb.Gacha, 0, len(catalog))
 	for _, entry := range catalog {
-		if !gachaActiveAt(entry, nowMillis) {
+		if !gachaVisible(cat, entry, nowMillis) {
 			continue
 		}
 		if !matchesGachaLabel(req.GachaLabelType, entry.GachaLabelType) {
@@ -65,6 +67,7 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 			continue
 		}
 		bs := user.Gacha.BannerStates[entry.GachaId]
+		entry.IsUserGachaUnlock = gachaUnlocked(cat, &user, entry, nowMillis)
 		gachaList = append(gachaList, toProtoGacha(entry, &bs))
 	}
 
@@ -135,9 +138,10 @@ func (s *GachaServiceServer) GetGacha(ctx context.Context, req *pb.GetGachaReque
 			if entry.GachaId != wantedId {
 				continue
 			}
-			if !gachaActiveAt(entry, nowMillis) {
+			if !gachaVisible(s.holder.Get(), entry, nowMillis) {
 				break
 			}
+			entry.IsUserGachaUnlock = gachaUnlocked(s.holder.Get(), &user, entry, nowMillis)
 			bs := user.Gacha.BannerStates[entry.GachaId]
 			byId[wantedId] = toProtoGacha(entry, &bs)
 			break
@@ -154,7 +158,8 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 
 	cat := s.holder.Get()
 	entry := findCatalogEntry(cat.GachaEntries, req.GachaId)
-	if entry == nil {
+	nowMillis := gametime.NowMillis()
+	if entry == nil || !gachaVisible(cat, *entry, nowMillis) {
 		return nil, fmt.Errorf("gacha %d not found", req.GachaId)
 	}
 	handler := cat.GachaHandler
@@ -162,28 +167,34 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	execCount := req.ExecCount
 	if execCount <= 0 {
-		execCount = 1
+		return nil, status.Error(codes.InvalidArgument, "exec count must be positive")
 	}
 
 	var drawResult *gacha.DrawResult
+	var drawErr error
 	ownedCostumes := map[int32]bool{}
 	ownedWeapons := map[int32]bool{}
 	updatedUser, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if !gachaUnlocked(cat, user, *entry, nowMillis) {
+			drawErr = status.Error(codes.FailedPrecondition, "gacha is locked")
+			return
+		}
 		for _, c := range user.Costumes {
 			ownedCostumes[c.CostumeId] = true
 		}
 		for _, w := range user.Weapons {
 			ownedWeapons[w.WeaponId] = true
 		}
-		var drawErr error
 		drawResult, drawErr = handler.HandleDraw(user, *entry, req.GachaPricePhaseId, execCount)
 		if drawErr != nil {
-			log.Printf("[GachaService] Draw error: %v", drawErr)
-			drawResult = &gacha.DrawResult{}
+			return
 		}
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
+	}
+	if drawErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, drawErr.Error())
 	}
 
 	for i, item := range drawResult.Items {
@@ -281,7 +292,9 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 	}
 
 	bs := updatedUser.Gacha.BannerStates[entry.GachaId]
-	nextGacha := toProtoGacha(*entry, &bs)
+	nextEntry := *entry
+	nextEntry.IsUserGachaUnlock = true
+	nextGacha := toProtoGacha(nextEntry, &bs)
 
 	return &pb.DrawResponse{
 		NextGacha:          nextGacha,
@@ -296,19 +309,30 @@ func (s *GachaServiceServer) ResetBoxGacha(ctx context.Context, req *pb.ResetBox
 
 	cat := s.holder.Get()
 	entry := findCatalogEntry(cat.GachaEntries, req.GachaId)
-	if entry == nil {
+	nowMillis := gametime.NowMillis()
+	if entry == nil || !gachaVisible(cat, *entry, nowMillis) {
 		return nil, fmt.Errorf("gacha %d not found", req.GachaId)
 	}
 	handler := cat.GachaHandler
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
+	var resetErr error
 	updatedUser, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		if resetErr := handler.HandleResetBox(user, *entry); resetErr != nil {
-			log.Printf("[GachaService] ResetBoxGacha error: %v", resetErr)
+		if !gachaUnlocked(cat, user, *entry, nowMillis) {
+			resetErr = status.Error(codes.FailedPrecondition, "gacha is locked")
+			return
 		}
+		if entry.GachaModeType != model.GachaModeBox {
+			resetErr = status.Error(codes.FailedPrecondition, "gacha is not a box gacha")
+			return
+		}
+		resetErr = handler.HandleResetBox(user, *entry)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
+	}
+	if resetErr != nil {
+		return nil, resetErr
 	}
 
 	bs := updatedUser.Gacha.BannerStates[entry.GachaId]
@@ -407,11 +431,60 @@ func matchesGachaLabel(labels []int32, label int32) bool {
 }
 
 func gachaActiveAt(entry store.GachaCatalogEntry, nowMillis int64) bool {
+	if entry.IsInactive {
+		return false
+	}
 	if entry.StartDatetime != 0 && nowMillis < entry.StartDatetime {
 		return false
 	}
 	if entry.EndDatetime != 0 && nowMillis >= entry.EndDatetime {
 		return false
+	}
+	return true
+}
+
+func gachaVisible(cat *runtime.Catalogs, entry store.GachaCatalogEntry, nowMillis int64) bool {
+	if !gachaActiveAt(entry, nowMillis) {
+		return false
+	}
+	if entry.RelatedEventQuestChapterId != 0 {
+		chapter, ok := cat.Quest.EventChapterById[entry.RelatedEventQuestChapterId]
+		if !ok || nowMillis < chapter.StartDatetime || (chapter.EndDatetime > 0 && nowMillis >= chapter.EndDatetime) {
+			return false
+		}
+	}
+	return true
+}
+
+func gachaUnlocked(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) bool {
+	if !entry.IsUserGachaUnlock {
+		return false
+	}
+	if entry.RelatedEventQuestChapterId != 0 {
+		return cat.QuestHandler.EventChapterAvailable(user, entry.RelatedEventQuestChapterId, nowMillis) == nil
+	}
+	for _, condition := range entry.UnlockConditions {
+		switch condition.GachaUnlockConditionType {
+		case model.GachaUnlockNone:
+		case model.GachaUnlockUserRankGreaterOrEqual:
+			if user.Status.Level < condition.ConditionValue {
+				return false
+			}
+		case model.GachaUnlockWithinHoursFromGameStart:
+			if nowMillis >= user.GameStartDatetime+int64(condition.ConditionValue)*int64(time.Hour/time.Millisecond) {
+				return false
+			}
+		case model.GachaUnlockMainQuestClear:
+			if user.Quests[condition.ConditionValue].QuestStateType != model.UserQuestStateTypeCleared {
+				return false
+			}
+		case model.GachaUnlockMainFunctionReleased:
+			if user.Tutorials[condition.ConditionValue].ProgressPhase <= 0 {
+				return false
+			}
+		default:
+			return false
+		}
 	}
 	return true
 }
@@ -424,7 +497,7 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 		GachaAutoResetType:         entry.GachaAutoResetType,
 		GachaAutoResetPeriod:       entry.GachaAutoResetPeriod,
 		NextAutoResetDatetime:      safeTimestamp(entry.NextAutoResetDatetime),
-		GachaUnlockCondition:       []*pb.GachaUnlockCondition{{GachaUnlockConditionType: model.GachaUnlockNone, ConditionValue: 0}},
+		GachaUnlockCondition:       make([]*pb.GachaUnlockCondition, 0, len(entry.UnlockConditions)),
 		IsUserGachaUnlock:          entry.IsUserGachaUnlock,
 		StartDatetime:              safeTimestamp(entry.StartDatetime),
 		EndDatetime:                safeTimestamp(entry.EndDatetime),
@@ -436,6 +509,9 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 		SortOrder:                  entry.SortOrder,
 		IsInactive:                 entry.IsInactive,
 		InformationId:              entry.InformationId,
+	}
+	for _, condition := range entry.UnlockConditions {
+		g.GachaUnlockCondition = append(g.GachaUnlockCondition, &pb.GachaUnlockCondition{GachaUnlockConditionType: condition.GachaUnlockConditionType, ConditionValue: condition.ConditionValue})
 	}
 
 	g.GachaPricePhase = buildProtoPricePhases(entry, bs)

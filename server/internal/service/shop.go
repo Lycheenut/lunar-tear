@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
+	"math/rand"
+	"time"
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
@@ -12,6 +15,8 @@ import (
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -35,41 +40,107 @@ func (s *ShopServiceServer) Buy(ctx context.Context, req *pb.BuyRequest) (*pb.Bu
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	if len(req.ShopItems) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "shop items are required")
+	}
+	shop, ok := catalog.Shops[req.ShopId]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "shop not found")
+	}
+	if shop.ShopGroupType == model.ShopGroupTypePremiumShop {
+		return nil, status.Error(codes.FailedPrecondition, "platform purchases are disabled")
+	}
+	if !catalog.IsShopOpen(req.ShopId, nowMillis) {
+		return nil, status.Error(codes.FailedPrecondition, "shop is not open")
+	}
+
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		candidate := store.CloneUserState(*user)
 		for shopItemId, qty := range req.ShopItems {
+			if qty <= 0 {
+				validationErr = status.Errorf(codes.InvalidArgument, "invalid quantity for shop item %d", shopItemId)
+				return
+			}
 			item, ok := catalog.Items[shopItemId]
 			if !ok {
-				log.Printf("[ShopService] Buy: unknown shopItemId=%d, skipping", shopItemId)
-				continue
+				validationErr = status.Errorf(codes.NotFound, "shop item %d not found", shopItemId)
+				return
+			}
+			if !catalog.IsItemAvailable(req.ShopId, shopItemId, nowMillis) {
+				validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d is not available in shop %d", shopItemId, req.ShopId)
+				return
+			}
+			if shop.ShopGroupType == model.ShopGroupTypeItemShop && !replaceableLineupContains(candidate.ShopReplaceableLineup, shopItemId) {
+				validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d is not in the current lineup", shopItemId)
+				return
+			}
+			additionalContents, levelAvailable := catalog.AdditionalContentsForLevel(shopItemId, candidate.Status.Level)
+			if !levelAvailable {
+				validationErr = status.Errorf(codes.FailedPrecondition, "user level does not satisfy shop item %d", shopItemId)
+				return
+			}
+			si := candidate.ShopItems[shopItemId]
+			si.ShopItemId = shopItemId
+			if item.ShopItemLimitedStockId > 0 {
+				rule, ok := catalog.LimitedStock[item.ShopItemLimitedStockId]
+				if !ok || rule.MaxCount <= 0 {
+					validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d stock rule is unavailable", shopItemId)
+					return
+				}
+				var resetErr error
+				si, resetErr = resetShopItemStockIfDue(si, rule, nowMillis)
+				if resetErr != nil {
+					validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d stock rule is invalid: %v", shopItemId, resetErr)
+					return
+				}
+				if int64(si.BoughtCount)+int64(qty) > int64(rule.MaxCount) {
+					validationErr = status.Errorf(codes.ResourceExhausted, "shop item %d stock limit exceeded", shopItemId)
+					return
+				}
 			}
 
-			totalPrice := item.Price * qty
-			if err := store.DeductPrice(user, item.PriceType, item.PriceId, totalPrice); err != nil {
-				log.Printf("[ShopService] Buy: deduct failed shopItemId=%d: %v", shopItemId, err)
-				continue
+			totalPrice64 := int64(item.Price) * int64(qty)
+			if totalPrice64 <= 0 || totalPrice64 > math.MaxInt32 {
+				validationErr = status.Errorf(codes.InvalidArgument, "invalid total price for shop item %d", shopItemId)
+				return
+			}
+			if err := store.DeductPrice(&candidate, item.PriceType, item.PriceId, int32(totalPrice64)); err != nil {
+				validationErr = status.Errorf(codes.FailedPrecondition, "cannot buy shop item %d: %v", shopItemId, err)
+				return
 			}
 
 			for _, content := range catalog.Contents[shopItemId] {
-				granter.GrantFull(user,
-					model.PossessionType(content.PossessionType),
-					content.PossessionId,
-					content.Count*qty,
-					nowMillis,
-				)
+				if err := grantShopPossession(granter, &candidate, content.PossessionType, content.PossessionId, content.Count, qty, nowMillis); err != nil {
+					validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d has invalid content", shopItemId)
+					return
+				}
+			}
+			for _, content := range additionalContents {
+				if err := grantShopPossession(granter, &candidate, content.PossessionType, content.PossessionId, content.Count, qty, nowMillis); err != nil {
+					validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d has invalid additional content", shopItemId)
+					return
+				}
 			}
 
-			applyShopContentEffects(catalog, user, shopItemId, qty, nowMillis)
+			applyShopContentEffects(catalog, &candidate, shopItemId, qty, nowMillis)
 
-			si := user.ShopItems[shopItemId]
-			si.ShopItemId = shopItemId
 			si.BoughtCount += qty
 			si.LatestBoughtCountChangedDatetime = nowMillis
 			si.LatestVersion = nowMillis
-			user.ShopItems[shopItemId] = si
+			candidate.ShopItems[shopItemId] = si
 		}
+		if exceedsPossessionLimits(*user, candidate, cat.GameConfig) {
+			validationErr = status.Error(codes.ResourceExhausted, "purchase exceeds possession limits")
+			return
+		}
+		*user = candidate
 	})
 	if err != nil {
 		return nil, fmt.Errorf("shop buy: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 	return &pb.BuyResponse{
 		OverflowPossession: []*pb.Possession{},
@@ -83,31 +154,62 @@ func (s *ShopServiceServer) RefreshUserData(ctx context.Context, req *pb.Refresh
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	if catalog.ItemShopId == 0 || !catalog.IsShopOpen(catalog.ItemShopId, nowMillis) {
+		return nil, status.Error(codes.FailedPrecondition, "replaceable shop is not open")
+	}
+
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		if len(user.ShopReplaceableLineup) == 0 && len(catalog.ItemShopPool) > 0 {
-			for i, itemId := range catalog.ItemShopPool {
-				slot := int32(i + 1)
-				user.ShopReplaceableLineup[slot] = store.UserShopReplaceableLineupState{
-					SlotNumber:    slot,
-					ShopItemId:    itemId,
-					LatestVersion: nowMillis,
-				}
-			}
+		isFreeRefreshDue := len(user.ShopReplaceableLineup) == 0 || user.ShopReplaceable.LatestLineupUpdateDatetime < shopStartOfUTCDayMillis(nowMillis)
+		if !req.IsGemUsed && !isFreeRefreshDue {
+			return
 		}
+
+		candidate := store.CloneUserState(*user)
 		if req.IsGemUsed {
-			user.ShopReplaceable.LineupUpdateCount++
-			user.ShopReplaceable.LatestLineupUpdateDatetime = nowMillis
-			for _, itemId := range catalog.ItemShopPool {
-				if si, ok := user.ShopItems[itemId]; ok {
-					si.BoughtCount = 0
-					si.LatestVersion = nowMillis
-					user.ShopItems[itemId] = si
-				}
+			nextCount := nextReplaceableRefreshCount(candidate.ShopReplaceable.LineupUpdateCount, isFreeRefreshDue)
+			price, ok := catalog.ReplaceableGemPrice(nextCount)
+			if !ok {
+				validationErr = status.Error(codes.FailedPrecondition, "replaceable shop refresh price is unavailable")
+				return
+			}
+			if err := store.DeductPrice(&candidate, model.PriceTypeGem, 0, price); err != nil {
+				validationErr = status.Errorf(codes.FailedPrecondition, "cannot refresh replaceable shop: %v", err)
+				return
+			}
+			candidate.ShopReplaceable.LineupUpdateCount = nextCount
+		} else {
+			candidate.ShopReplaceable.LineupUpdateCount = 0
+		}
+
+		pool := make([]int32, 0, len(catalog.ItemShopPool))
+		for _, itemId := range catalog.ItemShopPool {
+			if catalog.IsItemAvailable(catalog.ItemShopId, itemId, nowMillis) {
+				pool = append(pool, itemId)
 			}
 		}
+		if len(pool) == 0 {
+			validationErr = status.Error(codes.FailedPrecondition, "replaceable shop has no available items")
+			return
+		}
+		candidate.ShopReplaceableLineup = rollReplaceableLineup(pool, candidate.ShopReplaceableLineup, nowMillis)
+		candidate.ShopReplaceable.LatestLineupUpdateDatetime = nowMillis
+		candidate.ShopReplaceable.LatestVersion = nowMillis
+		for _, itemId := range catalog.ItemShopPool {
+			if si, ok := candidate.ShopItems[itemId]; ok {
+				si.BoughtCount = 0
+				si.LatestBoughtCountChangedDatetime = nowMillis
+				si.LatestVersion = nowMillis
+				candidate.ShopItems[itemId] = si
+			}
+		}
+		*user = candidate
 	})
 	if err != nil {
 		return nil, fmt.Errorf("shop refresh: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.RefreshResponse{}, nil
@@ -123,70 +225,125 @@ func (s *ShopServiceServer) GetCesaLimit(_ context.Context, _ *emptypb.Empty) (*
 func (s *ShopServiceServer) CreatePurchaseTransaction(ctx context.Context, req *pb.CreatePurchaseTransactionRequest) (*pb.CreatePurchaseTransactionResponse, error) {
 	log.Printf("[ShopService] CreatePurchaseTransaction: shopId=%d shopItemId=%d productId=%s",
 		req.ShopId, req.ShopItemId, req.ProductId)
-
-	cat := s.holder.Get()
-	catalog := cat.Shop
-	granter := cat.QuestHandler.Granter
-	userId := CurrentUserId(ctx, s.users, s.sessions)
-	nowMillis := gametime.NowMillis()
-
-	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		item, ok := catalog.Items[req.ShopItemId]
-		if !ok {
-			log.Printf("[ShopService] CreatePurchaseTransaction: unknown shopItemId=%d", req.ShopItemId)
-			return
-		}
-
-		if err := store.DeductPrice(user, item.PriceType, item.PriceId, item.Price); err != nil {
-			log.Printf("[ShopService] CreatePurchaseTransaction: deduct failed: %v", err)
-		}
-
-		for _, content := range catalog.Contents[req.ShopItemId] {
-			granter.GrantFull(user,
-				model.PossessionType(content.PossessionType),
-				content.PossessionId,
-				content.Count,
-				nowMillis,
-			)
-		}
-
-		applyShopContentEffects(catalog, user, req.ShopItemId, 1, nowMillis)
-
-		si := user.ShopItems[req.ShopItemId]
-		si.ShopItemId = req.ShopItemId
-		si.BoughtCount++
-		if item.ShopItemLimitedStockId > 0 {
-			if maxCount, ok := catalog.LimitedStock[item.ShopItemLimitedStockId]; ok && si.BoughtCount >= maxCount {
-				si.BoughtCount = 0
-			}
-		}
-		si.LatestBoughtCountChangedDatetime = nowMillis
-		si.LatestVersion = nowMillis
-		user.ShopItems[req.ShopItemId] = si
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create purchase transaction: %w", err)
-	}
-
-	txId := fmt.Sprintf("tx_%d_%d_%d", userId, req.ShopItemId, nowMillis)
-
-	return &pb.CreatePurchaseTransactionResponse{
-		PurchaseTransactionId: txId,
-	}, nil
+	return nil, status.Error(codes.FailedPrecondition, "platform purchases are disabled")
 }
 
 func (s *ShopServiceServer) PurchaseGooglePlayStoreProduct(ctx context.Context, req *pb.PurchaseGooglePlayStoreProductRequest) (*pb.PurchaseGooglePlayStoreProductResponse, error) {
 	log.Printf("[ShopService] PurchaseGooglePlayStoreProduct: txId=%s", req.PurchaseTransactionId)
+	return nil, status.Error(codes.FailedPrecondition, "platform purchases are disabled")
+}
 
-	userId := CurrentUserId(ctx, s.users, s.sessions)
-	_, err := s.users.LoadUser(userId)
-	if err != nil {
-		return nil, fmt.Errorf("purchase google play: %w", err)
+func shopStartOfUTCDayMillis(nowMillis int64) int64 {
+	now := time.UnixMilli(nowMillis).UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).UnixMilli()
+}
+
+func nextReplaceableRefreshCount(currentCount int32, isNewDay bool) int32 {
+	if isNewDay {
+		return 1
+	}
+	return currentCount + 1
+}
+
+func rollReplaceableLineup(pool []int32, previous map[int32]store.UserShopReplaceableLineupState, nowMillis int64) map[int32]store.UserShopReplaceableLineupState {
+	items := append([]int32(nil), pool...)
+	rand.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
+	if len(items) > 1 {
+		same := len(previous) == len(items)
+		for i, itemId := range items {
+			if previous[int32(i+1)].ShopItemId != itemId {
+				same = false
+				break
+			}
+		}
+		if same {
+			items[0], items[1] = items[1], items[0]
+		}
 	}
 
-	return &pb.PurchaseGooglePlayStoreProductResponse{
-		OverflowPossession: []*pb.Possession{},
-	}, nil
+	lineup := make(map[int32]store.UserShopReplaceableLineupState, len(items))
+	for i, itemId := range items {
+		slot := int32(i + 1)
+		lineup[slot] = store.UserShopReplaceableLineupState{
+			SlotNumber:    slot,
+			ShopItemId:    itemId,
+			LatestVersion: nowMillis,
+		}
+	}
+	return lineup
+}
+
+func replaceableLineupContains(lineup map[int32]store.UserShopReplaceableLineupState, shopItemId int32) bool {
+	for _, row := range lineup {
+		if row.ShopItemId == shopItemId {
+			return true
+		}
+	}
+	return false
+}
+
+func grantShopPossession(granter *store.PossessionGranter, user *store.UserState, possessionType, possessionId, count, quantity int32, nowMillis int64) error {
+	totalCount := int64(count) * int64(quantity)
+	if totalCount <= 0 || totalCount > math.MaxInt32 {
+		return fmt.Errorf("invalid content count")
+	}
+	result := granter.GrantFull(user, model.PossessionType(possessionType), possessionId, int32(totalCount), nowMillis)
+	if result.Status != store.GrantStatusGranted {
+		return fmt.Errorf("grant status %d", result.Status)
+	}
+	return nil
+}
+
+func resetShopItemStockIfDue(item store.UserShopItemState, rule masterdata.ShopLimitedStockRule, nowMillis int64) (store.UserShopItemState, error) {
+	var boundaryMillis int64
+	switch rule.AutoResetType {
+	case model.ShopItemAutoResetNone:
+		return item, nil
+	case model.ShopItemAutoResetWeekly:
+		if rule.AutoResetPeriod < 1 || rule.AutoResetPeriod > 7 {
+			return item, fmt.Errorf("invalid weekly reset day %d", rule.AutoResetPeriod)
+		}
+		now := time.UnixMilli(nowMillis).UTC()
+		currentWeekday := int32(now.Weekday())
+		if currentWeekday == 0 {
+			currentWeekday = 7
+		}
+		daysSinceReset := (currentWeekday - rule.AutoResetPeriod + 7) % 7
+		boundaryMillis = time.Date(now.Year(), now.Month(), now.Day()-int(daysSinceReset), 0, 0, 0, 0, time.UTC).UnixMilli()
+	case model.ShopItemAutoResetMonthly:
+		if rule.AutoResetPeriod < 1 || rule.AutoResetPeriod > 31 {
+			return item, fmt.Errorf("invalid monthly reset day %d", rule.AutoResetPeriod)
+		}
+		now := time.UnixMilli(nowMillis).UTC()
+		boundary := monthlyShopResetBoundary(now, int(rule.AutoResetPeriod))
+		boundaryMillis = boundary.UnixMilli()
+	default:
+		return item, fmt.Errorf("unsupported reset type %d", rule.AutoResetType)
+	}
+	if item.LatestBoughtCountChangedDatetime < boundaryMillis {
+		item.BoughtCount = 0
+	}
+	return item, nil
+}
+
+func monthlyShopResetBoundary(now time.Time, resetDay int) time.Time {
+	year, month := now.Year(), now.Month()
+	day := min(resetDay, daysInMonth(year, month))
+	boundary := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	if now.Before(boundary) {
+		month--
+		if month == 0 {
+			month = 12
+			year--
+		}
+		day = min(resetDay, daysInMonth(year, month))
+		boundary = time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	}
+	return boundary
+}
+
+func daysInMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
 func applyShopContentEffects(catalog *masterdata.ShopCatalog, user *store.UserState, shopItemId, qty int32, nowMillis int64) {

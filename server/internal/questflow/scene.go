@@ -81,15 +81,15 @@ func (h *QuestHandler) SeasonRoutesFor(user *store.UserState) map[int32]int32 {
 	return out
 }
 
-func (h *QuestHandler) HandleMainFlowSceneProgress(user *store.UserState, questSceneId int32, nowMillis int64) {
+func (h *QuestHandler) HandleMainFlowSceneProgress(user *store.UserState, questSceneId int32, nowMillis int64) error {
 	scene, ok := h.SceneById[questSceneId]
 	if !ok {
-		panic(fmt.Sprintf("unknown sceneId=%d for HandleMainFlowSceneProgress", questSceneId))
+		return fmt.Errorf("unknown scene %d", questSceneId)
 	}
 
 	quest, ok := h.QuestById[scene.QuestId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleMainFlowSceneProgress", questSceneId))
+		return fmt.Errorf("unknown quest %d for scene %d", scene.QuestId, questSceneId)
 	}
 
 	h.advanceMainFlowScene(user, quest.QuestId, questSceneId)
@@ -105,6 +105,7 @@ func (h *QuestHandler) HandleMainFlowSceneProgress(user *store.UserState, questS
 	user.PortalCageStatus.LatestVersion = nowMillis
 
 	h.applySceneGrants(user, questSceneId, nowMillis)
+	return nil
 }
 
 func (h *QuestHandler) advanceTutorialsForScene(user *store.UserState, sceneId int32) {
@@ -133,7 +134,8 @@ func (h *QuestHandler) advanceTutorialsForScene(user *store.UserState, sceneId i
 func (h *QuestHandler) getLastMainFlowSceneId(questId int32) int32 {
 	sceneIds := h.SceneIdsByQuestId[questId]
 	if len(sceneIds) == 0 {
-		panic(fmt.Sprintf("no scenes found for questId=%d", questId))
+		log.Printf("[getLastMainFlowSceneId] no scenes for questId=%d", questId)
+		return 0
 	}
 	return sceneIds[len(sceneIds)-1]
 }
@@ -196,15 +198,15 @@ func (h *QuestHandler) replayFlowTypeFromQuestId(user *store.UserState, questId 
 	return h.replayFlowTypeForRoute(user, routeId)
 }
 
-func (h *QuestHandler) HandleMainQuestSceneProgress(user *store.UserState, questSceneId int32) {
+func (h *QuestHandler) HandleMainQuestSceneProgress(user *store.UserState, questSceneId int32) error {
 	scene, ok := h.SceneById[questSceneId]
 	if !ok {
-		panic(fmt.Sprintf("unknown sceneId=%d for HandleMainQuestSceneProgress", questSceneId))
+		return fmt.Errorf("unknown scene %d", questSceneId)
 	}
 
 	quest, ok := h.QuestById[scene.QuestId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleMainQuestSceneProgress", questSceneId))
+		return fmt.Errorf("unknown quest %d for scene %d", scene.QuestId, questSceneId)
 	}
 
 	if prevSceneId := user.MainQuest.ProgressQuestSceneId; prevSceneId != 0 {
@@ -249,4 +251,5 @@ func (h *QuestHandler) HandleMainQuestSceneProgress(user *store.UserState, quest
 		}
 		user.MainQuest.LatestVersion = gametime.NowMillis()
 	}
+	return nil
 }

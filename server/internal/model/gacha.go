@@ -57,7 +57,7 @@ const (
 )
 
 func IsMaterialBanner(labelType int32) bool {
-	return labelType == GachaLabelChapter || labelType == GachaLabelRecycle || labelType == GachaLabelPortalCage
+	return labelType == GachaLabelEvent || labelType == GachaLabelChapter || labelType == GachaLabelRecycle || labelType == GachaLabelPortalCage
 }
 
 const MomBannerDomainGacha int32 = 1

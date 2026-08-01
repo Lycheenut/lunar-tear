@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gametime"
@@ -79,6 +82,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -100,19 +104,22 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 
 		totalExp := int32(0)
 		totalMaterialCount := int32(0)
+		costs := make([]store.PossessionCost, 0, len(req.Materials)+1)
 		for materialId, count := range req.Materials {
+			if count <= 0 {
+				validationErr = status.Errorf(codes.InvalidArgument, "invalid material count for %d", materialId)
+				return
+			}
 			mat, ok := catalog.Materials[materialId]
 			if !ok {
-				log.Printf("[WeaponService] EnhanceByMaterial: material id=%d not found, skipping", materialId)
-				continue
+				validationErr = status.Errorf(codes.InvalidArgument, "invalid weapon enhancement material %d", materialId)
+				return
 			}
-
-			cur := user.Materials[materialId]
-			if cur < count {
-				log.Printf("[WeaponService] EnhanceByMaterial: insufficient material id=%d have=%d need=%d", materialId, cur, count)
-				continue
+			if count > math.MaxInt32-totalMaterialCount {
+				validationErr = status.Error(codes.InvalidArgument, "material count is too large")
+				return
 			}
-			user.Materials[materialId] = cur - count
+			costs = append(costs, materialCost(materialId, count))
 			totalMaterialCount += count
 
 			expPerUnit := mat.EffectValue
@@ -124,8 +131,12 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 
 		if costFunc, ok := catalog.GoldCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && totalMaterialCount > 0 {
 			goldCost := costFunc.Evaluate(totalMaterialCount)
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			log.Printf("[WeaponService] EnhanceByMaterial: gold cost=%d (materials=%d)", goldCost, totalMaterialCount)
+		}
+		if err := deductUpgradeCosts(user, "weapon enhancement cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		weapon.Exp += totalExp
@@ -154,6 +165,9 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 	})
 	if err != nil {
 		return nil, fmt.Errorf("weapon enhance by material: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.EnhanceByMaterialResponse{
@@ -222,6 +236,7 @@ func (s *WeaponServiceServer) Evolve(ctx context.Context, req *pb.EvolveRequest)
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -243,21 +258,20 @@ func (s *WeaponServiceServer) Evolve(ctx context.Context, req *pb.EvolveRequest)
 
 		totalMaterialCount := int32(0)
 		mats := catalog.EvolutionMaterials[wm.WeaponEvolutionMaterialGroupId]
+		costs := make([]store.PossessionCost, 0, len(mats)+1)
 		for _, mat := range mats {
-			cur := user.Materials[mat.MaterialId]
-			cost := mat.Count
-			if cur < cost {
-				log.Printf("[WeaponService] Evolve: insufficient material id=%d have=%d need=%d", mat.MaterialId, cur, cost)
-				cost = cur
-			}
-			user.Materials[mat.MaterialId] = cur - cost
-			totalMaterialCount += cost
+			costs = append(costs, materialCost(mat.MaterialId, mat.Count))
+			totalMaterialCount += mat.Count
 		}
 
 		if costFunc, ok := catalog.EvolutionCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && totalMaterialCount > 0 {
 			goldCost := costFunc.Evaluate(totalMaterialCount)
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			log.Printf("[WeaponService] Evolve: gold cost=%d", goldCost)
+		}
+		if err := deductUpgradeCosts(user, "weapon evolution cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		oldWeaponId := wm.WeaponId
@@ -328,12 +342,18 @@ func (s *WeaponServiceServer) Evolve(ctx context.Context, req *pb.EvolveRequest)
 	if err != nil {
 		return nil, fmt.Errorf("weapon evolve: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.EvolveResponse{}, nil
 }
 
 func (s *WeaponServiceServer) EnhanceSkill(ctx context.Context, req *pb.EnhanceSkillRequest) (*pb.EnhanceSkillResponse, error) {
 	log.Printf("[WeaponService] EnhanceSkill: uuid=%s skillId=%d addLevel=%d", req.UserWeaponUuid, req.SkillId, req.AddLevelCount)
+	if req.AddLevelCount <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "add level count must be positive")
+	}
 
 	cat := s.holder.Get()
 	catalog := cat.Weapon
@@ -341,6 +361,7 @@ func (s *WeaponServiceServer) EnhanceSkill(ctx context.Context, req *pb.EnhanceS
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -389,7 +410,7 @@ func (s *WeaponServiceServer) EnhanceSkill(ctx context.Context, req *pb.EnhanceS
 
 		currentLevel := skills[skillIdx].Level
 		addCount := req.AddLevelCount
-		if currentLevel+addCount > maxLevel {
+		if addCount > maxLevel-currentLevel {
 			addCount = maxLevel - currentLevel
 		}
 		if addCount <= 0 {
@@ -398,23 +419,22 @@ func (s *WeaponServiceServer) EnhanceSkill(ctx context.Context, req *pb.EnhanceS
 		}
 
 		enhanceMatId := skillGroup.WeaponSkillEnhancementMaterialId
+		costs := make([]store.PossessionCost, 0)
 		for lvl := currentLevel; lvl < currentLevel+addCount; lvl++ {
 			key := [2]int32{enhanceMatId, lvl}
 			mats := catalog.SkillEnhanceMats[key]
 			for _, mat := range mats {
-				cur := user.Materials[mat.MaterialId]
-				cost := mat.Count
-				if cur < cost {
-					log.Printf("[WeaponService] EnhanceSkill: insufficient material id=%d have=%d need=%d", mat.MaterialId, cur, cost)
-					cost = cur
-				}
-				user.Materials[mat.MaterialId] = cur - cost
+				costs = append(costs, materialCost(mat.MaterialId, mat.Count))
 			}
 
 			if costFunc, ok := catalog.SkillCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
 				goldCost := costFunc.Evaluate(lvl + 1)
-				user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+				costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			}
+		}
+		if err := deductUpgradeCosts(user, "weapon skill enhancement cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		skills[skillIdx].Level = currentLevel + addCount
@@ -427,12 +447,18 @@ func (s *WeaponServiceServer) EnhanceSkill(ctx context.Context, req *pb.EnhanceS
 	if err != nil {
 		return nil, fmt.Errorf("weapon enhance skill: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.EnhanceSkillResponse{}, nil
 }
 
 func (s *WeaponServiceServer) EnhanceAbility(ctx context.Context, req *pb.EnhanceAbilityRequest) (*pb.EnhanceAbilityResponse, error) {
 	log.Printf("[WeaponService] EnhanceAbility: uuid=%s abilityId=%d addLevel=%d", req.UserWeaponUuid, req.AbilityId, req.AddLevelCount)
+	if req.AddLevelCount <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "add level count must be positive")
+	}
 
 	cat := s.holder.Get()
 	catalog := cat.Weapon
@@ -440,6 +466,7 @@ func (s *WeaponServiceServer) EnhanceAbility(ctx context.Context, req *pb.Enhanc
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -488,7 +515,7 @@ func (s *WeaponServiceServer) EnhanceAbility(ctx context.Context, req *pb.Enhanc
 
 		currentLevel := abilities[abilityIdx].Level
 		addCount := req.AddLevelCount
-		if currentLevel+addCount > maxLevel {
+		if addCount > maxLevel-currentLevel {
 			addCount = maxLevel - currentLevel
 		}
 		if addCount <= 0 {
@@ -497,23 +524,22 @@ func (s *WeaponServiceServer) EnhanceAbility(ctx context.Context, req *pb.Enhanc
 		}
 
 		enhanceMatId := abilityGroup.WeaponAbilityEnhancementMaterialId
+		costs := make([]store.PossessionCost, 0)
 		for lvl := currentLevel; lvl < currentLevel+addCount; lvl++ {
 			key := [2]int32{enhanceMatId, lvl}
 			mats := catalog.AbilityEnhanceMats[key]
 			for _, mat := range mats {
-				cur := user.Materials[mat.MaterialId]
-				cost := mat.Count
-				if cur < cost {
-					log.Printf("[WeaponService] EnhanceAbility: insufficient material id=%d have=%d need=%d", mat.MaterialId, cur, cost)
-					cost = cur
-				}
-				user.Materials[mat.MaterialId] = cur - cost
+				costs = append(costs, materialCost(mat.MaterialId, mat.Count))
 			}
 
 			if costFunc, ok := catalog.AbilityCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
 				goldCost := costFunc.Evaluate(lvl + 1)
-				user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+				costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			}
+		}
+		if err := deductUpgradeCosts(user, "weapon ability enhancement cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		abilities[abilityIdx].Level = currentLevel + addCount
@@ -525,6 +551,9 @@ func (s *WeaponServiceServer) EnhanceAbility(ctx context.Context, req *pb.Enhanc
 	})
 	if err != nil {
 		return nil, fmt.Errorf("weapon enhance ability: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.EnhanceAbilityResponse{}, nil
@@ -539,6 +568,7 @@ func (s *WeaponServiceServer) LimitBreakByMaterial(ctx context.Context, req *pb.
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -557,32 +587,27 @@ func (s *WeaponServiceServer) LimitBreakByMaterial(ctx context.Context, req *pb.
 			return
 		}
 
-		remaining := config.WeaponLimitBreakAvailableCount - weapon.LimitBreakCount
-
-		totalMaterialCount := int32(0)
-		for materialId, count := range req.Materials {
-			if totalMaterialCount >= remaining {
-				break
-			}
-			if count > remaining-totalMaterialCount {
-				count = remaining - totalMaterialCount
-			}
-			cur := user.Materials[materialId]
-			if cur < count {
-				log.Printf("[WeaponService] LimitBreakByMaterial: insufficient material id=%d have=%d need=%d", materialId, cur, count)
-				count = cur
-			}
-			user.Materials[materialId] = cur - count
-			totalMaterialCount += count
+		costs, limitBreakSteps, costErr := selectedMaterialCosts(req.Materials, catalog.LimitBreakMaterialOptions(weapon.WeaponId, weapon.LimitBreakCount))
+		if costErr != nil {
+			validationErr = costErr
+			return
+		}
+		if limitBreakSteps != 1 {
+			validationErr = status.Error(codes.InvalidArgument, "materials must cover exactly one weapon limit break")
+			return
 		}
 
-		if costFunc, ok := catalog.LimitBreakCostByMaterialByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && totalMaterialCount > 0 {
-			goldCost := costFunc.Evaluate(totalMaterialCount)
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+		if costFunc, ok := catalog.LimitBreakCostByMaterialByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
+			goldCost := costFunc.Evaluate(limitBreakSteps)
+			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			log.Printf("[WeaponService] LimitBreakByMaterial: gold cost=%d", goldCost)
 		}
+		if err := deductUpgradeCosts(user, "weapon limit break cost", costs); err != nil {
+			validationErr = err
+			return
+		}
 
-		weapon.LimitBreakCount += totalMaterialCount
+		weapon.LimitBreakCount += limitBreakSteps
 		weapon.LatestVersion = nowMillis
 		user.Weapons[req.UserWeaponUuid] = weapon
 
@@ -598,6 +623,9 @@ func (s *WeaponServiceServer) LimitBreakByMaterial(ctx context.Context, req *pb.
 	if err != nil {
 		return nil, fmt.Errorf("weapon limit break by material: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.LimitBreakByMaterialResponse{}, nil
 }
@@ -611,6 +639,7 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -631,16 +660,27 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 
 		remaining := config.WeaponLimitBreakAvailableCount - weapon.LimitBreakCount
 
-		consumedCount := int32(0)
-		for _, uuid := range req.MaterialUserWeaponUuids {
-			if consumedCount >= remaining {
-				break
+		materialUUIDs, materialErr := validateMaterialWeapons(user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, true, remaining)
+		if materialErr != nil {
+			validationErr = materialErr
+			return
+		}
+		consumedCount := int32(len(materialUUIDs))
+		if costFunc, ok := catalog.LimitBreakCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
+			goldCost := costFunc.Evaluate(consumedCount)
+			if err := deductUpgradeCosts(user, "weapon limit break cost", []store.PossessionCost{
+				consumableCost(config.ConsumableItemIdForGold, goldCost),
+			}); err != nil {
+				validationErr = err
+				return
 			}
+			log.Printf("[WeaponService] LimitBreakByWeapon: gold cost=%d", goldCost)
+		}
 
+		for _, uuid := range materialUUIDs {
 			matWeapon, ok := user.Weapons[uuid]
 			if !ok {
-				log.Printf("[WeaponService] LimitBreakByWeapon: material weapon uuid=%s not found, skipping", uuid)
-				continue
+				return
 			}
 
 			if medals, ok := catalog.MedalsByWeaponId[matWeapon.WeaponId]; ok {
@@ -653,13 +693,6 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 			delete(user.WeaponSkills, uuid)
 			delete(user.WeaponAbilities, uuid)
 			delete(user.WeaponAwakens, uuid)
-			consumedCount++
-		}
-
-		if costFunc, ok := catalog.LimitBreakCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && consumedCount > 0 {
-			goldCost := costFunc.Evaluate(consumedCount)
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
-			log.Printf("[WeaponService] LimitBreakByWeapon: gold cost=%d", goldCost)
 		}
 
 		weapon.LimitBreakCount += consumedCount
@@ -678,6 +711,9 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 	if err != nil {
 		return nil, fmt.Errorf("weapon limit break by weapon: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.LimitBreakByWeaponResponse{}, nil
 }
@@ -691,6 +727,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -711,18 +748,18 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 		}, campaign.Filter{NowMillis: nowMillis, UserStatus: campaign.TargetUserStatusAll})
 
 		totalExp := int32(0)
-		consumedCount := int32(0)
-		for _, uuid := range req.MaterialUserWeaponUuids {
-			matWeapon, ok := user.Weapons[uuid]
-			if !ok {
-				log.Printf("[WeaponService] EnhanceByWeapon: material weapon uuid=%s not found, skipping", uuid)
-				continue
-			}
+		materialUUIDs, materialErr := validateMaterialWeapons(user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, false, 0)
+		if materialErr != nil {
+			validationErr = materialErr
+			return
+		}
+		for _, uuid := range materialUUIDs {
+			matWeapon := user.Weapons[uuid]
 
 			matMaster, ok := catalog.Weapons[matWeapon.WeaponId]
 			if !ok {
-				log.Printf("[WeaponService] EnhanceByWeapon: material weapon master id=%d not found, skipping", matWeapon.WeaponId)
-				continue
+				validationErr = status.Errorf(codes.FailedPrecondition, "material weapon master %d not found", matWeapon.WeaponId)
+				return
 			}
 
 			matLevelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[matWeapon.WeaponId]
@@ -731,7 +768,22 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 				baseExp = baseExp * config.MaterialSameWeaponExpCoefficientPermil / 1000
 			}
 			totalExp += expBonus.Apply(baseExp)
+		}
+		consumedCount := int32(len(materialUUIDs))
 
+		if costFunc, ok := catalog.EnhanceCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
+			goldCost := costFunc.Evaluate(consumedCount)
+			if err := deductUpgradeCosts(user, "weapon enhancement cost", []store.PossessionCost{
+				consumableCost(config.ConsumableItemIdForGold, goldCost),
+			}); err != nil {
+				validationErr = err
+				return
+			}
+			log.Printf("[WeaponService] EnhanceByWeapon: gold cost=%d (weapons=%d)", goldCost, consumedCount)
+		}
+
+		for _, uuid := range materialUUIDs {
+			matWeapon := user.Weapons[uuid]
 			if medals, ok := catalog.MedalsByWeaponId[matWeapon.WeaponId]; ok {
 				for itemId, count := range medals {
 					user.ConsumableItems[itemId] += count
@@ -742,13 +794,6 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 			delete(user.WeaponSkills, uuid)
 			delete(user.WeaponAbilities, uuid)
 			delete(user.WeaponAwakens, uuid)
-			consumedCount++
-		}
-
-		if costFunc, ok := catalog.EnhanceCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && consumedCount > 0 {
-			goldCost := costFunc.Evaluate(consumedCount)
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
-			log.Printf("[WeaponService] EnhanceByWeapon: gold cost=%d (weapons=%d)", goldCost, consumedCount)
 		}
 
 		weapon.Exp += totalExp
@@ -778,11 +823,66 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 	if err != nil {
 		return nil, fmt.Errorf("weapon enhance by weapon: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.EnhanceByWeaponResponse{
 		IsGreatSuccess:       false,
 		SurplusEnhanceWeapon: []string{},
 	}, nil
+}
+
+func validateMaterialWeapons(user *store.UserState, targetUUID string, materialUUIDs []string, requireSameWeapon bool, maxCount int32) ([]string, error) {
+	if len(materialUUIDs) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "material weapons are required")
+	}
+	if maxCount > 0 && int64(len(materialUUIDs)) > int64(maxCount) {
+		return nil, status.Error(codes.FailedPrecondition, "weapon limit break limit exceeded")
+	}
+	target, ok := user.Weapons[targetUUID]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "weapon %s not found", targetUUID)
+	}
+	validated := make([]string, 0, len(materialUUIDs))
+	seen := make(map[string]bool, len(materialUUIDs))
+	for _, uuid := range materialUUIDs {
+		if uuid == targetUUID || seen[uuid] {
+			return nil, status.Error(codes.InvalidArgument, "invalid material weapon")
+		}
+		weapon, ok := user.Weapons[uuid]
+		if !ok {
+			return nil, status.Errorf(codes.NotFound, "material weapon %s not found", uuid)
+		}
+		if weapon.IsProtected {
+			return nil, status.Errorf(codes.FailedPrecondition, "material weapon %s is protected", uuid)
+		}
+		if isWeaponEquipped(user, uuid) {
+			return nil, status.Errorf(codes.FailedPrecondition, "material weapon %s is equipped", uuid)
+		}
+		if requireSameWeapon && weapon.WeaponId != target.WeaponId {
+			return nil, status.Errorf(codes.FailedPrecondition, "material weapon %s is not a duplicate of the target", uuid)
+		}
+		seen[uuid] = true
+		validated = append(validated, uuid)
+	}
+	return validated, nil
+}
+
+func isWeaponEquipped(user *store.UserState, weaponUUID string) bool {
+	for _, character := range user.DeckCharacters {
+		if character.MainUserWeaponUuid == weaponUUID {
+			return true
+		}
+	}
+	for _, subWeaponUUIDs := range user.DeckSubWeapons {
+		for _, subWeaponUUID := range subWeaponUUIDs {
+			if subWeaponUUID == weaponUUID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func checkWeaponStoryUnlocks(catalog *masterdata.WeaponCatalog, user *store.UserState, weaponId, level int32, nowMillis int64) {
@@ -832,6 +932,7 @@ func (s *WeaponServiceServer) Awaken(ctx context.Context, req *pb.WeaponAwakenRe
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -851,19 +952,18 @@ func (s *WeaponServiceServer) Awaken(ctx context.Context, req *pb.WeaponAwakenRe
 		}
 
 		mats := catalog.AwakenMaterialsByGroupId[awakenRow.WeaponAwakenMaterialGroupId]
+		costs := make([]store.PossessionCost, 0, len(mats)+1)
 		for _, mat := range mats {
-			cur := user.Materials[mat.MaterialId]
-			cost := mat.Count
-			if cur < cost {
-				log.Printf("[WeaponService] Awaken: insufficient material id=%d have=%d need=%d", mat.MaterialId, cur, cost)
-				cost = cur
-			}
-			user.Materials[mat.MaterialId] = cur - cost
+			costs = append(costs, materialCost(mat.MaterialId, mat.Count))
 		}
 
 		if awakenRow.ConsumeGold > 0 {
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= awakenRow.ConsumeGold
+			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, awakenRow.ConsumeGold))
 			log.Printf("[WeaponService] Awaken: gold cost=%d", awakenRow.ConsumeGold)
+		}
+		if err := deductUpgradeCosts(user, "weapon awakening cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		user.WeaponAwakens[req.UserWeaponUuid] = store.WeaponAwakenState{
@@ -877,6 +977,9 @@ func (s *WeaponServiceServer) Awaken(ctx context.Context, req *pb.WeaponAwakenRe
 	})
 	if err != nil {
 		return nil, fmt.Errorf("weapon awaken: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.WeaponAwakenResponse{}, nil

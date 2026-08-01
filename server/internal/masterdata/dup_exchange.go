@@ -23,6 +23,23 @@ func LoadDupExchange() (map[int32][]model.DupExchangeEntry, error) {
 	return result, nil
 }
 
+func LoadCompanionDupExchange() (map[int32][]model.DupExchangeEntry, error) {
+	rows, err := utils.ReadTable[EntityMCompanionDuplicationExchangePossessionGroup]("m_companion_duplication_exchange_possession_group")
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int32][]model.DupExchangeEntry)
+	for _, row := range rows {
+		result[row.CompanionId] = append(result[row.CompanionId], model.DupExchangeEntry{
+			PossessionType: row.PossessionType,
+			PossessionId:   row.PossessionId,
+			Count:          row.Count,
+		})
+	}
+	return result, nil
+}
+
 const dupExchangeFallbackCount int32 = 10
 
 func EnrichDupExchange(dupMap map[int32][]model.DupExchangeEntry, pool *GachaCatalog) (int, error) {

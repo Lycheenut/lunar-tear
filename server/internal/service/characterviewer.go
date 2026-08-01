@@ -29,7 +29,7 @@ func (s *CharacterViewerServiceServer) CharacterViewerTop(ctx context.Context, _
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	user, err := s.users.LoadUser(userId)
 	if err != nil {
-		panic(fmt.Sprintf("CharacterViewerTop: no user for userId=%d: %v", userId, err))
+		return nil, fmt.Errorf("load character viewer user %d: %w", userId, err)
 	}
 
 	released := s.holder.Get().CharacterViewer.ReleasedFieldIds(user)

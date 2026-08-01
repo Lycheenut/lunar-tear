@@ -7,87 +7,8 @@ import (
 	"log"
 
 	"lunar-tear/server/internal/database"
+	"lunar-tear/server/internal/store/sqlite"
 )
-
-var childTables = []string{
-	"user_cage_ornament_rewards",
-	"user_shop_replaceable_lineup",
-	"user_shop_items",
-	"user_gacha_banner_box_drew_counts",
-	"user_gacha_banners",
-	"user_gacha_converted_medals",
-	"user_gifts",
-	"user_dokan_confirmed",
-	"user_drawn_omikuji",
-	"user_contents_stories",
-	"user_viewed_movies",
-	"user_navi_cutin_played",
-	"user_auto_sale_settings",
-	"user_explore_scores",
-	"user_tutorials",
-	"user_premium_items",
-	"user_important_items",
-	"user_materials",
-	"user_consumable_items",
-	"user_gimmick_unlocks",
-	"user_gimmick_sequences",
-	"user_gimmick_ornament_progress",
-	"user_gimmick_progress",
-	"user_big_hunt_weekly_statuses",
-	"user_big_hunt_weekly_max_scores",
-	"user_big_hunt_schedule_max_scores",
-	"user_big_hunt_statuses",
-	"user_big_hunt_max_scores",
-	"user_quest_limit_content_status",
-	"user_side_story_quests",
-	"user_main_quest_season_routes",
-	"user_missions",
-	"user_quest_missions",
-	"user_quests",
-	"user_deck_type_notes",
-	"user_deck_parts",
-	"user_deck_sub_weapons",
-	"user_decks",
-	"user_deck_characters",
-	"user_parts_presets",
-	"user_parts_group_notes",
-	"user_parts",
-	"user_thoughts",
-	"user_companions",
-	"user_weapon_notes",
-	"user_weapon_stories",
-	"user_weapon_awakens",
-	"user_weapon_abilities",
-	"user_weapon_skills",
-	"user_weapons",
-	"user_costume_awaken_status_ups",
-	"user_costume_active_skills",
-	"user_costumes",
-	"user_character_rebirths",
-	"user_character_board_status_ups",
-	"user_character_board_abilities",
-	"user_character_boards",
-	"user_characters",
-	"user_gacha",
-	"user_shop_replaceable",
-	"user_explore",
-	"user_guerrilla_free_open",
-	"user_portal_cage",
-	"user_notification",
-	"user_battle",
-	"user_big_hunt_state",
-	"user_side_story_active",
-	"user_extra_quest",
-	"user_event_quest",
-	"user_main_quest",
-	"user_login_bonus",
-	"user_login",
-	"user_profile",
-	"user_gem",
-	"user_status",
-	"user_setting",
-	"sessions",
-}
 
 func main() {
 	dbPath := flag.String("db", "db/game.db", "SQLite database path")
@@ -139,8 +60,14 @@ func main() {
 		log.Fatalf("begin transaction: %v", err)
 	}
 	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM user_friend_requests WHERE requester_user_id = ?`, latestId); err != nil {
+		log.Fatalf("delete outgoing friend requests: %v", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM user_friends WHERE friend_user_id = ?`, latestId); err != nil {
+		log.Fatalf("delete inbound friend relationships: %v", err)
+	}
 
-	for _, t := range childTables {
+	for _, t := range sqlite.UserOwnedTables() {
 		if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id = ?`, t), latestId); err != nil {
 			log.Fatalf("delete from %s: %v", t, err)
 		}
