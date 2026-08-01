@@ -45,3 +45,40 @@ func TestPossessionGranterGrantFullHonorsEquipmentCountAndDuplicates(t *testing.
 		t.Fatalf("thoughts = %d, want 2", got)
 	}
 }
+
+func TestDeductPossessionsIsAtomic(t *testing.T) {
+	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Materials[100] = 5
+	user.ConsumableItems[200] = 10
+
+	err := DeductPossessions(user, []PossessionCost{
+		{PossessionType: model.PossessionTypeMaterial, PossessionId: 100, Count: 3},
+		{PossessionType: model.PossessionTypeMaterial, PossessionId: 100, Count: 3},
+		{PossessionType: model.PossessionTypeConsumableItem, PossessionId: 200, Count: 4},
+	})
+	if err == nil {
+		t.Fatal("DeductPossessions succeeded with insufficient aggregate material")
+	}
+	if user.Materials[100] != 5 || user.ConsumableItems[200] != 10 {
+		t.Fatalf("failed deduction changed balances: material=%d consumable=%d", user.Materials[100], user.ConsumableItems[200])
+	}
+
+	err = DeductPossessions(user, []PossessionCost{
+		{PossessionType: model.PossessionTypeMaterial, PossessionId: 100, Count: 2},
+		{PossessionType: model.PossessionTypeMaterial, PossessionId: 100, Count: 3},
+		{PossessionType: model.PossessionTypeConsumableItem, PossessionId: 200, Count: 4},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := user.Materials[100]; exists || user.ConsumableItems[200] != 6 {
+		t.Fatalf("successful deduction balances: material=%d exists=%v consumable=%d", user.Materials[100], exists, user.ConsumableItems[200])
+	}
+}
+
+func TestDeductPriceRejectsPlatformPayment(t *testing.T) {
+	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
+	if err := DeductPrice(user, model.PriceTypePlatformPayment, 0, 1); err == nil {
+		t.Fatal("platform payment was accepted")
+	}
+}

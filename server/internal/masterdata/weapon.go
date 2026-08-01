@@ -39,6 +39,8 @@ type WeaponCatalog struct {
 	EnhanceCostByWeaponByEnhanceId      map[int32]NumericalFunc
 	LimitBreakCostByWeaponByEnhanceId   map[int32]NumericalFunc
 	LimitBreakCostByMaterialByEnhanceId map[int32]NumericalFunc
+	SpecificLimitBreakByGroup           map[int32][]EntityMWeaponSpecificLimitBreakMaterialGroup
+	RarityLimitBreakByRarity            map[int32][]MaterialOption
 	BaseExpByEnhanceId                  map[int32]int32
 	ReleaseConditionsByGroupId          map[int32][]EntityMWeaponStoryReleaseConditionGroup
 
@@ -46,6 +48,28 @@ type WeaponCatalog struct {
 
 	AwakenByWeaponId         map[int32]EntityMWeaponAwaken
 	AwakenMaterialsByGroupId map[int32][]EntityMWeaponAwakenMaterialGroup
+}
+
+func (c *WeaponCatalog) LimitBreakMaterialOptions(weaponId, currentLimitBreakCount int32) []MaterialOption {
+	weapon, ok := c.Weapons[weaponId]
+	if !ok {
+		return nil
+	}
+	rows := c.SpecificLimitBreakByGroup[weapon.WeaponSpecificLimitBreakMaterialGroupId]
+	threshold := int32(-1)
+	for _, row := range rows {
+		if row.LimitBreakCountLowerLimit <= currentLimitBreakCount && row.LimitBreakCountLowerLimit > threshold {
+			threshold = row.LimitBreakCountLowerLimit
+		}
+	}
+	options := make([]MaterialOption, 0)
+	for _, row := range rows {
+		if row.LimitBreakCountLowerLimit == threshold {
+			options = append(options, MaterialOption{MaterialId: row.MaterialId, Count: row.Count})
+		}
+	}
+	options = append(options, c.RarityLimitBreakByRarity[weapon.RarityType]...)
+	return uniqueMaterialOptions(options)
 }
 
 func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
@@ -103,6 +127,14 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load weapon ability enhancement material table: %w", err)
 	}
+	specificLimitBreakRows, err := utils.ReadTable[EntityMWeaponSpecificLimitBreakMaterialGroup]("m_weapon_specific_limit_break_material_group")
+	if err != nil {
+		return nil, fmt.Errorf("load weapon specific limit break material table: %w", err)
+	}
+	rarityLimitBreakRows, err := utils.ReadTable[EntityMWeaponRarityLimitBreakMaterialGroup]("m_weapon_rarity_limit_break_material_group")
+	if err != nil {
+		return nil, fmt.Errorf("load weapon rarity limit break material table: %w", err)
+	}
 	releaseConditions, err := utils.ReadTable[EntityMWeaponStoryReleaseConditionGroup]("m_weapon_story_release_condition_group")
 	if err != nil {
 		return nil, fmt.Errorf("load weapon story release condition table: %w", err)
@@ -141,6 +173,8 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 		EnhanceCostByWeaponByEnhanceId:      make(map[int32]NumericalFunc, len(enhanceRows)),
 		LimitBreakCostByWeaponByEnhanceId:   make(map[int32]NumericalFunc, len(enhanceRows)),
 		LimitBreakCostByMaterialByEnhanceId: make(map[int32]NumericalFunc, len(enhanceRows)),
+		SpecificLimitBreakByGroup:           make(map[int32][]EntityMWeaponSpecificLimitBreakMaterialGroup),
+		RarityLimitBreakByRarity:            make(map[int32][]MaterialOption),
 		BaseExpByEnhanceId:                  make(map[int32]int32, len(enhanceRows)),
 		ReleaseConditionsByGroupId:          make(map[int32][]EntityMWeaponStoryReleaseConditionGroup),
 
@@ -269,6 +303,16 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 	for _, row := range abilityMatRows {
 		key := [2]int32{row.WeaponAbilityEnhancementMaterialId, row.AbilityLevel}
 		catalog.AbilityEnhanceMats[key] = append(catalog.AbilityEnhanceMats[key], row)
+	}
+	for _, row := range specificLimitBreakRows {
+		catalog.SpecificLimitBreakByGroup[row.WeaponSpecificLimitBreakMaterialGroupId] = append(
+			catalog.SpecificLimitBreakByGroup[row.WeaponSpecificLimitBreakMaterialGroupId], row)
+	}
+	for _, row := range rarityLimitBreakRows {
+		catalog.RarityLimitBreakByRarity[row.RarityType] = append(catalog.RarityLimitBreakByRarity[row.RarityType], MaterialOption{
+			MaterialId: row.MaterialId,
+			Count:      row.Count,
+		})
 	}
 
 	for _, c := range releaseConditions {

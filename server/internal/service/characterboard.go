@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
@@ -31,18 +33,57 @@ func (s *CharacterBoardServiceServer) ReleasePanel(ctx context.Context, req *pb.
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	if len(req.CharacterBoardPanelId) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "character board panel ids are required")
+	}
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		panels := make([]masterdata.EntityMCharacterBoardPanel, 0, len(req.CharacterBoardPanelId))
+		costs := make([]store.PossessionCost, 0)
+		requested := make(map[int32]bool, len(req.CharacterBoardPanelId))
 		for _, panelId := range req.CharacterBoardPanelId {
 			panel, ok := catalog.PanelById[panelId]
 			if !ok {
-				log.Printf("[CharacterBoardService] unknown panelId=%d, skipping", panelId)
+				validationErr = status.Errorf(codes.NotFound, "character board panel %d not found", panelId)
+				return
+			}
+			if requested[panelId] || masterdata.IsCharacterBoardPanelReleased(user.CharacterBoards[panel.CharacterBoardId], panel.SortOrder) {
 				continue
 			}
-			if masterdata.IsCharacterBoardPanelReleased(user.CharacterBoards[panel.CharacterBoardId], panel.SortOrder) {
-				continue
+			requested[panelId] = true
+			panels = append(panels, panel)
+		}
+		for _, panel := range panels {
+			characterId := catalog.CharacterIdByBoardId[panel.CharacterBoardId]
+			if _, owned := user.Characters[characterId]; !owned {
+				validationErr = status.Errorf(codes.FailedPrecondition, "character %d is not owned", characterId)
+				return
 			}
-
-			consumeBoardCosts(catalog, user, panel)
+			board, ok := catalog.BoardById[panel.CharacterBoardId]
+			if !ok || board.CharacterBoardUnlockConditionGroupId != 0 || panel.CharacterBoardPanelUnlockConditionGroupId != 0 {
+				validationErr = status.Errorf(codes.FailedPrecondition, "character board panel %d is not unlocked", panel.CharacterBoardPanelId)
+				return
+			}
+			if panel.ParentCharacterBoardPanelId != 0 && !requested[panel.ParentCharacterBoardPanelId] {
+				parent, ok := catalog.PanelById[panel.ParentCharacterBoardPanelId]
+				if !ok || !masterdata.IsCharacterBoardPanelReleased(user.CharacterBoards[parent.CharacterBoardId], parent.SortOrder) {
+					validationErr = status.Errorf(codes.FailedPrecondition, "parent panel %d is not released", panel.ParentCharacterBoardPanelId)
+					return
+				}
+			}
+			for _, cost := range catalog.ReleaseCostsByGroupId[panel.CharacterBoardPanelReleasePossessionGroupId] {
+				costs = append(costs, store.PossessionCost{
+					PossessionType: model.PossessionType(cost.PossessionType),
+					PossessionId:   cost.PossessionId,
+					Count:          cost.Count,
+				})
+			}
+		}
+		if err := deductUpgradeCosts(user, "character board panel release cost", costs); err != nil {
+			validationErr = err
+			return
+		}
+		for _, panel := range panels {
 			setBoardReleaseBit(user, panel, nowMillis)
 			applyBoardEffects(catalog, user, panel, nowMillis)
 		}
@@ -50,15 +91,11 @@ func (s *CharacterBoardServiceServer) ReleasePanel(ctx context.Context, req *pb.
 	if err != nil {
 		return nil, fmt.Errorf("release character board panel: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.ReleasePanelResponse{}, nil
-}
-
-func consumeBoardCosts(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, panel masterdata.EntityMCharacterBoardPanel) {
-	costs := catalog.ReleaseCostsByGroupId[panel.CharacterBoardPanelReleasePossessionGroupId]
-	for _, cost := range costs {
-		store.DeductPossession(user, model.PossessionType(cost.PossessionType), cost.PossessionId, cost.Count)
-	}
 }
 
 func setBoardReleaseBit(user *store.UserState, panel masterdata.EntityMCharacterBoardPanel, nowMillis int64) {

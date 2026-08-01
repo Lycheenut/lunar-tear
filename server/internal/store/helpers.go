@@ -13,6 +13,9 @@ import (
 )
 
 func DeductPrice(user *UserState, priceType, priceId, amount int32) error {
+	if amount <= 0 {
+		return fmt.Errorf("invalid price amount %d", amount)
+	}
 	switch priceType {
 	case model.PriceTypeConsumableItem:
 		cur := user.ConsumableItems[priceId]
@@ -21,8 +24,8 @@ func DeductPrice(user *UserState, priceType, priceId, amount int32) error {
 		}
 		user.ConsumableItems[priceId] = cur - amount
 	case model.PriceTypeGem:
-		total := user.Gem.FreeGem + user.Gem.PaidGem
-		if total < amount {
+		total := int64(user.Gem.FreeGem) + int64(user.Gem.PaidGem)
+		if total < int64(amount) {
 			return fmt.Errorf("insufficient gems: have %d, need %d", total, amount)
 		}
 		if user.Gem.FreeGem >= amount {
@@ -38,32 +41,91 @@ func DeductPrice(user *UserState, priceType, priceId, amount int32) error {
 		}
 		user.Gem.PaidGem -= amount
 	case model.PriceTypePlatformPayment:
-		// real-money purchase -- treat as free on private server
+		return fmt.Errorf("platform payment is disabled")
 	default:
-		log.Printf("[DeductPrice] unhandled priceType=%d priceId=%d amount=%d", priceType, priceId, amount)
+		return fmt.Errorf("unsupported price type %d", priceType)
 	}
 	return nil
 }
 
-func DeductPossession(user *UserState, possessionType model.PossessionType, possessionId, count int32) {
-	switch possessionType {
-	case model.PossessionTypeMaterial:
-		user.Materials[possessionId] -= count
-		if user.Materials[possessionId] <= 0 {
-			delete(user.Materials, possessionId)
-		}
-	case model.PossessionTypeConsumableItem:
-		user.ConsumableItems[possessionId] -= count
-		if user.ConsumableItems[possessionId] <= 0 {
-			delete(user.ConsumableItems, possessionId)
-		}
-	case model.PossessionTypePaidGem:
-		user.Gem.PaidGem -= count
-	case model.PossessionTypeFreeGem:
-		user.Gem.FreeGem -= count
-	default:
-		log.Printf("[DeductPossession] unhandled type=%d id=%d count=%d", possessionType, possessionId, count)
+type PossessionCost struct {
+	PossessionType model.PossessionType
+	PossessionId   int32
+	Count          int32
+}
+
+// DeductPossessions validates the complete cost list before changing user
+// state, so callers never pay only a subset of a multi-resource cost.
+func DeductPossessions(user *UserState, costs []PossessionCost) error {
+	type possessionKey struct {
+		PossessionType model.PossessionType
+		PossessionId   int32
 	}
+	totals := make(map[possessionKey]int64, len(costs))
+	for _, cost := range costs {
+		if cost.Count < 0 {
+			return fmt.Errorf("invalid possession cost type=%d id=%d count=%d", cost.PossessionType, cost.PossessionId, cost.Count)
+		}
+		if cost.Count == 0 {
+			continue
+		}
+		switch cost.PossessionType {
+		case model.PossessionTypeMaterial,
+			model.PossessionTypeConsumableItem,
+			model.PossessionTypePaidGem,
+			model.PossessionTypeFreeGem,
+			model.PossessionTypeImportantItem:
+		default:
+			return fmt.Errorf("unsupported possession cost type=%d", cost.PossessionType)
+		}
+		key := possessionKey{PossessionType: cost.PossessionType, PossessionId: cost.PossessionId}
+		totals[key] += int64(cost.Count)
+	}
+
+	for key, count := range totals {
+		var available int32
+		switch key.PossessionType {
+		case model.PossessionTypeMaterial:
+			available = user.Materials[key.PossessionId]
+		case model.PossessionTypeConsumableItem:
+			available = user.ConsumableItems[key.PossessionId]
+		case model.PossessionTypePaidGem:
+			available = user.Gem.PaidGem
+		case model.PossessionTypeFreeGem:
+			available = user.Gem.FreeGem
+		case model.PossessionTypeImportantItem:
+			available = user.ImportantItems[key.PossessionId]
+		}
+		if int64(available) < count {
+			return fmt.Errorf("insufficient possession type=%d id=%d: have %d, need %d", key.PossessionType, key.PossessionId, available, count)
+		}
+	}
+
+	for key, count64 := range totals {
+		count := int32(count64)
+		switch key.PossessionType {
+		case model.PossessionTypeMaterial:
+			user.Materials[key.PossessionId] -= count
+			if user.Materials[key.PossessionId] == 0 {
+				delete(user.Materials, key.PossessionId)
+			}
+		case model.PossessionTypeConsumableItem:
+			user.ConsumableItems[key.PossessionId] -= count
+			if user.ConsumableItems[key.PossessionId] == 0 {
+				delete(user.ConsumableItems, key.PossessionId)
+			}
+		case model.PossessionTypePaidGem:
+			user.Gem.PaidGem -= count
+		case model.PossessionTypeFreeGem:
+			user.Gem.FreeGem -= count
+		case model.PossessionTypeImportantItem:
+			user.ImportantItems[key.PossessionId] -= count
+			if user.ImportantItems[key.PossessionId] == 0 {
+				delete(user.ImportantItems, key.PossessionId)
+			}
+		}
+	}
+	return nil
 }
 
 func GrantPossession(user *UserState, possessionType model.PossessionType, possessionId, count int32) {

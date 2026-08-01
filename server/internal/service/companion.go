@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
@@ -34,6 +36,10 @@ func (s *CompanionServiceServer) Enhance(ctx context.Context, req *pb.CompanionE
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	if req.AddLevelCount <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "add level count must be positive")
+	}
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		companion, ok := user.Companions[req.UserCompanionUuid]
 		if !ok {
@@ -47,21 +53,27 @@ func (s *CompanionServiceServer) Enhance(ctx context.Context, req *pb.CompanionE
 			return
 		}
 
-		targetLevel := companion.Level + req.AddLevelCount
-		if targetLevel > companionMaxLevel {
-			targetLevel = companionMaxLevel
+		addLevelCount := req.AddLevelCount
+		if addLevelCount > companionMaxLevel-companion.Level {
+			addLevelCount = companionMaxLevel - companion.Level
 		}
+		targetLevel := companion.Level + addLevelCount
 
+		costs := make([]store.PossessionCost, 0)
 		for lvl := companion.Level; lvl < targetLevel; lvl++ {
 			if costFunc, ok := catalog.GoldCostByCategory[compDef.CompanionCategoryType]; ok {
 				goldCost := costFunc.Evaluate(lvl)
-				user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+				costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			}
 
 			matKey := masterdata.CompanionLevelKey{CategoryType: compDef.CompanionCategoryType, Level: lvl}
 			if mat, ok := catalog.MaterialsByKey[matKey]; ok {
-				user.Materials[mat.MaterialId] -= mat.Count
+				costs = append(costs, materialCost(mat.MaterialId, mat.Count))
 			}
+		}
+		if err := deductUpgradeCosts(user, "companion enhancement cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		companion.Level = targetLevel
@@ -71,6 +83,9 @@ func (s *CompanionServiceServer) Enhance(ctx context.Context, req *pb.CompanionE
 	})
 	if err != nil {
 		return nil, fmt.Errorf("companion enhance: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.CompanionEnhanceResponse{}, nil

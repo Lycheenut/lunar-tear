@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 
 	"github.com/google/uuid"
@@ -163,6 +164,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -184,19 +186,22 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 
 		totalExp := int32(0)
 		totalMaterialCount := int32(0)
+		costs := make([]store.PossessionCost, 0, len(req.Materials)+1)
 		for materialId, count := range req.Materials {
+			if count <= 0 {
+				validationErr = status.Errorf(codes.InvalidArgument, "invalid material count for %d", materialId)
+				return
+			}
 			mat, ok := catalog.Materials[materialId]
 			if !ok {
-				log.Printf("[CostumeService] Enhance: material id=%d not found, skipping", materialId)
-				continue
+				validationErr = status.Errorf(codes.InvalidArgument, "invalid costume enhancement material %d", materialId)
+				return
 			}
-
-			cur := user.Materials[materialId]
-			if cur < count {
-				log.Printf("[CostumeService] Enhance: insufficient material id=%d have=%d need=%d", materialId, cur, count)
-				continue
+			if count > math.MaxInt32-totalMaterialCount {
+				validationErr = status.Error(codes.InvalidArgument, "material count is too large")
+				return
 			}
-			user.Materials[materialId] = cur - count
+			costs = append(costs, materialCost(materialId, count))
 			totalMaterialCount += count
 
 			expPerUnit := mat.EffectValue
@@ -208,8 +213,12 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 
 		if costFunc, ok := catalog.EnhanceCostByRarity[cm.RarityType]; ok && totalMaterialCount > 0 {
 			goldCost := costFunc.Evaluate(totalMaterialCount)
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			log.Printf("[CostumeService] Enhance: gold cost=%d (materials=%d)", goldCost, totalMaterialCount)
+		}
+		if err := deductUpgradeCosts(user, "costume enhancement cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		costume.Exp += totalExp
@@ -230,6 +239,9 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 	if err != nil {
 		return nil, fmt.Errorf("costume enhance: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.EnhanceResponse{
 		IsGreatSuccess:         false,
@@ -246,6 +258,7 @@ func (s *CostumeServiceServer) Awaken(ctx context.Context, req *pb.AwakenRequest
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -260,19 +273,30 @@ func (s *CostumeServiceServer) Awaken(ctx context.Context, req *pb.AwakenRequest
 		}
 
 		nextStep := costume.AwakenCount + 1
-
-		if gold, ok := catalog.AwakenPriceByGroup[awakenRow.CostumeAwakenPriceGroupId]; ok {
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= gold
-			log.Printf("[CostumeService] Awaken: gold cost=%d", gold)
+		if nextStep > config.CostumeAwakenAvailableCount {
+			validationErr = status.Error(codes.FailedPrecondition, "costume is already fully awakened")
+			return
 		}
 
-		for materialId, count := range req.Materials {
-			cur := user.Materials[materialId]
-			if cur < count {
-				log.Printf("[CostumeService] Awaken: insufficient material id=%d have=%d need=%d", materialId, cur, count)
-				count = cur
-			}
-			user.Materials[materialId] = cur - count
+		costs, awakenSteps, costErr := selectedMaterialCosts(req.Materials, catalog.AwakenMaterialOptions(awakenRow.CostumeAwakenStepMaterialGroupId, nextStep))
+		if costErr != nil {
+			validationErr = costErr
+			return
+		}
+		if awakenSteps != 1 {
+			validationErr = status.Error(codes.InvalidArgument, "materials must cover exactly one awakening step")
+			return
+		}
+		gold, ok := catalog.AwakenGold(awakenRow.CostumeAwakenPriceGroupId, nextStep)
+		if !ok {
+			validationErr = status.Error(codes.FailedPrecondition, "costume awakening price is unavailable")
+			return
+		}
+		costs = append(costs, consumableCost(config.ConsumableItemIdForGold, gold))
+		log.Printf("[CostumeService] Awaken: gold cost=%d", gold)
+		if err := deductUpgradeCosts(user, "costume awakening cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		costume.AwakenCount = nextStep
@@ -302,6 +326,9 @@ func (s *CostumeServiceServer) Awaken(ctx context.Context, req *pb.AwakenRequest
 	})
 	if err != nil {
 		return nil, fmt.Errorf("costume awaken: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.AwakenResponse{}, nil
@@ -375,6 +402,10 @@ func (s *CostumeServiceServer) EnhanceActiveSkill(ctx context.Context, req *pb.E
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	if req.AddLevelCount <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "add level count must be positive")
+	}
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -413,7 +444,7 @@ func (s *CostumeServiceServer) EnhanceActiveSkill(ctx context.Context, req *pb.E
 		maxLevel := maxLevelFunc.Evaluate(1)
 
 		addCount := req.AddLevelCount
-		if currentLevel+addCount > maxLevel {
+		if addCount > maxLevel-currentLevel {
 			addCount = maxLevel - currentLevel
 		}
 		if addCount <= 0 {
@@ -421,23 +452,22 @@ func (s *CostumeServiceServer) EnhanceActiveSkill(ctx context.Context, req *pb.E
 			return
 		}
 
+		costs := make([]store.PossessionCost, 0)
 		for lvl := currentLevel; lvl < currentLevel+addCount; lvl++ {
 			key := [2]int32{enhanceMatId, lvl}
 			mats := catalog.ActiveSkillEnhanceMats[key]
 			for _, mat := range mats {
-				cur := user.Materials[mat.MaterialId]
-				cost := mat.Count
-				if cur < cost {
-					log.Printf("[CostumeService] EnhanceActiveSkill: insufficient material id=%d have=%d need=%d", mat.MaterialId, cur, cost)
-					cost = cur
-				}
-				user.Materials[mat.MaterialId] = cur - cost
+				costs = append(costs, materialCost(mat.MaterialId, mat.Count))
 			}
 
 			if costFunc, ok := catalog.ActiveSkillCostByRarity[cm.RarityType]; ok {
 				goldCost := costFunc.Evaluate(lvl + 1)
-				user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+				costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			}
+		}
+		if err := deductUpgradeCosts(user, "costume active skill enhancement cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		skill.UserCostumeUuid = req.UserCostumeUuid
@@ -448,6 +478,9 @@ func (s *CostumeServiceServer) EnhanceActiveSkill(ctx context.Context, req *pb.E
 	})
 	if err != nil {
 		return nil, fmt.Errorf("costume enhance active skill: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.EnhanceActiveSkillResponse{}, nil
@@ -462,6 +495,7 @@ func (s *CostumeServiceServer) LimitBreak(ctx context.Context, req *pb.LimitBrea
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -480,21 +514,24 @@ func (s *CostumeServiceServer) LimitBreak(ctx context.Context, req *pb.LimitBrea
 			return
 		}
 
-		totalMaterialCount := int32(0)
-		for materialId, count := range req.Materials {
-			cur := user.Materials[materialId]
-			if cur < count {
-				log.Printf("[CostumeService] LimitBreak: insufficient material id=%d have=%d need=%d", materialId, cur, count)
-				count = cur
-			}
-			user.Materials[materialId] = cur - count
-			totalMaterialCount += count
+		costs, limitBreakSteps, costErr := selectedMaterialCosts(req.Materials, catalog.LimitBreakMaterialsByCostume[costume.CostumeId])
+		if costErr != nil {
+			validationErr = costErr
+			return
+		}
+		if limitBreakSteps != 1 {
+			validationErr = status.Error(codes.InvalidArgument, "materials must cover exactly one limit break")
+			return
 		}
 
-		if costFunc, ok := catalog.LimitBreakCostByRarity[cm.RarityType]; ok && totalMaterialCount > 0 {
-			goldCost := costFunc.Evaluate(totalMaterialCount)
-			user.ConsumableItems[config.ConsumableItemIdForGold] -= goldCost
+		if costFunc, ok := catalog.LimitBreakCostByRarity[cm.RarityType]; ok {
+			goldCost := costFunc.Evaluate(limitBreakSteps)
+			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
 			log.Printf("[CostumeService] LimitBreak: gold cost=%d", goldCost)
+		}
+		if err := deductUpgradeCosts(user, "costume limit break cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		costume.LimitBreakCount++
@@ -504,6 +541,9 @@ func (s *CostumeServiceServer) LimitBreak(ctx context.Context, req *pb.LimitBrea
 	})
 	if err != nil {
 		return nil, fmt.Errorf("costume limit break: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.LimitBreakResponse{}, nil
@@ -518,6 +558,7 @@ func (s *CostumeServiceServer) UnlockLotteryEffectSlot(ctx context.Context, req 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -530,24 +571,29 @@ func (s *CostumeServiceServer) UnlockLotteryEffectSlot(ctx context.Context, req 
 			log.Printf("[CostumeService] UnlockLotteryEffectSlot: no lottery effect for costumeId=%d slot=%d", costume.CostumeId, req.SlotNumber)
 			return
 		}
-
-		user.ConsumableItems[config.ConsumableItemIdForGold] -= config.CostumeLotteryEffectUnlockSlotConsumeGold
-
-		mats := catalog.LotteryEffectMats[effectRow.CostumeLotteryEffectUnlockMaterialGroupId]
-		for _, mat := range mats {
-			cur := user.Materials[mat.MaterialId]
-			cost := mat.Count
-			if cur < cost {
-				log.Printf("[CostumeService] UnlockLotteryEffectSlot: insufficient material id=%d have=%d need=%d", mat.MaterialId, cur, cost)
-				cost = cur
-			}
-			user.Materials[mat.MaterialId] = cur - cost
-		}
-
 		key := store.CostumeLotteryEffectKey{
 			UserCostumeUuid: req.UserCostumeUuid,
 			SlotNumber:      req.SlotNumber,
 		}
+		if _, unlocked := user.CostumeLotteryEffects[key]; unlocked {
+			validationErr = status.Error(codes.FailedPrecondition, "costume lottery effect slot is already unlocked")
+			return
+		}
+		if req.SlotNumber != costume.CostumeLotteryEffectUnlockedSlotCount+1 {
+			validationErr = status.Error(codes.FailedPrecondition, "costume lottery effect slots must be unlocked in order")
+			return
+		}
+
+		costs := []store.PossessionCost{consumableCost(config.ConsumableItemIdForGold, config.CostumeLotteryEffectUnlockSlotConsumeGold)}
+		mats := catalog.LotteryEffectMats[effectRow.CostumeLotteryEffectUnlockMaterialGroupId]
+		for _, mat := range mats {
+			costs = append(costs, materialCost(mat.MaterialId, mat.Count))
+		}
+		if err := deductUpgradeCosts(user, "costume lottery slot unlock cost", costs); err != nil {
+			validationErr = err
+			return
+		}
+
 		user.CostumeLotteryEffects[key] = store.CostumeLotteryEffectState{
 			UserCostumeUuid: req.UserCostumeUuid,
 			SlotNumber:      req.SlotNumber,
@@ -564,6 +610,9 @@ func (s *CostumeServiceServer) UnlockLotteryEffectSlot(ctx context.Context, req 
 	if err != nil {
 		return nil, fmt.Errorf("costume unlock lottery effect slot: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.UnlockLotteryEffectSlotResponse{}, nil
 }
@@ -577,6 +626,7 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -589,6 +639,14 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 			log.Printf("[CostumeService] DrawLotteryEffect: no lottery effect for costumeId=%d slot=%d", costume.CostumeId, req.SlotNumber)
 			return
 		}
+		key := store.CostumeLotteryEffectKey{
+			UserCostumeUuid: req.UserCostumeUuid,
+			SlotNumber:      req.SlotNumber,
+		}
+		if _, unlocked := user.CostumeLotteryEffects[key]; !unlocked {
+			validationErr = status.Error(codes.FailedPrecondition, "costume lottery effect slot is not unlocked")
+			return
+		}
 
 		oddsPool := catalog.LotteryEffectOdds[effectRow.CostumeLotteryEffectOddsGroupId]
 		if len(oddsPool) == 0 {
@@ -596,17 +654,14 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 			return
 		}
 
-		user.ConsumableItems[config.ConsumableItemIdForGold] -= config.CostumeLotteryEffectDrawSlotConsumeGold
-
+		costs := []store.PossessionCost{consumableCost(config.ConsumableItemIdForGold, config.CostumeLotteryEffectDrawSlotConsumeGold)}
 		mats := catalog.LotteryEffectMats[effectRow.CostumeLotteryEffectDrawMaterialGroupId]
 		for _, mat := range mats {
-			cur := user.Materials[mat.MaterialId]
-			cost := mat.Count
-			if cur < cost {
-				log.Printf("[CostumeService] DrawLotteryEffect: insufficient material id=%d have=%d need=%d", mat.MaterialId, cur, cost)
-				cost = cur
-			}
-			user.Materials[mat.MaterialId] = cur - cost
+			costs = append(costs, materialCost(mat.MaterialId, mat.Count))
+		}
+		if err := deductUpgradeCosts(user, "costume lottery draw cost", costs); err != nil {
+			validationErr = err
+			return
 		}
 
 		totalWeight := int32(0)
@@ -623,10 +678,6 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 			}
 		}
 
-		key := store.CostumeLotteryEffectKey{
-			UserCostumeUuid: req.UserCostumeUuid,
-			SlotNumber:      req.SlotNumber,
-		}
 		existing := user.CostumeLotteryEffects[key]
 		if existing.OddsNumber == 0 {
 			existing.UserCostumeUuid = req.UserCostumeUuid
@@ -649,6 +700,9 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("costume draw lottery effect: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.DrawLotteryEffectResponse{}, nil
