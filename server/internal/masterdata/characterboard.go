@@ -74,7 +74,6 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load character board effect target table: %w", err)
 	}
-
 	catalog := &CharacterBoardCatalog{
 		PanelById:               make(map[int32]EntityMCharacterBoardPanel, len(panels)),
 		PanelsByBoardId:         make(map[int32][]EntityMCharacterBoardPanel),
@@ -118,6 +117,24 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 		catalog.EffectTargetsByGroupId[t.CharacterBoardEffectTargetGroupId] = append(
 			catalog.EffectTargetsByGroupId[t.CharacterBoardEffectTargetGroupId], t)
 	}
-
 	return catalog, nil
+}
+
+func IsCharacterBoardPanelReleased(board store.CharacterBoardState, sortOrder int32) bool {
+	if sortOrder <= 0 || sortOrder > 128 {
+		return false
+	}
+	field := (sortOrder - 1) / 32
+	mask := int32(1 << uint((sortOrder-1)%32))
+	switch field {
+	case 0:
+		return board.PanelReleaseBit1&mask != 0
+	case 1:
+		return board.PanelReleaseBit2&mask != 0
+	case 2:
+		return board.PanelReleaseBit3&mask != 0
+	case 3:
+		return board.PanelReleaseBit4&mask != 0
+	}
+	return false
 }
