@@ -313,6 +313,39 @@ set `AUTH_HOST=` to omit the Facebook login redirect patch, and use
 `DEFAULT_TEXT_LANGUAGE` / `DEFAULT_VOICE_LANGUAGE` to select initial language
 defaults.
 
+### Client Localization CSV
+
+The Japanese text additions used for client patching are stored in
+`client/localization.csv` as UTF-8 with BOM. CSV localization support is built
+into `scripts/android/patch_apk.py`; there is no separate localization packer.
+
+When invoking the Android patcher directly, pass the decompiled APK directory,
+server addresses, and CSV path explicitly:
+
+```bash
+python3 scripts/android/patch_apk.py patched \
+  --grpc-addr 10.0.2.2:8003 \
+  --http-addr 10.0.2.2:8080 \
+  --localization-csv client/localization.csv
+```
+
+`apk_dir`, `--grpc-addr`, and `--http-addr` retain the original required
+interface. `--localization-csv` also has no default path; omitting it leaves the
+localization TextAssets unchanged. Rebuilding, zipalign, and signing continue
+to use the existing workflow documented in `scripts/README.md`.
+
+| CSV field | Purpose |
+| --------- | ------- |
+| `Key` | Client localization key; do not rename it. |
+| `Japanese` | Japanese text to add or replace. |
+
+Every row in the CSV is applied to the APK-embedded localization TextAsset
+derived from the key prefix. Empty values, unsupported keys, and duplicate keys
+are rejected. AssetBundle-only text is not included. Real line breaks in CSV
+cells are normalized to the literal `\n` format used by the client catalog.
+Re-running the patcher is safe: matching values are reported as
+`already-present`; differing values are replaced.
+
 ## Claim Account
 
 Transfers an existing game account to the most recently connected client. Looks up a player by their in-game name, assigns the new client's UUID to that account, and deletes the empty account the new client created.

@@ -5,6 +5,56 @@ PROTO_USED = proto/banner.proto proto/battle.proto proto/bighunt.proto proto/cag
 
 PROTOC ?= protoc
 GOOSE ?= goose
+GO ?= go
+
+# Android client patching. Paths are relative to server/.
+ifeq ($(OS),Windows_NT)
+  PYTHON ?= python
+else
+  PYTHON ?= python3
+endif
+APKTOOL ?= apktool
+ZIPALIGN ?= zipalign
+APKSIGNER ?= apksigner
+KEYTOOL ?= keytool
+
+INPUT_APK ?= ../client/client.apk
+OUTPUT_APK ?= ../client/client-patched.apk
+PATCHED_UNALIGNED_APK ?= $(basename $(OUTPUT_APK))-unaligned$(suffix $(OUTPUT_APK))
+PATCHED_DIR ?= $(basename $(OUTPUT_APK))-work
+PATCH_APK_SCRIPT ?= ../scripts/android/patch_apk.py
+KEYSTORE ?= ../client/debug.keystore
+KEY_ALIAS ?= key
+KEYSTORE_PASS ?= android
+KEY_PASS ?= android
+
+# Master data patching. Paths are relative to server/.
+PATCH_MASTERDATA_SCRIPT ?= ../scripts/patch_masterdata.py
+MASTERDATA_INSTALLER ?= hack/install_masterdata.py
+MASTERDATA_INPUT ?= assets/release/20240404193219.bin.e
+MASTERDATA_TARGET ?= assets/release/20240404193219.bin.e
+MASTERDATA_RELOAD_URL ?= http://127.0.0.1:8082/api/admin/master-data/reload
+
+# Background lifecycle for the existing three-service dev supervisor.
+DEV_MANAGER ?= hack/manage_dev.py
+DEV_RUN_DIR ?= tmp/run
+DEV_PID_FILE ?= $(DEV_RUN_DIR)/dev.pid
+DEV_READY_FILE ?= $(DEV_RUN_DIR)/dev.ready
+DEV_STOP_FILE ?= $(DEV_RUN_DIR)/dev.stop
+DEV_ARGS_FILE ?= $(DEV_RUN_DIR)/dev.args.json
+DEV_LOG_FILE ?= $(DEV_RUN_DIR)/dev.log
+DEV_START_TIMEOUT ?= 90
+DEV_STOP_TIMEOUT ?= 30
+
+GRPC_ADDR ?= 10.0.2.2:8003
+GRPC_TLS ?= false
+HTTP_ADDR ?= 10.0.2.2:8080
+AUTH_HOST ?= 10.0.2.2:3000
+DEFAULT_TEXT_LANGUAGE ?= en
+DEFAULT_VOICE_LANGUAGE ?= en
+PATCH_AUTH_ARG = $(if $(strip $(AUTH_HOST)),--auth-host "$(AUTH_HOST)")
+PATCH_GRPC_TLS_ARG = $(if $(filter 1 true TRUE yes YES,$(GRPC_TLS)),--grpc-tls)
+PATCH_LANGUAGE_ARGS = --default-text-language "$(DEFAULT_TEXT_LANGUAGE)" --default-voice-language "$(DEFAULT_VOICE_LANGUAGE)"
 
 # Android client patching. Paths are relative to server/.
 ifeq ($(OS),Windows_NT)
@@ -65,7 +115,7 @@ build-register-account:
 	go build -o register-account$(EXE) ./cmd/register-account
 
 build-dev:
-	go build -o bin/dev$(EXE) ./cmd/dev
+	$(GO) build -o bin/dev$(EXE) ./cmd/dev
 
 build-all:
 	go build -o bin/dev$(EXE) ./cmd/dev
@@ -135,6 +185,25 @@ client: client-check
 	@echo "Patched APK: $(OUTPUT_APK)"
 endif
 
+# Patch to a temporary file, validate it, atomically install it at the path
+# consumed by both lunar-tear and octo-cdn, then hot-reload when
+# LUNAR_ADMIN_TOKEN is present. Set MASTERDATA_RELOAD_URL= to disable reload.
+# Usage:
+#   make masterdata MASTERDATA_INPUT=/path/to/original.bin.e
+masterdata:
+	$(PYTHON) "$(MASTERDATA_INSTALLER)" --patcher "$(PATCH_MASTERDATA_SCRIPT)" --input "$(MASTERDATA_INPUT)" --target "$(MASTERDATA_TARGET)" --reload-url="$(MASTERDATA_RELOAD_URL)"
+
+# Run cmd/dev as the background supervisor for auth-server, octo-cdn, and
+# lunar-tear. ARGS is forwarded unchanged to cmd/dev.
+start:
+	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" start -- $(ARGS)
+
+stop:
+	$(PYTHON) "$(DEV_MANAGER)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --stop-timeout "$(DEV_STOP_TIMEOUT)" stop
+
+restart:
+	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" restart -- $(ARGS)
+
 clean:
 	rm -rf bin/*
 
@@ -156,4 +225,4 @@ ifndef UUID
 endif
 	go run ./cmd/import-snapshot --snapshot $(SNAPSHOT) --uuid $(UUID)
 
-.PHONY: proto build build-cdn build-auth build-import build-claim-account build-register-account build-dev build-all client-check client clean dev migrate restore import
+.PHONY: proto build build-cdn build-auth build-import build-claim-account build-register-account build-dev build-all client-check client masterdata start stop restart clean dev migrate restore import
