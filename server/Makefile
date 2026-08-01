@@ -56,6 +56,37 @@ PATCH_AUTH_ARG = $(if $(strip $(AUTH_HOST)),--auth-host "$(AUTH_HOST)")
 PATCH_GRPC_TLS_ARG = $(if $(filter 1 true TRUE yes YES,$(GRPC_TLS)),--grpc-tls)
 PATCH_LANGUAGE_ARGS = --default-text-language "$(DEFAULT_TEXT_LANGUAGE)" --default-voice-language "$(DEFAULT_VOICE_LANGUAGE)"
 
+# Android client patching. Paths are relative to server/.
+ifeq ($(OS),Windows_NT)
+  PYTHON ?= python
+else
+  PYTHON ?= python3
+endif
+APKTOOL ?= apktool
+ZIPALIGN ?= zipalign
+APKSIGNER ?= apksigner
+KEYTOOL ?= keytool
+
+INPUT_APK ?= ../client/client.apk
+OUTPUT_APK ?= ../client/client-patched.apk
+PATCHED_UNALIGNED_APK ?= $(basename $(OUTPUT_APK))-unaligned$(suffix $(OUTPUT_APK))
+PATCHED_DIR ?= $(basename $(OUTPUT_APK))-work
+PATCH_APK_SCRIPT ?= ../scripts/android/patch_apk.py
+KEYSTORE ?= ../client/debug.keystore
+KEY_ALIAS ?= key
+KEYSTORE_PASS ?= android
+KEY_PASS ?= android
+
+GRPC_ADDR ?= 10.0.2.2:8003
+GRPC_TLS ?= false
+HTTP_ADDR ?= 10.0.2.2:8080
+AUTH_HOST ?= 10.0.2.2:3000
+DEFAULT_TEXT_LANGUAGE ?= en
+DEFAULT_VOICE_LANGUAGE ?= en
+PATCH_AUTH_ARG = $(if $(strip $(AUTH_HOST)),--auth-host "$(AUTH_HOST)")
+PATCH_GRPC_TLS_ARG = $(if $(filter 1 true TRUE yes YES,$(GRPC_TLS)),--grpc-tls)
+PATCH_LANGUAGE_ARGS = --default-text-language "$(DEFAULT_TEXT_LANGUAGE)" --default-voice-language "$(DEFAULT_VOICE_LANGUAGE)"
+
 EXE =
 ifeq ($(OS),Windows_NT)
   EXE = .exe
