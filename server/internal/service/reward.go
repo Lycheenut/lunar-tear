@@ -12,6 +12,8 @@ import (
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -203,8 +205,38 @@ func (s *RewardServiceServer) ReceiveLabyrinthSeasonReward(ctx context.Context, 
 }
 
 func (s *RewardServiceServer) ReceiveMissionPassRemainingReward(ctx context.Context, _ *emptypb.Empty) (*pb.ReceiveMissionPassRemainingRewardResponse, error) {
-	log.Printf("[RewardService] ReceiveMissionPassRemainingReward (stub)")
-	return &pb.ReceiveMissionPassRemainingRewardResponse{
-		DiffUserData: map[string]*pb.DiffData{},
-	}, nil
+	log.Printf("[RewardService] ReceiveMissionPassRemainingReward")
+	cat := s.holder.Get()
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	var receivedPassId int32
+	var claimErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		var latestEnd int64
+		for passId, pass := range cat.Mission.PassById {
+			if !missionPassEnded(pass.Definition, nowMillis) || user.MissionPassRemaining[passId].RewardReceived {
+				continue
+			}
+			if receivedPassId == 0 || pass.Definition.EndDatetime > latestEnd || (pass.Definition.EndDatetime == latestEnd && passId < receivedPassId) {
+				latestEnd = pass.Definition.EndDatetime
+				receivedPassId = passId
+			}
+		}
+		if receivedPassId == 0 {
+			claimErr = status.Error(codes.FailedPrecondition, "no ended mission pass reward is available")
+			return
+		}
+		_, claimErr = claimMissionPassRewards(cat, user, receivedPassId, nowMillis, true)
+		if claimErr != nil {
+			return
+		}
+		user.MissionPassRemaining[receivedPassId] = store.MissionPassRemainingState{MissionPassId: receivedPassId, RewardReceived: true, RewardReceiveDatetime: nowMillis, LatestVersion: nowMillis}
+	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("receive remaining mission pass reward: %w", updateErr)
+	}
+	if claimErr != nil {
+		return nil, claimErr
+	}
+	return &pb.ReceiveMissionPassRemainingRewardResponse{RewardReceivedMissionPassId: receivedPassId}, nil
 }

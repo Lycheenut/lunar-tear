@@ -108,7 +108,7 @@ func registerServices(
 	pb.RegisterDokanServiceServer(srv, service.NewDokanServiceServer(userStore, userStore))
 	pb.RegisterPortalCageServiceServer(srv, service.NewPortalCageServiceServer(userStore, userStore))
 	pb.RegisterCharacterViewerServiceServer(srv, service.NewCharacterViewerServiceServer(userStore, userStore, holder))
-	pb.RegisterMissionServiceServer(srv, service.NewMissionServiceServer(userStore, userStore))
+	pb.RegisterMissionServiceServer(srv, service.NewMissionServiceServer(userStore, userStore, holder))
 	pb.RegisterShopServiceServer(srv, service.NewShopServiceServer(userStore, userStore, holder))
 	pb.RegisterCostumeServiceServer(srv, service.NewCostumeServiceServer(userStore, userStore, holder))
 	pb.RegisterMovieServiceServer(srv, service.NewMovieServiceServer(userStore, userStore))
