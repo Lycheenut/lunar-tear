@@ -59,8 +59,7 @@ func (s *CharacterBoardServiceServer) ReleasePanel(ctx context.Context, req *pb.
 				validationErr = status.Errorf(codes.FailedPrecondition, "character %d is not owned", characterId)
 				return
 			}
-			board, ok := catalog.BoardById[panel.CharacterBoardId]
-			if !ok || board.CharacterBoardUnlockConditionGroupId != 0 || panel.CharacterBoardPanelUnlockConditionGroupId != 0 {
+			if _, ok := catalog.BoardById[panel.CharacterBoardId]; !ok {
 				validationErr = status.Errorf(codes.FailedPrecondition, "character board panel %d is not unlocked", panel.CharacterBoardPanelId)
 				return
 			}
