@@ -37,9 +37,20 @@ func init() {
 		s, _ := utils.EncodeJSONMaps(sortedDeckDressupCostumeRecords(user)...)
 		return s
 	})
-	registerStatic(
-		"IUserDeckLimitContentRestricted",
-	)
+	register("IUserDeckLimitContentRestricted", func(user store.UserState) string {
+		s, _ := utils.EncodeJSONMaps(sortedDeckLimitContentRestrictedRecords(user)...)
+		return s
+	})
+}
+
+func sortedDeckLimitContentRestrictedRecords(user store.UserState) []map[string]any {
+	keys := sortedStringKeys(user.DeckLimitContentRestricted)
+	records := make([]map[string]any, 0, len(keys))
+	for _, key := range keys {
+		row := user.DeckLimitContentRestricted[key]
+		records = append(records, map[string]any{"userId": user.UserId, "eventQuestChapterId": row.EventQuestChapterId, "questId": row.QuestId, "deckRestrictedUuid": row.DeckRestrictedUuid, "possessionType": row.PossessionType, "targetUuid": row.TargetUuid, "latestVersion": row.LatestVersion})
+	}
+	return records
 }
 
 func sortedDeckRecords(user store.UserState) []map[string]any {

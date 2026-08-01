@@ -53,6 +53,7 @@ type Catalogs struct {
 	BigHunt           *masterdata.BigHuntCatalog
 	Tower             *masterdata.TowerCatalog
 	Labyrinth         *masterdata.LabyrinthCatalog
+	LimitContent      *masterdata.LimitContentCatalog
 	Campaign          *campaign.Catalog
 
 	QuestHandler *questflow.QuestHandler

@@ -2,10 +2,16 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
+	"github.com/google/uuid"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/store"
@@ -17,13 +23,25 @@ func (s *QuestServiceServer) StartEventQuest(ctx context.Context, req *pb.StartE
 	log.Printf("[QuestService] StartEventQuest: chapterId=%d questId=%d isBattleOnly=%v maxAutoOrbitCount=%d",
 		req.EventQuestChapterId, req.QuestId, req.IsBattleOnly, req.MaxAutoOrbitCount)
 
-	engine := s.holder.Get().QuestHandler
+	cat := s.holder.Get()
+	engine := cat.QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := validateLimitContentDeck(user, cat.LimitContent, req.EventQuestChapterId, req.UserDeckNumber, nowMillis); err != nil {
+			validationErr = err
+			return
+		}
 		engine.HandleEventQuestStart(user, req.EventQuestChapterId, req.QuestId, req.IsBattleOnly, req.UserDeckNumber, nowMillis)
 		startAutoOrbit(user, model.QuestTypeEvent, req.EventQuestChapterId, req.QuestId, req.MaxAutoOrbitCount, nowMillis)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("start event quest: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	drops := engine.BattleDropRewards(req.QuestId)
 	pbDrops := make([]*pb.BattleDropReward, len(drops))
@@ -45,15 +63,36 @@ func (s *QuestServiceServer) FinishEventQuest(ctx context.Context, req *pb.Finis
 		req.EventQuestChapterId, req.QuestId, req.IsRetired, req.IsAnnihilated, req.IsAutoOrbit)
 
 	nowMillis := gametime.NowMillis()
-	engine := s.holder.Get().QuestHandler
+	cat := s.holder.Get()
+	engine := cat.QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	var outcome questflow.FinishOutcome
 	var endedDrops []store.AutoOrbitDropEntry
 	var loopEnded bool
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		deckNumber := user.Quests[req.QuestId].UserDeckNumber
+		if !req.IsRetired && !req.IsAnnihilated {
+			if err := validateLimitContentDeck(user, cat.LimitContent, req.EventQuestChapterId, deckNumber, nowMillis); err != nil {
+				validationErr = err
+				return
+			}
+		}
 		outcome = engine.HandleEventQuestFinish(user, req.EventQuestChapterId, req.QuestId, req.IsRetired, req.IsAnnihilated, nowMillis)
+		if !req.IsRetired && !req.IsAnnihilated {
+			if err := recordLimitContentDeck(user, cat.LimitContent, req.EventQuestChapterId, req.QuestId, deckNumber, nowMillis); err != nil {
+				validationErr = err
+				return
+			}
+		}
 		endedDrops, loopEnded = finishAutoOrbit(user, req.IsAutoOrbit, req.IsRetired, req.IsAnnihilated, model.QuestTypeEvent, req.EventQuestChapterId, req.QuestId, nowMillis, outcome.DropRewards)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("finish event quest: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	autoOrbitReward := emptyAutoOrbitReward()
 	if loopEnded {
@@ -71,6 +110,134 @@ func (s *QuestServiceServer) FinishEventQuest(ctx context.Context, req *pb.Finis
 		UserStatusCampaignReward:        []*pb.QuestReward{},
 		AutoOrbitReward:                 autoOrbitReward,
 	}, nil
+}
+
+type limitContentDeckTarget struct {
+	possessionType int32
+	uuid           string
+}
+
+func limitContentDeckTargets(user *store.UserState, deckNumber int32) ([]limitContentDeckTarget, error) {
+	deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeRestrictedLimitContentQuest, UserDeckNumber: deckNumber}]
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "limit-content deck does not exist")
+	}
+	deckCharacterUuids := []string{deck.UserDeckCharacterUuid01, deck.UserDeckCharacterUuid02, deck.UserDeckCharacterUuid03}
+	var targets []limitContentDeckTarget
+	seen := make(map[string]bool)
+	add := func(possessionType int32, targetUuid string) {
+		key := fmt.Sprintf("%d:%s", possessionType, targetUuid)
+		if targetUuid != "" && !seen[key] {
+			seen[key] = true
+			targets = append(targets, limitContentDeckTarget{possessionType, targetUuid})
+		}
+	}
+	for _, deckCharacterUuid := range deckCharacterUuids {
+		if deckCharacterUuid == "" {
+			continue
+		}
+		character, ok := user.DeckCharacters[deckCharacterUuid]
+		if !ok {
+			return nil, status.Error(codes.FailedPrecondition, "limit-content deck contains an unknown character")
+		}
+		if character.UserCostumeUuid == "" {
+			return nil, status.Error(codes.FailedPrecondition, "limit-content deck character has no costume")
+		}
+		if _, ok := user.Costumes[character.UserCostumeUuid]; !ok {
+			return nil, status.Error(codes.FailedPrecondition, "limit-content deck contains an unknown costume")
+		}
+		if character.MainUserWeaponUuid == "" {
+			return nil, status.Error(codes.FailedPrecondition, "limit-content deck character has no main weapon")
+		}
+		if _, ok := user.Weapons[character.MainUserWeaponUuid]; !ok {
+			return nil, status.Error(codes.FailedPrecondition, "limit-content deck contains an unknown main weapon")
+		}
+		add(int32(model.PossessionTypeCostume), character.UserCostumeUuid)
+		add(int32(model.PossessionTypeWeapon), character.MainUserWeaponUuid)
+		for _, weaponUuid := range user.DeckSubWeapons[deckCharacterUuid] {
+			if _, ok := user.Weapons[weaponUuid]; !ok {
+				return nil, status.Error(codes.FailedPrecondition, "limit-content deck contains an unknown sub weapon")
+			}
+			add(int32(model.PossessionTypeWeapon), weaponUuid)
+		}
+	}
+	if len(targets) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "limit-content deck is empty")
+	}
+	return targets, nil
+}
+
+func restrictionPossessionType(restrictionType int32) int32 {
+	if restrictionType == 1 {
+		return int32(model.PossessionTypeCostume)
+	}
+	if restrictionType == 2 {
+		return int32(model.PossessionTypeWeapon)
+	}
+	return 0
+}
+
+func validateLimitContentDeck(user *store.UserState, catalog *masterdata.LimitContentCatalog, chapterId, deckNumber int32, nowMillis int64) error {
+	if catalog == nil {
+		return nil
+	}
+	restrictedTypes := catalog.ActiveRestrictionTypes(chapterId, nowMillis)
+	if len(restrictedTypes) == 0 {
+		return nil
+	}
+	targets, err := limitContentDeckTargets(user, deckNumber)
+	if err != nil {
+		return err
+	}
+	for _, restrictionType := range restrictedTypes {
+		possessionType := restrictionPossessionType(restrictionType)
+		for _, target := range targets {
+			if target.possessionType != possessionType {
+				continue
+			}
+			for _, used := range user.DeckLimitContentRestricted {
+				if used.EventQuestChapterId == chapterId && used.PossessionType == possessionType && used.TargetUuid == target.uuid {
+					return status.Error(codes.FailedPrecondition, "deck contains content already used in this limit quest")
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func recordLimitContentDeck(user *store.UserState, catalog *masterdata.LimitContentCatalog, chapterId, questId, deckNumber int32, nowMillis int64) error {
+	if catalog == nil {
+		return nil
+	}
+	restrictionTypes := catalog.ActiveRestrictionTypes(chapterId, nowMillis)
+	if len(restrictionTypes) == 0 {
+		return nil
+	}
+	targets, err := limitContentDeckTargets(user, deckNumber)
+	if err != nil {
+		return err
+	}
+	for _, restrictionType := range restrictionTypes {
+		possessionType := restrictionPossessionType(restrictionType)
+		for _, target := range targets {
+			if target.possessionType != possessionType {
+				continue
+			}
+			alreadyRecorded := false
+			for _, used := range user.DeckLimitContentRestricted {
+				if used.EventQuestChapterId == chapterId && used.PossessionType == possessionType && used.TargetUuid == target.uuid {
+					alreadyRecorded = true
+					break
+				}
+			}
+			if alreadyRecorded {
+				continue
+			}
+			id := uuid.NewString()
+			user.DeckLimitContentRestricted[id] = store.DeckLimitContentRestrictedState{DeckRestrictedUuid: id, EventQuestChapterId: chapterId, QuestId: questId, PossessionType: possessionType, TargetUuid: target.uuid, LatestVersion: nowMillis}
+		}
+	}
+	return nil
 }
 
 func (s *QuestServiceServer) RestartEventQuest(ctx context.Context, req *pb.RestartEventQuestRequest) (*pb.RestartEventQuestResponse, error) {

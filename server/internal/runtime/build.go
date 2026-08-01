@@ -155,6 +155,10 @@ func buildCatalogs() (*Catalogs, error) {
 	towerCatalog := masterdata.LoadTowerCatalog()
 
 	labyrinthCatalog := masterdata.LoadLabyrinthCatalog()
+	limitContentCatalog, err := masterdata.LoadLimitContentCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("load limit content catalog: %w", err)
+	}
 
 	return &Catalogs{
 		GameConfig:        gameConfig,
@@ -183,6 +187,7 @@ func buildCatalogs() (*Catalogs, error) {
 		BigHunt:           bigHuntCatalog,
 		Tower:             towerCatalog,
 		Labyrinth:         labyrinthCatalog,
+		LimitContent:      limitContentCatalog,
 		Campaign:          campaignCatalog,
 		QuestHandler:      questHandler,
 		GachaHandler:      gachaHandler,

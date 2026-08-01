@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
@@ -275,7 +276,7 @@ func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context,
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if _, exists := user.SideStoryQuests[req.QuestId]; exists {
 			user.SideStoryQuests[req.QuestId] = store.SideStoryQuestProgress{
 				HeadSideStoryQuestSceneId: 0,
@@ -285,6 +286,11 @@ func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context,
 		}
 
 		delete(user.QuestLimitContentStatus, req.QuestId)
+		for id, restricted := range user.DeckLimitContentRestricted {
+			if restricted.EventQuestChapterId == req.EventQuestChapterId {
+				delete(user.DeckLimitContentRestricted, id)
+			}
+		}
 
 		if user.SideStoryActiveProgress.CurrentSideStoryQuestId == req.QuestId {
 			user.SideStoryActiveProgress = store.SideStoryActiveProgress{
@@ -292,6 +298,9 @@ func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context,
 			}
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("reset limit content quest progress: %w", err)
+	}
 
 	return &pb.ResetLimitContentQuestProgressResponse{}, nil
 }
