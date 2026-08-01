@@ -65,10 +65,12 @@ func syncMissionProgress(c *masterdata.MissionCatalog, user *store.UserState, re
 	if req.PictureBookMeasurableValues != nil {
 		measuredByType[39] = req.PictureBookMeasurableValues.DefeatWizardCount
 		if rhythm := req.PictureBookMeasurableValues.RhythmInteractionMeasurableValues; rhythm != nil {
-			if rhythm.LiveTypeId <= 0 {
+			if rhythm.LiveTypeId < 0 || (rhythm.TapCount > 0 && rhythm.LiveTypeId == 0) {
 				return status.Error(codes.InvalidArgument, "rhythm live type must be positive")
 			}
-			measuredByType[36] = rhythm.TapCount
+			if rhythm.LiveTypeId != 0 || rhythm.TapCount != 0 {
+				measuredByType[36] = rhythm.TapCount
+			}
 		}
 	}
 	for missionType, measured := range measuredByType {

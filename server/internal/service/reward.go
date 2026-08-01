@@ -12,8 +12,6 @@ import (
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -47,7 +45,7 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 	var weeklyRewards []*pb.BigHuntReward
 	isReceived := false
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		for bossQuestId, bossQuest := range bhCatalog.BossQuestById {
 			st := user.BigHuntStatuses[bossQuestId]
 			if st.LastDailyRewardReceivedDayVersion >= today {
@@ -128,6 +126,9 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 			isReceived = true
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("receive big hunt reward: %w", err)
+	}
 
 	if weeklyRewards == nil {
 		weeklyRewards = []*pb.BigHuntReward{}
@@ -212,25 +213,7 @@ func (s *RewardServiceServer) ReceiveMissionPassRemainingReward(ctx context.Cont
 	var receivedPassId int32
 	var claimErr error
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
-		var latestEnd int64
-		for passId, pass := range cat.Mission.PassById {
-			if !missionPassEnded(pass.Definition, nowMillis) || user.MissionPassRemaining[passId].RewardReceived {
-				continue
-			}
-			if receivedPassId == 0 || pass.Definition.EndDatetime > latestEnd || (pass.Definition.EndDatetime == latestEnd && passId < receivedPassId) {
-				latestEnd = pass.Definition.EndDatetime
-				receivedPassId = passId
-			}
-		}
-		if receivedPassId == 0 {
-			claimErr = status.Error(codes.FailedPrecondition, "no ended mission pass reward is available")
-			return
-		}
-		_, claimErr = claimMissionPassRewards(cat, user, receivedPassId, nowMillis, true)
-		if claimErr != nil {
-			return
-		}
-		user.MissionPassRemaining[receivedPassId] = store.MissionPassRemainingState{MissionPassId: receivedPassId, RewardReceived: true, RewardReceiveDatetime: nowMillis, LatestVersion: nowMillis}
+		receivedPassId, claimErr = claimMissionPassRemainingReward(cat, user, nowMillis)
 	})
 	if updateErr != nil {
 		return nil, fmt.Errorf("receive remaining mission pass reward: %w", updateErr)
@@ -239,4 +222,26 @@ func (s *RewardServiceServer) ReceiveMissionPassRemainingReward(ctx context.Cont
 		return nil, claimErr
 	}
 	return &pb.ReceiveMissionPassRemainingRewardResponse{RewardReceivedMissionPassId: receivedPassId}, nil
+}
+
+func claimMissionPassRemainingReward(cat *runtime.Catalogs, user *store.UserState, nowMillis int64) (int32, error) {
+	var receivedPassId int32
+	var latestEnd int64
+	for passId, pass := range cat.Mission.PassById {
+		if !missionPassEnded(pass.Definition, nowMillis) || user.MissionPassRemaining[passId].RewardReceived {
+			continue
+		}
+		if receivedPassId == 0 || pass.Definition.EndDatetime > latestEnd || (pass.Definition.EndDatetime == latestEnd && passId < receivedPassId) {
+			latestEnd = pass.Definition.EndDatetime
+			receivedPassId = passId
+		}
+	}
+	if receivedPassId == 0 {
+		return 0, nil
+	}
+	if _, err := claimMissionPassRewards(cat, user, receivedPassId, nowMillis, true); err != nil {
+		return 0, err
+	}
+	user.MissionPassRemaining[receivedPassId] = store.MissionPassRemainingState{MissionPassId: receivedPassId, RewardReceived: true, RewardReceiveDatetime: nowMillis, LatestVersion: nowMillis}
+	return receivedPassId, nil
 }
