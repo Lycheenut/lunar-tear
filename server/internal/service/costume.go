@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gametime"
@@ -27,6 +29,129 @@ type CostumeServiceServer struct {
 
 func NewCostumeServiceServer(users store.UserRepository, sessions store.SessionRepository, holder *runtime.Holder) *CostumeServiceServer {
 	return &CostumeServiceServer{users: users, sessions: sessions, holder: holder}
+}
+
+func (s *CostumeServiceServer) RegisterLevelBonusConfirmed(ctx context.Context, req *pb.RegisterLevelBonusConfirmedRequest) (*pb.RegisterLevelBonusConfirmedResponse, error) {
+	if req.Level < 0 {
+		return nil, status.Error(codes.InvalidArgument, "level must not be negative")
+	}
+	catalog := s.holder.Get().Costume
+	if _, ok := catalog.Costumes[req.CostumeId]; !ok {
+		return nil, status.Error(codes.NotFound, "costume not found")
+	}
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		var ownedLevel int32
+		for _, costume := range user.Costumes {
+			if costume.CostumeId == req.CostumeId && costume.Level > ownedLevel {
+				ownedLevel = costume.Level
+			}
+		}
+		if ownedLevel == 0 || req.Level > ownedLevel {
+			validationErr = status.Error(codes.FailedPrecondition, "costume level has not been reached")
+			return
+		}
+		lastReleased := int32(0)
+		for _, level := range catalog.LevelBonusLevelsByCostume[req.CostumeId] {
+			if level <= ownedLevel {
+				lastReleased = level
+			}
+		}
+		registerCostumeLevelBonusStatus(user, req.CostumeId, req.Level, lastReleased, nowMillis)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("register costume level bonus: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
+	return &pb.RegisterLevelBonusConfirmedResponse{}, nil
+}
+
+func registerCostumeLevelBonusStatus(user *store.UserState, costumeId, confirmedLevel, lastReleasedLevel int32, nowMillis int64) {
+	rec := user.CostumeLevelBonusReleaseStatuses[costumeId]
+	rec.CostumeId = costumeId
+	if lastReleasedLevel > rec.LastReleasedBonusLevel {
+		rec.LastReleasedBonusLevel = lastReleasedLevel
+	}
+	if confirmedLevel > rec.ConfirmedBonusLevel {
+		rec.ConfirmedBonusLevel = confirmedLevel
+	}
+	rec.LatestVersion = nowMillis
+	user.CostumeLevelBonusReleaseStatuses[costumeId] = rec
+}
+
+func recomputeCostumeLotteryEffectResults(user *store.UserState, catalog *masterdata.CostumeCatalog, userCostumeUuid string, nowMillis int64) {
+	for key := range user.CostumeLotteryEffectAbilities {
+		if key.UserCostumeUuid == userCostumeUuid {
+			delete(user.CostumeLotteryEffectAbilities, key)
+		}
+	}
+	for key := range user.CostumeLotteryEffectStatusUps {
+		if key.UserCostumeUuid == userCostumeUuid {
+			delete(user.CostumeLotteryEffectStatusUps, key)
+		}
+	}
+
+	costume, ok := user.Costumes[userCostumeUuid]
+	if !ok {
+		return
+	}
+	for key, effectState := range user.CostumeLotteryEffects {
+		if key.UserCostumeUuid != userCostumeUuid || effectState.OddsNumber == 0 {
+			continue
+		}
+		effect, ok := catalog.LotteryEffects[[2]int32{costume.CostumeId, key.SlotNumber}]
+		if !ok {
+			continue
+		}
+		odds, ok := catalog.LotteryEffectOddsByNumber[[2]int32{effect.CostumeLotteryEffectOddsGroupId, effectState.OddsNumber}]
+		if !ok {
+			continue
+		}
+		switch model.CostumeLotteryEffectType(odds.CostumeLotteryEffectType) {
+		case model.CostumeLotteryEffectTypeAbility:
+			ability, ok := catalog.LotteryEffectTargetAbilities[odds.CostumeLotteryEffectTargetId]
+			if !ok {
+				continue
+			}
+			user.CostumeLotteryEffectAbilities[key] = store.CostumeLotteryEffectAbilityState{
+				UserCostumeUuid: userCostumeUuid,
+				SlotNumber:      key.SlotNumber,
+				AbilityId:       ability.AbilityId,
+				AbilityLevel:    ability.AbilityLevel,
+				LatestVersion:   nowMillis,
+			}
+		case model.CostumeLotteryEffectTypeStatusUp:
+			for _, statusRow := range catalog.LotteryEffectTargetStatusUps[odds.CostumeLotteryEffectTargetId] {
+				statusKey := store.CostumeLotteryEffectStatusKey{
+					UserCostumeUuid:       userCostumeUuid,
+					StatusCalculationType: model.StatusCalculationType(statusRow.StatusCalculationType),
+				}
+				statusState := user.CostumeLotteryEffectStatusUps[statusKey]
+				statusState.UserCostumeUuid = userCostumeUuid
+				statusState.StatusCalculationType = statusKey.StatusCalculationType
+				switch model.StatusKindType(statusRow.StatusKindType) {
+				case model.StatusKindTypeHp:
+					statusState.Hp += statusRow.EffectValue
+				case model.StatusKindTypeAttack:
+					statusState.Attack += statusRow.EffectValue
+				case model.StatusKindTypeVitality:
+					statusState.Vitality += statusRow.EffectValue
+				case model.StatusKindTypeAgility:
+					statusState.Agility += statusRow.EffectValue
+				case model.StatusKindTypeCriticalRatio:
+					statusState.CriticalRatio += statusRow.EffectValue
+				case model.StatusKindTypeCriticalAttack:
+					statusState.CriticalAttack += statusRow.EffectValue
+				}
+				statusState.LatestVersion = nowMillis
+				user.CostumeLotteryEffectStatusUps[statusKey] = statusState
+			}
+		}
+	}
 }
 
 func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceRequest) (*pb.EnhanceResponse, error) {
@@ -429,6 +554,7 @@ func (s *CostumeServiceServer) UnlockLotteryEffectSlot(ctx context.Context, req 
 			OddsNumber:      0,
 			LatestVersion:   nowMillis,
 		}
+		recomputeCostumeLotteryEffectResults(user, catalog, req.UserCostumeUuid, nowMillis)
 
 		costume.CostumeLotteryEffectUnlockedSlotCount++
 		costume.LatestVersion = nowMillis
@@ -508,6 +634,7 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 			existing.OddsNumber = picked.OddsNumber
 			existing.LatestVersion = nowMillis
 			user.CostumeLotteryEffects[key] = existing
+			recomputeCostumeLotteryEffectResults(user, catalog, req.UserCostumeUuid, nowMillis)
 		} else {
 			user.CostumeLotteryEffectPending[req.UserCostumeUuid] = store.CostumeLotteryEffectPendingState{
 				UserCostumeUuid: req.UserCostumeUuid,
@@ -532,6 +659,7 @@ func (s *CostumeServiceServer) ConfirmLotteryEffect(ctx context.Context, req *pb
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
+	catalog := s.holder.Get().Costume
 
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		pending, ok := user.CostumeLotteryEffectPending[req.UserCostumeUuid]
@@ -551,6 +679,7 @@ func (s *CostumeServiceServer) ConfirmLotteryEffect(ctx context.Context, req *pb
 			effect.OddsNumber = pending.OddsNumber
 			effect.LatestVersion = nowMillis
 			user.CostumeLotteryEffects[key] = effect
+			recomputeCostumeLotteryEffectResults(user, catalog, req.UserCostumeUuid, nowMillis)
 			log.Printf("[CostumeService] ConfirmLotteryEffect: accepted oddsNumber=%d for slot=%d", pending.OddsNumber, pending.SlotNumber)
 		} else {
 			log.Printf("[CostumeService] ConfirmLotteryEffect: rejected oddsNumber=%d for slot=%d", pending.OddsNumber, pending.SlotNumber)
