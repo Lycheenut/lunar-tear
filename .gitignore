@@ -15,7 +15,6 @@ server/wizard-restore
 server/.wizard.json
 
 __pycache__/
-.gocache
 
 frida/build/
 node_modules/
