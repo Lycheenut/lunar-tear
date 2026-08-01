@@ -129,12 +129,12 @@ type SequenceReward struct {
 }
 
 type GimmickCatalog struct {
-	schedules         []gimmickScheduleEntry
-	hiddenSequences   map[int32]bool             // GimmickSequenceId -> report/cage-memory
-	sequenceRewards   map[int32][]SequenceReward // GimmickSequenceId -> clear rewards
-	gimmickTypes      map[int32]model.GimmickType
-	cageMemoryItems   map[int32]int32 // CageMemory GimmickId -> ImportantItemId (type 4)
-	hiddenBirdRewards map[GimmickOrnamentRef]SequenceReward
+	schedules       []gimmickScheduleEntry
+	hiddenSequences map[int32]bool             // GimmickSequenceId -> report/cage-memory
+	sequenceRewards map[int32][]SequenceReward // GimmickSequenceId -> clear rewards
+	gimmickTypes    map[int32]model.GimmickType
+	cageMemoryItems map[int32]int32 // CageMemory GimmickId -> ImportantItemId (type 4)
+	ornamentRewards map[GimmickOrnamentRef]SequenceReward
 }
 
 func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnamentCatalog) (*GimmickCatalog, error) {
@@ -211,40 +211,37 @@ func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnament
 
 	sequenceRewards := loadGimmickSequenceRewards()
 	cageMemoryItems := loadCageMemoryImportantItems(gimmickTypes().byGimmick)
-	hiddenBirdRewards := loadHiddenBirdRewards(cageOrnaments)
+	ornamentRewards := loadGimmickOrnamentRewards(cageOrnaments)
 
-	log.Printf("gimmick catalog loaded: %d schedules (%d hidden-content, %d duplicates dropped), %d reward sequences, %d cage-memory items, %d hidden-bird rewards",
-		len(entries), hiddenCount, dedupedCount, len(sequenceRewards), len(cageMemoryItems), len(hiddenBirdRewards))
+	log.Printf("gimmick catalog loaded: %d schedules (%d hidden-content, %d duplicates dropped), %d reward sequences, %d cage-memory items, %d ornament rewards",
+		len(entries), hiddenCount, dedupedCount, len(sequenceRewards), len(cageMemoryItems), len(ornamentRewards))
 	return &GimmickCatalog{
-		schedules:         entries,
-		hiddenSequences:   hiddenSeq,
-		sequenceRewards:   sequenceRewards,
-		gimmickTypes:      gimmickTypes().byGimmick,
-		cageMemoryItems:   cageMemoryItems,
-		hiddenBirdRewards: hiddenBirdRewards,
+		schedules:       entries,
+		hiddenSequences: hiddenSeq,
+		sequenceRewards: sequenceRewards,
+		gimmickTypes:    gimmickTypes().byGimmick,
+		cageMemoryItems: cageMemoryItems,
+		ornamentRewards: ornamentRewards,
 	}, nil
 }
 
-// HiddenBirdReward returns the per-tap reward for a MAP_ONLY_CAGE_TREASURE_HUNT
-// ("Hidden Black Birds", type 7) ornament. Returns false if there's no mapping
-// (e.g. the ornament view has no corresponding cage-ornament-reward entry).
-func (c *GimmickCatalog) HiddenBirdReward(gimmickId, ornamentIndex int32) (SequenceReward, bool) {
-	r, ok := c.hiddenBirdRewards[GimmickOrnamentRef{GimmickId: gimmickId, OrnamentIndex: ornamentIndex}]
+// OrnamentReward resolves one-shot treasure ornaments (types 1 and 7) to the
+// cage-ornament reward table. Interval-drop ornaments intentionally have no
+// fabricated fallback reward.
+func (c *GimmickCatalog) OrnamentReward(gimmickId, ornamentIndex int32) (SequenceReward, bool) {
+	r, ok := c.ornamentRewards[GimmickOrnamentRef{GimmickId: gimmickId, OrnamentIndex: ornamentIndex}]
 	return r, ok
 }
 
-// loadHiddenBirdRewards resolves (GimmickId, OrnamentIndex) -> CageOrnamentReward for
-// every type-7 ("Hidden Black Birds") gimmick. The mapping is structural:
+// loadGimmickOrnamentRewards resolves (GimmickId, OrnamentIndex) to the
+// CageOrnament reward table for one-shot type-1 and type-7 treasure gimmicks.
+// Type 7 uses the view id directly; type 1 uses the chapter-scoped cage id:
 //
-//	m_gimmick (GimmickType == 7) -> GimmickOrnamentGroupId
+//	m_gimmick (GimmickType == 1 or 7) -> GimmickOrnamentGroupId
 //	m_gimmick_ornament (matching group) -> GimmickOrnamentViewId
-//	m_cage_ornament (CageOrnamentId == ViewId) -> CageOrnamentRewardId
+//	m_cage_ornament (CageOrnamentId == ViewId, or 1_000_000+ChapterId*1_000+ViewId)
 //	m_cage_ornament_reward (matching id) -> PossessionType / PossessionId / Count
-//
-// 110 of 114 type-7 ornaments have a matching m_cage_ornament row in the current
-// data; the rest log a warning and are silently skipped so the player just gets
-// no reward on those (no crash).
-func loadHiddenBirdRewards(cageOrnaments *CageOrnamentCatalog) map[GimmickOrnamentRef]SequenceReward {
+func loadGimmickOrnamentRewards(cageOrnaments *CageOrnamentCatalog) map[GimmickOrnamentRef]SequenceReward {
 	empty := map[GimmickOrnamentRef]SequenceReward{}
 	if cageOrnaments == nil {
 		return empty
@@ -259,10 +256,15 @@ func loadHiddenBirdRewards(cageOrnaments *CageOrnamentCatalog) map[GimmickOrname
 		return empty
 	}
 
-	gimmicksByGroup := make(map[int32][]int32)
+	type gimmickRewardSource struct {
+		gimmickId   int32
+		gimmickType model.GimmickType
+	}
+	gimmicksByGroup := make(map[int32][]gimmickRewardSource)
 	for _, g := range gimmicks {
-		if model.GimmickType(g.GimmickType) == model.GimmickTypeMapOnlyCageTreasureHunt {
-			gimmicksByGroup[g.GimmickOrnamentGroupId] = append(gimmicksByGroup[g.GimmickOrnamentGroupId], g.GimmickId)
+		t := model.GimmickType(g.GimmickType)
+		if t == model.GimmickTypeCageTreasureHunt || t == model.GimmickTypeMapOnlyCageTreasureHunt {
+			gimmicksByGroup[g.GimmickOrnamentGroupId] = append(gimmicksByGroup[g.GimmickOrnamentGroupId], gimmickRewardSource{g.GimmickId, t})
 		}
 	}
 
@@ -273,22 +275,25 @@ func loadHiddenBirdRewards(cageOrnaments *CageOrnamentCatalog) map[GimmickOrname
 		if !ok {
 			continue
 		}
-		reward, ok := cageOrnaments.LookupReward(o.GimmickOrnamentViewId)
-		if !ok {
-			missing++
-			continue
-		}
-		entry := SequenceReward{
-			PossessionType: reward.PossessionType,
-			PossessionId:   reward.PossessionId,
-			Count:          reward.Count,
-		}
-		for _, gid := range gids {
-			out[GimmickOrnamentRef{GimmickId: gid, OrnamentIndex: o.GimmickOrnamentIndex}] = entry
+		for _, source := range gids {
+			cageOrnamentId := o.GimmickOrnamentViewId
+			if source.gimmickType == model.GimmickTypeCageTreasureHunt {
+				cageOrnamentId = 1_000_000 + o.ChapterId*1_000 + o.GimmickOrnamentViewId
+			}
+			reward, ok := cageOrnaments.LookupReward(cageOrnamentId)
+			if !ok {
+				missing++
+				continue
+			}
+			out[GimmickOrnamentRef{GimmickId: source.gimmickId, OrnamentIndex: o.GimmickOrnamentIndex}] = SequenceReward{
+				PossessionType: reward.PossessionType,
+				PossessionId:   reward.PossessionId,
+				Count:          reward.Count,
+			}
 		}
 	}
 	if missing > 0 {
-		log.Printf("[gimmick] %d hidden-bird ornaments had no m_cage_ornament_reward row", missing)
+		log.Printf("[gimmick] %d treasure ornaments had no m_cage_ornament_reward row", missing)
 	}
 	return out
 }
