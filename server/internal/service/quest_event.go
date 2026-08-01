@@ -33,7 +33,10 @@ func (s *QuestServiceServer) StartEventQuest(ctx context.Context, req *pb.StartE
 			validationErr = err
 			return
 		}
-		engine.HandleEventQuestStart(user, req.EventQuestChapterId, req.QuestId, req.IsBattleOnly, req.UserDeckNumber, nowMillis)
+		if err := engine.HandleEventQuestStart(user, req.EventQuestChapterId, req.QuestId, req.IsBattleOnly, req.UserDeckNumber, nowMillis); err != nil {
+			validationErr = status.Error(codes.FailedPrecondition, err.Error())
+			return
+		}
 		startAutoOrbit(user, model.QuestTypeEvent, req.EventQuestChapterId, req.QuestId, req.MaxAutoOrbitCount, nowMillis)
 	})
 	if err != nil {
@@ -71,6 +74,10 @@ func (s *QuestServiceServer) FinishEventQuest(ctx context.Context, req *pb.Finis
 	var loopEnded bool
 	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.ValidateEventQuestContinuation(user, req.EventQuestChapterId, req.QuestId, nowMillis); err != nil {
+			validationErr = status.Error(codes.FailedPrecondition, err.Error())
+			return
+		}
 		deckNumber := user.Quests[req.QuestId].UserDeckNumber
 		if !req.IsRetired && !req.IsAnnihilated {
 			if err := validateLimitContentDeck(user, cat.LimitContent, req.EventQuestChapterId, deckNumber, nowMillis); err != nil {
@@ -245,9 +252,21 @@ func (s *QuestServiceServer) RestartEventQuest(ctx context.Context, req *pb.Rest
 
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleEventQuestRestart(user, req.EventQuestChapterId, req.QuestId, gametime.NowMillis())
+	nowMillis := gametime.NowMillis()
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.ValidateEventQuestContinuation(user, req.EventQuestChapterId, req.QuestId, nowMillis); err != nil {
+			validationErr = err
+			return
+		}
+		engine.HandleEventQuestRestart(user, req.EventQuestChapterId, req.QuestId, nowMillis)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("restart event quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	return &pb.RestartEventQuestResponse{
 		BattleDropReward: []*pb.BattleDropReward{},
@@ -281,4 +300,52 @@ func (s *QuestServiceServer) StartGuerrillaFreeOpen(ctx context.Context, req *em
 	})
 
 	return &pb.StartGuerrillaFreeOpenResponse{}, nil
+}
+
+func (s *QuestServiceServer) ReceiveDailyQuestGroupCompleteReward(ctx context.Context, _ *emptypb.Empty) (*pb.ReceiveDailyQuestGroupCompleteRewardResponse, error) {
+	log.Printf("[QuestService] ReceiveDailyQuestGroupCompleteReward")
+	cat := s.holder.Get()
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	today := gametime.StartOfDayMillis()
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		var active *masterdata.EventQuestDailyGroup
+		for i := range cat.Quest.EventDailyGroups {
+			group := &cat.Quest.EventDailyGroups[i]
+			if nowMillis >= group.Definition.StartDatetime && (group.Definition.EndDatetime == 0 || nowMillis < group.Definition.EndDatetime) {
+				active = group
+				break
+			}
+		}
+		if active == nil {
+			validationErr = status.Error(codes.FailedPrecondition, "no active daily quest group")
+			return
+		}
+		if received := user.EventQuestDailyRewards[active.Definition.EventQuestDailyGroupId]; received.RewardReceiveDatetime >= today {
+			validationErr = status.Error(codes.AlreadyExists, "daily quest group reward already received")
+			return
+		}
+		for _, chapterId := range active.ChapterIds {
+			for _, questId := range cat.Quest.EventQuestIdsByChapterId[chapterId] {
+				quest := user.Quests[questId]
+				if quest.QuestStateType != model.UserQuestStateTypeCleared || quest.LastClearDatetime < today {
+					validationErr = status.Error(codes.FailedPrecondition, "daily quest group is incomplete")
+					return
+				}
+			}
+		}
+		for _, reward := range active.Rewards {
+			cat.QuestHandler.Granter.GrantFull(user, model.PossessionType(reward.PossessionType), reward.PossessionId, reward.Count, nowMillis)
+		}
+		id := active.Definition.EventQuestDailyGroupId
+		user.EventQuestDailyRewards[id] = store.EventQuestDailyRewardState{EventQuestDailyGroupId: id, RewardReceiveDatetime: nowMillis, LatestVersion: nowMillis}
+	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("receive daily quest group reward: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
+	return &pb.ReceiveDailyQuestGroupCompleteRewardResponse{}, nil
 }

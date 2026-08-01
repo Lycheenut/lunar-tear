@@ -68,12 +68,16 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 	}
 
 	if isReplay && questDef.QuestReplayFlowRewardGroupId > 0 {
-		for _, reward := range h.ReplayFlowRewardsByGroupId[questDef.QuestReplayFlowRewardGroupId] {
-			outcome.ReplayFlowFirstClearRewards = append(outcome.ReplayFlowFirstClearRewards, RewardGrant{
-				PossessionType: model.PossessionType(reward.PossessionType),
-				PossessionId:   reward.PossessionId,
-				Count:          reward.Count,
-			})
+		_, alreadyReceived := user.QuestReplayFlowRewards[questDef.QuestReplayFlowRewardGroupId]
+		if !alreadyReceived {
+			outcome.ReplayRewardGroupId = questDef.QuestReplayFlowRewardGroupId
+			for _, reward := range h.ReplayFlowRewardsByGroupId[questDef.QuestReplayFlowRewardGroupId] {
+				outcome.ReplayFlowFirstClearRewards = append(outcome.ReplayFlowFirstClearRewards, RewardGrant{
+					PossessionType: model.PossessionType(reward.PossessionType),
+					PossessionId:   reward.PossessionId,
+					Count:          reward.Count,
+				})
+			}
 		}
 	}
 
@@ -81,8 +85,8 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 	// IUserQuestMissionTable has no rows for replay-variant ids (30000+):
 	// the popup is empty on replay in the original game.
 	if !isReplay {
-		pendingClearCount := 0
 		regularMissionCount := 0
+		clearedOrSatisfied := 0
 		for _, questMissionId := range h.MissionIdsByQuestId[questId] {
 			missionDef, ok := h.MissionById[questMissionId]
 			if !ok || model.QuestMissionConditionType(missionDef.QuestMissionConditionType) == model.QuestMissionConditionTypeComplete {
@@ -92,9 +96,11 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 
 			key := store.QuestMissionKey{QuestId: questId, QuestMissionId: questMissionId}
 			mission := user.QuestMissions[key]
-
-			if !mission.IsClear {
-				pendingClearCount++
+			if mission.IsClear {
+				clearedOrSatisfied++
+			} else if h.questMissionSatisfied(user, questId, missionDef) {
+				clearedOrSatisfied++
+				outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
 				outcome.MissionClearRewards = appendMissionRewards(
 					outcome.MissionClearRewards,
 					h.MissionRewardsByMissionId[missionDef.QuestMissionRewardId],
@@ -102,11 +108,7 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 			}
 		}
 
-		priorClearCount := regularMissionCount - pendingClearCount
-		// On our server every mission auto-clears, so priorClearCount + pendingClearCount
-		// always equals regularMissionCount. The two-variable form is kept to mirror the
-		// original game's intent where individual missions could fail their conditions.
-		allRegularWillClear := regularMissionCount > 0 && (priorClearCount+pendingClearCount) == regularMissionCount
+		allRegularWillClear := regularMissionCount > 0 && clearedOrSatisfied == regularMissionCount
 		if allRegularWillClear {
 			for _, questMissionId := range h.MissionIdsByQuestId[questId] {
 				missionDef, ok := h.MissionById[questMissionId]
@@ -115,6 +117,7 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 				}
 				key := store.QuestMissionKey{QuestId: questId, QuestMissionId: questMissionId}
 				if !user.QuestMissions[key].IsClear {
+					outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
 					outcome.MissionClearCompleteRewards = appendMissionRewards(
 						outcome.MissionClearCompleteRewards,
 						h.MissionRewardsByMissionId[missionDef.QuestMissionRewardId],

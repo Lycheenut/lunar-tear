@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/questflow"
@@ -16,9 +19,16 @@ func (s *QuestServiceServer) StartExtraQuest(ctx context.Context, req *pb.StartE
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleExtraQuestStart(user, req.QuestId, req.UserDeckNumber, nowMillis)
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		validationErr = engine.HandleExtraQuestStart(user, req.QuestId, req.UserDeckNumber, nowMillis)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("start extra quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	drops := engine.BattleDropRewards(req.QuestId)
 	pbDrops := make([]*pb.BattleDropReward, len(drops))

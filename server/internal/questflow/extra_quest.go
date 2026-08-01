@@ -8,10 +8,13 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-func (h *QuestHandler) HandleExtraQuestStart(user *store.UserState, questId, userDeckNumber int32, nowMillis int64) {
+func (h *QuestHandler) HandleExtraQuestStart(user *store.UserState, questId, userDeckNumber int32, nowMillis int64) error {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleExtraQuestStart", questId))
+		return fmt.Errorf("unknown quest %d", questId)
+	}
+	if err := h.validateExtraQuestStart(user, questId, nowMillis); err != nil {
+		return err
 	}
 
 	h.initQuestState(user, questId)
@@ -19,7 +22,9 @@ func (h *QuestHandler) HandleExtraQuestStart(user *store.UserState, questId, use
 	if quest.Stamina > 0 {
 		maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
 		stamina := h.staminaWithCampaign(quest.Stamina, h.targetForExtra(questId), nowMillis)
-		store.ConsumeStamina(user, stamina, maxMillis, nowMillis)
+		if err := store.ConsumeStamina(user, stamina, maxMillis, nowMillis); err != nil {
+			return err
+		}
 	}
 
 	questState := user.Quests[questId]
@@ -33,6 +38,7 @@ func (h *QuestHandler) HandleExtraQuestStart(user *store.UserState, questId, use
 		user.ExtraQuest.CurrentQuestSceneId = sceneIds[0]
 		user.ExtraQuest.HeadQuestSceneId = sceneIds[0]
 	}
+	return nil
 }
 
 func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {
@@ -60,8 +66,6 @@ func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int
 	user.ExtraQuest.CurrentQuestId = 0
 	user.ExtraQuest.CurrentQuestSceneId = 0
 	user.ExtraQuest.HeadQuestSceneId = 0
-
-	h.clearQuestMissions(user, questId, nowMillis)
 
 	return outcome
 }

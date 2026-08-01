@@ -34,35 +34,29 @@ func isMainQuestPlayable(quest masterdata.EntityMQuest) bool {
 	return quest.IsCountedAsQuest
 }
 
-func (h *QuestHandler) clearQuestMissions(user *store.UserState, questId int32, nowMillis int64) {
-	for _, missionId := range h.MissionIdsByQuestId[questId] {
-		key := store.QuestMissionKey{QuestId: questId, QuestMissionId: missionId}
-		mission := user.QuestMissions[key]
-		mission.IsClear = true
-		mission.ProgressValue = 1
-		mission.LatestClearDatetime = nowMillis
-		user.QuestMissions[key] = mission
-	}
+func (h *QuestHandler) HandleQuestStart(user *store.UserState, questId int32, isBattleOnly, isMainFlow bool, userDeckNumber int32, nowMillis int64) error {
+	return h.handleQuestStartInternal(user, questId, isBattleOnly, isMainFlow, userDeckNumber, false, nowMillis)
 }
 
-func (h *QuestHandler) HandleQuestStart(user *store.UserState, questId int32, isBattleOnly, isMainFlow bool, userDeckNumber int32, nowMillis int64) {
-	h.handleQuestStartInternal(user, questId, isBattleOnly, isMainFlow, userDeckNumber, false, nowMillis)
+func (h *QuestHandler) HandleQuestStartReplay(user *store.UserState, questId int32, isBattleOnly bool, userDeckNumber int32, nowMillis int64) error {
+	return h.handleQuestStartInternal(user, questId, isBattleOnly, false, userDeckNumber, true, nowMillis)
 }
 
-func (h *QuestHandler) HandleQuestStartReplay(user *store.UserState, questId int32, isBattleOnly bool, userDeckNumber int32, nowMillis int64) {
-	h.handleQuestStartInternal(user, questId, isBattleOnly, false, userDeckNumber, true, nowMillis)
-}
-
-func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId int32, isBattleOnly, isMainFlow bool, userDeckNumber int32, isReplayFlow bool, nowMillis int64) {
+func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId int32, isBattleOnly, isMainFlow bool, userDeckNumber int32, isReplayFlow bool, nowMillis int64) error {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleQuestStart", questId))
+		return fmt.Errorf("unknown quest %d", questId)
+	}
+	if err := h.validateQuestStart(user, questId, nowMillis); err != nil {
+		return err
 	}
 
 	h.initQuestState(user, questId)
 	if quest.Stamina > 0 {
 		stamina := h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis)
-		store.ConsumeStamina(user, stamina, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis)
+		if err := store.ConsumeStamina(user, stamina, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis); err != nil {
+			return err
+		}
 	}
 
 	questState := user.Quests[questId]
@@ -88,19 +82,19 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 		if isCleared {
 			questState.LatestStartDatetime = nowMillis
 			user.Quests[questId] = questState
-			return
+			return nil
 		}
 
 	case isReplayFlow:
 		h.applyReplayStart(user, quest, questId, isBattleOnly, nowMillis)
-		return
+		return nil
 	}
 
 	if isCleared {
 		questState.QuestStateType = model.UserQuestStateTypeActive
 		questState.LatestStartDatetime = nowMillis
 		user.Quests[questId] = questState
-		return
+		return nil
 	}
 
 	if isMainQuestPlayable(quest) {
@@ -121,6 +115,7 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 		}
 	}
 	user.Quests[questId] = questState
+	return nil
 }
 
 func snapshotMainQuestIfNeeded(user *store.UserState) {
@@ -196,18 +191,36 @@ func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, o
 				h.grantWeaponStoryUnlocksForQuestScene(user, questId, model.QuestResultTypeFullResult, nowMillis)...)
 		}
 
-		for _, r := range outcome.MissionClearRewards {
-			h.applyRewardPossession(user, r.PossessionType, r.PossessionId, r.Count, nowMillis)
-		}
-		for _, r := range outcome.MissionClearCompleteRewards {
-			h.applyRewardPossession(user, r.PossessionType, r.PossessionId, r.Count, nowMillis)
-		}
 		questState.IsRewardGranted = true
+	}
+	for _, r := range outcome.MissionClearRewards {
+		h.applyRewardPossession(user, r.PossessionType, r.PossessionId, r.Count, nowMillis)
+	}
+	for _, r := range outcome.MissionClearCompleteRewards {
+		h.applyRewardPossession(user, r.PossessionType, r.PossessionId, r.Count, nowMillis)
+	}
+	for _, missionId := range outcome.ClearedQuestMissionIds {
+		key := store.QuestMissionKey{QuestId: questId, QuestMissionId: missionId}
+		mission := user.QuestMissions[key]
+		mission.QuestId = questId
+		mission.QuestMissionId = missionId
+		mission.IsClear = true
+		mission.ProgressValue = 1
+		mission.LatestClearDatetime = nowMillis
+		mission.LatestVersion = nowMillis
+		user.QuestMissions[key] = mission
 	}
 	raritySet, rankSet := parseAutoSaleRules(user.AutoSaleSettings)
 	h.grantDropRewards(user, outcome.DropRewards, raritySet, rankSet, nowMillis)
 	for _, reward := range outcome.ReplayFlowFirstClearRewards {
 		h.applyRewardPossession(user, reward.PossessionType, reward.PossessionId, reward.Count, nowMillis)
+	}
+	if outcome.ReplayRewardGroupId != 0 {
+		user.QuestReplayFlowRewards[outcome.ReplayRewardGroupId] = store.QuestReplayFlowRewardState{
+			QuestReplayFlowRewardGroupId: outcome.ReplayRewardGroupId,
+			RewardReceiveDatetime:        nowMillis,
+			LatestVersion:                nowMillis,
+		}
 	}
 	questState.QuestStateType = model.UserQuestStateTypeCleared
 	questState.ClearCount++
@@ -236,7 +249,6 @@ func (h *QuestHandler) finalizeChainPreviousQuest(user *store.UserState, questId
 	questState.LastClearDatetime = nowMillis
 	questState.IsBattleOnly = false
 	user.Quests[questId] = questState
-	h.clearQuestMissions(user, questId, nowMillis)
 	log.Printf("[HandleMainQuestSceneProgress] finalized chain-previous quest %d (cleared)", questId)
 }
 
@@ -313,27 +325,50 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 			ctx.CurrentQuestSceneId, ctx.HeadQuestSceneId, ctx.PortalCageInProgress, ctx.CurrentQuestFlowType)
 	}
 
-	h.clearQuestMissions(user, questId, nowMillis)
-
 	return outcome
 }
 
-func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, skipCount int32, nowMillis int64) FinishOutcome {
+func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, skipCount int32, nowMillis int64) (FinishOutcome, error) {
+	if err := h.validateQuestSkip(user, questId, skipCount, nowMillis); err != nil {
+		return FinishOutcome{}, err
+	}
+	return h.applyQuestSkip(user, questId, skipCount, nowMillis)
+}
+
+func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, skipCounts []int32, nowMillis int64) (FinishOutcome, error) {
+	if err := h.validateQuestSkipBulk(user, questIds, skipCounts, nowMillis); err != nil {
+		return FinishOutcome{}, err
+	}
+	var outcome FinishOutcome
+	for i, questId := range questIds {
+		result, err := h.applyQuestSkip(user, questId, skipCounts[i], nowMillis)
+		if err != nil {
+			return FinishOutcome{}, err
+		}
+		outcome.DropRewards = append(outcome.DropRewards, result.DropRewards...)
+	}
+	return outcome, nil
+}
+
+func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount int32, nowMillis int64) (FinishOutcome, error) {
 	questDef, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleQuestSkip", questId))
+		return FinishOutcome{}, fmt.Errorf("unknown quest %d", questId)
 	}
 
 	target := h.targetForMain(questId)
 	maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
 	perSkipStamina := h.staminaWithCampaign(questDef.Stamina, target, nowMillis)
-	store.ConsumeStamina(user, perSkipStamina*skipCount, maxMillis, nowMillis)
+	totalStamina, err := checkedProduct(perSkipStamina, skipCount)
+	if err != nil {
+		return FinishOutcome{}, err
+	}
+	if err := store.ConsumeStamina(user, totalStamina, maxMillis, nowMillis); err != nil {
+		return FinishOutcome{}, err
+	}
 
 	skipTicketId := h.Config.ConsumableItemIdForQuestSkipTicket
 	user.ConsumableItems[skipTicketId] -= skipCount
-	if user.ConsumableItems[skipTicketId] < 0 {
-		user.ConsumableItems[skipTicketId] = 0
-	}
 	raritySet, rankSet := parseAutoSaleRules(user.AutoSaleSettings)
 	var allDrops []RewardGrant
 	for range skipCount {
@@ -354,7 +389,7 @@ func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, skipCount
 	user.Quests[questId] = questState
 
 	log.Printf("[HandleQuestSkip] questId=%d skipCount=%d drops=%d gold=%d", questId, skipCount, len(allDrops), questDef.Gold*skipCount)
-	return FinishOutcome{DropRewards: allDrops}
+	return FinishOutcome{DropRewards: allDrops}, nil
 }
 
 func (h *QuestHandler) HandleQuestRestart(user *store.UserState, questId int32, nowMillis int64) {
@@ -375,11 +410,11 @@ func (h *QuestHandler) HandleQuestRestart(user *store.UserState, questId int32, 
 	for _, missionId := range h.MissionIdsByQuestId[questId] {
 		key := store.QuestMissionKey{QuestId: questId, QuestMissionId: missionId}
 		m := user.QuestMissions[key]
+		if m.IsClear {
+			continue
+		}
 		m.QuestId = questId
 		m.QuestMissionId = missionId
-		m.IsClear = false
-		m.ProgressValue = 0
-		m.LatestClearDatetime = 0
 		user.QuestMissions[key] = m
 	}
 }

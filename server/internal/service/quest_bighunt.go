@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
@@ -11,6 +12,8 @@ import (
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -41,14 +44,16 @@ func (s *BigHuntServiceServer) StartBigHuntQuest(ctx context.Context, req *pb.St
 
 	bhQuest, ok := catalog.QuestById[req.BigHuntQuestId]
 	if !ok {
-		log.Printf("[BigHuntService] StartBigHuntQuest: unknown bigHuntQuestId=%d", req.BigHuntQuestId)
+		return nil, status.Error(codes.InvalidArgument, "unknown big hunt quest")
 	}
 
 	today := gametime.StartOfDayMillis()
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		if ok {
-			engine.HandleBigHuntQuestStart(user, bhQuest.QuestId, req.UserDeckNumber, nowMillis)
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.HandleBigHuntQuestStart(user, bhQuest.QuestId, req.UserDeckNumber, nowMillis); err != nil {
+			validationErr = err
+			return
 		}
 
 		user.BigHuntProgress = store.BigHuntProgress{
@@ -70,6 +75,12 @@ func (s *BigHuntServiceServer) StartBigHuntQuest(ctx context.Context, req *pb.St
 		st.LatestVersion = nowMillis
 		user.BigHuntStatuses[req.BigHuntBossQuestId] = st
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("start big hunt quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	return &pb.StartBigHuntQuestResponse{}, nil
 }
@@ -97,7 +108,10 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
-	bhQuest := catalog.QuestById[req.BigHuntQuestId]
+	bhQuest, ok := catalog.QuestById[req.BigHuntQuestId]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "unknown big hunt quest")
+	}
 	bossQuest := catalog.BossQuestById[req.BigHuntBossQuestId]
 	boss := catalog.BossByBossId[bossQuest.BigHuntBossId]
 
@@ -261,15 +275,22 @@ func (s *BigHuntServiceServer) RestartBigHuntQuest(ctx context.Context, req *pb.
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
-	bhQuest := catalog.QuestById[req.BigHuntQuestId]
+	bhQuest, ok := catalog.QuestById[req.BigHuntQuestId]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "unknown big hunt quest")
+	}
 
 	var battleBinary []byte
 	var deckNumber int32
 
 	today := gametime.StartOfDayMillis()
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleBigHuntQuestStart(user, bhQuest.QuestId, user.BigHuntDeckNumber, nowMillis)
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.HandleBigHuntQuestStart(user, bhQuest.QuestId, user.BigHuntDeckNumber, nowMillis); err != nil {
+			validationErr = err
+			return
+		}
 
 		user.BigHuntProgress.CurrentQuestSceneId = 0
 		user.BigHuntProgress.LatestVersion = nowMillis
@@ -286,6 +307,12 @@ func (s *BigHuntServiceServer) RestartBigHuntQuest(ctx context.Context, req *pb.
 		battleBinary = user.BigHuntBattleBinary
 		deckNumber = user.BigHuntDeckNumber
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("restart big hunt quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	return &pb.RestartBigHuntQuestResponse{
 		BattleBinary: battleBinary,
