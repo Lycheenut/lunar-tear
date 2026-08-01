@@ -165,3 +165,57 @@ func TestUpdateUsersSerializesReadModifyWrite(t *testing.T) {
 		t.Fatalf("right friend state = %+v", friend)
 	}
 }
+
+func TestUpdateUserDoesNotSerializeDifferentUsers(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrations.Up(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	repo := New(db, nil)
+	leftID, err := repo.CreateUser("parallel-left", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightID, err := repo.CreateUser("parallel-right", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	leftEntered := make(chan struct{})
+	releaseLeft := make(chan struct{})
+	rightEntered := make(chan struct{})
+	errCh := make(chan error, 2)
+	go func() {
+		_, updateErr := repo.UpdateUser(leftID, func(user *store.UserState) {
+			close(leftEntered)
+			<-releaseLeft
+			user.Status.Exp++
+		})
+		errCh <- updateErr
+	}()
+	<-leftEntered
+	go func() {
+		_, updateErr := repo.UpdateUser(rightID, func(user *store.UserState) {
+			close(rightEntered)
+			user.Status.Exp++
+		})
+		errCh <- updateErr
+	}()
+
+	select {
+	case <-rightEntered:
+	case <-time.After(time.Second):
+		close(releaseLeft)
+		t.Fatal("an unrelated user update was blocked by the first user's callback")
+	}
+	close(releaseLeft)
+	for range 2 {
+		if updateErr := <-errCh; updateErr != nil {
+			t.Fatal(updateErr)
+		}
+	}
+}

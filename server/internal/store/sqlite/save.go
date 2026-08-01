@@ -4,42 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
-
-type mechanismState struct {
-	BattleMissionDetail     store.BattleMissionDetailState
-	QuestReplayFlowRewards  map[int32]store.QuestReplayFlowRewardState
-	QuestSceneChoices       map[store.QuestSceneChoiceKey]store.QuestSceneChoiceState
-	QuestSceneChoiceHistory map[store.QuestSceneChoiceHistoryKey]store.QuestSceneChoiceState
-	EventQuestDailyRewards  map[int32]store.EventQuestDailyRewardState
-	MissionPassPoints       map[int32]store.MissionPassPointState
-	MissionPassRewards      map[store.MissionPassRewardKey]store.MissionPassRewardState
-	MissionPassRemaining    map[int32]store.MissionPassRemainingState
-	WebviewPanelMissions    map[int32]store.WebviewPanelMissionState
-}
-
-func mechanismStateOf(u *store.UserState) mechanismState {
-	return mechanismState{
-		BattleMissionDetail:     u.Battle.MissionDetail,
-		QuestReplayFlowRewards:  u.QuestReplayFlowRewards,
-		QuestSceneChoices:       u.QuestSceneChoices,
-		QuestSceneChoiceHistory: u.QuestSceneChoiceHistory,
-		EventQuestDailyRewards:  u.EventQuestDailyRewards,
-		MissionPassPoints:       u.MissionPassPoints,
-		MissionPassRewards:      u.MissionPassRewards,
-		MissionPassRemaining:    u.MissionPassRemaining,
-		WebviewPanelMissions:    u.WebviewPanelMissions,
-	}
-}
-
-func marshalMechanismState(u *store.UserState) (string, error) {
-	b, err := json.Marshal(mechanismStateOf(u))
-	return string(b), err
-}
 
 func marshalAutoOrbitDrops(drops []store.AutoOrbitDropEntry) string {
 	if len(drops) == 0 {
@@ -65,11 +33,7 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 		_, err := tx.Exec(query, args...)
 		return err
 	}
-	mechanismJSON, err := marshalMechanismState(u)
-	if err != nil {
-		return fmt.Errorf("marshal mechanism state: %w", err)
-	}
-	if err := exec(`INSERT INTO user_mechanism_state (user_id, state_json) VALUES (?,?)`, uid, mechanismJSON); err != nil {
+	if err := writeMechanismTables(tx, uid, u); err != nil {
 		return err
 	}
 
@@ -654,14 +618,8 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 		return err
 	}
-	if !reflect.DeepEqual(mechanismStateOf(before), mechanismStateOf(after)) {
-		mechanismJSON, err := marshalMechanismState(after)
-		if err != nil {
-			return fmt.Errorf("marshal mechanism state: %w", err)
-		}
-		if err := exec(`INSERT INTO user_mechanism_state (user_id, state_json) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET state_json=excluded.state_json`, uid, mechanismJSON); err != nil {
-			return err
-		}
+	if err := diffMechanismTables(tx, uid, before, after); err != nil {
+		return err
 	}
 
 	if before.PlayerId != after.PlayerId || before.OsType != after.OsType || before.PlatformType != after.PlatformType ||
