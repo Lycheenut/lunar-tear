@@ -31,6 +31,10 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 		user.CostumeLotteryEffectStatusUps[store.CostumeLotteryEffectStatusKey{UserCostumeUuid: "costume", StatusCalculationType: model.StatusCalculationTypeAdd}] = store.CostumeLotteryEffectStatusUpState{UserCostumeUuid: "costume", StatusCalculationType: model.StatusCalculationTypeAdd, Attack: 30, LatestVersion: 3}
 		user.DeckLimitContentRestricted["restricted"] = store.DeckLimitContentRestrictedState{DeckRestrictedUuid: "restricted", EventQuestChapterId: 30, QuestId: 31, PossessionType: 1, TargetUuid: "costume", LatestVersion: 3}
 		user.CageOrnamentAccesses[40] = store.CageOrnamentAccessState{CageOrnamentId: 40, FirstAccessDatetime: 4, LatestAccessDatetime: 5, LatestVersion: 5}
+		user.QuestReplayFlowRewards[50] = store.QuestReplayFlowRewardState{QuestReplayFlowRewardGroupId: 50, RewardReceiveDatetime: 6, LatestVersion: 6}
+		user.MissionPassPoints[60] = store.MissionPassPointState{MissionPassId: 60, Point: 100, LatestVersion: 7}
+		user.Battle.MissionDetail = store.BattleMissionDetailState{IsValid: true, CriticalCount: 8}
+		user.WebviewPanelMissions[70] = store.WebviewPanelMissionState{WebviewPanelMissionPageId: 70, RewardReceiveDatetime: 8, LatestVersion: 8}
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +57,31 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 	}
 	if user.CageOrnamentAccesses[40].LatestAccessDatetime != 5 {
 		t.Fatal("cage ornament access was not persisted")
+	}
+	if user.QuestReplayFlowRewards[50].RewardReceiveDatetime != 6 || user.MissionPassPoints[60].Point != 100 || user.Battle.MissionDetail.CriticalCount != 8 || user.WebviewPanelMissions[70].RewardReceiveDatetime != 8 {
+		t.Fatal("mechanism state was not persisted")
+	}
+}
+
+func TestLoadUserRejectsCorruptMechanismState(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrations.Up(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	repo := New(db, nil)
+	userId, err := repo.CreateUser("corrupt-mechanism", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE user_mechanism_state SET state_json=? WHERE user_id=?`, `{`, userId); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.LoadUser(userId); err == nil {
+		t.Fatal("corrupt mechanism state was silently ignored")
 	}
 }
 

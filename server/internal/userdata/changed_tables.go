@@ -122,6 +122,27 @@ func ChangedTables(before, after *store.UserState) []string {
 	if !mapsEqualStruct(before.Missions, after.Missions) {
 		add("IUserMission")
 	}
+	if !mapsEqualStruct(before.MissionPassPoints, after.MissionPassPoints) {
+		add("IUserMissionPassPoint")
+	}
+	if !mapsEqualStruct(before.MissionPassRewards, after.MissionPassRewards) {
+		add("IUserMissionCompletionProgress")
+	}
+	if !mapsEqualStruct(before.QuestReplayFlowRewards, after.QuestReplayFlowRewards) {
+		add("IUserQuestReplayFlowRewardGroup")
+	}
+	if !mapsEqualStruct(before.QuestSceneChoices, after.QuestSceneChoices) {
+		add("IUserQuestSceneChoice")
+	}
+	if !mapsEqualStruct(before.QuestSceneChoiceHistory, after.QuestSceneChoiceHistory) {
+		add("IUserQuestSceneChoiceHistory")
+	}
+	if !mapsEqualStruct(before.EventQuestDailyRewards, after.EventQuestDailyRewards) {
+		add("IUserEventQuestDailyGroupCompleteReward")
+	}
+	if !mapsEqualStruct(before.WebviewPanelMissions, after.WebviewPanelMissions) {
+		add("IUserWebviewPanelMission")
+	}
 	if !mapsEqualStruct(before.Characters, after.Characters) {
 		add("IUserCharacter")
 	}
@@ -418,6 +439,20 @@ func keyFieldsForTable(table string) []string {
 		return []string{"userId", "questId", "questMissionId"}
 	case "IUserMission":
 		return []string{"userId", "missionId"}
+	case "IUserMissionPassPoint":
+		return []string{"userId", "missionPassId"}
+	case "IUserMissionCompletionProgress":
+		return []string{"userId", "missionPassId", "level", "isPremium"}
+	case "IUserQuestReplayFlowRewardGroup":
+		return []string{"userId", "questReplayFlowRewardGroupId"}
+	case "IUserQuestSceneChoice":
+		return []string{"userId", "questSceneId", "questFlowType"}
+	case "IUserQuestSceneChoiceHistory":
+		return []string{"userId", "questSceneId", "questFlowType", "choiceNumber"}
+	case "IUserEventQuestDailyGroupCompleteReward":
+		return []string{"userId", "eventQuestDailyGroupId"}
+	case "IUserWebviewPanelMission":
+		return []string{"userId", "webviewPanelMissionPageId"}
 	case "IUserWeaponStory":
 		return []string{"userId", "weaponId"}
 	case "IUserWeaponNote":

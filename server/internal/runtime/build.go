@@ -31,9 +31,18 @@ func buildCatalogs() (*Catalogs, error) {
 	}
 	log.Printf("parts catalog loaded: %d parts, %d rarities", len(partsCatalog.PartsById), len(partsCatalog.RarityByRarityType))
 
-	questCatalog, err := masterdata.LoadQuestCatalog(partsCatalog)
+	conditionResolver, err := masterdata.LoadConditionResolver()
+	if err != nil {
+		return nil, fmt.Errorf("load condition resolver: %w", err)
+	}
+
+	questCatalog, err := masterdata.LoadQuestCatalog(partsCatalog, conditionResolver)
 	if err != nil {
 		return nil, fmt.Errorf("load quest catalog: %w", err)
+	}
+	missionCatalog, err := masterdata.LoadMissionCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("load mission catalog: %w", err)
 	}
 	sideStoryCatalog := masterdata.LoadSideStoryCatalog()
 	campaignCatalog, err := campaign.Load()
@@ -49,10 +58,11 @@ func buildCatalogs() (*Catalogs, error) {
 	questHandler := questflow.NewQuestHandler(questCatalog, gameConfig, sideStoryCatalog, campaignCatalog, characterRebirthCatalog)
 	userdata.SetQuestHandler(questHandler)
 
-	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog()
+	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog(partsCatalog)
 	if err != nil {
 		return nil, fmt.Errorf("load gacha catalog: %w", err)
 	}
+	masterdata.EnrichGachaUnlockConditions(gachaEntries, questCatalog)
 	log.Printf("gacha catalog loaded: %d entries", len(gachaEntries))
 
 	gachaPool, err := masterdata.LoadGachaPool()
@@ -92,11 +102,6 @@ func buildCatalogs() (*Catalogs, error) {
 	questHandler.Granter.CompanionDupExchange = companionDupExchange
 
 	gachaHandler := gacha.NewGachaHandler(gachaPool, gameConfig, questHandler.Granter, medalInfo, dupExchange)
-
-	conditionResolver, err := masterdata.LoadConditionResolver()
-	if err != nil {
-		return nil, fmt.Errorf("load condition resolver: %w", err)
-	}
 
 	cageOrnamentCatalog := masterdata.LoadCageOrnamentCatalog()
 	loginBonusCatalog := masterdata.LoadLoginBonusCatalog()
@@ -164,6 +169,7 @@ func buildCatalogs() (*Catalogs, error) {
 		GameConfig:        gameConfig,
 		Parts:             partsCatalog,
 		Quest:             questCatalog,
+		Mission:           missionCatalog,
 		GachaEntries:      gachaEntries,
 		GachaMedals:       medalInfo,
 		GachaPool:         gachaPool,

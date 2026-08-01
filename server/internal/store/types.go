@@ -76,6 +76,14 @@ type UserState struct {
 	Quests                     map[int32]UserQuestState
 	QuestMissions              map[QuestMissionKey]UserQuestMissionState
 	Missions                   map[int32]UserMissionState
+	QuestReplayFlowRewards     map[int32]QuestReplayFlowRewardState
+	QuestSceneChoices          map[QuestSceneChoiceKey]QuestSceneChoiceState
+	QuestSceneChoiceHistory    map[QuestSceneChoiceHistoryKey]QuestSceneChoiceState
+	EventQuestDailyRewards     map[int32]EventQuestDailyRewardState
+	MissionPassPoints          map[int32]MissionPassPointState
+	MissionPassRewards         map[MissionPassRewardKey]MissionPassRewardState
+	MissionPassRemaining       map[int32]MissionPassRemainingState
+	WebviewPanelMissions       map[int32]WebviewPanelMissionState
 	WeaponStories              map[int32]WeaponStoryState
 	Gimmick                    GimmickState
 	CageOrnamentRewards        map[int32]CageOrnamentRewardState
@@ -201,6 +209,30 @@ func (u *UserState) EnsureMaps() {
 	}
 	if u.Missions == nil {
 		u.Missions = make(map[int32]UserMissionState)
+	}
+	if u.QuestReplayFlowRewards == nil {
+		u.QuestReplayFlowRewards = make(map[int32]QuestReplayFlowRewardState)
+	}
+	if u.QuestSceneChoices == nil {
+		u.QuestSceneChoices = make(map[QuestSceneChoiceKey]QuestSceneChoiceState)
+	}
+	if u.QuestSceneChoiceHistory == nil {
+		u.QuestSceneChoiceHistory = make(map[QuestSceneChoiceHistoryKey]QuestSceneChoiceState)
+	}
+	if u.EventQuestDailyRewards == nil {
+		u.EventQuestDailyRewards = make(map[int32]EventQuestDailyRewardState)
+	}
+	if u.MissionPassPoints == nil {
+		u.MissionPassPoints = make(map[int32]MissionPassPointState)
+	}
+	if u.MissionPassRewards == nil {
+		u.MissionPassRewards = make(map[MissionPassRewardKey]MissionPassRewardState)
+	}
+	if u.MissionPassRemaining == nil {
+		u.MissionPassRemaining = make(map[int32]MissionPassRemainingState)
+	}
+	if u.WebviewPanelMissions == nil {
+		u.WebviewPanelMissions = make(map[int32]WebviewPanelMissionState)
 	}
 	if u.WeaponStories == nil {
 		u.WeaponStories = make(map[int32]WeaponStoryState)
@@ -775,6 +807,28 @@ type BattleState struct {
 	LastNpcPartyCount     int32
 	LastBattleBinarySize  int32
 	LastElapsedFrameCount int64
+	MissionDetail         BattleMissionDetailState
+}
+
+type BattleMissionDetailState struct {
+	IsValid                bool
+	CharacterDeathCount    int32
+	MaxDamage              int64
+	CostumeSkillUseCount   int32
+	WeaponSkillUseCount    int32
+	CompanionSkillUseCount int32
+	CriticalCount          int32
+	ComboCount             int32
+	ComboMaxDamage         int64
+	TotalRecoverPoint      int64
+	CostumeResults         [3]CostumeBattleResultState
+	CostumeResultCount     int32
+}
+
+type CostumeBattleResultState struct {
+	IsAlive     bool
+	MaxHp       int64
+	RemainingHp int64
 }
 
 type UserQuestState struct {
@@ -825,6 +879,113 @@ type UserMissionState struct {
 	ProgressValue             int32
 	MissionProgressStatusType int32
 	ClearDatetime             int64
+	LatestVersion             int64
+}
+
+type QuestReplayFlowRewardState struct {
+	QuestReplayFlowRewardGroupId int32
+	RewardReceiveDatetime        int64
+	LatestVersion                int64
+}
+
+type QuestSceneChoiceKey struct {
+	QuestSceneId  int32
+	QuestFlowType int32
+}
+
+func (k QuestSceneChoiceKey) MarshalText() ([]byte, error) {
+	return marshalKey(int64(k.QuestSceneId), int64(k.QuestFlowType)), nil
+}
+
+func (k *QuestSceneChoiceKey) UnmarshalText(text []byte) error {
+	v, err := unmarshalKey(text, "QuestSceneChoiceKey", 2)
+	if err != nil {
+		return err
+	}
+	k.QuestSceneId, k.QuestFlowType = int32(v[0]), int32(v[1])
+	return nil
+}
+
+type QuestSceneChoiceState struct {
+	QuestSceneId   int32
+	QuestFlowType  int32
+	ChoiceNumber   int32
+	ChoiceDatetime int64
+	LatestVersion  int64
+}
+
+type QuestSceneChoiceHistoryKey struct {
+	QuestSceneId  int32
+	QuestFlowType int32
+	ChoiceNumber  int32
+}
+
+func (k QuestSceneChoiceHistoryKey) MarshalText() ([]byte, error) {
+	return marshalKey(int64(k.QuestSceneId), int64(k.QuestFlowType), int64(k.ChoiceNumber)), nil
+}
+
+func (k *QuestSceneChoiceHistoryKey) UnmarshalText(text []byte) error {
+	v, err := unmarshalKey(text, "QuestSceneChoiceHistoryKey", 3)
+	if err != nil {
+		return err
+	}
+	k.QuestSceneId, k.QuestFlowType, k.ChoiceNumber = int32(v[0]), int32(v[1]), int32(v[2])
+	return nil
+}
+
+type EventQuestDailyRewardState struct {
+	EventQuestDailyGroupId int32
+	RewardReceiveDatetime  int64
+	LatestVersion          int64
+}
+
+type MissionPassPointState struct {
+	MissionPassId int32
+	Point         int32
+	LatestVersion int64
+}
+
+type MissionPassRewardKey struct {
+	MissionPassId int32
+	Level         int32
+	IsPremium     bool
+}
+
+func (k MissionPassRewardKey) MarshalText() ([]byte, error) {
+	premium := int64(0)
+	if k.IsPremium {
+		premium = 1
+	}
+	return marshalKey(int64(k.MissionPassId), int64(k.Level), premium), nil
+}
+
+func (k *MissionPassRewardKey) UnmarshalText(text []byte) error {
+	v, err := unmarshalKey(text, "MissionPassRewardKey", 3)
+	if err != nil {
+		return err
+	}
+	k.MissionPassId, k.Level, k.IsPremium = int32(v[0]), int32(v[1]), v[2] != 0
+	return nil
+}
+
+type MissionPassRewardState struct {
+	MissionPassId         int32
+	Level                 int32
+	IsPremium             bool
+	RewardReceiveDatetime int64
+	LatestVersion         int64
+}
+
+type MissionPassRemainingState struct {
+	MissionPassId         int32
+	RewardReceived        bool
+	RewardReceiveDatetime int64
+	LatestVersion         int64
+}
+
+type WebviewPanelMissionState struct {
+	WebviewPanelMissionPageId int32
+	RewardReceiveDatetime     int64
 	LatestVersion             int64
 }
 
@@ -1159,14 +1320,29 @@ type GachaCatalogEntry struct {
 	GachaDecorationType        int32
 	SortOrder                  int32
 	IsInactive                 bool
+	UnlockConditions           []GachaUnlockConditionEntry
 	InformationId              int32
 	BannerAssetName            string
 	GroupId                    int32
 	CeilingCount               int32
 	PricePhases                []GachaPricePhaseEntry
+	BoxItems                   []GachaBoxItemEntry
 	PromotionItems             []GachaPromotionItem
 	DescriptionTextId          int32
 	MaxStepNumber              int32
+}
+
+type GachaBoxItemEntry struct {
+	PossessionType int32
+	PossessionId   int32
+	RarityType     int32
+	Count          int32
+	MaxCount       int32
+}
+
+type GachaUnlockConditionEntry struct {
+	GachaUnlockConditionType int32
+	ConditionValue           int32
 }
 
 type CharacterBoardState struct {

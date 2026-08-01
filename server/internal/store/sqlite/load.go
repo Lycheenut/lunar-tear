@@ -30,6 +30,9 @@ func (s *SQLiteStore) LoadUser(userId int64) (store.UserState, error) {
 	initMaps(&u)
 
 	load1to1(s.db, userId, &u)
+	if err := loadMechanismState(s.db, userId, &u); err != nil {
+		return u, err
+	}
 	loadMapTables(s.db, userId, &u)
 
 	return u, nil
@@ -108,6 +111,7 @@ func initMaps(u *store.UserState) {
 	u.Gimmick.OrnamentProgress = make(map[store.GimmickOrnamentKey]store.GimmickOrnamentProgressState)
 	u.Gimmick.Sequences = make(map[store.GimmickSequenceKey]store.GimmickSequenceState)
 	u.Gimmick.Unlocks = make(map[store.GimmickKey]store.GimmickUnlockState)
+	u.EnsureMaps()
 }
 
 func load1to1(db *sql.DB, uid int64, u *store.UserState) {
@@ -257,6 +261,36 @@ func load1to1(db *sql.DB, uid int64, u *store.UserState) {
 			Count:            int32(obtainCount.Int64),
 		}
 	}
+
+}
+
+func loadMechanismState(db *sql.DB, uid int64, u *store.UserState) error {
+	var mechanismJSON string
+	err := db.QueryRow(`SELECT state_json FROM user_mechanism_state WHERE user_id=?`, uid).Scan(&mechanismJSON)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load user mechanism state: %w", err)
+	}
+	if mechanismJSON == "" {
+		return fmt.Errorf("load user mechanism state: empty state_json")
+	}
+	var state mechanismState
+	if err := json.Unmarshal([]byte(mechanismJSON), &state); err != nil {
+		return fmt.Errorf("decode user mechanism state: %w", err)
+	}
+	u.Battle.MissionDetail = state.BattleMissionDetail
+	u.QuestReplayFlowRewards = state.QuestReplayFlowRewards
+	u.QuestSceneChoices = state.QuestSceneChoices
+	u.QuestSceneChoiceHistory = state.QuestSceneChoiceHistory
+	u.EventQuestDailyRewards = state.EventQuestDailyRewards
+	u.MissionPassPoints = state.MissionPassPoints
+	u.MissionPassRewards = state.MissionPassRewards
+	u.MissionPassRemaining = state.MissionPassRemaining
+	u.WebviewPanelMissions = state.WebviewPanelMissions
+	u.EnsureMaps()
+	return nil
 }
 
 func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {

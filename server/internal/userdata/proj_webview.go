@@ -1,25 +1,27 @@
 package userdata
 
 import (
-	"sync"
+	"sort"
 
-	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/store"
 	"lunar-tear/server/internal/utils"
 )
 
-var webviewPanelMissionCatalog = sync.OnceValue(masterdata.LoadWebviewPanelMissionCatalog)
-
 func init() {
 	register("IUserWebviewPanelMission", func(user store.UserState) string {
-		pageIds := webviewPanelMissionCatalog().PageIds
-		records := make([]map[string]any, 0, len(pageIds))
-		for _, pageId := range pageIds {
+		records := make([]map[string]any, 0, len(user.WebviewPanelMissions))
+		ids := make([]int, 0, len(user.WebviewPanelMissions))
+		for id := range user.WebviewPanelMissions {
+			ids = append(ids, int(id))
+		}
+		sort.Ints(ids)
+		for _, id := range ids {
+			state := user.WebviewPanelMissions[int32(id)]
 			records = append(records, map[string]any{
 				"userId":                    user.UserId,
-				"webviewPanelMissionPageId": pageId,
-				"rewardReceiveDatetime":     user.GameStartDatetime,
-				"latestVersion":             user.GameStartDatetime,
+				"webviewPanelMissionPageId": state.WebviewPanelMissionPageId,
+				"rewardReceiveDatetime":     state.RewardReceiveDatetime,
+				"latestVersion":             state.LatestVersion,
 			})
 		}
 		s, _ := utils.EncodeJSONMaps(records...)

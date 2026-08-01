@@ -167,5 +167,6 @@ func SeedUserState(userId int64, uuid string, nowMillis int64, platform model.Cl
 		AutoSaleSettings:                 make(map[int32]AutoSaleSettingState),
 		CharacterRebirths:                make(map[int32]CharacterRebirthState),
 	}
+	user.EnsureMaps()
 	return user
 }

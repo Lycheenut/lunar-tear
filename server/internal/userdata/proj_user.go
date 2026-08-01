@@ -2,11 +2,8 @@ package userdata
 
 import (
 	"sort"
-	"sync"
 
 	"lunar-tear/server/internal/gametime"
-	"lunar-tear/server/internal/masterdata"
-	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 	"lunar-tear/server/internal/utils"
 )
@@ -95,6 +92,42 @@ func init() {
 	})
 	register("IUserMission", func(user store.UserState) string {
 		s, _ := utils.EncodeJSONMaps(sortedMissionRecords(user)...)
+		return s
+	})
+	register("IUserMissionPassPoint", func(user store.UserState) string {
+		records := make([]map[string]any, 0, len(user.MissionPassPoints))
+		ids := make([]int, 0, len(user.MissionPassPoints))
+		for id := range user.MissionPassPoints {
+			ids = append(ids, int(id))
+		}
+		sort.Ints(ids)
+		for _, id := range ids {
+			row := user.MissionPassPoints[int32(id)]
+			records = append(records, map[string]any{"userId": user.UserId, "missionPassId": row.MissionPassId, "point": row.Point, "latestVersion": row.LatestVersion})
+		}
+		s, _ := utils.EncodeJSONMaps(records...)
+		return s
+	})
+	register("IUserMissionCompletionProgress", func(user store.UserState) string {
+		records := make([]map[string]any, 0, len(user.MissionPassRewards))
+		keys := make([]store.MissionPassRewardKey, 0, len(user.MissionPassRewards))
+		for key := range user.MissionPassRewards {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			if keys[i].MissionPassId != keys[j].MissionPassId {
+				return keys[i].MissionPassId < keys[j].MissionPassId
+			}
+			if keys[i].Level != keys[j].Level {
+				return keys[i].Level < keys[j].Level
+			}
+			return !keys[i].IsPremium && keys[j].IsPremium
+		})
+		for _, key := range keys {
+			row := user.MissionPassRewards[key]
+			records = append(records, map[string]any{"userId": user.UserId, "missionPassId": row.MissionPassId, "level": row.Level, "isPremium": row.IsPremium, "rewardReceiveDatetime": row.RewardReceiveDatetime, "latestVersion": row.LatestVersion})
+		}
+		s, _ := utils.EncodeJSONMaps(records...)
 		return s
 	})
 	register("IUserNaviCutIn", func(user store.UserState) string {
@@ -195,35 +228,16 @@ func sortedTutorialRecords(user store.UserState) []map[string]any {
 	return records
 }
 
-var hiddenStoryRequirements = sync.OnceValue(masterdata.LoadHiddenStoryRequirements)
-
 func sortedMissionRecords(user store.UserState) []map[string]any {
-	missions := make(map[int32]store.UserMissionState, len(user.Missions))
-	for id, m := range user.Missions {
-		missions[id] = m
-	}
-	for _, missionId := range hiddenStoryRequirements().MissionIds {
-		if existing, ok := missions[missionId]; ok && existing.MissionProgressStatusType >= int32(model.MissionProgressStatusTypeClear) {
-			continue
-		}
-		missions[missionId] = store.UserMissionState{
-			MissionId:                 missionId,
-			StartDatetime:             user.GameStartDatetime,
-			MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear),
-			ClearDatetime:             user.GameStartDatetime,
-			LatestVersion:             user.GameStartDatetime,
-		}
-	}
-
-	ids := make([]int, 0, len(missions))
-	for id := range missions {
+	ids := make([]int, 0, len(user.Missions))
+	for id := range user.Missions {
 		ids = append(ids, int(id))
 	}
 	sort.Ints(ids)
 
 	records := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		row := missions[int32(id)]
+		row := user.Missions[int32(id)]
 		records = append(records, map[string]any{
 			"userId":                    user.UserId,
 			"missionId":                 row.MissionId,

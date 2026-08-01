@@ -25,6 +25,8 @@ func FullClientTableMap(user store.UserState) map[string]string {
 		"IUserLogin":                              projectTable("IUserLogin", user),
 		"IUserLoginBonus":                         projectTable("IUserLoginBonus", user),
 		"IUserMission":                            projectTable("IUserMission", user),
+		"IUserMissionCompletionProgress":          projectTable("IUserMissionCompletionProgress", user),
+		"IUserMissionPassPoint":                   projectTable("IUserMissionPassPoint", user),
 		"IUserMainQuestFlowStatus":                projectTable("IUserMainQuestFlowStatus", user),
 		"IUserMainQuestMainFlowStatus":            projectTable("IUserMainQuestMainFlowStatus", user),
 		"IUserMainQuestProgressStatus":            projectTable("IUserMainQuestProgressStatus", user),
