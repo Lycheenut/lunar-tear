@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
@@ -27,32 +31,73 @@ func (s *CharacterBoardServiceServer) ReleasePanel(ctx context.Context, req *pb.
 
 	catalog := s.holder.Get().CharacterBoard
 	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	if len(req.CharacterBoardPanelId) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "character board panel ids are required")
+	}
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		panels := make([]masterdata.EntityMCharacterBoardPanel, 0, len(req.CharacterBoardPanelId))
+		costs := make([]store.PossessionCost, 0)
+		requested := make(map[int32]bool, len(req.CharacterBoardPanelId))
 		for _, panelId := range req.CharacterBoardPanelId {
 			panel, ok := catalog.PanelById[panelId]
 			if !ok {
-				log.Printf("[CharacterBoardService] unknown panelId=%d, skipping", panelId)
+				validationErr = status.Errorf(codes.NotFound, "character board panel %d not found", panelId)
+				return
+			}
+			if requested[panelId] || masterdata.IsCharacterBoardPanelReleased(user.CharacterBoards[panel.CharacterBoardId], panel.SortOrder) {
 				continue
 			}
-
-			consumeBoardCosts(catalog, user, panel)
-			setBoardReleaseBit(user, panel)
-			applyBoardEffects(catalog, user, panel)
+			requested[panelId] = true
+			panels = append(panels, panel)
+		}
+		for _, panel := range panels {
+			characterId := catalog.CharacterIdByBoardId[panel.CharacterBoardId]
+			if _, owned := user.Characters[characterId]; !owned {
+				validationErr = status.Errorf(codes.FailedPrecondition, "character %d is not owned", characterId)
+				return
+			}
+			if _, ok := catalog.BoardById[panel.CharacterBoardId]; !ok {
+				validationErr = status.Errorf(codes.FailedPrecondition, "character board panel %d is not unlocked", panel.CharacterBoardPanelId)
+				return
+			}
+			if panel.ParentCharacterBoardPanelId != 0 && !requested[panel.ParentCharacterBoardPanelId] {
+				parent, ok := catalog.PanelById[panel.ParentCharacterBoardPanelId]
+				if !ok || !masterdata.IsCharacterBoardPanelReleased(user.CharacterBoards[parent.CharacterBoardId], parent.SortOrder) {
+					validationErr = status.Errorf(codes.FailedPrecondition, "parent panel %d is not released", panel.ParentCharacterBoardPanelId)
+					return
+				}
+			}
+			for _, cost := range catalog.ReleaseCostsByGroupId[panel.CharacterBoardPanelReleasePossessionGroupId] {
+				costs = append(costs, store.PossessionCost{
+					PossessionType: model.PossessionType(cost.PossessionType),
+					PossessionId:   cost.PossessionId,
+					Count:          cost.Count,
+				})
+			}
+		}
+		if err := deductUpgradeCosts(user, "character board panel release cost", costs); err != nil {
+			validationErr = err
+			return
+		}
+		for _, panel := range panels {
+			setBoardReleaseBit(user, panel, nowMillis)
+			applyBoardEffects(catalog, user, panel, nowMillis)
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("release character board panel: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	return &pb.ReleasePanelResponse{}, nil
 }
 
-func consumeBoardCosts(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, panel masterdata.EntityMCharacterBoardPanel) {
-	costs := catalog.ReleaseCostsByGroupId[panel.CharacterBoardPanelReleasePossessionGroupId]
-	for _, cost := range costs {
-		store.DeductPossession(user, model.PossessionType(cost.PossessionType), cost.PossessionId, cost.Count)
-	}
-}
-
-func setBoardReleaseBit(user *store.UserState, panel masterdata.EntityMCharacterBoardPanel) {
+func setBoardReleaseBit(user *store.UserState, panel masterdata.EntityMCharacterBoardPanel, nowMillis int64) {
 	boardId := panel.CharacterBoardId
 	board := user.CharacterBoards[boardId]
 	board.CharacterBoardId = boardId
@@ -71,23 +116,24 @@ func setBoardReleaseBit(user *store.UserState, panel masterdata.EntityMCharacter
 	case 3:
 		board.PanelReleaseBit4 |= mask
 	}
+	board.LatestVersion = nowMillis
 
 	user.CharacterBoards[boardId] = board
 }
 
-func applyBoardEffects(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, panel masterdata.EntityMCharacterBoardPanel) {
+func applyBoardEffects(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, panel masterdata.EntityMCharacterBoardPanel, nowMillis int64) {
 	effects := catalog.ReleaseEffectsByGroupId[panel.CharacterBoardPanelReleaseEffectGroupId]
 	for _, eff := range effects {
 		switch model.CharacterBoardEffectType(eff.CharacterBoardEffectType) {
 		case model.CharacterBoardEffectTypeAbility:
-			applyBoardAbilityEffect(catalog, user, eff)
+			applyBoardAbilityEffect(catalog, user, eff, nowMillis)
 		case model.CharacterBoardEffectTypeStatusUp:
-			applyBoardStatusUpEffect(catalog, user, eff)
+			applyBoardStatusUpEffect(catalog, user, eff, nowMillis)
 		}
 	}
 }
 
-func applyBoardAbilityEffect(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, eff masterdata.EntityMCharacterBoardPanelReleaseEffectGroup) {
+func applyBoardAbilityEffect(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, eff masterdata.EntityMCharacterBoardPanelReleaseEffectGroup, nowMillis int64) {
 	ability, ok := catalog.AbilityById[eff.CharacterBoardEffectId]
 	if !ok {
 		log.Printf("[CharacterBoardService] unknown abilityId=%d", eff.CharacterBoardEffectId)
@@ -108,11 +154,12 @@ func applyBoardAbilityEffect(catalog *masterdata.CharacterBoardCatalog, user *st
 	if maxLvl, ok := catalog.AbilityMaxLevel[key]; ok && state.Level > maxLvl {
 		state.Level = maxLvl
 	}
+	state.LatestVersion = nowMillis
 
 	user.CharacterBoardAbilities[key] = state
 }
 
-func applyBoardStatusUpEffect(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, eff masterdata.EntityMCharacterBoardPanelReleaseEffectGroup) {
+func applyBoardStatusUpEffect(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, eff masterdata.EntityMCharacterBoardPanelReleaseEffectGroup, nowMillis int64) {
 	statusUp, ok := catalog.StatusUpById[eff.CharacterBoardEffectId]
 	if !ok {
 		log.Printf("[CharacterBoardService] unknown statusUpId=%d", eff.CharacterBoardEffectId)
@@ -149,6 +196,7 @@ func applyBoardStatusUpEffect(catalog *masterdata.CharacterBoardCatalog, user *s
 	case model.CharacterBoardStatusUpTypeVitalityAdd, model.CharacterBoardStatusUpTypeVitalityMultiply:
 		state.Vitality += eff.EffectValue
 	}
+	state.LatestVersion = nowMillis
 
 	user.CharacterBoardStatusUps[key] = state
 }

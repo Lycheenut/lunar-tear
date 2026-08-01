@@ -28,11 +28,24 @@ type GameConfig struct {
 	UserStaminaRecoverySecond int32
 	RewardGachaDailyMaxCount  int32
 	QuestSkipMaxCountAtOnce   int32
+	ExplorePlayIntervalMinute int32
 
 	WeaponLimitBreakAvailableCount int32
 
 	CostumeLotteryEffectUnlockSlotConsumeGold int32
 	CostumeLotteryEffectDrawSlotConsumeGold   int32
+
+	PossessionCountLimitMaterial       int32
+	PossessionCountLimitConsumableItem int32
+	PossessionCountLimitMoney          int32
+	PossessionCountLimitWeapon         int32
+	PossessionCountLimitParts          int32
+	PossessionCountLimitImportantItem  int32
+
+	UserFriendMaxNumber               int32
+	UserFriendReceiveCheerMaxNumber   int32
+	UserFriendReceiveRequestMaxNumber int32
+	UserFriendSendCheerMaxNumber      int32
 }
 
 func LoadGameConfig() (*GameConfig, error) {
@@ -68,11 +81,24 @@ func LoadGameConfig() (*GameConfig, error) {
 	cfg.UserStaminaRecoverySecond = parseInt32(kv, "USER_STAMINA_RECOVERY_SECOND")
 	cfg.RewardGachaDailyMaxCount = parseInt32(kv, "REWARD_GACHA_DAILY_MAX_COUNT")
 	cfg.QuestSkipMaxCountAtOnce = parseInt32(kv, "QUEST_SKIP_MAX_COUNT_AT_ONCE")
+	cfg.ExplorePlayIntervalMinute = parseInt32(kv, "EXPLORE_PLAY_INTERVAL_MINUTE")
 
 	cfg.WeaponLimitBreakAvailableCount = parseInt32(kv, "WEAPON_LIMIT_BREAK_AVAILABLE_COUNT")
 
 	cfg.CostumeLotteryEffectUnlockSlotConsumeGold = parseInt32(kv, "COSTUME_LOTTERY_EFFECT_UNLOCK_SLOT_CONSUME_GOLD")
 	cfg.CostumeLotteryEffectDrawSlotConsumeGold = parseInt32(kv, "COSTUME_LOTTERY_EFFECT_DRAW_SLOT_CONSUME_GOLD")
+
+	cfg.PossessionCountLimitMaterial = parseInt32(kv, "POSSESSION_COUNT_LIMIT_MATERIAL")
+	cfg.PossessionCountLimitConsumableItem = parseInt32(kv, "POSSESSION_COUNT_LIMIT_CONSUMABLE_ITEM")
+	cfg.PossessionCountLimitMoney = parseInt32(kv, "POSSESSION_COUNT_LIMIT_MONEY")
+	cfg.PossessionCountLimitWeapon = parseInt32(kv, "POSSESSION_COUNT_LIMIT_WEAPON")
+	cfg.PossessionCountLimitParts = parseInt32(kv, "POSSESSION_COUNT_LIMIT_PARTS")
+	cfg.PossessionCountLimitImportantItem = parseInt32(kv, "POSSESSION_COUNT_LIMIT_IMPORTANT_ITEM")
+
+	cfg.UserFriendMaxNumber = parseInt32(kv, "USER_FRIEND_MAX_NUMBER")
+	cfg.UserFriendReceiveCheerMaxNumber = parseInt32(kv, "USER_FRIEND_RECEIVE_CHEER_MAX_NUMBER")
+	cfg.UserFriendReceiveRequestMaxNumber = parseInt32(kv, "USER_FRIEND_RECEIVE_REQUEST_MAX_NUMBER")
+	cfg.UserFriendSendCheerMaxNumber = parseInt32(kv, "USER_FRIEND_SEND_CHEER_MAX_NUMBER")
 
 	return cfg, nil
 }

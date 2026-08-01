@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
@@ -29,7 +33,12 @@ func (s *GimmickServiceServer) UpdateSequence(ctx context.Context, req *pb.Updat
 	log.Printf("[GimmickService] UpdateSequence: scheduleId=%d sequenceId=%d",
 		req.GimmickSequenceScheduleId, req.GimmickSequenceId)
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if !s.holder.Get().Gimmick.SequenceAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, gametime.NowMillis()) {
+			validationErr = status.Error(codes.FailedPrecondition, "gimmick sequence is not available")
+			return
+		}
 		key := store.GimmickSequenceKey{
 			GimmickSequenceScheduleId: req.GimmickSequenceScheduleId,
 			GimmickSequenceId:         req.GimmickSequenceId,
@@ -38,6 +47,12 @@ func (s *GimmickServiceServer) UpdateSequence(ctx context.Context, req *pb.Updat
 		sequence.Key = key
 		user.Gimmick.Sequences[key] = sequence
 	})
+	if err != nil {
+		return nil, fmt.Errorf("update gimmick sequence: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 	return &pb.UpdateSequenceResponse{}, nil
 }
 
@@ -49,8 +64,13 @@ func (s *GimmickServiceServer) UpdateGimmickProgress(ctx context.Context, req *p
 
 	var ornamentRewards []*pb.GimmickReward
 	var sequenceCleared bool
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		nowMillis := gametime.NowMillis()
+		if !cat.Gimmick.GimmickAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, req.GimmickId, nowMillis) {
+			validationErr = status.Error(codes.FailedPrecondition, "gimmick is not available")
+			return
+		}
 		progressKey := store.GimmickKey{
 			GimmickSequenceScheduleId: req.GimmickSequenceScheduleId,
 			GimmickSequenceId:         req.GimmickSequenceId,
@@ -66,11 +86,13 @@ func (s *GimmickServiceServer) UpdateGimmickProgress(ctx context.Context, req *p
 			GimmickId:                 req.GimmickId,
 			GimmickOrnamentIndex:      req.GimmickOrnamentIndex,
 		}
+		_, ornamentAlreadyProcessed := user.Gimmick.OrnamentProgress[ornamentKey]
 		ornament := user.Gimmick.OrnamentProgress[ornamentKey]
 		ornament.Key = ornamentKey
 		ornament.ProgressValueBit = req.ProgressValueBit
 		ornament.BaseDatetime = nowMillis
-		user.Gimmick.OrnamentProgress[ornamentKey] = ornament
+		ornament.LatestVersion = nowMillis
+		persistOrnamentProgress := true
 
 		// Per-type branches:
 		//   * Report (type 9, "Hidden Stories")            — mark gimmick + sequence
@@ -81,16 +103,22 @@ func (s *GimmickServiceServer) UpdateGimmickProgress(ctx context.Context, req *p
 		//   * CageMemory (type 10, "Lost Archives")        — resolve an ImportantItem
 		//     (type 4) from the gimmick's monitor texture and grant it. IsGimmickCleared
 		//     stays false (matches original userdata; only ornament progress flips).
-		//   * CageTreasureHunt / CageIntervalDropItem*     — stub per-tap material so
-		//     the client's reward popup fires; real reward source still unmapped.
+		//   * CageTreasureHunt                          — use the ornament reward map.
+		//   * CageIntervalDropItem*                    — record interval progress only;
+		//     the available interval table has no possession mapping.
 		switch cat.Gimmick.GimmickType(req.GimmickId) {
 		case model.GimmickTypeReport:
 			progress.IsGimmickCleared = true
 			sequenceCleared = markSequenceClearedOnce(user, cat, req.GimmickSequenceScheduleId, req.GimmickSequenceId, nowMillis)
 
-		case model.GimmickTypeMapOnlyCageTreasureHunt:
-			r, ok := cat.Gimmick.HiddenBirdReward(req.GimmickId, req.GimmickOrnamentIndex)
+		case model.GimmickTypeCageTreasureHunt, model.GimmickTypeMapOnlyCageTreasureHunt:
+			if ornamentAlreadyProcessed {
+				persistOrnamentProgress = false
+				break
+			}
+			r, ok := cat.Gimmick.OrnamentReward(req.GimmickId, req.GimmickOrnamentIndex)
 			if !ok {
+				persistOrnamentProgress = false
 				log.Printf("[GimmickService] UpdateGimmickProgress: hidden-bird %d ornament %d has no reward mapping, skipping",
 					req.GimmickId, req.GimmickOrnamentIndex)
 				break
@@ -121,28 +149,23 @@ func (s *GimmickServiceServer) UpdateGimmickProgress(ctx context.Context, req *p
 				Count:          1,
 			})
 
-		case model.GimmickTypeCageTreasureHunt,
-			model.GimmickTypeCageIntervalDropItem,
+		case model.GimmickTypeCageIntervalDropItem,
 			model.GimmickTypeMapOnlyCageIntervalDrop:
-			// Per-tap drops with no per-gimmick reward in master data:
-			//   * type 1 — "Fickle Black Birds" in the cage
-			//   * type 2 — "Lost Items" in the cage
-			//   * type 8 — Lost Items (map variant)
-			// Stub: grant 1 of Material 100004 (the most-common reward across
-			// m_cage_ornament_reward — 15 occurrences — likely a low-tier shard) per
-			// tap so the client's reward-popup path fires and the player accumulates
-			// something. Replace once a real per-gimmick mapping surfaces.
-			const stubMaterialId = int32(100004)
-			const stubMaterialCount = int32(1)
-			cat.QuestHandler.Granter.GrantFull(user, model.PossessionTypeMaterial, stubMaterialId, stubMaterialCount, nowMillis)
-			ornamentRewards = append(ornamentRewards, &pb.GimmickReward{
-				PossessionType: int32(model.PossessionTypeMaterial),
-				PossessionId:   stubMaterialId,
-				Count:          stubMaterialCount,
-			})
+			// The interval table controls timing only and has no possession mapping.
+			// Persist progress but do not fabricate a material reward.
 		}
+		if persistOrnamentProgress {
+			user.Gimmick.OrnamentProgress[ornamentKey] = ornament
+		}
+		progress.LatestVersion = nowMillis
 		user.Gimmick.Progress[progressKey] = progress
 	})
+	if err != nil {
+		return nil, fmt.Errorf("update gimmick progress: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	var clearReward []*pb.GimmickReward
 	if sequenceCleared {
@@ -224,7 +247,15 @@ func (s *GimmickServiceServer) InitSequenceSchedule(ctx context.Context, _ *empt
 func (s *GimmickServiceServer) Unlock(ctx context.Context, req *pb.UnlockRequest) (*pb.UnlockResponse, error) {
 	log.Printf("[GimmickService] Unlock: gimmickKeys=%d", len(req.GimmickKey))
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		nowMillis := gametime.NowMillis()
+		for _, item := range req.GimmickKey {
+			if !s.holder.Get().Gimmick.GimmickAvailable(user, item.GimmickSequenceScheduleId, item.GimmickSequenceId, item.GimmickId, nowMillis) {
+				validationErr = status.Error(codes.FailedPrecondition, "gimmick is not available")
+				return
+			}
+		}
 		for _, item := range req.GimmickKey {
 			key := store.GimmickKey{
 				GimmickSequenceScheduleId: item.GimmickSequenceScheduleId,
@@ -237,5 +268,11 @@ func (s *GimmickServiceServer) Unlock(ctx context.Context, req *pb.UnlockRequest
 			user.Gimmick.Unlocks[key] = unlock
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("unlock gimmick: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 	return &pb.UnlockResponse{}, nil
 }

@@ -2,15 +2,19 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -33,9 +37,16 @@ func (s *QuestServiceServer) UpdateMainFlowSceneProgress(ctx context.Context, re
 
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleMainFlowSceneProgress(user, req.QuestSceneId, gametime.NowMillis())
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		validationErr = engine.HandleMainFlowSceneProgress(user, req.QuestSceneId, gametime.NowMillis())
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("update main flow scene: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.InvalidArgument, validationErr.Error())
+	}
 
 	return &pb.UpdateMainFlowSceneProgressResponse{}, nil
 }
@@ -57,9 +68,16 @@ func (s *QuestServiceServer) UpdateMainQuestSceneProgress(ctx context.Context, r
 
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleMainQuestSceneProgress(user, req.QuestSceneId)
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		validationErr = engine.HandleMainQuestSceneProgress(user, req.QuestSceneId)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("update main quest scene: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.InvalidArgument, validationErr.Error())
+	}
 
 	return &pb.UpdateMainQuestSceneProgressResponse{}, nil
 }
@@ -71,14 +89,24 @@ func (s *QuestServiceServer) StartMainQuest(ctx context.Context, req *pb.StartMa
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if req.IsReplayFlow {
-			engine.HandleQuestStartReplay(user, req.QuestId, req.IsBattleOnly, req.UserDeckNumber, nowMillis)
+			validationErr = engine.HandleQuestStartReplay(user, req.QuestId, req.IsBattleOnly, req.UserDeckNumber, nowMillis)
 		} else {
-			engine.HandleQuestStart(user, req.QuestId, req.IsBattleOnly, req.IsMainFlow, req.UserDeckNumber, nowMillis)
+			validationErr = engine.HandleQuestStart(user, req.QuestId, req.IsBattleOnly, req.IsMainFlow, req.UserDeckNumber, nowMillis)
+		}
+		if validationErr != nil {
+			return
 		}
 		startAutoOrbit(user, model.QuestTypeMain, 0, req.QuestId, req.MaxAutoOrbitCount, nowMillis)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("start main quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	drops := engine.BattleDropRewards(req.QuestId)
 	pbDrops := make([]*pb.BattleDropReward, len(drops))
@@ -141,10 +169,21 @@ func (s *QuestServiceServer) FinishMainQuest(ctx context.Context, req *pb.Finish
 	var outcome questflow.FinishOutcome
 	var endedDrops []store.AutoOrbitDropEntry
 	var loopEnded bool
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.ValidateQuestContinuation(user, req.QuestId); err != nil {
+			validationErr = err
+			return
+		}
 		outcome = engine.HandleQuestFinish(user, req.QuestId, req.IsRetired, req.IsAnnihilated, nowMillis)
 		endedDrops, loopEnded = finishAutoOrbit(user, req.IsAutoOrbit, req.IsRetired, req.IsAnnihilated, model.QuestTypeMain, 0, req.QuestId, nowMillis, outcome.DropRewards)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("finish main quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	autoOrbitReward := emptyAutoOrbitReward()
 	if loopEnded {
@@ -223,21 +262,66 @@ func (s *QuestServiceServer) SkipQuest(ctx context.Context, req *pb.SkipQuestReq
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	var outcome questflow.FinishOutcome
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		for _, item := range req.UseEffectItem {
-			log.Printf("[QuestService] SkipQuest UseEffectItem: consumableItemId=%d count=%d", item.ConsumableItemId, item.Count)
-			user.ConsumableItems[item.ConsumableItemId] -= item.Count
-			if user.ConsumableItems[item.ConsumableItemId] < 0 {
-				user.ConsumableItems[item.ConsumableItemId] = 0
-			}
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		candidate := store.CloneUserState(*user)
+		if err := applyQuestUseEffectItems(s.holder.Get(), &candidate, req.UseEffectItem, nowMillis); err != nil {
+			validationErr = err
+			return
 		}
-		outcome = engine.HandleQuestSkip(user, req.QuestId, req.SkipCount, nowMillis)
+		outcome, validationErr = engine.HandleQuestSkip(&candidate, req.QuestId, req.SkipCount, nowMillis)
+		if validationErr == nil {
+			*user = candidate
+		}
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("skip quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	return &pb.SkipQuestResponse{
 		DropReward:               toProtoRewards(outcome.DropRewards),
 		UserStatusCampaignReward: []*pb.QuestReward{},
 	}, nil
+}
+
+func applyQuestUseEffectItems(cat *runtime.Catalogs, user *store.UserState, items []*pb.UseEffectItem, nowMillis int64) error {
+	maxStaminaMillis := cat.Quest.MaxStaminaByLevel[user.Status.Level] * 1000
+	for _, item := range items {
+		if item.Count <= 0 {
+			return fmt.Errorf("effect item count must be positive")
+		}
+		if _, ok := cat.ConsumableItem.All[item.ConsumableItemId]; !ok {
+			return fmt.Errorf("unknown effect item %d", item.ConsumableItemId)
+		}
+		effects := cat.ConsumableItem.Effects[item.ConsumableItemId]
+		hasStaminaRecovery := false
+		for _, effect := range effects {
+			if effect.EffectTargetType == model.EffectTargetStaminaRecovery {
+				hasStaminaRecovery = true
+				millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxStaminaMillis)
+				if millis <= 0 || int64(millis)*int64(item.Count) > int64(^uint32(0)>>1) {
+					return fmt.Errorf("invalid stamina recovery effect item %d", item.ConsumableItemId)
+				}
+			}
+		}
+		if !hasStaminaRecovery {
+			return fmt.Errorf("consumable item %d is not a stamina recovery item", item.ConsumableItemId)
+		}
+		if user.ConsumableItems[item.ConsumableItemId] < item.Count {
+			return fmt.Errorf("insufficient effect item %d", item.ConsumableItemId)
+		}
+		user.ConsumableItems[item.ConsumableItemId] -= item.Count
+		for _, effect := range effects {
+			if effect.EffectTargetType == model.EffectTargetStaminaRecovery {
+				millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxStaminaMillis)
+				store.RecoverStamina(user, millis*item.Count, maxStaminaMillis, nowMillis)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *QuestServiceServer) SetRoute(ctx context.Context, req *pb.SetRouteRequest) (*pb.SetRouteResponse, error) {
@@ -266,7 +350,53 @@ func (s *QuestServiceServer) SetRoute(ctx context.Context, req *pb.SetRouteReque
 func (s *QuestServiceServer) SetQuestSceneChoice(ctx context.Context, req *pb.SetQuestSceneChoiceRequest) (*pb.SetQuestSceneChoiceResponse, error) {
 	log.Printf("[QuestService] SetQuestSceneChoice: questSceneId=%d choiceNumber=%d",
 		req.QuestSceneId, req.ChoiceNumber)
+	key := store.QuestSceneChoiceKey{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType}
+	_, ok := s.holder.Get().Quest.SceneChoiceByKey[masterdata.QuestSceneChoiceKey{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType, ChoiceNumber: req.ChoiceNumber}]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "invalid quest scene choice")
+	}
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		state := store.QuestSceneChoiceState{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType, ChoiceNumber: req.ChoiceNumber, ChoiceDatetime: nowMillis, LatestVersion: nowMillis}
+		user.QuestSceneChoices[key] = state
+		user.QuestSceneChoiceHistory[store.QuestSceneChoiceHistoryKey{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType, ChoiceNumber: req.ChoiceNumber}] = state
+	})
+	if err != nil {
+		return nil, fmt.Errorf("set quest scene choice: %w", err)
+	}
 	return &pb.SetQuestSceneChoiceResponse{}, nil
+}
+
+func (s *QuestServiceServer) SkipQuestBulk(ctx context.Context, req *pb.SkipQuestBulkRequest) (*pb.SkipQuestBulkResponse, error) {
+	log.Printf("[QuestService] SkipQuestBulk: quests=%d", len(req.SkipQuestInfo))
+	engine := s.holder.Get().QuestHandler
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	var outcome questflow.FinishOutcome
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		candidate := store.CloneUserState(*user)
+		if err := applyQuestUseEffectItems(s.holder.Get(), &candidate, req.UseEffectItem, nowMillis); err != nil {
+			validationErr = err
+			return
+		}
+		questIds, counts := make([]int32, len(req.SkipQuestInfo)), make([]int32, len(req.SkipQuestInfo))
+		for i, info := range req.SkipQuestInfo {
+			questIds[i], counts[i] = info.QuestId, info.SkipCount
+		}
+		outcome, validationErr = engine.HandleQuestSkipBulk(&candidate, questIds, counts, nowMillis)
+		if validationErr == nil {
+			*user = candidate
+		}
+	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("bulk skip quests: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
+	return &pb.SkipQuestBulkResponse{DropReward: toProtoRewards(outcome.DropRewards), UserStatusCampaignReward: []*pb.QuestReward{}}, nil
 }
 
 func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context, req *pb.ResetLimitContentQuestProgressRequest) (*pb.ResetLimitContentQuestProgressResponse, error) {
@@ -275,7 +405,7 @@ func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context,
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if _, exists := user.SideStoryQuests[req.QuestId]; exists {
 			user.SideStoryQuests[req.QuestId] = store.SideStoryQuestProgress{
 				HeadSideStoryQuestSceneId: 0,
@@ -285,6 +415,11 @@ func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context,
 		}
 
 		delete(user.QuestLimitContentStatus, req.QuestId)
+		for id, restricted := range user.DeckLimitContentRestricted {
+			if restricted.EventQuestChapterId == req.EventQuestChapterId {
+				delete(user.DeckLimitContentRestricted, id)
+			}
+		}
 
 		if user.SideStoryActiveProgress.CurrentSideStoryQuestId == req.QuestId {
 			user.SideStoryActiveProgress = store.SideStoryActiveProgress{
@@ -292,6 +427,9 @@ func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context,
 			}
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("reset limit content quest progress: %w", err)
+	}
 
 	return &pb.ResetLimitContentQuestProgressResponse{}, nil
 }

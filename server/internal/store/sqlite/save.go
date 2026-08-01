@@ -33,6 +33,9 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 		_, err := tx.Exec(query, args...)
 		return err
 	}
+	if err := writeMechanismTables(tx, uid, u); err != nil {
+		return err
+	}
 
 	if err := exec(`INSERT INTO user_setting (user_id, is_notify_purchase_alert, latest_version) VALUES (?,?,?)`,
 		uid, boolToInt(u.Setting.IsNotifyPurchaseAlert), u.Setting.LatestVersion); err != nil {
@@ -46,9 +49,11 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 		uid, u.Gem.PaidGem, u.Gem.FreeGem); err != nil {
 		return err
 	}
-	if err := exec(`INSERT INTO user_profile (user_id, name, name_update_datetime, message, message_update_datetime, favorite_costume_id, favorite_costume_id_update_datetime, latest_version) VALUES (?,?,?,?,?,?,?,?)`,
+	if err := exec(`INSERT INTO user_profile (user_id, name, name_update_datetime, message, message_update_datetime, favorite_costume_id, favorite_costume_id_update_datetime, current_pvp_rank, current_pvp_grade_id, max_pvp_season_rank, latest_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		uid, u.Profile.Name, u.Profile.NameUpdateDatetime, u.Profile.Message, u.Profile.MessageUpdateDatetime,
-		u.Profile.FavoriteCostumeId, u.Profile.FavoriteCostumeIdUpdateDatetime, u.Profile.LatestVersion); err != nil {
+		u.Profile.FavoriteCostumeId, u.Profile.FavoriteCostumeIdUpdateDatetime,
+		u.Profile.CurrentPvpRank, u.Profile.CurrentPvpGradeId, u.Profile.MaxPvpSeasonRank,
+		u.Profile.LatestVersion); err != nil {
 		return err
 	}
 	if err := exec(`INSERT INTO user_login (user_id, total_login_count, continual_login_count, max_continual_login_count, last_login_datetime, last_comeback_login_datetime, latest_version) VALUES (?,?,?,?,?,?,?)`,
@@ -148,6 +153,21 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 		return err
 	}
 
+	for friendUserId, friend := range u.Friends {
+		if err := exec(`INSERT INTO user_friends (user_id, friend_user_id, is_friend, cheer_sent_datetime,
+			cheer_received_datetime, stamina_received_datetime) VALUES (?,?,?,?,?,?)`,
+			uid, friendUserId, boolToInt(friend.IsFriend), friend.CheerSentDatetime, friend.CheerReceivedDatetime,
+			friend.StaminaReceivedDatetime); err != nil {
+			return err
+		}
+	}
+	for requesterUserId, requestDatetime := range u.FriendRequests {
+		if err := exec(`INSERT INTO user_friend_requests (user_id, requester_user_id, request_datetime) VALUES (?,?,?)`,
+			uid, requesterUserId, requestDatetime); err != nil {
+			return err
+		}
+	}
+
 	for _, v := range u.Characters {
 		if err := exec(`INSERT INTO user_characters (user_id, character_id, level, exp, latest_version) VALUES (?,?,?,?,?)`,
 			uid, v.CharacterId, v.Level, v.Exp, v.LatestVersion); err != nil {
@@ -193,6 +213,12 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 	for k, v := range u.TripleDecks {
 		if err := exec(`INSERT INTO user_triple_decks (user_id, deck_type, user_deck_number, name, deck_number01, deck_number02, deck_number03, latest_version) VALUES (?,?,?,?,?,?,?,?)`,
 			uid, int32(k.DeckType), k.UserDeckNumber, v.Name, v.DeckNumber01, v.DeckNumber02, v.DeckNumber03, v.LatestVersion); err != nil {
+			return err
+		}
+	}
+	for _, v := range u.DeckLimitContentRestricted {
+		if err := exec(`INSERT INTO user_deck_limit_content_restricted (user_id, deck_restricted_uuid, event_quest_chapter_id, quest_id, possession_type, target_uuid, latest_version) VALUES (?,?,?,?,?,?,?)`,
+			uid, v.DeckRestrictedUuid, v.EventQuestChapterId, v.QuestId, v.PossessionType, v.TargetUuid, v.LatestVersion); err != nil {
 			return err
 		}
 	}
@@ -295,9 +321,27 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 			return err
 		}
 	}
+	for _, v := range u.CostumeLevelBonusReleaseStatuses {
+		if err := exec(`INSERT INTO user_costume_level_bonus_release_statuses (user_id, costume_id, last_released_bonus_level, confirmed_bonus_level, latest_version) VALUES (?,?,?,?,?)`,
+			uid, v.CostumeId, v.LastReleasedBonusLevel, v.ConfirmedBonusLevel, v.LatestVersion); err != nil {
+			return err
+		}
+	}
 	for k, v := range u.CostumeLotteryEffects {
 		if err := exec(`INSERT INTO user_costume_lottery_effects (user_id, user_costume_uuid, slot_number, odds_number, latest_version) VALUES (?,?,?,?,?)`,
 			uid, k.UserCostumeUuid, k.SlotNumber, v.OddsNumber, v.LatestVersion); err != nil {
+			return err
+		}
+	}
+	for k, v := range u.CostumeLotteryEffectAbilities {
+		if err := exec(`INSERT INTO user_costume_lottery_effect_abilities (user_id, user_costume_uuid, slot_number, ability_id, ability_level, latest_version) VALUES (?,?,?,?,?,?)`,
+			uid, k.UserCostumeUuid, k.SlotNumber, v.AbilityId, v.AbilityLevel, v.LatestVersion); err != nil {
+			return err
+		}
+	}
+	for k, v := range u.CostumeLotteryEffectStatusUps {
+		if err := exec(`INSERT INTO user_costume_lottery_effect_status_ups (user_id, user_costume_uuid, status_calculation_type, hp, attack, vitality, agility, critical_ratio, critical_attack, latest_version) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			uid, k.UserCostumeUuid, int32(k.StatusCalculationType), v.Hp, v.Attack, v.Vitality, v.Agility, v.CriticalRatio, v.CriticalAttack, v.LatestVersion); err != nil {
 			return err
 		}
 	}
@@ -467,6 +511,12 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 			return err
 		}
 	}
+	for _, v := range u.CageOrnamentAccesses {
+		if err := exec(`INSERT INTO user_cage_ornament_accesses (user_id, cage_ornament_id, first_access_datetime, latest_access_datetime, latest_version) VALUES (?,?,?,?,?)`,
+			uid, v.CageOrnamentId, v.FirstAccessDatetime, v.LatestAccessDatetime, v.LatestVersion); err != nil {
+			return err
+		}
+	}
 	for _, v := range u.TowerAccumulationRewards {
 		if err := exec(`INSERT INTO user_event_quest_tower_accumulation_rewards (user_id, event_quest_chapter_id, latest_reward_receive_quest_mission_clear_count, latest_version) VALUES (?,?,?,?)`,
 			uid, v.EventQuestChapterId, v.LatestRewardReceiveQuestMissionClearCount, v.LatestVersion); err != nil {
@@ -557,8 +607,18 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 
 // 1:1 tables update on field-change; maps INSERT OR REPLACE + DELETE; slice tables DELETE-all then INSERT-all.
 func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
+	var firstErr error
 	exec := func(query string, args ...any) error {
+		if firstErr != nil {
+			return firstErr
+		}
 		_, err := tx.Exec(query, args...)
+		if err != nil {
+			firstErr = err
+		}
+		return err
+	}
+	if err := diffMechanismTables(tx, uid, before, after); err != nil {
 		return err
 	}
 
@@ -595,9 +655,11 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 	if before.Profile != after.Profile {
-		if err := exec(`UPDATE user_profile SET name=?, name_update_datetime=?, message=?, message_update_datetime=?, favorite_costume_id=?, favorite_costume_id_update_datetime=?, latest_version=? WHERE user_id=?`,
+		if err := exec(`UPDATE user_profile SET name=?, name_update_datetime=?, message=?, message_update_datetime=?, favorite_costume_id=?, favorite_costume_id_update_datetime=?, current_pvp_rank=?, current_pvp_grade_id=?, max_pvp_season_rank=?, latest_version=? WHERE user_id=?`,
 			after.Profile.Name, after.Profile.NameUpdateDatetime, after.Profile.Message, after.Profile.MessageUpdateDatetime,
-			after.Profile.FavoriteCostumeId, after.Profile.FavoriteCostumeIdUpdateDatetime, after.Profile.LatestVersion, uid); err != nil {
+			after.Profile.FavoriteCostumeId, after.Profile.FavoriteCostumeIdUpdateDatetime,
+			after.Profile.CurrentPvpRank, after.Profile.CurrentPvpGradeId, after.Profile.MaxPvpSeasonRank,
+			after.Profile.LatestVersion, uid); err != nil {
 			return err
 		}
 	}
@@ -729,29 +791,74 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 
-	diffMapInt32(tx, uid, before.Characters, after.Characters, "user_characters", "character_id",
+	for friendUserId, friend := range after.Friends {
+		if old, exists := before.Friends[friendUserId]; !exists || old != friend {
+			if err := exec(`INSERT OR REPLACE INTO user_friends (user_id, friend_user_id, is_friend, cheer_sent_datetime,
+				cheer_received_datetime, stamina_received_datetime) VALUES (?,?,?,?,?,?)`,
+				uid, friendUserId, boolToInt(friend.IsFriend), friend.CheerSentDatetime, friend.CheerReceivedDatetime,
+				friend.StaminaReceivedDatetime); err != nil {
+				return err
+			}
+		}
+	}
+	for friendUserId := range before.Friends {
+		if _, exists := after.Friends[friendUserId]; !exists {
+			if err := exec(`DELETE FROM user_friends WHERE user_id=? AND friend_user_id=?`, uid, friendUserId); err != nil {
+				return err
+			}
+		}
+	}
+	for requesterUserId, requestDatetime := range after.FriendRequests {
+		if old, exists := before.FriendRequests[requesterUserId]; !exists || old != requestDatetime {
+			if err := exec(`INSERT OR REPLACE INTO user_friend_requests (user_id, requester_user_id, request_datetime) VALUES (?,?,?)`,
+				uid, requesterUserId, requestDatetime); err != nil {
+				return err
+			}
+		}
+	}
+	for requesterUserId := range before.FriendRequests {
+		if _, exists := after.FriendRequests[requesterUserId]; !exists {
+			if err := exec(`DELETE FROM user_friend_requests WHERE user_id=? AND requester_user_id=?`, uid, requesterUserId); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := diffMapInt32(tx, uid, before.Characters, after.Characters, "user_characters", "character_id",
 		func(v store.CharacterState) []any { return []any{v.CharacterId, v.Level, v.Exp, v.LatestVersion} },
-		"character_id, level, exp, latest_version")
-	diffMapStr(tx, uid, before.Costumes, after.Costumes, "user_costumes", "user_costume_uuid",
+		"character_id, level, exp, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapStr(tx, uid, before.Costumes, after.Costumes, "user_costumes", "user_costume_uuid",
 		func(v store.CostumeState) []any {
 			return []any{v.UserCostumeUuid, v.CostumeId, v.LimitBreakCount, v.Level, v.Exp, v.HeadupDisplayViewId, v.AcquisitionDatetime, v.AwakenCount, v.CostumeLotteryEffectUnlockedSlotCount, v.LatestVersion}
-		}, "user_costume_uuid, costume_id, limit_break_count, level, exp, headup_display_view_id, acquisition_datetime, awaken_count, costume_lottery_effect_unlocked_slot_count, latest_version")
-	diffMapStr(tx, uid, before.Weapons, after.Weapons, "user_weapons", "user_weapon_uuid",
+		}, "user_costume_uuid, costume_id, limit_break_count, level, exp, headup_display_view_id, acquisition_datetime, awaken_count, costume_lottery_effect_unlocked_slot_count, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapStr(tx, uid, before.Weapons, after.Weapons, "user_weapons", "user_weapon_uuid",
 		func(v store.WeaponState) []any {
 			return []any{v.UserWeaponUuid, v.WeaponId, v.Level, v.Exp, v.LimitBreakCount, boolToInt(v.IsProtected), v.AcquisitionDatetime, v.LatestVersion}
-		}, "user_weapon_uuid, weapon_id, level, exp, limit_break_count, is_protected, acquisition_datetime, latest_version")
-	diffMapStr(tx, uid, before.Companions, after.Companions, "user_companions", "user_companion_uuid",
+		}, "user_weapon_uuid, weapon_id, level, exp, limit_break_count, is_protected, acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapStr(tx, uid, before.Companions, after.Companions, "user_companions", "user_companion_uuid",
 		func(v store.CompanionState) []any {
 			return []any{v.UserCompanionUuid, v.CompanionId, v.HeadupDisplayViewId, v.Level, v.AcquisitionDatetime, v.LatestVersion}
-		}, "user_companion_uuid, companion_id, headup_display_view_id, level, acquisition_datetime, latest_version")
-	diffMapStr(tx, uid, before.Thoughts, after.Thoughts, "user_thoughts", "user_thought_uuid",
+		}, "user_companion_uuid, companion_id, headup_display_view_id, level, acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapStr(tx, uid, before.Thoughts, after.Thoughts, "user_thoughts", "user_thought_uuid",
 		func(v store.ThoughtState) []any {
 			return []any{v.UserThoughtUuid, v.ThoughtId, v.AcquisitionDatetime, v.LatestVersion}
-		}, "user_thought_uuid, thought_id, acquisition_datetime, latest_version")
-	diffMapStr(tx, uid, before.DeckCharacters, after.DeckCharacters, "user_deck_characters", "user_deck_character_uuid",
+		}, "user_thought_uuid, thought_id, acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapStr(tx, uid, before.DeckCharacters, after.DeckCharacters, "user_deck_characters", "user_deck_character_uuid",
 		func(v store.DeckCharacterState) []any {
 			return []any{v.UserDeckCharacterUuid, v.UserCostumeUuid, v.MainUserWeaponUuid, v.UserCompanionUuid, v.Power, v.UserThoughtUuid, v.DressupCostumeId, v.LatestVersion}
-		}, "user_deck_character_uuid, user_costume_uuid, main_user_weapon_uuid, user_companion_uuid, power, user_thought_uuid, dressup_costume_id, latest_version")
+		}, "user_deck_character_uuid, user_costume_uuid, main_user_weapon_uuid, user_companion_uuid, power, user_thought_uuid, dressup_costume_id, latest_version"); err != nil {
+		return err
+	}
 
 	for k, v := range after.Decks {
 		if old, ok := before.Decks[k]; !ok || old != v {
@@ -776,22 +883,35 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 			exec(`DELETE FROM user_triple_decks WHERE user_id=? AND deck_type=? AND user_deck_number=?`, uid, int32(k.DeckType), k.UserDeckNumber)
 		}
 	}
+	if err := diffMapStr(tx, uid, before.DeckLimitContentRestricted, after.DeckLimitContentRestricted,
+		"user_deck_limit_content_restricted", "deck_restricted_uuid",
+		func(v store.DeckLimitContentRestrictedState) []any {
+			return []any{v.DeckRestrictedUuid, v.EventQuestChapterId, v.QuestId, v.PossessionType, v.TargetUuid, v.LatestVersion}
+		}, "deck_restricted_uuid, event_quest_chapter_id, quest_id, possession_type, target_uuid, latest_version"); err != nil {
+		return err
+	}
 
-	replaceSliceTable(tx, uid, "user_deck_sub_weapons", after.DeckSubWeapons, func(key string, uuids []string) {
+	if err := replaceSliceTable(tx, uid, "user_deck_sub_weapons", after.DeckSubWeapons, func(key string, uuids []string) {
 		for i, uuid := range uuids {
 			exec(`INSERT INTO user_deck_sub_weapons (user_id, user_deck_character_uuid, ordinal, user_weapon_uuid) VALUES (?,?,?,?)`, uid, key, i, uuid)
 		}
-	})
-	replaceSliceTable(tx, uid, "user_deck_parts", after.DeckParts, func(key string, uuids []string) {
+	}); err != nil {
+		return err
+	}
+	if err := replaceSliceTable(tx, uid, "user_deck_parts", after.DeckParts, func(key string, uuids []string) {
 		for i, uuid := range uuids {
 			exec(`INSERT INTO user_deck_parts (user_id, user_deck_character_uuid, ordinal, user_parts_uuid) VALUES (?,?,?,?)`, uid, key, i, uuid)
 		}
-	})
+	}); err != nil {
+		return err
+	}
 
-	diffMapInt32(tx, uid, before.Quests, after.Quests, "user_quests", "quest_id",
+	if err := diffMapInt32(tx, uid, before.Quests, after.Quests, "user_quests", "quest_id",
 		func(v store.UserQuestState) []any {
 			return []any{v.QuestId, int32(v.QuestStateType), boolToInt(v.IsBattleOnly), v.UserDeckNumber, v.LatestStartDatetime, v.ClearCount, v.DailyClearCount, v.LastClearDatetime, v.ShortestClearFrames, boolToInt(v.IsRewardGranted), v.LatestVersion}
-		}, "quest_id, quest_state_type, is_battle_only, user_deck_number, latest_start_datetime, clear_count, daily_clear_count, last_clear_datetime, shortest_clear_frames, is_reward_granted, latest_version")
+		}, "quest_id, quest_state_type, is_battle_only, user_deck_number, latest_start_datetime, clear_count, daily_clear_count, last_clear_datetime, shortest_clear_frames, is_reward_granted, latest_version"); err != nil {
+		return err
+	}
 
 	for k, v := range after.QuestMissions {
 		if old, ok := before.QuestMissions[k]; !ok || old != v {
@@ -805,34 +925,46 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 
-	diffMapInt32(tx, uid, before.Missions, after.Missions, "user_missions", "mission_id",
+	if err := diffMapInt32(tx, uid, before.Missions, after.Missions, "user_missions", "mission_id",
 		func(v store.UserMissionState) []any {
 			return []any{v.MissionId, v.StartDatetime, v.ProgressValue, v.MissionProgressStatusType, v.ClearDatetime, v.LatestVersion}
-		}, "mission_id, start_datetime, progress_value, mission_progress_status_type, clear_datetime, latest_version")
-	diffMapInt32(tx, uid, before.Tutorials, after.Tutorials, "user_tutorials", "tutorial_type",
+		}, "mission_id, start_datetime, progress_value, mission_progress_status_type, clear_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.Tutorials, after.Tutorials, "user_tutorials", "tutorial_type",
 		func(v store.TutorialProgressState) []any {
 			return []any{v.TutorialType, v.ProgressPhase, v.ChoiceId, v.LatestVersion}
 		},
-		"tutorial_type, progress_phase, choice_id, latest_version")
+		"tutorial_type, progress_phase, choice_id, latest_version"); err != nil {
+		return err
+	}
 
-	diffMapInt32(tx, uid, before.SideStoryQuests, after.SideStoryQuests, "user_side_story_quests", "side_story_quest_id",
+	if err := diffMapInt32(tx, uid, before.SideStoryQuests, after.SideStoryQuests, "user_side_story_quests", "side_story_quest_id",
 		func(v store.SideStoryQuestProgress) []any {
 			return []any{0, v.HeadSideStoryQuestSceneId, int32(v.SideStoryQuestStateType), v.LatestVersion}
-		}, "side_story_quest_id, head_side_story_quest_scene_id, side_story_quest_state_type, latest_version")
+		}, "side_story_quest_id, head_side_story_quest_scene_id, side_story_quest_state_type, latest_version"); err != nil {
+		return err
+	}
 
-	diffMapInt32(tx, uid, before.QuestLimitContentStatus, after.QuestLimitContentStatus, "user_quest_limit_content_status", "limit_content_id",
+	if err := diffMapInt32(tx, uid, before.QuestLimitContentStatus, after.QuestLimitContentStatus, "user_quest_limit_content_status", "limit_content_id",
 		func(v store.QuestLimitContentStatus) []any {
 			return []any{0, v.LimitContentQuestStatusType, v.EventQuestChapterId, v.LatestVersion}
-		}, "limit_content_id, limit_content_quest_status_type, event_quest_chapter_id, latest_version")
-	diffMapInt32(tx, uid, before.WeaponStories, after.WeaponStories, "user_weapon_stories", "weapon_id",
+		}, "limit_content_id, limit_content_quest_status_type, event_quest_chapter_id, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.WeaponStories, after.WeaponStories, "user_weapon_stories", "weapon_id",
 		func(v store.WeaponStoryState) []any {
 			return []any{v.WeaponId, v.ReleasedMaxStoryIndex, v.LatestVersion}
 		},
-		"weapon_id, released_max_story_index, latest_version")
-	diffMapInt32(tx, uid, before.WeaponNotes, after.WeaponNotes, "user_weapon_notes", "weapon_id",
+		"weapon_id, released_max_story_index, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.WeaponNotes, after.WeaponNotes, "user_weapon_notes", "weapon_id",
 		func(v store.WeaponNoteState) []any {
 			return []any{v.WeaponId, v.MaxLevel, v.MaxLimitBreakCount, v.FirstAcquisitionDatetime, v.LatestVersion}
-		}, "weapon_id, max_level, max_limit_break_count, first_acquisition_datetime, latest_version")
+		}, "weapon_id, max_level, max_limit_break_count, first_acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
 
 	exec(`DELETE FROM user_weapon_skills WHERE user_id=?`, uid)
 	for _, skills := range after.WeaponSkills {
@@ -847,13 +979,17 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 
-	diffMapStr(tx, uid, before.WeaponAwakens, after.WeaponAwakens, "user_weapon_awakens", "user_weapon_uuid",
+	if err := diffMapStr(tx, uid, before.WeaponAwakens, after.WeaponAwakens, "user_weapon_awakens", "user_weapon_uuid",
 		func(v store.WeaponAwakenState) []any { return []any{v.UserWeaponUuid, v.LatestVersion} },
-		"user_weapon_uuid, latest_version")
-	diffMapStr(tx, uid, before.CostumeActiveSkills, after.CostumeActiveSkills, "user_costume_active_skills", "user_costume_uuid",
+		"user_weapon_uuid, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapStr(tx, uid, before.CostumeActiveSkills, after.CostumeActiveSkills, "user_costume_active_skills", "user_costume_uuid",
 		func(v store.CostumeActiveSkillState) []any {
 			return []any{v.UserCostumeUuid, v.Level, v.AcquisitionDatetime, v.LatestVersion}
-		}, "user_costume_uuid, level, acquisition_datetime, latest_version")
+		}, "user_costume_uuid, level, acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
 
 	for k, v := range after.CostumeAwakenStatusUps {
 		if old, ok := before.CostumeAwakenStatusUps[k]; !ok || old != v {
@@ -865,6 +1001,13 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		if _, ok := after.CostumeAwakenStatusUps[k]; !ok {
 			exec(`DELETE FROM user_costume_awaken_status_ups WHERE user_id=? AND user_costume_uuid=? AND status_calculation_type=?`, uid, k.UserCostumeUuid, int32(k.StatusCalculationType))
 		}
+	}
+	if err := diffMapInt32(tx, uid, before.CostumeLevelBonusReleaseStatuses, after.CostumeLevelBonusReleaseStatuses,
+		"user_costume_level_bonus_release_statuses", "costume_id",
+		func(v store.CostumeLevelBonusReleaseStatusState) []any {
+			return []any{v.CostumeId, v.LastReleasedBonusLevel, v.ConfirmedBonusLevel, v.LatestVersion}
+		}, "costume_id, last_released_bonus_level, confirmed_bonus_level, latest_version"); err != nil {
+		return err
 	}
 
 	for k, v := range after.CostumeLotteryEffects {
@@ -878,29 +1021,69 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 			exec(`DELETE FROM user_costume_lottery_effects WHERE user_id=? AND user_costume_uuid=? AND slot_number=?`, uid, k.UserCostumeUuid, k.SlotNumber)
 		}
 	}
+	for k, v := range after.CostumeLotteryEffectAbilities {
+		if old, ok := before.CostumeLotteryEffectAbilities[k]; !ok || old != v {
+			if err := exec(`INSERT OR REPLACE INTO user_costume_lottery_effect_abilities (user_id, user_costume_uuid, slot_number, ability_id, ability_level, latest_version) VALUES (?,?,?,?,?,?)`,
+				uid, k.UserCostumeUuid, k.SlotNumber, v.AbilityId, v.AbilityLevel, v.LatestVersion); err != nil {
+				return err
+			}
+		}
+	}
+	for k := range before.CostumeLotteryEffectAbilities {
+		if _, ok := after.CostumeLotteryEffectAbilities[k]; !ok {
+			if err := exec(`DELETE FROM user_costume_lottery_effect_abilities WHERE user_id=? AND user_costume_uuid=? AND slot_number=?`, uid, k.UserCostumeUuid, k.SlotNumber); err != nil {
+				return err
+			}
+		}
+	}
+	for k, v := range after.CostumeLotteryEffectStatusUps {
+		if old, ok := before.CostumeLotteryEffectStatusUps[k]; !ok || old != v {
+			if err := exec(`INSERT OR REPLACE INTO user_costume_lottery_effect_status_ups (user_id, user_costume_uuid, status_calculation_type, hp, attack, vitality, agility, critical_ratio, critical_attack, latest_version) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+				uid, k.UserCostumeUuid, int32(k.StatusCalculationType), v.Hp, v.Attack, v.Vitality, v.Agility, v.CriticalRatio, v.CriticalAttack, v.LatestVersion); err != nil {
+				return err
+			}
+		}
+	}
+	for k := range before.CostumeLotteryEffectStatusUps {
+		if _, ok := after.CostumeLotteryEffectStatusUps[k]; !ok {
+			if err := exec(`DELETE FROM user_costume_lottery_effect_status_ups WHERE user_id=? AND user_costume_uuid=? AND status_calculation_type=?`, uid, k.UserCostumeUuid, int32(k.StatusCalculationType)); err != nil {
+				return err
+			}
+		}
+	}
 
-	diffMapStr(tx, uid, before.CostumeLotteryEffectPending, after.CostumeLotteryEffectPending, "user_costume_lottery_effect_pending", "user_costume_uuid",
+	if err := diffMapStr(tx, uid, before.CostumeLotteryEffectPending, after.CostumeLotteryEffectPending, "user_costume_lottery_effect_pending", "user_costume_uuid",
 		func(v store.CostumeLotteryEffectPendingState) []any {
 			return []any{v.UserCostumeUuid, v.SlotNumber, v.OddsNumber, v.LatestVersion}
-		}, "user_costume_uuid, slot_number, odds_number, latest_version")
+		}, "user_costume_uuid, slot_number, odds_number, latest_version"); err != nil {
+		return err
+	}
 
-	diffMapStr(tx, uid, before.Parts, after.Parts, "user_parts", "user_parts_uuid",
+	if err := diffMapStr(tx, uid, before.Parts, after.Parts, "user_parts", "user_parts_uuid",
 		func(v store.PartsState) []any {
 			return []any{v.UserPartsUuid, v.PartsId, v.Level, v.PartsStatusMainId, boolToInt(v.IsProtected), v.AcquisitionDatetime, v.LatestVersion}
-		}, "user_parts_uuid, parts_id, level, parts_status_main_id, is_protected, acquisition_datetime, latest_version")
-	diffMapInt32(tx, uid, before.PartsGroupNotes, after.PartsGroupNotes, "user_parts_group_notes", "parts_group_id",
+		}, "user_parts_uuid, parts_id, level, parts_status_main_id, is_protected, acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.PartsGroupNotes, after.PartsGroupNotes, "user_parts_group_notes", "parts_group_id",
 		func(v store.PartsGroupNoteState) []any {
 			return []any{v.PartsGroupId, v.FirstAcquisitionDatetime, v.LatestVersion}
 		},
-		"parts_group_id, first_acquisition_datetime, latest_version")
-	diffMapInt32(tx, uid, before.PartsPresets, after.PartsPresets, "user_parts_presets", "user_parts_preset_number",
+		"parts_group_id, first_acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.PartsPresets, after.PartsPresets, "user_parts_presets", "user_parts_preset_number",
 		func(v store.PartsPresetState) []any {
 			return []any{v.UserPartsPresetNumber, v.UserPartsUuid01, v.UserPartsUuid02, v.UserPartsUuid03, v.Name, v.UserPartsPresetTagNumber, v.LatestVersion}
-		}, "user_parts_preset_number, user_parts_uuid01, user_parts_uuid02, user_parts_uuid03, name, user_parts_preset_tag_number, latest_version")
-	diffMapInt32(tx, uid, before.PartsPresetTags, after.PartsPresetTags, "user_parts_preset_tags", "user_parts_preset_tag_number",
+		}, "user_parts_preset_number, user_parts_uuid01, user_parts_uuid02, user_parts_uuid03, name, user_parts_preset_tag_number, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.PartsPresetTags, after.PartsPresetTags, "user_parts_preset_tags", "user_parts_preset_tag_number",
 		func(v store.PartsPresetTagState) []any {
 			return []any{v.UserPartsPresetTagNumber, v.Name, v.LatestVersion}
-		}, "user_parts_preset_tag_number, name, latest_version")
+		}, "user_parts_preset_tag_number, name, latest_version"); err != nil {
+		return err
+	}
 
 	for k, v := range after.PartsStatusSubs {
 		if old, ok := before.PartsStatusSubs[k]; !ok || old != v {
@@ -926,21 +1109,33 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 
-	diffSimpleMap(tx, uid, before.ConsumableItems, after.ConsumableItems, "user_consumable_items", "consumable_item_id", "count")
-	diffSimpleMap(tx, uid, before.Materials, after.Materials, "user_materials", "material_id", "count")
-	diffSimpleMap(tx, uid, before.ImportantItems, after.ImportantItems, "user_important_items", "important_item_id", "count")
-	diffInt64Map(tx, uid, before.PremiumItems, after.PremiumItems, "user_premium_items", "premium_item_id", "count")
+	if err := diffSimpleMap(tx, uid, before.ConsumableItems, after.ConsumableItems, "user_consumable_items", "consumable_item_id", "count"); err != nil {
+		return err
+	}
+	if err := diffSimpleMap(tx, uid, before.Materials, after.Materials, "user_materials", "material_id", "count"); err != nil {
+		return err
+	}
+	if err := diffSimpleMap(tx, uid, before.ImportantItems, after.ImportantItems, "user_important_items", "important_item_id", "count"); err != nil {
+		return err
+	}
+	if err := diffInt64Map(tx, uid, before.PremiumItems, after.PremiumItems, "user_premium_items", "premium_item_id", "count"); err != nil {
+		return err
+	}
 
-	diffMapInt32(tx, uid, before.ExploreScores, after.ExploreScores, "user_explore_scores", "explore_id",
+	if err := diffMapInt32(tx, uid, before.ExploreScores, after.ExploreScores, "user_explore_scores", "explore_id",
 		func(v store.ExploreScoreState) []any {
 			return []any{v.ExploreId, v.MaxScore, v.MaxScoreUpdateDatetime, v.LatestVersion}
 		},
-		"explore_id, max_score, max_score_update_datetime, latest_version")
-	diffMapInt32(tx, uid, before.AutoSaleSettings, after.AutoSaleSettings, "user_auto_sale_settings", "possession_auto_sale_item_type",
+		"explore_id, max_score, max_score_update_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.AutoSaleSettings, after.AutoSaleSettings, "user_auto_sale_settings", "possession_auto_sale_item_type",
 		func(v store.AutoSaleSettingState) []any {
 			return []any{v.PossessionAutoSaleItemType, v.PossessionAutoSaleItemValue}
 		},
-		"possession_auto_sale_item_type, possession_auto_sale_item_value")
+		"possession_auto_sale_item_type, possession_auto_sale_item_value"); err != nil {
+		return err
+	}
 	diffBoolMap(tx, uid, before.NaviCutInPlayed, after.NaviCutInPlayed, "user_navi_cutin_played", "navi_cutin_id")
 	diffTimestampMap(tx, uid, before.ViewedMovies, after.ViewedMovies, "user_viewed_movies", "movie_id")
 	diffTimestampMap(tx, uid, before.ContentsStories, after.ContentsStories, "user_contents_stories", "contents_story_id")
@@ -984,10 +1179,12 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 
-	diffMapInt32(tx, uid, before.CharacterBoards, after.CharacterBoards, "user_character_boards", "character_board_id",
+	if err := diffMapInt32(tx, uid, before.CharacterBoards, after.CharacterBoards, "user_character_boards", "character_board_id",
 		func(v store.CharacterBoardState) []any {
 			return []any{v.CharacterBoardId, v.PanelReleaseBit1, v.PanelReleaseBit2, v.PanelReleaseBit3, v.PanelReleaseBit4, v.LatestVersion}
-		}, "character_board_id, panel_release_bit1, panel_release_bit2, panel_release_bit3, panel_release_bit4, latest_version")
+		}, "character_board_id, panel_release_bit1, panel_release_bit2, panel_release_bit3, panel_release_bit4, latest_version"); err != nil {
+		return err
+	}
 
 	for k, v := range after.CharacterBoardAbilities {
 		if old, ok := before.CharacterBoardAbilities[k]; !ok || old != v {
@@ -1012,27 +1209,41 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 			exec(`DELETE FROM user_character_board_status_ups WHERE user_id=? AND character_id=? AND status_calculation_type=?`, uid, k.CharacterId, k.StatusCalculationType)
 		}
 	}
-
-	diffMapInt32(tx, uid, before.CharacterRebirths, after.CharacterRebirths, "user_character_rebirths", "character_id",
+	if err := diffMapInt32(tx, uid, before.CharacterRebirths, after.CharacterRebirths, "user_character_rebirths", "character_id",
 		func(v store.CharacterRebirthState) []any {
 			return []any{v.CharacterId, v.RebirthCount, v.LatestVersion}
 		},
-		"character_id, rebirth_count, latest_version")
-	diffMapInt32(tx, uid, before.CageOrnamentRewards, after.CageOrnamentRewards, "user_cage_ornament_rewards", "cage_ornament_id",
+		"character_id, rebirth_count, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.CageOrnamentRewards, after.CageOrnamentRewards, "user_cage_ornament_rewards", "cage_ornament_id",
 		func(v store.CageOrnamentRewardState) []any {
 			return []any{v.CageOrnamentId, v.AcquisitionDatetime, v.LatestVersion}
 		},
-		"cage_ornament_id, acquisition_datetime, latest_version")
-	diffMapInt32(tx, uid, before.TowerAccumulationRewards, after.TowerAccumulationRewards, "user_event_quest_tower_accumulation_rewards", "event_quest_chapter_id",
+		"cage_ornament_id, acquisition_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.CageOrnamentAccesses, after.CageOrnamentAccesses, "user_cage_ornament_accesses", "cage_ornament_id",
+		func(v store.CageOrnamentAccessState) []any {
+			return []any{v.CageOrnamentId, v.FirstAccessDatetime, v.LatestAccessDatetime, v.LatestVersion}
+		},
+		"cage_ornament_id, first_access_datetime, latest_access_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.TowerAccumulationRewards, after.TowerAccumulationRewards, "user_event_quest_tower_accumulation_rewards", "event_quest_chapter_id",
 		func(v store.TowerAccumulationRewardState) []any {
 			return []any{v.EventQuestChapterId, v.LatestRewardReceiveQuestMissionClearCount, v.LatestVersion}
 		},
-		"event_quest_chapter_id, latest_reward_receive_quest_mission_clear_count, latest_version")
-	diffMapInt32(tx, uid, before.LabyrinthSeasons, after.LabyrinthSeasons, "user_event_quest_labyrinth_seasons", "event_quest_chapter_id",
+		"event_quest_chapter_id, latest_reward_receive_quest_mission_clear_count, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.LabyrinthSeasons, after.LabyrinthSeasons, "user_event_quest_labyrinth_seasons", "event_quest_chapter_id",
 		func(v store.LabyrinthSeasonState) []any {
 			return []any{v.EventQuestChapterId, v.LastJoinSeasonNumber, v.LastSeasonRewardReceivedSeasonNumber, v.LatestVersion}
 		},
-		"event_quest_chapter_id, last_join_season_number, last_season_reward_received_season_number, latest_version")
+		"event_quest_chapter_id, last_join_season_number, last_season_reward_received_season_number, latest_version"); err != nil {
+		return err
+	}
 	for k, v := range after.LabyrinthStages {
 		if old, ok := before.LabyrinthStages[k]; !ok || old != v {
 			exec(`INSERT OR REPLACE INTO user_event_quest_labyrinth_stages (user_id, event_quest_chapter_id, stage_order, is_received_stage_clear_reward, accumulation_reward_received_quest_mission_count, latest_version) VALUES (?,?,?,?,?,?)`,
@@ -1044,15 +1255,19 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 			exec(`DELETE FROM user_event_quest_labyrinth_stages WHERE user_id=? AND event_quest_chapter_id=? AND stage_order=?`, uid, k.EventQuestChapterId, k.StageOrder)
 		}
 	}
-	diffMapInt32(tx, uid, before.ShopItems, after.ShopItems, "user_shop_items", "shop_item_id",
+	if err := diffMapInt32(tx, uid, before.ShopItems, after.ShopItems, "user_shop_items", "shop_item_id",
 		func(v store.UserShopItemState) []any {
 			return []any{v.ShopItemId, v.BoughtCount, v.LatestBoughtCountChangedDatetime, v.LatestVersion}
-		}, "shop_item_id, bought_count, latest_bought_count_changed_datetime, latest_version")
-	diffMapInt32(tx, uid, before.ShopReplaceableLineup, after.ShopReplaceableLineup, "user_shop_replaceable_lineup", "slot_number",
+		}, "shop_item_id, bought_count, latest_bought_count_changed_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.ShopReplaceableLineup, after.ShopReplaceableLineup, "user_shop_replaceable_lineup", "slot_number",
 		func(v store.UserShopReplaceableLineupState) []any {
 			return []any{v.SlotNumber, v.ShopItemId, v.LatestVersion}
 		},
-		"slot_number, shop_item_id, latest_version")
+		"slot_number, shop_item_id, latest_version"); err != nil {
+		return err
+	}
 
 	for k, v := range after.Gimmick.Progress {
 		if old, ok := before.Gimmick.Progress[k]; !ok || old != v {
@@ -1103,16 +1318,20 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 
-	diffMapInt32(tx, uid, before.BigHuntMaxScores, after.BigHuntMaxScores, "user_big_hunt_max_scores", "big_hunt_boss_id",
+	if err := diffMapInt32(tx, uid, before.BigHuntMaxScores, after.BigHuntMaxScores, "user_big_hunt_max_scores", "big_hunt_boss_id",
 		func(v store.BigHuntMaxScore) []any {
 			return []any{0, v.MaxScore, v.MaxScoreUpdateDatetime, v.LatestVersion}
 		},
-		"big_hunt_boss_id, max_score, max_score_update_datetime, latest_version")
-	diffMapInt32(tx, uid, before.BigHuntStatuses, after.BigHuntStatuses, "user_big_hunt_statuses", "big_hunt_boss_id",
+		"big_hunt_boss_id, max_score, max_score_update_datetime, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.BigHuntStatuses, after.BigHuntStatuses, "user_big_hunt_statuses", "big_hunt_boss_id",
 		func(v store.BigHuntStatus) []any {
 			return []any{0, v.DailyChallengeCount, v.LatestChallengeDatetime, v.LastDailyRewardReceivedDayVersion, v.LatestVersion}
 		},
-		"big_hunt_boss_id, daily_challenge_count, latest_challenge_datetime, last_daily_reward_received_day_version, latest_version")
+		"big_hunt_boss_id, daily_challenge_count, latest_challenge_datetime, last_daily_reward_received_day_version, latest_version"); err != nil {
+		return err
+	}
 
 	for k, v := range after.BigHuntScheduleMaxScores {
 		if old, ok := before.BigHuntScheduleMaxScores[k]; !ok || old != v {
@@ -1148,7 +1367,7 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 func bigHuntBattleDetailEqual(a, b store.BigHuntBattleDetail) bool {
@@ -1168,7 +1387,7 @@ func bigHuntBattleDetailEqual(a, b store.BigHuntBattleDetail) bool {
 	return true
 }
 
-func diffMapInt32[V comparable](tx *sql.Tx, uid int64, before, after map[int32]V, table, keyCol string, vals func(V) []any, cols string) {
+func diffMapInt32[V comparable](tx *sql.Tx, uid int64, before, after map[int32]V, table, keyCol string, vals func(V) []any, cols string) error {
 	for k, v := range after {
 		if old, ok := before[k]; !ok || old != v {
 			allVals := vals(v)
@@ -1178,17 +1397,22 @@ func diffMapInt32[V comparable](tx *sql.Tx, uid int64, before, after map[int32]V
 			for range allVals {
 				placeholders += ",?"
 			}
-			tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s) VALUES (%s)`, table, cols, placeholders), args...)
+			if _, err := tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s) VALUES (%s)`, table, cols, placeholders), args...); err != nil {
+				return err
+			}
 		}
 	}
 	for k := range before {
 		if _, ok := after[k]; !ok {
-			tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k)
+			if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func diffMapStr[V comparable](tx *sql.Tx, uid int64, before, after map[string]V, table, keyCol string, vals func(V) []any, cols string) {
+func diffMapStr[V comparable](tx *sql.Tx, uid int64, before, after map[string]V, table, keyCol string, vals func(V) []any, cols string) error {
 	for k, v := range after {
 		if old, ok := before[k]; !ok || old != v {
 			allVals := vals(v)
@@ -1197,40 +1421,55 @@ func diffMapStr[V comparable](tx *sql.Tx, uid int64, before, after map[string]V,
 			for range allVals {
 				placeholders += ",?"
 			}
-			tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s) VALUES (%s)`, table, cols, placeholders), args...)
+			if _, err := tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s) VALUES (%s)`, table, cols, placeholders), args...); err != nil {
+				return err
+			}
 		}
 	}
 	for k := range before {
 		if _, ok := after[k]; !ok {
-			tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k)
+			if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func diffSimpleMap(tx *sql.Tx, uid int64, before, after map[int32]int32, table, keyCol, valCol string) {
+func diffSimpleMap(tx *sql.Tx, uid int64, before, after map[int32]int32, table, keyCol, valCol string) error {
 	for k, v := range after {
 		if old, ok := before[k]; !ok || old != v {
-			tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s, %s) VALUES (?,?,?)`, table, keyCol, valCol), uid, k, v)
+			if _, err := tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s, %s) VALUES (?,?,?)`, table, keyCol, valCol), uid, k, v); err != nil {
+				return err
+			}
 		}
 	}
 	for k := range before {
 		if _, ok := after[k]; !ok {
-			tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k)
+			if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func diffInt64Map(tx *sql.Tx, uid int64, before, after map[int32]int64, table, keyCol, valCol string) {
+func diffInt64Map(tx *sql.Tx, uid int64, before, after map[int32]int64, table, keyCol, valCol string) error {
 	for k, v := range after {
 		if old, ok := before[k]; !ok || old != v {
-			tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s, %s) VALUES (?,?,?)`, table, keyCol, valCol), uid, k, v)
+			if _, err := tx.Exec(fmt.Sprintf(`INSERT OR REPLACE INTO %s (user_id, %s, %s) VALUES (?,?,?)`, table, keyCol, valCol), uid, k, v); err != nil {
+				return err
+			}
 		}
 	}
 	for k := range before {
 		if _, ok := after[k]; !ok {
-			tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k)
+			if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=? AND %s=?`, table, keyCol), uid, k); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func diffBoolMap(tx *sql.Tx, uid int64, before, after map[int32]bool, table, keyCol string) {
@@ -1259,11 +1498,14 @@ func diffTimestampMap(tx *sql.Tx, uid int64, before, after map[int32]int64, tabl
 	}
 }
 
-func replaceSliceTable(tx *sql.Tx, uid int64, table string, data map[string][]string, insertFn func(string, []string)) {
-	tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=?`, table), uid)
+func replaceSliceTable(tx *sql.Tx, uid int64, table string, data map[string][]string, insertFn func(string, []string)) error {
+	if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id=?`, table), uid); err != nil {
+		return err
+	}
 	for key, vals := range data {
 		insertFn(key, vals)
 	}
+	return nil
 }
 
 // suppress unused import
