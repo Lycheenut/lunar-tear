@@ -64,50 +64,52 @@ type UserState struct {
 	Friends        map[int64]FriendState
 	FriendRequests map[int64]int64
 
-	Characters               map[int32]CharacterState
-	Costumes                 map[string]CostumeState
-	Weapons                  map[string]WeaponState
-	Companions               map[string]CompanionState
-	Thoughts                 map[string]ThoughtState
-	DeckCharacters           map[string]DeckCharacterState
-	Decks                    map[DeckKey]DeckState
-	TripleDecks              map[DeckKey]TripleDeckState
-	Quests                   map[int32]UserQuestState
-	QuestMissions            map[QuestMissionKey]UserQuestMissionState
-	Missions                 map[int32]UserMissionState
-	WeaponStories            map[int32]WeaponStoryState
-	Gimmick                  GimmickState
-	CageOrnamentRewards      map[int32]CageOrnamentRewardState
-	TowerAccumulationRewards map[int32]TowerAccumulationRewardState
-	LabyrinthSeasons         map[int32]LabyrinthSeasonState
-	LabyrinthStages          map[LabyrinthStageKey]LabyrinthStageState
-	ConsumableItems          map[int32]int32
-	Materials                map[int32]int32
-	Parts                    map[string]PartsState
-	PartsGroupNotes          map[int32]PartsGroupNoteState
-	PartsPresets             map[int32]PartsPresetState
-	PartsPresetTags          map[int32]PartsPresetTagState
-	PartsStatusSubs          map[PartsStatusSubKey]PartsStatusSubState
-	ImportantItems           map[int32]int32
-	CostumeActiveSkills      map[string]CostumeActiveSkillState
-	WeaponSkills             map[string][]WeaponSkillState   // key: userWeaponUuid
-	WeaponAbilities          map[string][]WeaponAbilityState // key: userWeaponUuid
-	WeaponAwakens            map[string]WeaponAwakenState    // key: userWeaponUuid
-	DeckTypeNotes            map[model.DeckType]DeckTypeNoteState
-	WeaponNotes              map[int32]WeaponNoteState
-	DeckSubWeapons           map[string][]string
-	DeckParts                map[string][]string
-	NaviCutInPlayed          map[int32]bool
-	ViewedMovies             map[int32]int64
-	ContentsStories          map[int32]int64
-	DrawnOmikuji             map[int32]int64
-	PremiumItems             map[int32]int64
-	DokanConfirmed           map[int32]bool
-	PortalCageStatus         PortalCageStatusState
-	GuerrillaFreeOpen        GuerrillaFreeOpenState
-	ShopItems                map[int32]UserShopItemState
-	ShopReplaceable          UserShopReplaceableState
-	ShopReplaceableLineup    map[int32]UserShopReplaceableLineupState
+	Characters                 map[int32]CharacterState
+	Costumes                   map[string]CostumeState
+	Weapons                    map[string]WeaponState
+	Companions                 map[string]CompanionState
+	Thoughts                   map[string]ThoughtState
+	DeckCharacters             map[string]DeckCharacterState
+	Decks                      map[DeckKey]DeckState
+	TripleDecks                map[DeckKey]TripleDeckState
+	DeckLimitContentRestricted map[string]DeckLimitContentRestrictedState
+	Quests                     map[int32]UserQuestState
+	QuestMissions              map[QuestMissionKey]UserQuestMissionState
+	Missions                   map[int32]UserMissionState
+	WeaponStories              map[int32]WeaponStoryState
+	Gimmick                    GimmickState
+	CageOrnamentRewards        map[int32]CageOrnamentRewardState
+	CageOrnamentAccesses       map[int32]CageOrnamentAccessState
+	TowerAccumulationRewards   map[int32]TowerAccumulationRewardState
+	LabyrinthSeasons           map[int32]LabyrinthSeasonState
+	LabyrinthStages            map[LabyrinthStageKey]LabyrinthStageState
+	ConsumableItems            map[int32]int32
+	Materials                  map[int32]int32
+	Parts                      map[string]PartsState
+	PartsGroupNotes            map[int32]PartsGroupNoteState
+	PartsPresets               map[int32]PartsPresetState
+	PartsPresetTags            map[int32]PartsPresetTagState
+	PartsStatusSubs            map[PartsStatusSubKey]PartsStatusSubState
+	ImportantItems             map[int32]int32
+	CostumeActiveSkills        map[string]CostumeActiveSkillState
+	WeaponSkills               map[string][]WeaponSkillState   // key: userWeaponUuid
+	WeaponAbilities            map[string][]WeaponAbilityState // key: userWeaponUuid
+	WeaponAwakens              map[string]WeaponAwakenState    // key: userWeaponUuid
+	DeckTypeNotes              map[model.DeckType]DeckTypeNoteState
+	WeaponNotes                map[int32]WeaponNoteState
+	DeckSubWeapons             map[string][]string
+	DeckParts                  map[string][]string
+	NaviCutInPlayed            map[int32]bool
+	ViewedMovies               map[int32]int64
+	ContentsStories            map[int32]int64
+	DrawnOmikuji               map[int32]int64
+	PremiumItems               map[int32]int64
+	DokanConfirmed             map[int32]bool
+	PortalCageStatus           PortalCageStatusState
+	GuerrillaFreeOpen          GuerrillaFreeOpenState
+	ShopItems                  map[int32]UserShopItemState
+	ShopReplaceable            UserShopReplaceableState
+	ShopReplaceableLineup      map[int32]UserShopReplaceableLineupState
 
 	Explore       ExploreState
 	ExploreScores map[int32]ExploreScoreState
@@ -116,12 +118,15 @@ type UserState struct {
 	CharacterBoardAbilities map[CharacterBoardAbilityKey]CharacterBoardAbilityState
 	CharacterBoardStatusUps map[CharacterBoardStatusUpKey]CharacterBoardStatusUpState
 
-	CostumeAwakenStatusUps      map[CostumeAwakenStatusKey]CostumeAwakenStatusUpState
-	CostumeLotteryEffects       map[CostumeLotteryEffectKey]CostumeLotteryEffectState
-	CostumeLotteryEffectPending map[string]CostumeLotteryEffectPendingState // key: userCostumeUuid
-	AutoSaleSettings            map[int32]AutoSaleSettingState
-	CharacterRebirths           map[int32]CharacterRebirthState
-	QuestAutoOrbit              QuestAutoOrbitState
+	CostumeAwakenStatusUps           map[CostumeAwakenStatusKey]CostumeAwakenStatusUpState
+	CostumeLevelBonusReleaseStatuses map[int32]CostumeLevelBonusReleaseStatusState
+	CostumeLotteryEffects            map[CostumeLotteryEffectKey]CostumeLotteryEffectState
+	CostumeLotteryEffectAbilities    map[CostumeLotteryEffectKey]CostumeLotteryEffectAbilityState
+	CostumeLotteryEffectStatusUps    map[CostumeLotteryEffectStatusKey]CostumeLotteryEffectStatusUpState
+	CostumeLotteryEffectPending      map[string]CostumeLotteryEffectPendingState // key: userCostumeUuid
+	AutoSaleSettings                 map[int32]AutoSaleSettingState
+	CharacterRebirths                map[int32]CharacterRebirthState
+	QuestAutoOrbit                   QuestAutoOrbitState
 }
 
 func (u *UserState) EnsureMaps() {
@@ -157,6 +162,9 @@ func (u *UserState) EnsureMaps() {
 	}
 	if u.TripleDecks == nil {
 		u.TripleDecks = make(map[DeckKey]TripleDeckState)
+	}
+	if u.DeckLimitContentRestricted == nil {
+		u.DeckLimitContentRestricted = make(map[string]DeckLimitContentRestrictedState)
 	}
 	if u.DeckSubWeapons == nil {
 		u.DeckSubWeapons = make(map[string][]string)
@@ -199,6 +207,9 @@ func (u *UserState) EnsureMaps() {
 	}
 	if u.CageOrnamentRewards == nil {
 		u.CageOrnamentRewards = make(map[int32]CageOrnamentRewardState)
+	}
+	if u.CageOrnamentAccesses == nil {
+		u.CageOrnamentAccesses = make(map[int32]CageOrnamentAccessState)
 	}
 	if u.TowerAccumulationRewards == nil {
 		u.TowerAccumulationRewards = make(map[int32]TowerAccumulationRewardState)
@@ -290,8 +301,17 @@ func (u *UserState) EnsureMaps() {
 	if u.CostumeAwakenStatusUps == nil {
 		u.CostumeAwakenStatusUps = make(map[CostumeAwakenStatusKey]CostumeAwakenStatusUpState)
 	}
+	if u.CostumeLevelBonusReleaseStatuses == nil {
+		u.CostumeLevelBonusReleaseStatuses = make(map[int32]CostumeLevelBonusReleaseStatusState)
+	}
 	if u.CostumeLotteryEffects == nil {
 		u.CostumeLotteryEffects = make(map[CostumeLotteryEffectKey]CostumeLotteryEffectState)
+	}
+	if u.CostumeLotteryEffectAbilities == nil {
+		u.CostumeLotteryEffectAbilities = make(map[CostumeLotteryEffectKey]CostumeLotteryEffectAbilityState)
+	}
+	if u.CostumeLotteryEffectStatusUps == nil {
+		u.CostumeLotteryEffectStatusUps = make(map[CostumeLotteryEffectStatusKey]CostumeLotteryEffectStatusUpState)
 	}
 	if u.CostumeLotteryEffectPending == nil {
 		u.CostumeLotteryEffectPending = make(map[string]CostumeLotteryEffectPendingState)
@@ -520,6 +540,15 @@ type DeckState struct {
 	Name                    string
 	Power                   int32
 	LatestVersion           int64
+}
+
+type DeckLimitContentRestrictedState struct {
+	DeckRestrictedUuid  string
+	EventQuestChapterId int32
+	QuestId             int32
+	PossessionType      int32
+	TargetUuid          string
+	LatestVersion       int64
 }
 
 type TripleDeckState struct {
@@ -916,6 +945,13 @@ type CageOrnamentRewardState struct {
 	LatestVersion       int64
 }
 
+type CageOrnamentAccessState struct {
+	CageOrnamentId       int32
+	FirstAccessDatetime  int64
+	LatestAccessDatetime int64
+	LatestVersion        int64
+}
+
 type TowerAccumulationRewardState struct {
 	EventQuestChapterId                       int32
 	LatestRewardReceiveQuestMissionClearCount int32
@@ -1224,6 +1260,38 @@ func (k *CostumeAwakenStatusKey) UnmarshalText(text []byte) error {
 }
 
 type CostumeAwakenStatusUpState struct {
+	UserCostumeUuid       string
+	StatusCalculationType model.StatusCalculationType
+	Hp                    int32
+	Attack                int32
+	Vitality              int32
+	Agility               int32
+	CriticalRatio         int32
+	CriticalAttack        int32
+	LatestVersion         int64
+}
+
+type CostumeLevelBonusReleaseStatusState struct {
+	CostumeId              int32
+	LastReleasedBonusLevel int32
+	ConfirmedBonusLevel    int32
+	LatestVersion          int64
+}
+
+type CostumeLotteryEffectAbilityState struct {
+	UserCostumeUuid string
+	SlotNumber      int32
+	AbilityId       int32
+	AbilityLevel    int32
+	LatestVersion   int64
+}
+
+type CostumeLotteryEffectStatusKey struct {
+	UserCostumeUuid       string
+	StatusCalculationType model.StatusCalculationType
+}
+
+type CostumeLotteryEffectStatusUpState struct {
 	UserCostumeUuid       string
 	StatusCalculationType model.StatusCalculationType
 	Hp                    int32

@@ -17,6 +17,7 @@ func CloneUserState(u UserState) UserState {
 	out.DeckParts = cloneSliceMap(u.DeckParts)
 	out.Decks = maps.Clone(u.Decks)
 	out.TripleDecks = maps.Clone(u.TripleDecks)
+	out.DeckLimitContentRestricted = maps.Clone(u.DeckLimitContentRestricted)
 	out.Quests = maps.Clone(u.Quests)
 	out.QuestMissions = maps.Clone(u.QuestMissions)
 	out.WeaponStories = maps.Clone(u.WeaponStories)
@@ -28,6 +29,7 @@ func CloneUserState(u UserState) UserState {
 		Unlocks:          maps.Clone(u.Gimmick.Unlocks),
 	}
 	out.CageOrnamentRewards = maps.Clone(u.CageOrnamentRewards)
+	out.CageOrnamentAccesses = maps.Clone(u.CageOrnamentAccesses)
 	out.TowerAccumulationRewards = maps.Clone(u.TowerAccumulationRewards)
 	out.LabyrinthSeasons = maps.Clone(u.LabyrinthSeasons)
 	out.LabyrinthStages = maps.Clone(u.LabyrinthStages)
@@ -83,7 +85,10 @@ func CloneUserState(u UserState) UserState {
 	out.CharacterBoardAbilities = maps.Clone(u.CharacterBoardAbilities)
 	out.CharacterBoardStatusUps = maps.Clone(u.CharacterBoardStatusUps)
 	out.CostumeAwakenStatusUps = maps.Clone(u.CostumeAwakenStatusUps)
+	out.CostumeLevelBonusReleaseStatuses = maps.Clone(u.CostumeLevelBonusReleaseStatuses)
 	out.CostumeLotteryEffects = maps.Clone(u.CostumeLotteryEffects)
+	out.CostumeLotteryEffectAbilities = maps.Clone(u.CostumeLotteryEffectAbilities)
+	out.CostumeLotteryEffectStatusUps = maps.Clone(u.CostumeLotteryEffectStatusUps)
 	out.CostumeLotteryEffectPending = maps.Clone(u.CostumeLotteryEffectPending)
 	out.AutoSaleSettings = maps.Clone(u.AutoSaleSettings)
 	out.CharacterRebirths = maps.Clone(u.CharacterRebirths)
