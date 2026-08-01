@@ -8,29 +8,20 @@ import (
 	"lunar-tear/server/internal/model"
 )
 
-func TestLoadGachaCatalogBuildsScopedEventBoxes(t *testing.T) {
+func TestLoadGachaCatalogDoesNotSynthesizeEventBoxInventory(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
 		t.Fatal(err)
 	}
-	parts, err := LoadPartsCatalog()
+	entries, _, err := LoadGachaCatalog()
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, _, err := LoadGachaCatalog(parts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var eventCount int
 	for _, entry := range entries {
-		if entry.GachaLabelType != model.GachaLabelEvent {
-			continue
-		}
-		eventCount++
-		if len(entry.BoxItems) == 0 {
-			t.Fatalf("event gacha %d has no scoped box items", entry.GachaId)
+		if entry.GachaLabelType == model.GachaLabelEvent {
+			t.Fatalf("event gacha %d was exposed without authoritative inventory", entry.GachaId)
 		}
 	}
-	if eventCount == 0 {
-		t.Fatal("catalog did not contain an event gacha")
+	if len(entries) == 0 {
+		t.Fatal("non-event gachas were removed with event gachas")
 	}
 }

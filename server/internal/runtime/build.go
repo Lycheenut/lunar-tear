@@ -58,7 +58,7 @@ func buildCatalogs() (*Catalogs, error) {
 	questHandler := questflow.NewQuestHandler(questCatalog, gameConfig, sideStoryCatalog, campaignCatalog, characterRebirthCatalog)
 	userdata.SetQuestHandler(questHandler)
 
-	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog(partsCatalog)
+	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog()
 	if err != nil {
 		return nil, fmt.Errorf("load gacha catalog: %w", err)
 	}

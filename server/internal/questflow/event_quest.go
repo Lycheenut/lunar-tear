@@ -46,7 +46,8 @@ func (h *QuestHandler) HandleEventQuestStart(user *store.UserState, eventQuestCh
 func (h *QuestHandler) HandleEventQuestFinish(user *store.UserState, eventQuestChapterId, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleEventQuestFinish", questId))
+		log.Printf("[HandleEventQuestFinish] unknown questId=%d", questId)
+		return FinishOutcome{}
 	}
 
 	target := h.targetForEvent(eventQuestChapterId, questId)

@@ -3,6 +3,8 @@ package questflow
 import (
 	"fmt"
 
+	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
@@ -11,6 +13,9 @@ func (h *QuestHandler) validateQuestStart(user *store.UserState, questId int32, 
 	quest, ok := h.QuestById[questId]
 	if !ok {
 		return fmt.Errorf("unknown quest %d", questId)
+	}
+	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
+		return err
 	}
 	cost := h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
@@ -24,6 +29,9 @@ func (h *QuestHandler) validateExtraQuestStart(user *store.UserState, questId in
 	if !ok {
 		return fmt.Errorf("unknown quest %d", questId)
 	}
+	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
+		return err
+	}
 	cost := h.staminaWithCampaign(quest.Stamina, h.targetForExtra(questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
 		return fmt.Errorf("insufficient stamina")
@@ -35,6 +43,9 @@ func (h *QuestHandler) validateBigHuntQuestStart(user *store.UserState, questId 
 	quest, ok := h.QuestById[questId]
 	if !ok {
 		return fmt.Errorf("unknown quest %d", questId)
+	}
+	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
+		return err
 	}
 	cost := h.staminaWithCampaign(quest.Stamina, h.targetForBigHunt(questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
@@ -51,7 +62,7 @@ func (h *QuestHandler) EventChapterAvailable(user *store.UserState, chapterId in
 	if nowMillis < chapter.StartDatetime || (chapter.EndDatetime > 0 && nowMillis >= chapter.EndDatetime) {
 		return fmt.Errorf("event quest chapter %d is outside its active period", chapterId)
 	}
-	for _, questId := range h.EventUnlockQuestIdsByType[chapter.EventQuestType] {
+	for _, questId := range h.EventUnlockQuestIdsForChapter(chapterId) {
 		quest := user.Quests[questId]
 		if quest.QuestStateType != model.UserQuestStateTypeCleared {
 			return fmt.Errorf("event quest chapter %d is locked", chapterId)
@@ -68,6 +79,9 @@ func (h *QuestHandler) validateEventQuest(user *store.UserState, chapterId, ques
 		return fmt.Errorf("quest %d does not belong to event chapter %d", questId, chapterId)
 	}
 	quest := h.QuestById[questId]
+	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
+		return err
+	}
 	cost := h.staminaWithCampaign(quest.Stamina, h.targetForEvent(chapterId, questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
 		return fmt.Errorf("insufficient stamina")
@@ -84,6 +98,19 @@ func (h *QuestHandler) ValidateEventQuestContinuation(user *store.UserState, cha
 	}
 	if user.EventQuest.CurrentEventQuestChapterId != chapterId || user.EventQuest.CurrentQuestId != questId {
 		return fmt.Errorf("event quest %d is not active", questId)
+	}
+	if user.Quests[questId].QuestStateType != model.UserQuestStateTypeActive {
+		return fmt.Errorf("event quest %d is not active", questId)
+	}
+	return nil
+}
+
+func (h *QuestHandler) ValidateQuestContinuation(user *store.UserState, questId int32) error {
+	if _, ok := h.QuestById[questId]; !ok {
+		return fmt.Errorf("unknown quest %d", questId)
+	}
+	if user.Quests[questId].QuestStateType != model.UserQuestStateTypeActive {
+		return fmt.Errorf("quest %d is not active", questId)
 	}
 	return nil
 }
@@ -103,8 +130,8 @@ func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCou
 	if !quest.IsUsableSkipTicket {
 		return fmt.Errorf("quest %d cannot be skipped", questId)
 	}
-	if quest.DailyClearableCount > 0 && state.DailyClearCount+skipCount > quest.DailyClearableCount {
-		return fmt.Errorf("daily clear limit exceeded")
+	if err := validateDailyClearLimit(state, quest, skipCount, nowMillis); err != nil {
+		return err
 	}
 	if user.ConsumableItems[h.Config.ConsumableItemIdForQuestSkipTicket] < skipCount {
 		return fmt.Errorf("insufficient skip tickets")
@@ -145,8 +172,8 @@ func (h *QuestHandler) validateQuestSkipBulk(user *store.UserState, questIds, sk
 		if state.QuestStateType != model.UserQuestStateTypeCleared || !quest.IsUsableSkipTicket {
 			return fmt.Errorf("quest %d cannot be skipped", questId)
 		}
-		if quest.DailyClearableCount > 0 && state.DailyClearCount+count > quest.DailyClearableCount {
-			return fmt.Errorf("daily clear limit exceeded")
+		if err := validateDailyClearLimit(state, quest, count, nowMillis); err != nil {
+			return err
 		}
 		totalTickets += totalCount
 		totalStamina += int64(h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis)) * totalCount
@@ -161,6 +188,29 @@ func (h *QuestHandler) validateQuestSkipBulk(user *store.UserState, questIds, sk
 		return fmt.Errorf("insufficient stamina")
 	}
 	return nil
+}
+
+func dailyClearCount(state store.UserQuestState, nowMillis int64) int32 {
+	if state.LastClearDatetime < gametime.StartOfDayAtMillis(nowMillis) {
+		return 0
+	}
+	return state.DailyClearCount
+}
+
+func validateDailyClearLimit(state store.UserQuestState, quest masterdata.EntityMQuest, additional int32, nowMillis int64) error {
+	if quest.DailyClearableCount > 0 && int64(dailyClearCount(state, nowMillis))+int64(additional) > int64(quest.DailyClearableCount) {
+		return fmt.Errorf("daily clear limit exceeded")
+	}
+	return nil
+}
+
+func recordQuestClears(state *store.UserQuestState, count int32, nowMillis int64) {
+	if state.LastClearDatetime < gametime.StartOfDayAtMillis(nowMillis) {
+		state.DailyClearCount = 0
+	}
+	state.ClearCount += count
+	state.DailyClearCount += count
+	state.LastClearDatetime = nowMillis
 }
 
 func checkedProduct(left, right int32) (int32, error) {

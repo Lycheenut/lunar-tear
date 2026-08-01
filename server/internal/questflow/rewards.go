@@ -1,7 +1,6 @@
 package questflow
 
 import (
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -47,11 +46,13 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 	outcome := FinishOutcome{}
 	questState, ok := user.Quests[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for evaluateFinishOutcome", questId))
+		log.Printf("[evaluateFinishOutcome] quest %d has no user state", questId)
+		return outcome
 	}
 	questDef, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for evaluateFinishOutcome", questId))
+		log.Printf("[evaluateFinishOutcome] unknown quest %d", questId)
+		return outcome
 	}
 
 	isReplay := model.IsReplayQuestFlowType(user.MainQuest.CurrentQuestFlowType)

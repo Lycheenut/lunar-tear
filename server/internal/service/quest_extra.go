@@ -52,9 +52,20 @@ func (s *QuestServiceServer) FinishExtraQuest(ctx context.Context, req *pb.Finis
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	var outcome questflow.FinishOutcome
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.ValidateQuestContinuation(user, req.QuestId); err != nil {
+			validationErr = err
+			return
+		}
 		outcome = engine.HandleExtraQuestFinish(user, req.QuestId, req.IsRetired, req.IsAnnihilated, nowMillis)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("finish extra quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	return &pb.FinishExtraQuestResponse{
 		DropReward:                      toProtoRewards(outcome.DropRewards),

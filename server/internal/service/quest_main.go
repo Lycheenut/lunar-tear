@@ -37,9 +37,16 @@ func (s *QuestServiceServer) UpdateMainFlowSceneProgress(ctx context.Context, re
 
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleMainFlowSceneProgress(user, req.QuestSceneId, gametime.NowMillis())
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		validationErr = engine.HandleMainFlowSceneProgress(user, req.QuestSceneId, gametime.NowMillis())
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("update main flow scene: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.InvalidArgument, validationErr.Error())
+	}
 
 	return &pb.UpdateMainFlowSceneProgressResponse{}, nil
 }
@@ -61,9 +68,16 @@ func (s *QuestServiceServer) UpdateMainQuestSceneProgress(ctx context.Context, r
 
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleMainQuestSceneProgress(user, req.QuestSceneId)
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		validationErr = engine.HandleMainQuestSceneProgress(user, req.QuestSceneId)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("update main quest scene: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.InvalidArgument, validationErr.Error())
+	}
 
 	return &pb.UpdateMainQuestSceneProgressResponse{}, nil
 }
@@ -155,10 +169,21 @@ func (s *QuestServiceServer) FinishMainQuest(ctx context.Context, req *pb.Finish
 	var outcome questflow.FinishOutcome
 	var endedDrops []store.AutoOrbitDropEntry
 	var loopEnded bool
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.ValidateQuestContinuation(user, req.QuestId); err != nil {
+			validationErr = err
+			return
+		}
 		outcome = engine.HandleQuestFinish(user, req.QuestId, req.IsRetired, req.IsAnnihilated, nowMillis)
 		endedDrops, loopEnded = finishAutoOrbit(user, req.IsAutoOrbit, req.IsRetired, req.IsAnnihilated, model.QuestTypeMain, 0, req.QuestId, nowMillis, outcome.DropRewards)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("finish main quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	autoOrbitReward := emptyAutoOrbitReward()
 	if loopEnded {

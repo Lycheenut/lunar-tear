@@ -44,7 +44,8 @@ func (h *QuestHandler) HandleExtraQuestStart(user *store.UserState, questId, use
 func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleExtraQuestFinish", questId))
+		log.Printf("[HandleExtraQuestFinish] unknown questId=%d", questId)
+		return FinishOutcome{}
 	}
 
 	target := h.targetForExtra(questId)

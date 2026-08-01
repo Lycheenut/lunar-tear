@@ -11,7 +11,11 @@ func NowMillis() int64 {
 }
 
 func StartOfDayMillis() int64 {
-	n := Now()
+	return StartOfDayAtMillis(NowMillis())
+}
+
+func StartOfDayAtMillis(millis int64) int64 {
+	n := time.UnixMilli(millis).UTC()
 	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC).UnixMilli()
 }
 

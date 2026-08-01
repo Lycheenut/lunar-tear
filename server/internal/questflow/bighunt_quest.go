@@ -2,6 +2,7 @@ package questflow
 
 import (
 	"fmt"
+	"log"
 
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -37,7 +38,8 @@ func (h *QuestHandler) HandleBigHuntQuestStart(user *store.UserState, questId, u
 func (h *QuestHandler) HandleBigHuntQuestFinish(user *store.UserState, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleBigHuntQuestFinish", questId))
+		log.Printf("[HandleBigHuntQuestFinish] unknown questId=%d", questId)
+		return FinishOutcome{}
 	}
 
 	target := h.targetForBigHunt(questId)

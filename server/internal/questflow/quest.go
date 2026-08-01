@@ -103,9 +103,7 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 		questState.LatestStartDatetime = nowMillis
 	} else {
 		questState.QuestStateType = model.UserQuestStateTypeCleared
-		questState.ClearCount = 1
-		questState.DailyClearCount = 1
-		questState.LastClearDatetime = nowMillis
+		recordQuestClears(&questState, 1, nowMillis)
 		if sceneIds := h.SceneIdsByQuestId[questId]; len(sceneIds) > 0 {
 			firstSceneId := sceneIds[0]
 			prevSceneId := user.MainQuest.CurrentQuestSceneId
@@ -151,9 +149,7 @@ func (h *QuestHandler) applyReplayStart(user *store.UserState, quest masterdata.
 	} else {
 		if questState.QuestStateType != model.UserQuestStateTypeCleared {
 			questState.QuestStateType = model.UserQuestStateTypeCleared
-			questState.ClearCount++
-			questState.DailyClearCount++
-			questState.LastClearDatetime = nowMillis
+			recordQuestClears(&questState, 1, nowMillis)
 		}
 		user.Quests[questId] = questState
 		if sceneIds := h.SceneIdsByQuestId[questId]; len(sceneIds) > 0 {
@@ -223,9 +219,7 @@ func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, o
 		}
 	}
 	questState.QuestStateType = model.UserQuestStateTypeCleared
-	questState.ClearCount++
-	questState.DailyClearCount++
-	questState.LastClearDatetime = nowMillis
+	recordQuestClears(&questState, 1, nowMillis)
 	questState.IsBattleOnly = false
 	user.Quests[questId] = questState
 }
@@ -244,9 +238,7 @@ func (h *QuestHandler) finalizeChainPreviousQuest(user *store.UserState, questId
 		questState.IsRewardGranted = true
 	}
 	questState.QuestStateType = model.UserQuestStateTypeCleared
-	questState.ClearCount++
-	questState.DailyClearCount++
-	questState.LastClearDatetime = nowMillis
+	recordQuestClears(&questState, 1, nowMillis)
 	questState.IsBattleOnly = false
 	user.Quests[questId] = questState
 	log.Printf("[HandleMainQuestSceneProgress] finalized chain-previous quest %d (cleared)", questId)
@@ -266,7 +258,8 @@ func restoreClearedAfterRetire(user *store.UserState, questId int32, isRetired b
 func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleQuestFinish", questId))
+		log.Printf("[HandleQuestFinish] unknown questId=%d", questId)
+		return FinishOutcome{}
 	}
 
 	h.initQuestState(user, questId)
@@ -383,9 +376,7 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 	}
 
 	questState := user.Quests[questId]
-	questState.ClearCount += skipCount
-	questState.DailyClearCount += skipCount
-	questState.LastClearDatetime = nowMillis
+	recordQuestClears(&questState, skipCount, nowMillis)
 	user.Quests[questId] = questState
 
 	log.Printf("[HandleQuestSkip] questId=%d skipCount=%d drops=%d gold=%d", questId, skipCount, len(allDrops), questDef.Gold*skipCount)

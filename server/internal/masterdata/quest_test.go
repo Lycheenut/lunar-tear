@@ -23,7 +23,7 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockQuestIdsByType) == 0 {
+	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockConditions) == 0 {
 		t.Fatal("event chapters or normalized unlock quests were not loaded")
 	}
 }

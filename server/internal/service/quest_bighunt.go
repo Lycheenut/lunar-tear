@@ -118,8 +118,18 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 	var scoreInfo *pb.BigHuntScoreInfo
 	var scoreRewards []*pb.BigHuntReward
 	var battleReportWaves []*pb.BigHuntBattleReportWave
+	var validationErr error
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if user.BigHuntProgress.CurrentBigHuntBossQuestId != req.BigHuntBossQuestId ||
+			user.BigHuntProgress.CurrentBigHuntQuestId != req.BigHuntQuestId {
+			validationErr = status.Error(codes.FailedPrecondition, "big hunt quest is not active")
+			return
+		}
+		if err := engine.ValidateQuestContinuation(user, bhQuest.QuestId); err != nil {
+			validationErr = status.Error(codes.FailedPrecondition, err.Error())
+			return
+		}
 		engine.HandleBigHuntQuestFinish(user, bhQuest.QuestId, req.IsRetired, false, nowMillis)
 
 		if req.IsRetired || user.BigHuntProgress.IsDryRun {
@@ -244,6 +254,12 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 		user.BigHuntBattleBinary = nil
 		user.BigHuntBattleDetail = store.BigHuntBattleDetail{}
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("finish big hunt quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	if scoreInfo == nil {
 		scoreInfo = &pb.BigHuntScoreInfo{}

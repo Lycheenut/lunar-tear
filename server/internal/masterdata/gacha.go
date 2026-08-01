@@ -19,13 +19,7 @@ type GachaMedalInfo struct {
 
 const chapterGachaIdBase int32 = 200000
 
-type eventGachaDefinition struct {
-	Chapter  EntityMEventQuestChapter
-	Link     EntityMEventQuestLink
-	BoxItems []store.GachaBoxItemEntry
-}
-
-func LoadGachaCatalog(parts *PartsCatalog) ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, error) {
+func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, error) {
 	medals, err := utils.ReadTable[EntityMGachaMedal]("m_gacha_medal")
 	if err != nil {
 		return nil, nil, fmt.Errorf("load gacha medal table: %w", err)
@@ -42,52 +36,19 @@ func LoadGachaCatalog(parts *PartsCatalog) ([]store.GachaCatalogEntry, map[int32
 	if err != nil {
 		return nil, nil, fmt.Errorf("load event quest link table: %w", err)
 	}
-	displayItems, err := utils.ReadTable[EntityMEventQuestDisplayItemGroup]("m_event_quest_display_item_group")
-	if err != nil {
-		return nil, nil, fmt.Errorf("load event quest display item table: %w", err)
-	}
 	linkById := make(map[int32]EntityMEventQuestLink)
 	for _, link := range eventLinks {
 		linkById[link.EventQuestLinkId] = link
 	}
-	displayItemsByGroup := make(map[int32][]EntityMEventQuestDisplayItemGroup)
-	for _, item := range displayItems {
-		displayItemsByGroup[item.EventQuestDisplayItemGroupId] = append(displayItemsByGroup[item.EventQuestDisplayItemGroupId], item)
-	}
-	eventGachaById := make(map[int32]eventGachaDefinition)
+	// This master-data snapshot has no authoritative event-box inventory table.
+	// Keep the linked ids out of the catalog instead of treating UI display items
+	// as drawable stock with fabricated counts and rarity.
+	eventGachaIds := make(map[int32]bool)
 	for _, chapter := range eventChapters {
 		link := linkById[chapter.EventQuestLinkId]
-		if link.DestinationDomainType != model.MomBannerDomainGacha {
-			continue
+		if link.DestinationDomainType == model.MomBannerDomainGacha {
+			eventGachaIds[link.DestinationDomainId] = true
 		}
-		if previous, exists := eventGachaById[link.DestinationDomainId]; exists {
-			return nil, nil, fmt.Errorf("event gacha %d is linked by chapters %d and %d", link.DestinationDomainId, previous.Chapter.EventQuestChapterId, chapter.EventQuestChapterId)
-		}
-		if model.PossessionType(link.PossessionType) != model.PossessionTypeConsumableItem || link.PossessionId == 0 {
-			return nil, nil, fmt.Errorf("event gacha %d has unsupported price possession type %d", link.DestinationDomainId, link.PossessionType)
-		}
-		definition := eventGachaDefinition{Chapter: chapter, Link: link}
-		seenBoxItemIds := make(map[int32]bool)
-		for _, item := range displayItemsByGroup[chapter.EventQuestDisplayItemGroupId] {
-			if item.PossessionType == link.PossessionType && item.PossessionId == link.PossessionId {
-				continue
-			}
-			if item.PossessionId == 0 || seenBoxItemIds[item.PossessionId] {
-				return nil, nil, fmt.Errorf("event gacha %d has an invalid or duplicate box item id %d", link.DestinationDomainId, item.PossessionId)
-			}
-			seenBoxItemIds[item.PossessionId] = true
-			rarity := int32(model.RarityNormal)
-			if model.PossessionType(item.PossessionType) == model.PossessionTypeParts {
-				if part, ok := parts.PartsById[item.PossessionId]; ok {
-					rarity = part.RarityType
-				}
-			}
-			definition.BoxItems = append(definition.BoxItems, store.GachaBoxItemEntry{PossessionType: item.PossessionType, PossessionId: item.PossessionId, RarityType: rarity, Count: 1, MaxCount: model.BoxItemDefaultMax})
-		}
-		if len(definition.BoxItems) == 0 {
-			return nil, nil, fmt.Errorf("event gacha %d has no display-backed box items", link.DestinationDomainId)
-		}
-		eventGachaById[link.DestinationDomainId] = definition
 	}
 
 	gachaToMedal := make(map[int32]EntityMGachaMedal)
@@ -110,6 +71,9 @@ func LoadGachaCatalog(parts *PartsCatalog) ([]store.GachaCatalogEntry, map[int32
 			continue
 		}
 		gachaId := b.DestinationDomainId
+		if eventGachaIds[gachaId] {
+			continue
+		}
 
 		if strings.HasPrefix(b.BannerAssetName, model.BannerPrefixStepUp) {
 			if _, hasMedal := gachaToMedal[gachaId]; !hasMedal {
@@ -133,15 +97,8 @@ func LoadGachaCatalog(parts *PartsCatalog) ([]store.GachaCatalogEntry, map[int32
 			labelType = model.GachaLabelChapter
 			modeType = model.GachaModeBox
 		}
-		eventDefinition := eventGachaById[gachaId]
-		relatedEventChapterId := eventDefinition.Chapter.EventQuestChapterId
-		if relatedEventChapterId != 0 {
-			labelType = model.GachaLabelEvent
-			modeType = model.GachaModeBox
-		}
-
 		medal, hasMedal := gachaToMedal[gachaId]
-		if !hasMedal && !isChapter && relatedEventChapterId == 0 {
+		if !hasMedal && !isChapter {
 			continue
 		}
 		var medalId int32
@@ -154,9 +111,7 @@ func LoadGachaCatalog(parts *PartsCatalog) ([]store.GachaCatalogEntry, map[int32
 		}
 
 		var pricePhases []store.GachaPricePhaseEntry
-		if relatedEventChapterId != 0 {
-			pricePhases = buildEventPricePhases(gachaId, eventDefinition.Link.PossessionId)
-		} else if isChapter {
+		if isChapter {
 			pricePhases = buildChapterPricePhases(gachaId)
 		} else {
 			pricePhases = buildPremiumBasicPricePhases(gachaId)
@@ -173,48 +128,29 @@ func LoadGachaCatalog(parts *PartsCatalog) ([]store.GachaCatalogEntry, map[int32
 		}
 
 		entries = append(entries, store.GachaCatalogEntry{
-			GachaId:                    gachaId,
-			GachaLabelType:             labelType,
-			GachaModeType:              modeType,
-			GachaAutoResetType:         model.GachaAutoResetNone,
-			IsUserGachaUnlock:          true,
-			StartDatetime:              b.StartDatetime,
-			EndDatetime:                b.EndDatetime,
-			RelatedMainQuestChapterId:  relMainQuest,
-			RelatedEventQuestChapterId: relatedEventChapterId,
-			GachaMedalId:               medalId,
-			MedalConsumableItemId:      medalConsumableId,
-			GachaDecorationType:        decoration,
-			SortOrder:                  b.SortOrderDesc,
-			BannerAssetName:            b.BannerAssetName,
-			GroupId:                    gachaId,
-			CeilingCount:               ceilingCount,
-			PricePhases:                pricePhases,
-			BoxItems:                   eventDefinition.BoxItems,
-			DescriptionTextId:          descriptionTextId,
+			GachaId:                   gachaId,
+			GachaLabelType:            labelType,
+			GachaModeType:             modeType,
+			GachaAutoResetType:        model.GachaAutoResetNone,
+			IsUserGachaUnlock:         true,
+			StartDatetime:             b.StartDatetime,
+			EndDatetime:               b.EndDatetime,
+			RelatedMainQuestChapterId: relMainQuest,
+			GachaMedalId:              medalId,
+			MedalConsumableItemId:     medalConsumableId,
+			GachaDecorationType:       decoration,
+			SortOrder:                 b.SortOrderDesc,
+			BannerAssetName:           b.BannerAssetName,
+			GroupId:                   gachaId,
+			CeilingCount:              ceilingCount,
+			PricePhases:               pricePhases,
+			DescriptionTextId:         descriptionTextId,
 		})
 	}
 	seenGacha := make(map[int32]bool, len(entries))
 	for _, entry := range entries {
 		seenGacha[entry.GachaId] = true
 	}
-	for gachaId, definition := range eventGachaById {
-		if seenGacha[gachaId] {
-			continue
-		}
-		chapter := definition.Chapter
-		link := definition.Link
-		entries = append(entries, store.GachaCatalogEntry{
-			GachaId: gachaId, GachaLabelType: model.GachaLabelEvent, GachaModeType: model.GachaModeBox,
-			GachaAutoResetType: model.GachaAutoResetNone, IsUserGachaUnlock: true,
-			StartDatetime: chapter.StartDatetime, EndDatetime: chapter.EndDatetime,
-			RelatedEventQuestChapterId: chapter.EventQuestChapterId, GachaDecorationType: model.GachaDecorationNormal,
-			SortOrder: chapter.DisplaySortOrder, BannerAssetName: fmt.Sprintf("event_%d", gachaId),
-			GroupId: gachaId, PricePhases: buildEventPricePhases(gachaId, link.PossessionId), BoxItems: definition.BoxItems, DescriptionTextId: gachaId,
-		})
-		seenGacha[gachaId] = true
-	}
-
 	for _, steps := range stepupSteps {
 		first := steps[0]
 		gachaId := first.DestinationDomainId
@@ -273,8 +209,7 @@ func EnrichGachaUnlockConditions(entries []store.GachaCatalogEntry, quests *Ques
 			}
 		}
 		if entries[i].RelatedEventQuestChapterId != 0 {
-			chapter := quests.EventChapterById[entries[i].RelatedEventQuestChapterId]
-			for _, questId := range quests.EventUnlockQuestIdsByType[chapter.EventQuestType] {
+			for _, questId := range quests.EventUnlockQuestIdsForChapter(entries[i].RelatedEventQuestChapterId) {
 				entries[i].UnlockConditions = append(entries[i].UnlockConditions, store.GachaUnlockConditionEntry{GachaUnlockConditionType: model.GachaUnlockMainQuestClear, ConditionValue: questId})
 			}
 		}
@@ -475,12 +410,5 @@ func buildChapterPricePhases(gachaId int32) []store.GachaPricePhaseEntry {
 			RegularPrice: 10,
 			DrawCount:    model.PremiumMultiPullCount,
 		},
-	}
-}
-
-func buildEventPricePhases(gachaId, consumableItemId int32) []store.GachaPricePhaseEntry {
-	return []store.GachaPricePhaseEntry{
-		{PhaseId: gachaId*model.PhaseIdMultiplier + 1, PriceType: model.PriceTypeConsumableItem, PriceId: consumableItemId, Price: 1, RegularPrice: 1, DrawCount: 1},
-		{PhaseId: gachaId*model.PhaseIdMultiplier + 2, PriceType: model.PriceTypeConsumableItem, PriceId: consumableItemId, Price: 10, RegularPrice: 10, DrawCount: model.PremiumMultiPullCount},
 	}
 }

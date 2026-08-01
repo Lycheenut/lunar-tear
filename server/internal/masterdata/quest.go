@@ -18,6 +18,13 @@ type EventQuestDailyGroup struct {
 	Rewards    []RewardItem
 }
 
+type EventQuestUnlockCondition struct {
+	EventQuestType  int32
+	CharacterId     int32
+	QuestId         int32
+	RequiredQuestId int32
+}
+
 type QuestSceneChoiceKey struct {
 	QuestSceneId  int32
 	QuestFlowType int32
@@ -56,7 +63,8 @@ type QuestCatalog struct {
 	EventChapterById                   map[int32]EntityMEventQuestChapter
 	EventChapterIdByQuestId            map[int32]int32
 	EventQuestIdsByChapterId           map[int32][]int32
-	EventUnlockQuestIdsByType          map[int32][]int32
+	EventUnlockConditions              []EventQuestUnlockCondition
+	EventCharacterIdsByChapterId       map[int32]map[int32]bool
 	EventDailyGroups                   []EventQuestDailyGroup
 
 	UserExpThresholds       []int32
@@ -72,6 +80,29 @@ type QuestCatalog struct {
 	WeaponAbilitySlots map[int32][]int32
 
 	*PartsCatalog
+}
+
+func (c *QuestCatalog) EventUnlockQuestIdsForChapter(chapterId int32) []int32 {
+	chapter, ok := c.EventChapterById[chapterId]
+	if !ok {
+		return nil
+	}
+	chapterQuests := make(map[int32]bool, len(c.EventQuestIdsByChapterId[chapterId]))
+	for _, questId := range c.EventQuestIdsByChapterId[chapterId] {
+		chapterQuests[questId] = true
+	}
+	seen := make(map[int32]bool)
+	var result []int32
+	for _, condition := range c.EventUnlockConditions {
+		if condition.EventQuestType != chapter.EventQuestType ||
+			(condition.CharacterId != 0 && !c.EventCharacterIdsByChapterId[chapterId][condition.CharacterId]) ||
+			(condition.QuestId != 0 && !chapterQuests[condition.QuestId]) || seen[condition.RequiredQuestId] {
+			continue
+		}
+		seen[condition.RequiredQuestId] = true
+		result = append(result, condition.RequiredQuestId)
+	}
+	return result
 }
 
 func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionResolver) (*QuestCatalog, error) {
@@ -438,6 +469,17 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		eventQuestTypeByChapterId[ec.EventQuestChapterId] = ec.EventQuestType
 		eventChapterById[ec.EventQuestChapterId] = ec
 	}
+	eventChapterCharacters, err := utils.ReadTable[EntityMEventQuestChapterCharacter]("m_event_quest_chapter_character")
+	if err != nil {
+		return nil, fmt.Errorf("load event quest chapter characters: %w", err)
+	}
+	eventCharacterIdsByChapterId := make(map[int32]map[int32]bool)
+	for _, row := range eventChapterCharacters {
+		if eventCharacterIdsByChapterId[row.EventQuestChapterId] == nil {
+			eventCharacterIdsByChapterId[row.EventQuestChapterId] = make(map[int32]bool)
+		}
+		eventCharacterIdsByChapterId[row.EventQuestChapterId][row.CharacterId] = true
+	}
 	eventSequenceGroups, err := utils.ReadTable[EntityMEventQuestSequenceGroup]("m_event_quest_sequence_group")
 	if err != nil {
 		return nil, fmt.Errorf("load event quest sequence groups: %w", err)
@@ -473,8 +515,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load event unlock conditions: %w", err)
 	}
-	eventUnlockQuestIdsByType := make(map[int32][]int32)
-	seenEventUnlockQuest := make(map[int32]map[int32]bool)
+	eventUnlockConditions := make([]EventQuestUnlockCondition, 0, len(eventUnlockRows))
 	for _, row := range eventUnlockRows {
 		var questId int32
 		if row.UnlockEvaluateConditionId != 0 {
@@ -496,13 +537,12 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		if questId == 0 {
 			return nil, fmt.Errorf("event quest type %d has an empty unlock quest", row.EventQuestType)
 		}
-		if seenEventUnlockQuest[row.EventQuestType] == nil {
-			seenEventUnlockQuest[row.EventQuestType] = make(map[int32]bool)
-		}
-		if !seenEventUnlockQuest[row.EventQuestType][questId] {
-			seenEventUnlockQuest[row.EventQuestType][questId] = true
-			eventUnlockQuestIdsByType[row.EventQuestType] = append(eventUnlockQuestIdsByType[row.EventQuestType], questId)
-		}
+		eventUnlockConditions = append(eventUnlockConditions, EventQuestUnlockCondition{
+			EventQuestType:  row.EventQuestType,
+			CharacterId:     row.CharacterId,
+			QuestId:         row.QuestId,
+			RequiredQuestId: questId,
+		})
 	}
 	dailyRows, err := utils.ReadTable[EntityMEventQuestDailyGroup]("m_event_quest_daily_group")
 	if err != nil {
@@ -737,7 +777,8 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		EventChapterById:                   eventChapterById,
 		EventChapterIdByQuestId:            eventChapterIdByQuestId,
 		EventQuestIdsByChapterId:           eventQuestIdsByChapterId,
-		EventUnlockQuestIdsByType:          eventUnlockQuestIdsByType,
+		EventUnlockConditions:              eventUnlockConditions,
+		EventCharacterIdsByChapterId:       eventCharacterIdsByChapterId,
 		EventDailyGroups:                   eventDailyGroups,
 
 		UserExpThresholds:       BuildExpThresholds(paramMapRows, 1),
