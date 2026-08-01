@@ -30,12 +30,15 @@ func (s *SQLiteStore) LoadUser(userId int64) (store.UserState, error) {
 	initMaps(&u)
 
 	load1to1(s.db, userId, &u)
+	loadMechanismTables(s.db, userId, &u)
 	loadMapTables(s.db, userId, &u)
 
 	return u, nil
 }
 
 func initMaps(u *store.UserState) {
+	u.Friends = make(map[int64]store.FriendState)
+	u.FriendRequests = make(map[int64]int64)
 	u.Tutorials = make(map[int32]store.TutorialProgressState)
 	u.Characters = make(map[int32]store.CharacterState)
 	u.Costumes = make(map[string]store.CostumeState)
@@ -45,6 +48,7 @@ func initMaps(u *store.UserState) {
 	u.DeckCharacters = make(map[string]store.DeckCharacterState)
 	u.Decks = make(map[store.DeckKey]store.DeckState)
 	u.TripleDecks = make(map[store.DeckKey]store.TripleDeckState)
+	u.DeckLimitContentRestricted = make(map[string]store.DeckLimitContentRestrictedState)
 	u.DeckSubWeapons = make(map[string][]string)
 	u.DeckParts = make(map[string][]string)
 	u.Quests = make(map[int32]store.UserQuestState)
@@ -57,7 +61,10 @@ func initMaps(u *store.UserState) {
 	u.WeaponAwakens = make(map[string]store.WeaponAwakenState)
 	u.CostumeActiveSkills = make(map[string]store.CostumeActiveSkillState)
 	u.CostumeAwakenStatusUps = make(map[store.CostumeAwakenStatusKey]store.CostumeAwakenStatusUpState)
+	u.CostumeLevelBonusReleaseStatuses = make(map[int32]store.CostumeLevelBonusReleaseStatusState)
 	u.CostumeLotteryEffects = make(map[store.CostumeLotteryEffectKey]store.CostumeLotteryEffectState)
+	u.CostumeLotteryEffectAbilities = make(map[store.CostumeLotteryEffectKey]store.CostumeLotteryEffectAbilityState)
+	u.CostumeLotteryEffectStatusUps = make(map[store.CostumeLotteryEffectStatusKey]store.CostumeLotteryEffectStatusUpState)
 	u.CostumeLotteryEffectPending = make(map[string]store.CostumeLotteryEffectPendingState)
 	u.Parts = make(map[string]store.PartsState)
 	u.PartsGroupNotes = make(map[int32]store.PartsGroupNoteState)
@@ -78,6 +85,7 @@ func initMaps(u *store.UserState) {
 	u.ShopReplaceableLineup = make(map[int32]store.UserShopReplaceableLineupState)
 	u.ExploreScores = make(map[int32]store.ExploreScoreState)
 	u.CageOrnamentRewards = make(map[int32]store.CageOrnamentRewardState)
+	u.CageOrnamentAccesses = make(map[int32]store.CageOrnamentAccessState)
 	u.TowerAccumulationRewards = make(map[int32]store.TowerAccumulationRewardState)
 	u.LabyrinthSeasons = make(map[int32]store.LabyrinthSeasonState)
 	u.LabyrinthStages = make(map[store.LabyrinthStageKey]store.LabyrinthStageState)
@@ -101,6 +109,7 @@ func initMaps(u *store.UserState) {
 	u.Gimmick.OrnamentProgress = make(map[store.GimmickOrnamentKey]store.GimmickOrnamentProgressState)
 	u.Gimmick.Sequences = make(map[store.GimmickSequenceKey]store.GimmickSequenceState)
 	u.Gimmick.Unlocks = make(map[store.GimmickKey]store.GimmickUnlockState)
+	u.EnsureMaps()
 }
 
 func load1to1(db *sql.DB, uid int64, u *store.UserState) {
@@ -116,9 +125,12 @@ func load1to1(db *sql.DB, uid int64, u *store.UserState) {
 		Scan(&u.Gem.PaidGem, &u.Gem.FreeGem)
 
 	_ = db.QueryRow(`SELECT name, name_update_datetime, message, message_update_datetime, favorite_costume_id,
-		favorite_costume_id_update_datetime, latest_version FROM user_profile WHERE user_id=?`, uid).
+		favorite_costume_id_update_datetime, current_pvp_rank, current_pvp_grade_id,
+		max_pvp_season_rank, latest_version FROM user_profile WHERE user_id=?`, uid).
 		Scan(&u.Profile.Name, &u.Profile.NameUpdateDatetime, &u.Profile.Message, &u.Profile.MessageUpdateDatetime,
-			&u.Profile.FavoriteCostumeId, &u.Profile.FavoriteCostumeIdUpdateDatetime, &u.Profile.LatestVersion)
+			&u.Profile.FavoriteCostumeId, &u.Profile.FavoriteCostumeIdUpdateDatetime,
+			&u.Profile.CurrentPvpRank, &u.Profile.CurrentPvpGradeId, &u.Profile.MaxPvpSeasonRank,
+			&u.Profile.LatestVersion)
 
 	_ = db.QueryRow(`SELECT total_login_count, continual_login_count, max_continual_login_count,
 		last_login_datetime, last_comeback_login_datetime, latest_version FROM user_login WHERE user_id=?`, uid).
@@ -247,9 +259,28 @@ func load1to1(db *sql.DB, uid int64, u *store.UserState) {
 			Count:            int32(obtainCount.Int64),
 		}
 	}
+
 }
 
 func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
+	queryRows(db, `SELECT friend_user_id, is_friend, cheer_sent_datetime, cheer_received_datetime,
+		stamina_received_datetime FROM user_friends WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var friendUserId int64
+			var isFriend int
+			var friend store.FriendState
+			rows.Scan(&friendUserId, &isFriend, &friend.CheerSentDatetime, &friend.CheerReceivedDatetime,
+				&friend.StaminaReceivedDatetime)
+			friend.IsFriend = isFriend != 0
+			u.Friends[friendUserId] = friend
+		})
+	queryRows(db, `SELECT requester_user_id, request_datetime FROM user_friend_requests WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var requesterUserId, requestDatetime int64
+			rows.Scan(&requesterUserId, &requestDatetime)
+			u.FriendRequests[requesterUserId] = requestDatetime
+		})
+
 	queryRows(db, `SELECT character_id, level, exp, latest_version FROM user_characters WHERE user_id=?`, uid,
 		func(rows *sql.Rows) {
 			var v store.CharacterState
@@ -323,6 +354,15 @@ func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
 			rows.Scan(&dt, &v.UserDeckNumber, &v.Name, &v.DeckNumber01, &v.DeckNumber02, &v.DeckNumber03, &v.LatestVersion)
 			v.DeckType = model.DeckType(dt)
 			u.TripleDecks[store.DeckKey{DeckType: v.DeckType, UserDeckNumber: v.UserDeckNumber}] = v
+		})
+
+	queryRows(db, `SELECT deck_restricted_uuid, event_quest_chapter_id, quest_id, possession_type,
+		target_uuid, latest_version FROM user_deck_limit_content_restricted WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var v store.DeckLimitContentRestrictedState
+			rows.Scan(&v.DeckRestrictedUuid, &v.EventQuestChapterId, &v.QuestId, &v.PossessionType,
+				&v.TargetUuid, &v.LatestVersion)
+			u.DeckLimitContentRestricted[v.DeckRestrictedUuid] = v
 		})
 
 	queryRows(db, `SELECT user_deck_character_uuid, ordinal, user_weapon_uuid
@@ -452,6 +492,13 @@ func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
 			}] = v
 		})
 
+	queryRows(db, `SELECT costume_id, last_released_bonus_level, confirmed_bonus_level, latest_version
+		FROM user_costume_level_bonus_release_statuses WHERE user_id=?`, uid, func(rows *sql.Rows) {
+		var v store.CostumeLevelBonusReleaseStatusState
+		rows.Scan(&v.CostumeId, &v.LastReleasedBonusLevel, &v.ConfirmedBonusLevel, &v.LatestVersion)
+		u.CostumeLevelBonusReleaseStatuses[v.CostumeId] = v
+	})
+
 	queryRows(db, `SELECT user_costume_uuid, slot_number, odds_number, latest_version
 		FROM user_costume_lottery_effects WHERE user_id=?`, uid,
 		func(rows *sql.Rows) {
@@ -459,6 +506,29 @@ func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
 			rows.Scan(&v.UserCostumeUuid, &v.SlotNumber, &v.OddsNumber, &v.LatestVersion)
 			u.CostumeLotteryEffects[store.CostumeLotteryEffectKey{
 				UserCostumeUuid: v.UserCostumeUuid, SlotNumber: v.SlotNumber,
+			}] = v
+		})
+
+	queryRows(db, `SELECT user_costume_uuid, slot_number, ability_id, ability_level, latest_version
+		FROM user_costume_lottery_effect_abilities WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var v store.CostumeLotteryEffectAbilityState
+			rows.Scan(&v.UserCostumeUuid, &v.SlotNumber, &v.AbilityId, &v.AbilityLevel, &v.LatestVersion)
+			u.CostumeLotteryEffectAbilities[store.CostumeLotteryEffectKey{
+				UserCostumeUuid: v.UserCostumeUuid, SlotNumber: v.SlotNumber,
+			}] = v
+		})
+
+	queryRows(db, `SELECT user_costume_uuid, status_calculation_type, hp, attack, vitality, agility,
+		critical_ratio, critical_attack, latest_version FROM user_costume_lottery_effect_status_ups WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var v store.CostumeLotteryEffectStatusUpState
+			var calculationType int32
+			rows.Scan(&v.UserCostumeUuid, &calculationType, &v.Hp, &v.Attack, &v.Vitality, &v.Agility,
+				&v.CriticalRatio, &v.CriticalAttack, &v.LatestVersion)
+			v.StatusCalculationType = model.StatusCalculationType(calculationType)
+			u.CostumeLotteryEffectStatusUps[store.CostumeLotteryEffectStatusKey{
+				UserCostumeUuid: v.UserCostumeUuid, StatusCalculationType: v.StatusCalculationType,
 			}] = v
 		})
 
@@ -653,6 +723,13 @@ func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
 		var v store.CageOrnamentRewardState
 		rows.Scan(&v.CageOrnamentId, &v.AcquisitionDatetime, &v.LatestVersion)
 		u.CageOrnamentRewards[v.CageOrnamentId] = v
+	})
+
+	queryRows(db, `SELECT cage_ornament_id, first_access_datetime, latest_access_datetime, latest_version
+		FROM user_cage_ornament_accesses WHERE user_id=?`, uid, func(rows *sql.Rows) {
+		var v store.CageOrnamentAccessState
+		rows.Scan(&v.CageOrnamentId, &v.FirstAccessDatetime, &v.LatestAccessDatetime, &v.LatestVersion)
+		u.CageOrnamentAccesses[v.CageOrnamentId] = v
 	})
 
 	queryRows(db, `SELECT event_quest_chapter_id, latest_reward_receive_quest_mission_clear_count, latest_version

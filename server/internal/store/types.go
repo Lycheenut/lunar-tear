@@ -57,55 +57,67 @@ type UserState struct {
 	BigHuntBattleDetail      BigHuntBattleDetail
 	BigHuntDeckNumber        int32
 
-	Battle        BattleState
-	Gifts         GiftState
-	Gacha         GachaState
-	Notifications NotificationState
+	Battle         BattleState
+	Gifts          GiftState
+	Gacha          GachaState
+	Notifications  NotificationState
+	Friends        map[int64]FriendState
+	FriendRequests map[int64]int64
 
-	Characters               map[int32]CharacterState
-	Costumes                 map[string]CostumeState
-	Weapons                  map[string]WeaponState
-	Companions               map[string]CompanionState
-	Thoughts                 map[string]ThoughtState
-	DeckCharacters           map[string]DeckCharacterState
-	Decks                    map[DeckKey]DeckState
-	TripleDecks              map[DeckKey]TripleDeckState
-	Quests                   map[int32]UserQuestState
-	QuestMissions            map[QuestMissionKey]UserQuestMissionState
-	Missions                 map[int32]UserMissionState
-	WeaponStories            map[int32]WeaponStoryState
-	Gimmick                  GimmickState
-	CageOrnamentRewards      map[int32]CageOrnamentRewardState
-	TowerAccumulationRewards map[int32]TowerAccumulationRewardState
-	LabyrinthSeasons         map[int32]LabyrinthSeasonState
-	LabyrinthStages          map[LabyrinthStageKey]LabyrinthStageState
-	ConsumableItems          map[int32]int32
-	Materials                map[int32]int32
-	Parts                    map[string]PartsState
-	PartsGroupNotes          map[int32]PartsGroupNoteState
-	PartsPresets             map[int32]PartsPresetState
-	PartsPresetTags          map[int32]PartsPresetTagState
-	PartsStatusSubs          map[PartsStatusSubKey]PartsStatusSubState
-	ImportantItems           map[int32]int32
-	CostumeActiveSkills      map[string]CostumeActiveSkillState
-	WeaponSkills             map[string][]WeaponSkillState   // key: userWeaponUuid
-	WeaponAbilities          map[string][]WeaponAbilityState // key: userWeaponUuid
-	WeaponAwakens            map[string]WeaponAwakenState    // key: userWeaponUuid
-	DeckTypeNotes            map[model.DeckType]DeckTypeNoteState
-	WeaponNotes              map[int32]WeaponNoteState
-	DeckSubWeapons           map[string][]string
-	DeckParts                map[string][]string
-	NaviCutInPlayed          map[int32]bool
-	ViewedMovies             map[int32]int64
-	ContentsStories          map[int32]int64
-	DrawnOmikuji             map[int32]int64
-	PremiumItems             map[int32]int64
-	DokanConfirmed           map[int32]bool
-	PortalCageStatus         PortalCageStatusState
-	GuerrillaFreeOpen        GuerrillaFreeOpenState
-	ShopItems                map[int32]UserShopItemState
-	ShopReplaceable          UserShopReplaceableState
-	ShopReplaceableLineup    map[int32]UserShopReplaceableLineupState
+	Characters                 map[int32]CharacterState
+	Costumes                   map[string]CostumeState
+	Weapons                    map[string]WeaponState
+	Companions                 map[string]CompanionState
+	Thoughts                   map[string]ThoughtState
+	DeckCharacters             map[string]DeckCharacterState
+	Decks                      map[DeckKey]DeckState
+	TripleDecks                map[DeckKey]TripleDeckState
+	DeckLimitContentRestricted map[string]DeckLimitContentRestrictedState
+	Quests                     map[int32]UserQuestState
+	QuestMissions              map[QuestMissionKey]UserQuestMissionState
+	Missions                   map[int32]UserMissionState
+	QuestReplayFlowRewards     map[int32]QuestReplayFlowRewardState
+	QuestSceneChoices          map[QuestSceneChoiceKey]QuestSceneChoiceState
+	QuestSceneChoiceHistory    map[QuestSceneChoiceHistoryKey]QuestSceneChoiceState
+	EventQuestDailyRewards     map[int32]EventQuestDailyRewardState
+	MissionPassPoints          map[int32]MissionPassPointState
+	MissionPassRewards         map[MissionPassRewardKey]MissionPassRewardState
+	MissionPassRemaining       map[int32]MissionPassRemainingState
+	WebviewPanelMissions       map[int32]WebviewPanelMissionState
+	WeaponStories              map[int32]WeaponStoryState
+	Gimmick                    GimmickState
+	CageOrnamentRewards        map[int32]CageOrnamentRewardState
+	CageOrnamentAccesses       map[int32]CageOrnamentAccessState
+	TowerAccumulationRewards   map[int32]TowerAccumulationRewardState
+	LabyrinthSeasons           map[int32]LabyrinthSeasonState
+	LabyrinthStages            map[LabyrinthStageKey]LabyrinthStageState
+	ConsumableItems            map[int32]int32
+	Materials                  map[int32]int32
+	Parts                      map[string]PartsState
+	PartsGroupNotes            map[int32]PartsGroupNoteState
+	PartsPresets               map[int32]PartsPresetState
+	PartsPresetTags            map[int32]PartsPresetTagState
+	PartsStatusSubs            map[PartsStatusSubKey]PartsStatusSubState
+	ImportantItems             map[int32]int32
+	CostumeActiveSkills        map[string]CostumeActiveSkillState
+	WeaponSkills               map[string][]WeaponSkillState   // key: userWeaponUuid
+	WeaponAbilities            map[string][]WeaponAbilityState // key: userWeaponUuid
+	WeaponAwakens              map[string]WeaponAwakenState    // key: userWeaponUuid
+	DeckTypeNotes              map[model.DeckType]DeckTypeNoteState
+	WeaponNotes                map[int32]WeaponNoteState
+	DeckSubWeapons             map[string][]string
+	DeckParts                  map[string][]string
+	NaviCutInPlayed            map[int32]bool
+	ViewedMovies               map[int32]int64
+	ContentsStories            map[int32]int64
+	DrawnOmikuji               map[int32]int64
+	PremiumItems               map[int32]int64
+	DokanConfirmed             map[int32]bool
+	PortalCageStatus           PortalCageStatusState
+	GuerrillaFreeOpen          GuerrillaFreeOpenState
+	ShopItems                  map[int32]UserShopItemState
+	ShopReplaceable            UserShopReplaceableState
+	ShopReplaceableLineup      map[int32]UserShopReplaceableLineupState
 
 	Explore       ExploreState
 	ExploreScores map[int32]ExploreScoreState
@@ -114,15 +126,24 @@ type UserState struct {
 	CharacterBoardAbilities map[CharacterBoardAbilityKey]CharacterBoardAbilityState
 	CharacterBoardStatusUps map[CharacterBoardStatusUpKey]CharacterBoardStatusUpState
 
-	CostumeAwakenStatusUps      map[CostumeAwakenStatusKey]CostumeAwakenStatusUpState
-	CostumeLotteryEffects       map[CostumeLotteryEffectKey]CostumeLotteryEffectState
-	CostumeLotteryEffectPending map[string]CostumeLotteryEffectPendingState // key: userCostumeUuid
-	AutoSaleSettings            map[int32]AutoSaleSettingState
-	CharacterRebirths           map[int32]CharacterRebirthState
-	QuestAutoOrbit              QuestAutoOrbitState
+	CostumeAwakenStatusUps           map[CostumeAwakenStatusKey]CostumeAwakenStatusUpState
+	CostumeLevelBonusReleaseStatuses map[int32]CostumeLevelBonusReleaseStatusState
+	CostumeLotteryEffects            map[CostumeLotteryEffectKey]CostumeLotteryEffectState
+	CostumeLotteryEffectAbilities    map[CostumeLotteryEffectKey]CostumeLotteryEffectAbilityState
+	CostumeLotteryEffectStatusUps    map[CostumeLotteryEffectStatusKey]CostumeLotteryEffectStatusUpState
+	CostumeLotteryEffectPending      map[string]CostumeLotteryEffectPendingState // key: userCostumeUuid
+	AutoSaleSettings                 map[int32]AutoSaleSettingState
+	CharacterRebirths                map[int32]CharacterRebirthState
+	QuestAutoOrbit                   QuestAutoOrbitState
 }
 
 func (u *UserState) EnsureMaps() {
+	if u.Friends == nil {
+		u.Friends = make(map[int64]FriendState)
+	}
+	if u.FriendRequests == nil {
+		u.FriendRequests = make(map[int64]int64)
+	}
 	if u.Tutorials == nil {
 		u.Tutorials = make(map[int32]TutorialProgressState)
 	}
@@ -149,6 +170,9 @@ func (u *UserState) EnsureMaps() {
 	}
 	if u.TripleDecks == nil {
 		u.TripleDecks = make(map[DeckKey]TripleDeckState)
+	}
+	if u.DeckLimitContentRestricted == nil {
+		u.DeckLimitContentRestricted = make(map[string]DeckLimitContentRestrictedState)
 	}
 	if u.DeckSubWeapons == nil {
 		u.DeckSubWeapons = make(map[string][]string)
@@ -186,11 +210,38 @@ func (u *UserState) EnsureMaps() {
 	if u.Missions == nil {
 		u.Missions = make(map[int32]UserMissionState)
 	}
+	if u.QuestReplayFlowRewards == nil {
+		u.QuestReplayFlowRewards = make(map[int32]QuestReplayFlowRewardState)
+	}
+	if u.QuestSceneChoices == nil {
+		u.QuestSceneChoices = make(map[QuestSceneChoiceKey]QuestSceneChoiceState)
+	}
+	if u.QuestSceneChoiceHistory == nil {
+		u.QuestSceneChoiceHistory = make(map[QuestSceneChoiceHistoryKey]QuestSceneChoiceState)
+	}
+	if u.EventQuestDailyRewards == nil {
+		u.EventQuestDailyRewards = make(map[int32]EventQuestDailyRewardState)
+	}
+	if u.MissionPassPoints == nil {
+		u.MissionPassPoints = make(map[int32]MissionPassPointState)
+	}
+	if u.MissionPassRewards == nil {
+		u.MissionPassRewards = make(map[MissionPassRewardKey]MissionPassRewardState)
+	}
+	if u.MissionPassRemaining == nil {
+		u.MissionPassRemaining = make(map[int32]MissionPassRemainingState)
+	}
+	if u.WebviewPanelMissions == nil {
+		u.WebviewPanelMissions = make(map[int32]WebviewPanelMissionState)
+	}
 	if u.WeaponStories == nil {
 		u.WeaponStories = make(map[int32]WeaponStoryState)
 	}
 	if u.CageOrnamentRewards == nil {
 		u.CageOrnamentRewards = make(map[int32]CageOrnamentRewardState)
+	}
+	if u.CageOrnamentAccesses == nil {
+		u.CageOrnamentAccesses = make(map[int32]CageOrnamentAccessState)
 	}
 	if u.TowerAccumulationRewards == nil {
 		u.TowerAccumulationRewards = make(map[int32]TowerAccumulationRewardState)
@@ -282,8 +333,17 @@ func (u *UserState) EnsureMaps() {
 	if u.CostumeAwakenStatusUps == nil {
 		u.CostumeAwakenStatusUps = make(map[CostumeAwakenStatusKey]CostumeAwakenStatusUpState)
 	}
+	if u.CostumeLevelBonusReleaseStatuses == nil {
+		u.CostumeLevelBonusReleaseStatuses = make(map[int32]CostumeLevelBonusReleaseStatusState)
+	}
 	if u.CostumeLotteryEffects == nil {
 		u.CostumeLotteryEffects = make(map[CostumeLotteryEffectKey]CostumeLotteryEffectState)
+	}
+	if u.CostumeLotteryEffectAbilities == nil {
+		u.CostumeLotteryEffectAbilities = make(map[CostumeLotteryEffectKey]CostumeLotteryEffectAbilityState)
+	}
+	if u.CostumeLotteryEffectStatusUps == nil {
+		u.CostumeLotteryEffectStatusUps = make(map[CostumeLotteryEffectStatusKey]CostumeLotteryEffectStatusUpState)
 	}
 	if u.CostumeLotteryEffectPending == nil {
 		u.CostumeLotteryEffectPending = make(map[string]CostumeLotteryEffectPendingState)
@@ -403,6 +463,9 @@ type UserProfileState struct {
 	MessageUpdateDatetime           int64
 	FavoriteCostumeId               int32
 	FavoriteCostumeIdUpdateDatetime int64
+	CurrentPvpRank                  int32
+	CurrentPvpGradeId               int32
+	MaxPvpSeasonRank                int32
 	LatestVersion                   int64
 }
 
@@ -509,6 +572,15 @@ type DeckState struct {
 	Name                    string
 	Power                   int32
 	LatestVersion           int64
+}
+
+type DeckLimitContentRestrictedState struct {
+	DeckRestrictedUuid  string
+	EventQuestChapterId int32
+	QuestId             int32
+	PossessionType      int32
+	TargetUuid          string
+	LatestVersion       int64
 }
 
 type TripleDeckState struct {
@@ -735,6 +807,28 @@ type BattleState struct {
 	LastNpcPartyCount     int32
 	LastBattleBinarySize  int32
 	LastElapsedFrameCount int64
+	MissionDetail         BattleMissionDetailState
+}
+
+type BattleMissionDetailState struct {
+	IsValid                bool
+	CharacterDeathCount    int32
+	MaxDamage              int64
+	CostumeSkillUseCount   int32
+	WeaponSkillUseCount    int32
+	CompanionSkillUseCount int32
+	CriticalCount          int32
+	ComboCount             int32
+	ComboMaxDamage         int64
+	TotalRecoverPoint      int64
+	CostumeResults         [3]CostumeBattleResultState
+	CostumeResultCount     int32
+}
+
+type CostumeBattleResultState struct {
+	IsAlive     bool
+	MaxHp       int64
+	RemainingHp int64
 }
 
 type UserQuestState struct {
@@ -785,6 +879,113 @@ type UserMissionState struct {
 	ProgressValue             int32
 	MissionProgressStatusType int32
 	ClearDatetime             int64
+	LatestVersion             int64
+}
+
+type QuestReplayFlowRewardState struct {
+	QuestReplayFlowRewardGroupId int32
+	RewardReceiveDatetime        int64
+	LatestVersion                int64
+}
+
+type QuestSceneChoiceKey struct {
+	QuestSceneId  int32
+	QuestFlowType int32
+}
+
+func (k QuestSceneChoiceKey) MarshalText() ([]byte, error) {
+	return marshalKey(int64(k.QuestSceneId), int64(k.QuestFlowType)), nil
+}
+
+func (k *QuestSceneChoiceKey) UnmarshalText(text []byte) error {
+	v, err := unmarshalKey(text, "QuestSceneChoiceKey", 2)
+	if err != nil {
+		return err
+	}
+	k.QuestSceneId, k.QuestFlowType = int32(v[0]), int32(v[1])
+	return nil
+}
+
+type QuestSceneChoiceState struct {
+	QuestSceneId   int32
+	QuestFlowType  int32
+	ChoiceNumber   int32
+	ChoiceDatetime int64
+	LatestVersion  int64
+}
+
+type QuestSceneChoiceHistoryKey struct {
+	QuestSceneId  int32
+	QuestFlowType int32
+	ChoiceNumber  int32
+}
+
+func (k QuestSceneChoiceHistoryKey) MarshalText() ([]byte, error) {
+	return marshalKey(int64(k.QuestSceneId), int64(k.QuestFlowType), int64(k.ChoiceNumber)), nil
+}
+
+func (k *QuestSceneChoiceHistoryKey) UnmarshalText(text []byte) error {
+	v, err := unmarshalKey(text, "QuestSceneChoiceHistoryKey", 3)
+	if err != nil {
+		return err
+	}
+	k.QuestSceneId, k.QuestFlowType, k.ChoiceNumber = int32(v[0]), int32(v[1]), int32(v[2])
+	return nil
+}
+
+type EventQuestDailyRewardState struct {
+	EventQuestDailyGroupId int32
+	RewardReceiveDatetime  int64
+	LatestVersion          int64
+}
+
+type MissionPassPointState struct {
+	MissionPassId int32
+	Point         int32
+	LatestVersion int64
+}
+
+type MissionPassRewardKey struct {
+	MissionPassId int32
+	Level         int32
+	IsPremium     bool
+}
+
+func (k MissionPassRewardKey) MarshalText() ([]byte, error) {
+	premium := int64(0)
+	if k.IsPremium {
+		premium = 1
+	}
+	return marshalKey(int64(k.MissionPassId), int64(k.Level), premium), nil
+}
+
+func (k *MissionPassRewardKey) UnmarshalText(text []byte) error {
+	v, err := unmarshalKey(text, "MissionPassRewardKey", 3)
+	if err != nil {
+		return err
+	}
+	k.MissionPassId, k.Level, k.IsPremium = int32(v[0]), int32(v[1]), v[2] != 0
+	return nil
+}
+
+type MissionPassRewardState struct {
+	MissionPassId         int32
+	Level                 int32
+	IsPremium             bool
+	RewardReceiveDatetime int64
+	LatestVersion         int64
+}
+
+type MissionPassRemainingState struct {
+	MissionPassId         int32
+	RewardReceived        bool
+	RewardReceiveDatetime int64
+	LatestVersion         int64
+}
+
+type WebviewPanelMissionState struct {
+	WebviewPanelMissionPageId int32
+	RewardReceiveDatetime     int64
 	LatestVersion             int64
 }
 
@@ -905,6 +1106,13 @@ type CageOrnamentRewardState struct {
 	LatestVersion       int64
 }
 
+type CageOrnamentAccessState struct {
+	CageOrnamentId       int32
+	FirstAccessDatetime  int64
+	LatestAccessDatetime int64
+	LatestVersion        int64
+}
+
 type TowerAccumulationRewardState struct {
 	EventQuestChapterId                       int32
 	LatestRewardReceiveQuestMissionClearCount int32
@@ -984,6 +1192,13 @@ type NotificationState struct {
 	GiftNotReceiveCount       int32
 	FriendRequestReceiveCount int32
 	IsExistUnreadInformation  bool
+}
+
+type FriendState struct {
+	IsFriend                bool
+	CheerSentDatetime       int64
+	CheerReceivedDatetime   int64
+	StaminaReceivedDatetime int64
 }
 
 type GiftState struct {
@@ -1105,14 +1320,29 @@ type GachaCatalogEntry struct {
 	GachaDecorationType        int32
 	SortOrder                  int32
 	IsInactive                 bool
+	UnlockConditions           []GachaUnlockConditionEntry
 	InformationId              int32
 	BannerAssetName            string
 	GroupId                    int32
 	CeilingCount               int32
 	PricePhases                []GachaPricePhaseEntry
+	BoxItems                   []GachaBoxItemEntry
 	PromotionItems             []GachaPromotionItem
 	DescriptionTextId          int32
 	MaxStepNumber              int32
+}
+
+type GachaBoxItemEntry struct {
+	PossessionType int32
+	PossessionId   int32
+	RarityType     int32
+	Count          int32
+	MaxCount       int32
+}
+
+type GachaUnlockConditionEntry struct {
+	GachaUnlockConditionType int32
+	ConditionValue           int32
 }
 
 type CharacterBoardState struct {
@@ -1206,6 +1436,38 @@ func (k *CostumeAwakenStatusKey) UnmarshalText(text []byte) error {
 }
 
 type CostumeAwakenStatusUpState struct {
+	UserCostumeUuid       string
+	StatusCalculationType model.StatusCalculationType
+	Hp                    int32
+	Attack                int32
+	Vitality              int32
+	Agility               int32
+	CriticalRatio         int32
+	CriticalAttack        int32
+	LatestVersion         int64
+}
+
+type CostumeLevelBonusReleaseStatusState struct {
+	CostumeId              int32
+	LastReleasedBonusLevel int32
+	ConfirmedBonusLevel    int32
+	LatestVersion          int64
+}
+
+type CostumeLotteryEffectAbilityState struct {
+	UserCostumeUuid string
+	SlotNumber      int32
+	AbilityId       int32
+	AbilityLevel    int32
+	LatestVersion   int64
+}
+
+type CostumeLotteryEffectStatusKey struct {
+	UserCostumeUuid       string
+	StatusCalculationType model.StatusCalculationType
+}
+
+type CostumeLotteryEffectStatusUpState struct {
 	UserCostumeUuid       string
 	StatusCalculationType model.StatusCalculationType
 	Hp                    int32

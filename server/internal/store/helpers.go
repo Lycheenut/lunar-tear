@@ -13,6 +13,9 @@ import (
 )
 
 func DeductPrice(user *UserState, priceType, priceId, amount int32) error {
+	if amount <= 0 {
+		return fmt.Errorf("invalid price amount %d", amount)
+	}
 	switch priceType {
 	case model.PriceTypeConsumableItem:
 		cur := user.ConsumableItems[priceId]
@@ -21,8 +24,8 @@ func DeductPrice(user *UserState, priceType, priceId, amount int32) error {
 		}
 		user.ConsumableItems[priceId] = cur - amount
 	case model.PriceTypeGem:
-		total := user.Gem.FreeGem + user.Gem.PaidGem
-		if total < amount {
+		total := int64(user.Gem.FreeGem) + int64(user.Gem.PaidGem)
+		if total < int64(amount) {
 			return fmt.Errorf("insufficient gems: have %d, need %d", total, amount)
 		}
 		if user.Gem.FreeGem >= amount {
@@ -38,32 +41,91 @@ func DeductPrice(user *UserState, priceType, priceId, amount int32) error {
 		}
 		user.Gem.PaidGem -= amount
 	case model.PriceTypePlatformPayment:
-		// real-money purchase -- treat as free on private server
+		return fmt.Errorf("platform payment is disabled")
 	default:
-		log.Printf("[DeductPrice] unhandled priceType=%d priceId=%d amount=%d", priceType, priceId, amount)
+		return fmt.Errorf("unsupported price type %d", priceType)
 	}
 	return nil
 }
 
-func DeductPossession(user *UserState, possessionType model.PossessionType, possessionId, count int32) {
-	switch possessionType {
-	case model.PossessionTypeMaterial:
-		user.Materials[possessionId] -= count
-		if user.Materials[possessionId] <= 0 {
-			delete(user.Materials, possessionId)
-		}
-	case model.PossessionTypeConsumableItem:
-		user.ConsumableItems[possessionId] -= count
-		if user.ConsumableItems[possessionId] <= 0 {
-			delete(user.ConsumableItems, possessionId)
-		}
-	case model.PossessionTypePaidGem:
-		user.Gem.PaidGem -= count
-	case model.PossessionTypeFreeGem:
-		user.Gem.FreeGem -= count
-	default:
-		log.Printf("[DeductPossession] unhandled type=%d id=%d count=%d", possessionType, possessionId, count)
+type PossessionCost struct {
+	PossessionType model.PossessionType
+	PossessionId   int32
+	Count          int32
+}
+
+// DeductPossessions validates the complete cost list before changing user
+// state, so callers never pay only a subset of a multi-resource cost.
+func DeductPossessions(user *UserState, costs []PossessionCost) error {
+	type possessionKey struct {
+		PossessionType model.PossessionType
+		PossessionId   int32
 	}
+	totals := make(map[possessionKey]int64, len(costs))
+	for _, cost := range costs {
+		if cost.Count < 0 {
+			return fmt.Errorf("invalid possession cost type=%d id=%d count=%d", cost.PossessionType, cost.PossessionId, cost.Count)
+		}
+		if cost.Count == 0 {
+			continue
+		}
+		switch cost.PossessionType {
+		case model.PossessionTypeMaterial,
+			model.PossessionTypeConsumableItem,
+			model.PossessionTypePaidGem,
+			model.PossessionTypeFreeGem,
+			model.PossessionTypeImportantItem:
+		default:
+			return fmt.Errorf("unsupported possession cost type=%d", cost.PossessionType)
+		}
+		key := possessionKey{PossessionType: cost.PossessionType, PossessionId: cost.PossessionId}
+		totals[key] += int64(cost.Count)
+	}
+
+	for key, count := range totals {
+		var available int32
+		switch key.PossessionType {
+		case model.PossessionTypeMaterial:
+			available = user.Materials[key.PossessionId]
+		case model.PossessionTypeConsumableItem:
+			available = user.ConsumableItems[key.PossessionId]
+		case model.PossessionTypePaidGem:
+			available = user.Gem.PaidGem
+		case model.PossessionTypeFreeGem:
+			available = user.Gem.FreeGem
+		case model.PossessionTypeImportantItem:
+			available = user.ImportantItems[key.PossessionId]
+		}
+		if int64(available) < count {
+			return fmt.Errorf("insufficient possession type=%d id=%d: have %d, need %d", key.PossessionType, key.PossessionId, available, count)
+		}
+	}
+
+	for key, count64 := range totals {
+		count := int32(count64)
+		switch key.PossessionType {
+		case model.PossessionTypeMaterial:
+			user.Materials[key.PossessionId] -= count
+			if user.Materials[key.PossessionId] == 0 {
+				delete(user.Materials, key.PossessionId)
+			}
+		case model.PossessionTypeConsumableItem:
+			user.ConsumableItems[key.PossessionId] -= count
+			if user.ConsumableItems[key.PossessionId] == 0 {
+				delete(user.ConsumableItems, key.PossessionId)
+			}
+		case model.PossessionTypePaidGem:
+			user.Gem.PaidGem -= count
+		case model.PossessionTypeFreeGem:
+			user.Gem.FreeGem -= count
+		case model.PossessionTypeImportantItem:
+			user.ImportantItems[key.PossessionId] -= count
+			if user.ImportantItems[key.PossessionId] == 0 {
+				delete(user.ImportantItems, key.PossessionId)
+			}
+		}
+	}
+	return nil
 }
 
 func GrantPossession(user *UserState, possessionType model.PossessionType, possessionId, count int32) {
@@ -133,34 +195,67 @@ type PossessionGranter struct {
 
 	PartsSellPriceL1ByRarity map[int32]int32
 	GoldConsumableItemId     int32
-
-	LastChangedStoryWeaponIds []int32
+	CostumeDupExchange       map[int32][]model.DupExchangeEntry
+	CompanionDupExchange     map[int32][]model.DupExchangeEntry
 }
 
-func (g *PossessionGranter) DrainChangedStoryWeaponIds() []int32 {
-	ids := g.LastChangedStoryWeaponIds
-	g.LastChangedStoryWeaponIds = nil
-	return ids
+type GrantStatus int
+
+const (
+	GrantStatusGranted GrantStatus = iota
+	GrantStatusOverflow
+	GrantStatusUnsupported
+	GrantStatusInvalid
+)
+
+type GrantResult struct {
+	Status                GrantStatus
+	ChangedStoryWeaponIds []int32
 }
 
-func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.PossessionType, possessionId, count int32, nowMillis int64) {
+func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.PossessionType, possessionId, count int32, nowMillis int64) GrantResult {
+	if count <= 0 {
+		return GrantResult{Status: GrantStatusInvalid}
+	}
+	result := GrantResult{Status: GrantStatusGranted}
 	switch possessionType {
 	case model.PossessionTypeCostume, model.PossessionTypeCostumeEnhanced:
-		g.GrantCostume(user, possessionId, nowMillis)
+		for range count {
+			g.GrantCostume(user, possessionId, nowMillis)
+		}
 	case model.PossessionTypeWeapon, model.PossessionTypeWeaponEnhanced:
-		g.GrantWeapon(user, possessionId, nowMillis)
+		for range count {
+			result.ChangedStoryWeaponIds = append(result.ChangedStoryWeaponIds, g.GrantWeapon(user, possessionId, nowMillis)...)
+		}
 	case model.PossessionTypeCompanion, model.PossessionTypeCompanionEnhanced:
-		g.GrantCompanion(user, possessionId, nowMillis)
+		for range count {
+			g.GrantCompanion(user, possessionId, nowMillis)
+		}
 	case model.PossessionTypeParts, model.PossessionTypePartsEnhanced:
-		g.GrantParts(user, possessionId, nowMillis)
-	default:
+		for range count {
+			g.GrantParts(user, possessionId, nowMillis)
+		}
+	case model.PossessionTypeThought:
+		for range count {
+			g.GrantThought(user, possessionId, nowMillis)
+		}
+	case model.PossessionTypeMaterial,
+		model.PossessionTypeConsumableItem,
+		model.PossessionTypePaidGem,
+		model.PossessionTypeFreeGem,
+		model.PossessionTypeImportantItem,
+		model.PossessionTypePremiumItem:
 		GrantPossession(user, possessionType, possessionId, count)
+	default:
+		result.Status = GrantStatusUnsupported
 	}
+	return result
 }
 
 func (g *PossessionGranter) GrantCostume(user *UserState, costumeId int32, nowMillis int64) {
 	for _, row := range user.Costumes {
 		if row.CostumeId == costumeId {
+			grantDuplicateExchange(user, g.CostumeDupExchange[costumeId])
 			return
 		}
 	}
@@ -190,6 +285,7 @@ func (g *PossessionGranter) GrantCostume(user *UserState, costumeId int32, nowMi
 func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, nowMillis int64) {
 	for _, row := range user.Companions {
 		if row.CompanionId == companionId {
+			grantDuplicateExchange(user, g.CompanionDupExchange[companionId])
 			return
 		}
 	}
@@ -200,6 +296,22 @@ func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, n
 		Level:               1,
 		HeadupDisplayViewId: 1,
 		AcquisitionDatetime: nowMillis,
+	}
+}
+
+func grantDuplicateExchange(user *UserState, exchange []model.DupExchangeEntry) {
+	for _, item := range exchange {
+		GrantPossession(user, model.PossessionType(item.PossessionType), item.PossessionId, item.Count)
+	}
+}
+
+func (g *PossessionGranter) GrantThought(user *UserState, thoughtId int32, nowMillis int64) {
+	key := uuid.New().String()
+	user.Thoughts[key] = ThoughtState{
+		UserThoughtUuid:     key,
+		ThoughtId:           thoughtId,
+		AcquisitionDatetime: nowMillis,
+		LatestVersion:       nowMillis,
 	}
 }
 
@@ -307,7 +419,7 @@ func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, ch
 	log.Printf("[GrantParts] chosen=%d group=%d rarity=%d preUnlockedSubs=%d", chosenPartsId, chosenRef.PartsGroupId, chosenRef.RarityType, initialCount-1)
 }
 
-func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMillis int64) {
+func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMillis int64) []int32 {
 	key := uuid.New().String()
 	user.Weapons[key] = WeaponState{
 		UserWeaponUuid:      key,
@@ -326,7 +438,7 @@ func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMill
 	}
 	weapon, ok := g.WeaponById[weaponId]
 	if !ok {
-		return
+		return nil
 	}
 
 	g.populateWeaponSkillsAbilities(user, key, weapon)
@@ -347,9 +459,10 @@ func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMill
 			}
 		}
 		if changed {
-			g.LastChangedStoryWeaponIds = append(g.LastChangedStoryWeaponIds, weaponId)
+			return []int32{weaponId}
 		}
 	}
+	return nil
 }
 
 func (g *PossessionGranter) populateWeaponSkillsAbilities(user *UserState, weaponUuid string, weapon WeaponRef) {

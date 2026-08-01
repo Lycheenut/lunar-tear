@@ -4,6 +4,8 @@ import "maps"
 
 func CloneUserState(u UserState) UserState {
 	out := u
+	out.Friends = maps.Clone(u.Friends)
+	out.FriendRequests = maps.Clone(u.FriendRequests)
 	out.Tutorials = maps.Clone(u.Tutorials)
 	out.Characters = maps.Clone(u.Characters)
 	out.Costumes = maps.Clone(u.Costumes)
@@ -15,10 +17,19 @@ func CloneUserState(u UserState) UserState {
 	out.DeckParts = cloneSliceMap(u.DeckParts)
 	out.Decks = maps.Clone(u.Decks)
 	out.TripleDecks = maps.Clone(u.TripleDecks)
+	out.DeckLimitContentRestricted = maps.Clone(u.DeckLimitContentRestricted)
 	out.Quests = maps.Clone(u.Quests)
 	out.QuestMissions = maps.Clone(u.QuestMissions)
 	out.WeaponStories = maps.Clone(u.WeaponStories)
 	out.Missions = maps.Clone(u.Missions)
+	out.QuestReplayFlowRewards = maps.Clone(u.QuestReplayFlowRewards)
+	out.QuestSceneChoices = maps.Clone(u.QuestSceneChoices)
+	out.QuestSceneChoiceHistory = maps.Clone(u.QuestSceneChoiceHistory)
+	out.EventQuestDailyRewards = maps.Clone(u.EventQuestDailyRewards)
+	out.MissionPassPoints = maps.Clone(u.MissionPassPoints)
+	out.MissionPassRewards = maps.Clone(u.MissionPassRewards)
+	out.MissionPassRemaining = maps.Clone(u.MissionPassRemaining)
+	out.WebviewPanelMissions = maps.Clone(u.WebviewPanelMissions)
 	out.Gimmick = GimmickState{
 		Progress:         maps.Clone(u.Gimmick.Progress),
 		OrnamentProgress: maps.Clone(u.Gimmick.OrnamentProgress),
@@ -26,6 +37,7 @@ func CloneUserState(u UserState) UserState {
 		Unlocks:          maps.Clone(u.Gimmick.Unlocks),
 	}
 	out.CageOrnamentRewards = maps.Clone(u.CageOrnamentRewards)
+	out.CageOrnamentAccesses = maps.Clone(u.CageOrnamentAccesses)
 	out.TowerAccumulationRewards = maps.Clone(u.TowerAccumulationRewards)
 	out.LabyrinthSeasons = maps.Clone(u.LabyrinthSeasons)
 	out.LabyrinthStages = maps.Clone(u.LabyrinthStages)
@@ -81,7 +93,10 @@ func CloneUserState(u UserState) UserState {
 	out.CharacterBoardAbilities = maps.Clone(u.CharacterBoardAbilities)
 	out.CharacterBoardStatusUps = maps.Clone(u.CharacterBoardStatusUps)
 	out.CostumeAwakenStatusUps = maps.Clone(u.CostumeAwakenStatusUps)
+	out.CostumeLevelBonusReleaseStatuses = maps.Clone(u.CostumeLevelBonusReleaseStatuses)
 	out.CostumeLotteryEffects = maps.Clone(u.CostumeLotteryEffects)
+	out.CostumeLotteryEffectAbilities = maps.Clone(u.CostumeLotteryEffectAbilities)
+	out.CostumeLotteryEffectStatusUps = maps.Clone(u.CostumeLotteryEffectStatusUps)
 	out.CostumeLotteryEffectPending = maps.Clone(u.CostumeLotteryEffectPending)
 	out.AutoSaleSettings = maps.Clone(u.AutoSaleSettings)
 	out.CharacterRebirths = maps.Clone(u.CharacterRebirths)

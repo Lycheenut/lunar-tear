@@ -2,7 +2,6 @@ package gacha
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 
 	"lunar-tear/server/internal/gametime"
@@ -34,6 +33,11 @@ type GachaHandler struct {
 	DupExchange map[int32][]model.DupExchangeEntry
 }
 
+const (
+	maxDrawCountPerRequest int64 = 1000
+	maxInt32Value          int64 = 1<<31 - 1
+)
+
 func NewGachaHandler(
 	pool *masterdata.GachaCatalog,
 	config *masterdata.GameConfig,
@@ -60,19 +64,49 @@ func (h *GachaHandler) HandleDraw(
 	if err != nil {
 		return nil, err
 	}
-
-	totalCost := phase.Price * execCount
-	if totalCost > 0 {
-		if err := store.DeductPrice(user, phase.PriceType, phase.PriceId, totalCost); err != nil {
-			log.Printf("[GachaHandler] DeductPrice failed (proceeding): %v", err)
-		}
+	if execCount <= 0 {
+		return nil, fmt.Errorf("exec count must be positive")
 	}
-
-	drawCount := int(phase.DrawCount * execCount)
-	nowMillis := gametime.NowMillis()
+	if phase.LimitExecCount > 0 && execCount > phase.LimitExecCount {
+		return nil, fmt.Errorf("exec count %d exceeds phase limit %d", execCount, phase.LimitExecCount)
+	}
+	if entry.GachaLabelType == model.GachaLabelEvent && len(entry.BoxItems) == 0 {
+		return nil, fmt.Errorf("event gacha %d has no box catalog", entry.GachaId)
+	}
 
 	bs := user.Gacha.BannerStates[entry.GachaId]
 	bs.GachaId = entry.GachaId
+	if entry.GachaModeType == model.GachaModeStepup {
+		currentStep := bs.StepNumber
+		if currentStep <= 0 {
+			currentStep = 1
+			bs.StepNumber = currentStep
+		}
+		if entry.MaxStepNumber <= 0 || execCount != 1 || phase.StepNumber != currentStep {
+			return nil, fmt.Errorf("step-up gacha %d requires step %d", entry.GachaId, currentStep)
+		}
+	}
+
+	totalCost64 := int64(phase.Price) * int64(execCount)
+	drawCount64 := int64(phase.DrawCount) * int64(execCount)
+	if totalCost64 < 0 || totalCost64 > maxInt32Value {
+		return nil, fmt.Errorf("gacha cost is out of range")
+	}
+	if drawCount64 <= 0 || drawCount64 > maxDrawCountPerRequest {
+		return nil, fmt.Errorf("gacha draw count is out of range")
+	}
+	if entry.GachaLabelType == model.GachaLabelEvent && drawCount64 > availableBoxDrawCount(entry, bs) {
+		return nil, fmt.Errorf("event gacha %d has insufficient box items", entry.GachaId)
+	}
+	totalCost := int32(totalCost64)
+	if totalCost > 0 {
+		if err := store.DeductPrice(user, phase.PriceType, phase.PriceId, totalCost); err != nil {
+			return nil, err
+		}
+	}
+
+	drawCount := int(drawCount64)
+	nowMillis := gametime.NowMillis()
 
 	var items []DrawnItem
 
@@ -82,7 +116,7 @@ func (h *GachaHandler) HandleDraw(
 	case model.GachaLabelChapter, model.GachaLabelRecycle:
 		items = h.drawMaterial(drawCount)
 	case model.GachaLabelEvent:
-		items = h.drawBox(&bs, drawCount)
+		items = h.drawBox(entry, &bs, drawCount)
 	default:
 		items = h.drawPremium(entry, phase, drawCount)
 	}
@@ -91,20 +125,19 @@ func (h *GachaHandler) HandleDraw(
 		bs.StepNumber++
 		if bs.StepNumber > entry.MaxStepNumber {
 			bs.StepNumber = 1
-			bs.LoopCount++
+			if bs.LoopCount < int32(maxInt32Value) {
+				bs.LoopCount++
+			}
 		}
 	}
 
 	var medalBonus int32
 	if entry.GachaMedalId != 0 {
 		medalBonus = int32(drawCount)
-		bs.MedalCount += medalBonus
-		if bs.MedalCount > model.MedalCountCap {
-			bs.MedalCount = model.MedalCountCap
-		}
+		bs.MedalCount = int32(min(int64(bs.MedalCount)+int64(medalBonus), int64(model.MedalCountCap)))
 	}
 
-	bs.DrawCount += int32(drawCount)
+	bs.DrawCount = int32(min(int64(bs.DrawCount)+int64(drawCount), maxInt32Value))
 	user.Gacha.BannerStates[entry.GachaId] = bs
 
 	dupInfos := h.grantItems(user, items, nowMillis)
@@ -141,8 +174,14 @@ func (h *GachaHandler) HandleResetBox(
 	entry store.GachaCatalogEntry,
 ) error {
 	bs := user.Gacha.BannerStates[entry.GachaId]
+	bs.GachaId = entry.GachaId
 	bs.BoxDrewCounts = make(map[int32]int32)
-	bs.BoxNumber++
+	if bs.BoxNumber <= 0 {
+		bs.BoxNumber = 1
+	}
+	if bs.BoxNumber < int32(maxInt32Value) {
+		bs.BoxNumber++
+	}
 	user.Gacha.BannerStates[entry.GachaId] = bs
 	return nil
 }
@@ -225,12 +264,12 @@ func (h *GachaHandler) drawMaterial(count int) []DrawnItem {
 	return DrawReward(h.Pool.Materials, count)
 }
 
-func (h *GachaHandler) drawBox(bs *store.GachaBannerState, count int) []DrawnItem {
+func (h *GachaHandler) drawBox(entry store.GachaCatalogEntry, bs *store.GachaBannerState, count int) []DrawnItem {
 	if bs.BoxDrewCounts == nil {
 		bs.BoxDrewCounts = make(map[int32]int32)
 	}
 
-	boxItems := h.buildBoxPool()
+	boxItems := h.buildBoxPool(entry)
 	for i := range boxItems {
 		boxItems[i].DrewCount = bs.BoxDrewCounts[boxItems[i].PossessionId]
 	}
@@ -244,7 +283,25 @@ func (h *GachaHandler) drawBox(bs *store.GachaBannerState, count int) []DrawnIte
 	return result
 }
 
-func (h *GachaHandler) buildBoxPool() []BoxItem {
+func availableBoxDrawCount(entry store.GachaCatalogEntry, bs store.GachaBannerState) int64 {
+	var available int64
+	for _, item := range entry.BoxItems {
+		remaining := int64(item.MaxCount) - int64(bs.BoxDrewCounts[item.PossessionId])
+		if remaining > 0 {
+			available += remaining
+		}
+	}
+	return available
+}
+
+func (h *GachaHandler) buildBoxPool(entry store.GachaCatalogEntry) []BoxItem {
+	if len(entry.BoxItems) > 0 {
+		items := make([]BoxItem, 0, len(entry.BoxItems))
+		for _, item := range entry.BoxItems {
+			items = append(items, BoxItem{PossessionType: item.PossessionType, PossessionId: item.PossessionId, RarityType: model.RarityType(item.RarityType), Count: item.Count, MaxCount: item.MaxCount})
+		}
+		return items
+	}
 	var items []BoxItem
 	for _, mat := range h.Pool.Materials {
 		items = append(items, BoxItem{
@@ -284,7 +341,7 @@ func (h *GachaHandler) grantItems(user *store.UserState, items []DrawnItem, nowM
 			h.Granter.GrantWeapon(user, item.PossessionId, nowMillis)
 		default:
 			if item.PossessionType != 0 {
-				store.GrantPossession(user, model.PossessionType(item.PossessionType), item.PossessionId, 1)
+				h.Granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, 1, nowMillis)
 			}
 		}
 	}
@@ -334,9 +391,5 @@ func findPhase(entry store.GachaCatalogEntry, phaseId int32) (store.GachaPricePh
 			return p, nil
 		}
 	}
-	if len(entry.PricePhases) > 0 {
-		log.Printf("[GachaHandler] phase %d not found for gacha %d, using first phase", phaseId, entry.GachaId)
-		return entry.PricePhases[0], nil
-	}
-	return store.GachaPricePhaseEntry{}, fmt.Errorf("no price phases for gacha %d", entry.GachaId)
+	return store.GachaPricePhaseEntry{}, fmt.Errorf("price phase %d not found for gacha %d", phaseId, entry.GachaId)
 }

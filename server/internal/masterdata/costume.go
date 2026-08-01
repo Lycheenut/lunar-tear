@@ -17,7 +17,9 @@ type CostumeCatalog struct {
 	LimitBreakCostByRarity map[int32]NumericalFunc
 
 	AwakenByCostumeId           map[int32]EntityMCostumeAwaken
-	AwakenPriceByGroup          map[int32]int32
+	AwakenPricesByGroup         map[int32][]EntityMCostumeAwakenPriceGroup
+	AwakenStepsByGroup          map[int32][]EntityMCostumeAwakenStepMaterialGroup
+	AwakenMaterialsByGroup      map[int32][]MaterialOption
 	AwakenEffectsByGroupAndStep map[int32]map[int32]EntityMCostumeAwakenEffectGroup
 	AwakenStatusUpByGroup       map[int32][]EntityMCostumeAwakenStatusUpGroup
 	AwakenItemAcquireById       map[int32]EntityMCostumeAwakenItemAcquire
@@ -27,9 +29,43 @@ type CostumeCatalog struct {
 	ActiveSkillMaxLevelByRarity map[int32]NumericalFunc
 	ActiveSkillCostByRarity     map[int32]NumericalFunc
 
-	LotteryEffects    map[[2]int32]EntityMCostumeLotteryEffect             // key: [costumeId, slotNumber]
-	LotteryEffectMats map[int32][]EntityMCostumeLotteryEffectMaterialGroup // key: materialGroupId (both unlock and draw)
-	LotteryEffectOdds map[int32][]EntityMCostumeLotteryEffectOddsGroup     // key: oddsGroupId
+	LotteryEffects               map[[2]int32]EntityMCostumeLotteryEffect             // key: [costumeId, slotNumber]
+	LotteryEffectMats            map[int32][]EntityMCostumeLotteryEffectMaterialGroup // key: materialGroupId (both unlock and draw)
+	LotteryEffectOdds            map[int32][]EntityMCostumeLotteryEffectOddsGroup     // key: oddsGroupId
+	LotteryEffectOddsByNumber    map[[2]int32]EntityMCostumeLotteryEffectOddsGroup
+	LotteryEffectTargetAbilities map[int32]EntityMCostumeLotteryEffectTargetAbility
+	LotteryEffectTargetStatusUps map[int32][]EntityMCostumeLotteryEffectTargetStatusUp
+	LevelBonusLevelsByCostume    map[int32][]int32
+	LimitBreakMaterialsByCostume map[int32][]MaterialOption
+}
+
+type MaterialOption struct {
+	MaterialId int32
+	Count      int32
+}
+
+func (c *CostumeCatalog) AwakenGold(priceGroupId, awakenStep int32) (int32, bool) {
+	var gold int32
+	found := false
+	for _, row := range c.AwakenPricesByGroup[priceGroupId] {
+		if awakenStep < row.AwakenStepLowerLimit {
+			break
+		}
+		gold = row.Gold
+		found = true
+	}
+	return gold, found
+}
+
+func (c *CostumeCatalog) AwakenMaterialOptions(stepGroupId, awakenStep int32) []MaterialOption {
+	materialGroupId := int32(0)
+	for _, row := range c.AwakenStepsByGroup[stepGroupId] {
+		if awakenStep < row.AwakenStepLowerLimit {
+			break
+		}
+		materialGroupId = row.CostumeAwakenMaterialGroupId
+	}
+	return c.AwakenMaterialsByGroup[materialGroupId]
 }
 
 func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
@@ -60,6 +96,14 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 	awakenPriceRows, err := utils.ReadTable[EntityMCostumeAwakenPriceGroup]("m_costume_awaken_price_group")
 	if err != nil {
 		return nil, fmt.Errorf("load costume awaken price table: %w", err)
+	}
+	awakenStepRows, err := utils.ReadTable[EntityMCostumeAwakenStepMaterialGroup]("m_costume_awaken_step_material_group")
+	if err != nil {
+		return nil, fmt.Errorf("load costume awaken step material table: %w", err)
+	}
+	awakenMaterialRows, err := utils.ReadTable[EntityMCostumeAwakenMaterialGroup]("m_costume_awaken_material_group")
+	if err != nil {
+		return nil, fmt.Errorf("load costume awaken material table: %w", err)
 	}
 	awakenEffectRows, err := utils.ReadTable[EntityMCostumeAwakenEffectGroup]("m_costume_awaken_effect_group")
 	if err != nil {
@@ -95,6 +139,26 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load costume lottery effect odds group table: %w", err)
 	}
+	lotteryAbilityRows, err := utils.ReadTable[EntityMCostumeLotteryEffectTargetAbility]("m_costume_lottery_effect_target_ability")
+	if err != nil {
+		return nil, fmt.Errorf("load costume lottery effect target ability table: %w", err)
+	}
+	lotteryStatusRows, err := utils.ReadTable[EntityMCostumeLotteryEffectTargetStatusUp]("m_costume_lottery_effect_target_status_up")
+	if err != nil {
+		return nil, fmt.Errorf("load costume lottery effect target status table: %w", err)
+	}
+	levelBonusRows, err := utils.ReadTable[EntityMCostumeLevelBonus]("m_costume_level_bonus")
+	if err != nil {
+		return nil, fmt.Errorf("load costume level bonus table: %w", err)
+	}
+	limitBreakRows, err := utils.ReadTable[EntityMCostumeLimitBreakMaterialGroup]("m_costume_limit_break_material_group")
+	if err != nil {
+		return nil, fmt.Errorf("load costume limit break material table: %w", err)
+	}
+	limitBreakRarityRows, err := utils.ReadTable[EntityMCostumeLimitBreakMaterialRarityGroup]("m_costume_limit_break_material_rarity_group")
+	if err != nil {
+		return nil, fmt.Errorf("load costume rarity limit break material table: %w", err)
+	}
 
 	catalog := &CostumeCatalog{
 		Costumes:               make(map[int32]EntityMCostume, len(costumes)),
@@ -105,7 +169,9 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 		LimitBreakCostByRarity: make(map[int32]NumericalFunc, len(rarities)),
 
 		AwakenByCostumeId:           make(map[int32]EntityMCostumeAwaken, len(awakenRows)),
-		AwakenPriceByGroup:          make(map[int32]int32, len(awakenPriceRows)),
+		AwakenPricesByGroup:         make(map[int32][]EntityMCostumeAwakenPriceGroup),
+		AwakenStepsByGroup:          make(map[int32][]EntityMCostumeAwakenStepMaterialGroup),
+		AwakenMaterialsByGroup:      make(map[int32][]MaterialOption),
 		AwakenEffectsByGroupAndStep: make(map[int32]map[int32]EntityMCostumeAwakenEffectGroup),
 		AwakenStatusUpByGroup:       make(map[int32][]EntityMCostumeAwakenStatusUpGroup),
 		AwakenItemAcquireById:       make(map[int32]EntityMCostumeAwakenItemAcquire, len(awakenItemAcquireRows)),
@@ -115,9 +181,14 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 		ActiveSkillMaxLevelByRarity: make(map[int32]NumericalFunc, len(rarities)),
 		ActiveSkillCostByRarity:     make(map[int32]NumericalFunc, len(rarities)),
 
-		LotteryEffects:    make(map[[2]int32]EntityMCostumeLotteryEffect, len(lotteryEffectRows)),
-		LotteryEffectMats: make(map[int32][]EntityMCostumeLotteryEffectMaterialGroup),
-		LotteryEffectOdds: make(map[int32][]EntityMCostumeLotteryEffectOddsGroup),
+		LotteryEffects:               make(map[[2]int32]EntityMCostumeLotteryEffect, len(lotteryEffectRows)),
+		LotteryEffectMats:            make(map[int32][]EntityMCostumeLotteryEffectMaterialGroup),
+		LotteryEffectOdds:            make(map[int32][]EntityMCostumeLotteryEffectOddsGroup),
+		LotteryEffectOddsByNumber:    make(map[[2]int32]EntityMCostumeLotteryEffectOddsGroup),
+		LotteryEffectTargetAbilities: make(map[int32]EntityMCostumeLotteryEffectTargetAbility),
+		LotteryEffectTargetStatusUps: make(map[int32][]EntityMCostumeLotteryEffectTargetStatusUp),
+		LevelBonusLevelsByCostume:    make(map[int32][]int32),
+		LimitBreakMaterialsByCostume: make(map[int32][]MaterialOption),
 	}
 
 	for _, row := range costumes {
@@ -159,7 +230,26 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 		catalog.AwakenByCostumeId[row.CostumeId] = row
 	}
 	for _, row := range awakenPriceRows {
-		catalog.AwakenPriceByGroup[row.CostumeAwakenPriceGroupId] = row.Gold
+		catalog.AwakenPricesByGroup[row.CostumeAwakenPriceGroupId] = append(catalog.AwakenPricesByGroup[row.CostumeAwakenPriceGroupId], row)
+	}
+	for groupId := range catalog.AwakenPricesByGroup {
+		sort.Slice(catalog.AwakenPricesByGroup[groupId], func(i, j int) bool {
+			return catalog.AwakenPricesByGroup[groupId][i].AwakenStepLowerLimit < catalog.AwakenPricesByGroup[groupId][j].AwakenStepLowerLimit
+		})
+	}
+	for _, row := range awakenStepRows {
+		catalog.AwakenStepsByGroup[row.CostumeAwakenStepMaterialGroupId] = append(catalog.AwakenStepsByGroup[row.CostumeAwakenStepMaterialGroupId], row)
+	}
+	for groupId := range catalog.AwakenStepsByGroup {
+		sort.Slice(catalog.AwakenStepsByGroup[groupId], func(i, j int) bool {
+			return catalog.AwakenStepsByGroup[groupId][i].AwakenStepLowerLimit < catalog.AwakenStepsByGroup[groupId][j].AwakenStepLowerLimit
+		})
+	}
+	for _, row := range awakenMaterialRows {
+		catalog.AwakenMaterialsByGroup[row.CostumeAwakenMaterialGroupId] = append(catalog.AwakenMaterialsByGroup[row.CostumeAwakenMaterialGroupId], MaterialOption{
+			MaterialId: row.MaterialId,
+			Count:      row.Count,
+		})
 	}
 	for _, row := range awakenEffectRows {
 		m, ok := catalog.AwakenEffectsByGroupAndStep[row.CostumeAwakenEffectGroupId]
@@ -204,7 +294,63 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 	for _, row := range lotteryEffectOddsRows {
 		gid := row.CostumeLotteryEffectOddsGroupId
 		catalog.LotteryEffectOdds[gid] = append(catalog.LotteryEffectOdds[gid], row)
+		catalog.LotteryEffectOddsByNumber[[2]int32{gid, row.OddsNumber}] = row
+	}
+	for _, row := range lotteryAbilityRows {
+		catalog.LotteryEffectTargetAbilities[row.CostumeLotteryEffectTargetAbilityId] = row
+	}
+	for _, row := range lotteryStatusRows {
+		catalog.LotteryEffectTargetStatusUps[row.CostumeLotteryEffectTargetStatusUpId] = append(catalog.LotteryEffectTargetStatusUps[row.CostumeLotteryEffectTargetStatusUpId], row)
+	}
+	bonusLevelsById := make(map[int32][]int32)
+	for _, row := range levelBonusRows {
+		bonusLevelsById[row.CostumeLevelBonusId] = append(bonusLevelsById[row.CostumeLevelBonusId], row.Level)
+	}
+	for costumeId, costume := range catalog.Costumes {
+		levels := bonusLevelsById[costume.CostumeLevelBonusId]
+		sort.Slice(levels, func(i, j int) bool { return levels[i] < levels[j] })
+		catalog.LevelBonusLevelsByCostume[costumeId] = levels
+	}
+
+	limitBreakByGroup := make(map[int32][]MaterialOption)
+	for _, row := range limitBreakRows {
+		limitBreakByGroup[row.CostumeLimitBreakMaterialGroupId] = append(limitBreakByGroup[row.CostumeLimitBreakMaterialGroupId], MaterialOption{
+			MaterialId: row.MaterialId,
+			Count:      row.Count,
+		})
+	}
+	rarityLimitBreakByGroup := make(map[int32][]MaterialOption)
+	for _, row := range limitBreakRarityRows {
+		rarityLimitBreakByGroup[row.CostumeLimitBreakMaterialRarityGroupId] = append(rarityLimitBreakByGroup[row.CostumeLimitBreakMaterialRarityGroupId], MaterialOption{
+			MaterialId: row.MaterialId,
+			Count:      row.Count,
+		})
+	}
+	rarityLimitBreakGroup := make(map[int32]int32, len(rarities))
+	for _, row := range rarities {
+		rarityLimitBreakGroup[row.RarityType] = row.CostumeLimitBreakMaterialRarityGroupId
+	}
+	for costumeId, costume := range catalog.Costumes {
+		options := append([]MaterialOption(nil), limitBreakByGroup[costume.CostumeLimitBreakMaterialGroupId]...)
+		options = append(options, rarityLimitBreakByGroup[rarityLimitBreakGroup[costume.RarityType]]...)
+		catalog.LimitBreakMaterialsByCostume[costumeId] = uniqueMaterialOptions(options)
 	}
 
 	return catalog, nil
+}
+
+func uniqueMaterialOptions(options []MaterialOption) []MaterialOption {
+	result := make([]MaterialOption, 0, len(options))
+	indexByMaterial := make(map[int32]int, len(options))
+	for _, option := range options {
+		if index, exists := indexByMaterial[option.MaterialId]; exists {
+			if option.Count > 0 && (result[index].Count <= 0 || option.Count < result[index].Count) {
+				result[index].Count = option.Count
+			}
+			continue
+		}
+		indexByMaterial[option.MaterialId] = len(result)
+		result = append(result, option)
+	}
+	return result
 }

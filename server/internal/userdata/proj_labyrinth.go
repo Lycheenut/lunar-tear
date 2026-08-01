@@ -16,10 +16,14 @@ func init() {
 		records := make([]map[string]any, 0, len(chapters))
 		for _, ch := range chapters {
 			if st, ok := user.LabyrinthSeasons[ch.EventQuestChapterId]; ok {
+				lastJoinSeasonNumber := st.LastJoinSeasonNumber
+				if lastJoinSeasonNumber == 0 {
+					lastJoinSeasonNumber = ch.LatestSeasonNumber
+				}
 				records = append(records, map[string]any{
 					"userId":                               user.UserId,
 					"eventQuestChapterId":                  st.EventQuestChapterId,
-					"lastJoinSeasonNumber":                 st.LastJoinSeasonNumber,
+					"lastJoinSeasonNumber":                 lastJoinSeasonNumber,
 					"lastSeasonRewardReceivedSeasonNumber": st.LastSeasonRewardReceivedSeasonNumber,
 					"latestVersion":                        st.LatestVersion,
 				})

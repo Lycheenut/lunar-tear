@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
@@ -21,7 +22,7 @@ func (s *QuestServiceServer) ReceiveTowerAccumulationReward(ctx context.Context,
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		rec := user.TowerAccumulationRewards[req.EventQuestChapterId]
 		old := rec.LatestRewardReceiveQuestMissionClearCount
 
@@ -44,6 +45,9 @@ func (s *QuestServiceServer) ReceiveTowerAccumulationReward(ctx context.Context,
 		log.Printf("[QuestService] ReceiveTowerAccumulationReward: chapter=%d granted %d item(s), claimed %d -> %d",
 			req.EventQuestChapterId, len(items), old, highest)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("receive tower accumulation reward: %w", err)
+	}
 
 	return &pb.ReceiveTowerAccumulationRewardResponse{}, nil
 }

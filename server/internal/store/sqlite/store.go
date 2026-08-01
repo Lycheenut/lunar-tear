@@ -8,8 +8,9 @@ import (
 )
 
 type SQLiteStore struct {
-	db    *sql.DB
-	clock store.Clock
+	db        *sql.DB
+	clock     store.Clock
+	userLocks userLockManager
 }
 
 var (

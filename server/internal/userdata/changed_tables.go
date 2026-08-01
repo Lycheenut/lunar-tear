@@ -122,6 +122,27 @@ func ChangedTables(before, after *store.UserState) []string {
 	if !mapsEqualStruct(before.Missions, after.Missions) {
 		add("IUserMission")
 	}
+	if !mapsEqualStruct(before.MissionPassPoints, after.MissionPassPoints) {
+		add("IUserMissionPassPoint")
+	}
+	if !mapsEqualStruct(before.MissionPassRewards, after.MissionPassRewards) {
+		add("IUserMissionCompletionProgress")
+	}
+	if !mapsEqualStruct(before.QuestReplayFlowRewards, after.QuestReplayFlowRewards) {
+		add("IUserQuestReplayFlowRewardGroup")
+	}
+	if !mapsEqualStruct(before.QuestSceneChoices, after.QuestSceneChoices) {
+		add("IUserQuestSceneChoice")
+	}
+	if !mapsEqualStruct(before.QuestSceneChoiceHistory, after.QuestSceneChoiceHistory) {
+		add("IUserQuestSceneChoiceHistory")
+	}
+	if !mapsEqualStruct(before.EventQuestDailyRewards, after.EventQuestDailyRewards) {
+		add("IUserEventQuestDailyGroupCompleteReward")
+	}
+	if !mapsEqualStruct(before.WebviewPanelMissions, after.WebviewPanelMissions) {
+		add("IUserWebviewPanelMission")
+	}
 	if !mapsEqualStruct(before.Characters, after.Characters) {
 		add("IUserCharacter")
 	}
@@ -241,6 +262,9 @@ func ChangedTables(before, after *store.UserState) []string {
 	if !mapsEqualStruct(before.CharacterBoards, after.CharacterBoards) {
 		add("IUserCharacterBoard")
 	}
+	if !mapsEqualStruct(before.DeckLimitContentRestricted, after.DeckLimitContentRestricted) {
+		add("IUserDeckLimitContentRestricted")
+	}
 	if !mapsEqualStruct(before.CharacterBoardAbilities, after.CharacterBoardAbilities) {
 		add("IUserCharacterBoardAbility")
 	}
@@ -252,6 +276,15 @@ func ChangedTables(before, after *store.UserState) []string {
 	}
 	if !mapsEqualStruct(before.CostumeLotteryEffects, after.CostumeLotteryEffects) {
 		add("IUserCostumeLotteryEffect")
+	}
+	if !mapsEqualStruct(before.CostumeLotteryEffectAbilities, after.CostumeLotteryEffectAbilities) {
+		add("IUserCostumeLotteryEffectAbility")
+	}
+	if !mapsEqualStruct(before.CostumeLotteryEffectStatusUps, after.CostumeLotteryEffectStatusUps) {
+		add("IUserCostumeLotteryEffectStatusUp")
+	}
+	if !mapsEqualStruct(before.CostumeLevelBonusReleaseStatuses, after.CostumeLevelBonusReleaseStatuses) {
+		add("IUserCostumeLevelBonusReleaseStatus")
 	}
 	if !mapsEqualStruct(before.CostumeLotteryEffectPending, after.CostumeLotteryEffectPending) {
 		add("IUserCostumeLotteryEffectPending")
@@ -273,6 +306,9 @@ func ChangedTables(before, after *store.UserState) []string {
 	}
 	if !mapsEqualStruct(before.LabyrinthStages, after.LabyrinthStages) {
 		add("IUserEventQuestLabyrinthStage")
+	}
+	if !mapsEqualStruct(before.LabyrinthSeasons, after.LabyrinthSeasons) {
+		add("IUserEventQuestLabyrinthSeason")
 	}
 
 	if !mapsEqualStruct(before.BigHuntMaxScores, after.BigHuntMaxScores) {
@@ -385,6 +421,8 @@ func keyFieldsForTable(table string) []string {
 		return []string{"userId", "userDeckCharacterUuid", "sortOrder"}
 	case "IUserDeckCharacterDressupCostume":
 		return []string{"userId", "userDeckCharacterUuid"}
+	case "IUserDeckLimitContentRestricted":
+		return []string{"userId", "deckRestrictedUuid"}
 	case "IUserCharacter":
 		return []string{"userId", "characterId"}
 	case "IUserConsumableItem":
@@ -401,6 +439,20 @@ func keyFieldsForTable(table string) []string {
 		return []string{"userId", "questId", "questMissionId"}
 	case "IUserMission":
 		return []string{"userId", "missionId"}
+	case "IUserMissionPassPoint":
+		return []string{"userId", "missionPassId"}
+	case "IUserMissionCompletionProgress":
+		return []string{"userId", "missionPassId", "level", "isPremium"}
+	case "IUserQuestReplayFlowRewardGroup":
+		return []string{"userId", "questReplayFlowRewardGroupId"}
+	case "IUserQuestSceneChoice":
+		return []string{"userId", "questSceneId", "questFlowType"}
+	case "IUserQuestSceneChoiceHistory":
+		return []string{"userId", "questSceneId", "questFlowType", "choiceNumber"}
+	case "IUserEventQuestDailyGroupCompleteReward":
+		return []string{"userId", "eventQuestDailyGroupId"}
+	case "IUserWebviewPanelMission":
+		return []string{"userId", "webviewPanelMissionPageId"}
 	case "IUserWeaponStory":
 		return []string{"userId", "weaponId"}
 	case "IUserWeaponNote":
@@ -423,6 +475,12 @@ func keyFieldsForTable(table string) []string {
 		return []string{"userId", "userCostumeUuid", "slotNumber"}
 	case "IUserCostumeLotteryEffectPending":
 		return []string{"userId", "userCostumeUuid"}
+	case "IUserCostumeLevelBonusReleaseStatus":
+		return []string{"userId", "costumeId"}
+	case "IUserCostumeLotteryEffectAbility":
+		return []string{"userId", "userCostumeUuid", "slotNumber"}
+	case "IUserCostumeLotteryEffectStatusUp":
+		return []string{"userId", "userCostumeUuid", "statusCalculationType"}
 	case "IUserCharacterBoard":
 		return []string{"userId", "characterBoardId"}
 	case "IUserCharacterBoardAbility":
@@ -443,6 +501,8 @@ func keyFieldsForTable(table string) []string {
 		return []string{"userId", "eventQuestChapterId"}
 	case "IUserEventQuestLabyrinthStage":
 		return []string{"userId", "eventQuestChapterId", "stageOrder"}
+	case "IUserEventQuestLabyrinthSeason":
+		return []string{"userId", "eventQuestChapterId"}
 	case "IUserAutoSaleSettingDetail":
 		return []string{"userId", "possessionAutoSaleItemType"}
 	case "IUserCharacterRebirth":

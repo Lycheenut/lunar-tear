@@ -31,9 +31,18 @@ func buildCatalogs() (*Catalogs, error) {
 	}
 	log.Printf("parts catalog loaded: %d parts, %d rarities", len(partsCatalog.PartsById), len(partsCatalog.RarityByRarityType))
 
-	questCatalog, err := masterdata.LoadQuestCatalog(partsCatalog)
+	conditionResolver, err := masterdata.LoadConditionResolver()
+	if err != nil {
+		return nil, fmt.Errorf("load condition resolver: %w", err)
+	}
+
+	questCatalog, err := masterdata.LoadQuestCatalog(partsCatalog, conditionResolver)
 	if err != nil {
 		return nil, fmt.Errorf("load quest catalog: %w", err)
+	}
+	missionCatalog, err := masterdata.LoadMissionCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("load mission catalog: %w", err)
 	}
 	sideStoryCatalog := masterdata.LoadSideStoryCatalog()
 	campaignCatalog, err := campaign.Load()
@@ -53,6 +62,7 @@ func buildCatalogs() (*Catalogs, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load gacha catalog: %w", err)
 	}
+	masterdata.EnrichGachaUnlockConditions(gachaEntries, questCatalog)
 	log.Printf("gacha catalog loaded: %d entries", len(gachaEntries))
 
 	gachaPool, err := masterdata.LoadGachaPool()
@@ -84,13 +94,14 @@ func buildCatalogs() (*Catalogs, error) {
 		return nil, fmt.Errorf("enrich dup exchange: %w", err)
 	}
 	log.Printf("dup exchange loaded: %d entries (%d derived from limit-break materials)", len(dupExchange), dupAdded)
+	companionDupExchange, err := masterdata.LoadCompanionDupExchange()
+	if err != nil {
+		return nil, fmt.Errorf("load companion duplicate exchange: %w", err)
+	}
+	questHandler.Granter.CostumeDupExchange = dupExchange
+	questHandler.Granter.CompanionDupExchange = companionDupExchange
 
 	gachaHandler := gacha.NewGachaHandler(gachaPool, gameConfig, questHandler.Granter, medalInfo, dupExchange)
-
-	conditionResolver, err := masterdata.LoadConditionResolver()
-	if err != nil {
-		return nil, fmt.Errorf("load condition resolver: %w", err)
-	}
 
 	cageOrnamentCatalog := masterdata.LoadCageOrnamentCatalog()
 	loginBonusCatalog := masterdata.LoadLoginBonusCatalog()
@@ -149,11 +160,16 @@ func buildCatalogs() (*Catalogs, error) {
 	towerCatalog := masterdata.LoadTowerCatalog()
 
 	labyrinthCatalog := masterdata.LoadLabyrinthCatalog()
+	limitContentCatalog, err := masterdata.LoadLimitContentCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("load limit content catalog: %w", err)
+	}
 
 	return &Catalogs{
 		GameConfig:        gameConfig,
 		Parts:             partsCatalog,
 		Quest:             questCatalog,
+		Mission:           missionCatalog,
 		GachaEntries:      gachaEntries,
 		GachaMedals:       medalInfo,
 		GachaPool:         gachaPool,
@@ -177,6 +193,7 @@ func buildCatalogs() (*Catalogs, error) {
 		BigHunt:           bigHuntCatalog,
 		Tower:             towerCatalog,
 		Labyrinth:         labyrinthCatalog,
+		LimitContent:      limitContentCatalog,
 		Campaign:          campaignCatalog,
 		QuestHandler:      questHandler,
 		GachaHandler:      gachaHandler,

@@ -8,10 +8,13 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-func (h *QuestHandler) HandleEventQuestStart(user *store.UserState, eventQuestChapterId, questId int32, isBattleOnly bool, userDeckNumber int32, nowMillis int64) {
+func (h *QuestHandler) HandleEventQuestStart(user *store.UserState, eventQuestChapterId, questId int32, isBattleOnly bool, userDeckNumber int32, nowMillis int64) error {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleEventQuestStart", questId))
+		return fmt.Errorf("unknown quest %d", questId)
+	}
+	if err := h.validateEventQuest(user, eventQuestChapterId, questId, nowMillis); err != nil {
+		return err
 	}
 
 	h.initQuestState(user, questId)
@@ -19,7 +22,9 @@ func (h *QuestHandler) HandleEventQuestStart(user *store.UserState, eventQuestCh
 	if quest.Stamina > 0 {
 		maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
 		stamina := h.staminaWithCampaign(quest.Stamina, h.targetForEvent(eventQuestChapterId, questId), nowMillis)
-		store.ConsumeStamina(user, stamina, maxMillis, nowMillis)
+		if err := store.ConsumeStamina(user, stamina, maxMillis, nowMillis); err != nil {
+			return err
+		}
 	}
 
 	questState := user.Quests[questId]
@@ -35,12 +40,14 @@ func (h *QuestHandler) HandleEventQuestStart(user *store.UserState, eventQuestCh
 		user.EventQuest.CurrentQuestSceneId = sceneIds[0]
 		user.EventQuest.HeadQuestSceneId = sceneIds[0]
 	}
+	return nil
 }
 
 func (h *QuestHandler) HandleEventQuestFinish(user *store.UserState, eventQuestChapterId, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {
 	quest, ok := h.QuestById[questId]
 	if !ok {
-		panic(fmt.Sprintf("unknown questId=%d for HandleEventQuestFinish", questId))
+		log.Printf("[HandleEventQuestFinish] unknown questId=%d", questId)
+		return FinishOutcome{}
 	}
 
 	target := h.targetForEvent(eventQuestChapterId, questId)
@@ -65,8 +72,6 @@ func (h *QuestHandler) HandleEventQuestFinish(user *store.UserState, eventQuestC
 	user.EventQuest.CurrentQuestSceneId = 0
 	user.EventQuest.HeadQuestSceneId = 0
 	user.EventQuest.LatestVersion = nowMillis
-
-	h.clearQuestMissions(user, questId, nowMillis)
 
 	return outcome
 }

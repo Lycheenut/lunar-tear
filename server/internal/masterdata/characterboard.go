@@ -7,21 +7,6 @@ import (
 	"lunar-tear/server/internal/utils"
 )
 
-type CharacterBoardAssignmentRow struct {
-	CharacterId                  int32 `json:"CharacterId"`
-	CharacterBoardCategoryId     int32 `json:"CharacterBoardCategoryId"`
-	SortOrder                    int32 `json:"SortOrder"`
-	CharacterBoardAssignmentType int32 `json:"CharacterBoardAssignmentType"`
-}
-
-type CharacterBoardGroupRow struct {
-	CharacterBoardGroupId    int32 `json:"CharacterBoardGroupId"`
-	CharacterBoardCategoryId int32 `json:"CharacterBoardCategoryId"`
-	SortOrder                int32 `json:"SortOrder"`
-	CharacterBoardGroupType  int32 `json:"CharacterBoardGroupType"`
-	TextAssetId              int32 `json:"TextAssetId"`
-}
-
 type CharacterBoardCatalog struct {
 	PanelById               map[int32]EntityMCharacterBoardPanel
 	PanelsByBoardId         map[int32][]EntityMCharacterBoardPanel
@@ -32,6 +17,7 @@ type CharacterBoardCatalog struct {
 	AbilityMaxLevel         map[store.CharacterBoardAbilityKey]int32
 	EffectTargetsByGroupId  map[int32][]EntityMCharacterBoardEffectTargetGroup
 	BoardById               map[int32]EntityMCharacterBoard
+	CharacterIdByBoardId    map[int32]int32
 }
 
 func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
@@ -54,6 +40,14 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load character board table: %w", err)
 	}
+	assignments, err := utils.ReadTable[EntityMCharacterBoardAssignment]("m_character_board_assignment")
+	if err != nil {
+		return nil, fmt.Errorf("load character board assignment table: %w", err)
+	}
+	groups, err := utils.ReadTable[EntityMCharacterBoardGroup]("m_character_board_group")
+	if err != nil {
+		return nil, fmt.Errorf("load character board group table: %w", err)
+	}
 
 	statusUps, err := utils.ReadTable[EntityMCharacterBoardStatusUp]("m_character_board_status_up")
 	if err != nil {
@@ -74,7 +68,6 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load character board effect target table: %w", err)
 	}
-
 	catalog := &CharacterBoardCatalog{
 		PanelById:               make(map[int32]EntityMCharacterBoardPanel, len(panels)),
 		PanelsByBoardId:         make(map[int32][]EntityMCharacterBoardPanel),
@@ -85,6 +78,7 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 		AbilityMaxLevel:         make(map[store.CharacterBoardAbilityKey]int32, len(abilityMaxLevels)),
 		EffectTargetsByGroupId:  make(map[int32][]EntityMCharacterBoardEffectTargetGroup),
 		BoardById:               make(map[int32]EntityMCharacterBoard, len(boards)),
+		CharacterIdByBoardId:    make(map[int32]int32, len(boards)),
 	}
 
 	for _, p := range panels {
@@ -102,6 +96,24 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 	for _, b := range boards {
 		catalog.BoardById[b.CharacterBoardId] = b
 	}
+	characterByCategoryId := make(map[int32]int32, len(assignments))
+	for _, assignment := range assignments {
+		if existing := characterByCategoryId[assignment.CharacterBoardCategoryId]; existing != 0 && existing != assignment.CharacterId {
+			return nil, fmt.Errorf("character board category %d has multiple character assignments", assignment.CharacterBoardCategoryId)
+		}
+		characterByCategoryId[assignment.CharacterBoardCategoryId] = assignment.CharacterId
+	}
+	categoryByGroupId := make(map[int32]int32, len(groups))
+	for _, group := range groups {
+		categoryByGroupId[group.CharacterBoardGroupId] = group.CharacterBoardCategoryId
+	}
+	for _, board := range boards {
+		characterId := characterByCategoryId[categoryByGroupId[board.CharacterBoardGroupId]]
+		if characterId == 0 {
+			return nil, fmt.Errorf("character board %d has no character assignment", board.CharacterBoardId)
+		}
+		catalog.CharacterIdByBoardId[board.CharacterBoardId] = characterId
+	}
 	for _, s := range statusUps {
 		catalog.StatusUpById[s.CharacterBoardStatusUpId] = s
 	}
@@ -118,6 +130,24 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 		catalog.EffectTargetsByGroupId[t.CharacterBoardEffectTargetGroupId] = append(
 			catalog.EffectTargetsByGroupId[t.CharacterBoardEffectTargetGroupId], t)
 	}
-
 	return catalog, nil
+}
+
+func IsCharacterBoardPanelReleased(board store.CharacterBoardState, sortOrder int32) bool {
+	if sortOrder <= 0 || sortOrder > 128 {
+		return false
+	}
+	field := (sortOrder - 1) / 32
+	mask := int32(1 << uint((sortOrder-1)%32))
+	switch field {
+	case 0:
+		return board.PanelReleaseBit1&mask != 0
+	case 1:
+		return board.PanelReleaseBit2&mask != 0
+	case 2:
+		return board.PanelReleaseBit3&mask != 0
+	case 3:
+		return board.PanelReleaseBit4&mask != 0
+	}
+	return false
 }
