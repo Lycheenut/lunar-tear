@@ -21,13 +21,13 @@ import (
 const MaxUserGimmickRows = 1000
 
 type gimmickScheduleEntry struct {
-	ScheduleId      int32
-	StartDatetime   int64
-	EndDatetime     int64
-	FirstSequenceId int32
-	RequiredQuestId int32 // 0 = always active
-	IsHidden        bool  // hidden-story or cage-memory gimmick: bypasses the quest gate
-	Rank            int   // trim priority — see gimmickTypeRank
+	ScheduleId         int32
+	StartDatetime      int64
+	EndDatetime        int64
+	FirstSequenceId    int32
+	ReleaseConditionId int32
+	IsHidden           bool
+	Rank               int // trim priority — see gimmickTypeRank
 }
 
 func readGimmickTable[T any](name, what string) ([]T, bool) {
@@ -129,12 +129,16 @@ type SequenceReward struct {
 }
 
 type GimmickCatalog struct {
-	schedules       []gimmickScheduleEntry
-	hiddenSequences map[int32]bool             // GimmickSequenceId -> report/cage-memory
-	sequenceRewards map[int32][]SequenceReward // GimmickSequenceId -> clear rewards
-	gimmickTypes    map[int32]model.GimmickType
-	cageMemoryItems map[int32]int32 // CageMemory GimmickId -> ImportantItemId (type 4)
-	ornamentRewards map[GimmickOrnamentRef]SequenceReward
+	schedules               []gimmickScheduleEntry
+	scheduleByKey           map[store.GimmickSequenceKey]gimmickScheduleEntry
+	hiddenSequences         map[int32]bool             // GimmickSequenceId -> report/cage-memory
+	sequenceRewards         map[int32][]SequenceReward // GimmickSequenceId -> clear rewards
+	gimmickTypes            map[int32]model.GimmickType
+	cageMemoryItems         map[int32]int32 // CageMemory GimmickId -> ImportantItemId (type 4)
+	ornamentRewards         map[GimmickOrnamentRef]SequenceReward
+	gimmicksBySequence      map[int32]map[int32]bool
+	clearConditionByGimmick map[int32]int32
+	conditions              *ConditionResolver
 }
 
 func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnamentCatalog) (*GimmickCatalog, error) {
@@ -161,17 +165,13 @@ func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnament
 	bestBySeq := make(map[int32]gimmickScheduleEntry, len(rows))
 	for _, r := range rows {
 		entry := gimmickScheduleEntry{
-			ScheduleId:      r.GimmickSequenceScheduleId,
-			StartDatetime:   r.StartDatetime,
-			EndDatetime:     r.EndDatetime,
-			FirstSequenceId: r.FirstGimmickSequenceId,
-			IsHidden:        hiddenSeq[r.FirstGimmickSequenceId],
-			Rank:            gimmickTypeRank(seqTypes[r.FirstGimmickSequenceId]),
-		}
-		if r.ReleaseEvaluateConditionId != 0 {
-			if qid, ok := resolver.RequiredQuestId(r.ReleaseEvaluateConditionId); ok {
-				entry.RequiredQuestId = qid
-			}
+			ScheduleId:         r.GimmickSequenceScheduleId,
+			StartDatetime:      r.StartDatetime,
+			EndDatetime:        r.EndDatetime,
+			FirstSequenceId:    r.FirstGimmickSequenceId,
+			ReleaseConditionId: r.ReleaseEvaluateConditionId,
+			IsHidden:           hiddenSeq[r.FirstGimmickSequenceId],
+			Rank:               gimmickTypeRank(seqTypes[r.FirstGimmickSequenceId]),
 		}
 		if existing, ok := bestBySeq[entry.FirstSequenceId]; ok {
 			existingFuture := existing.EndDatetime > now
@@ -212,17 +212,64 @@ func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnament
 	sequenceRewards := loadGimmickSequenceRewards()
 	cageMemoryItems := loadCageMemoryImportantItems(gimmickTypes().byGimmick)
 	ornamentRewards := loadGimmickOrnamentRewards(cageOrnaments)
+	gimmicksBySequence, clearConditionByGimmick, err := loadGimmickConditionsBySequence()
+	if err != nil {
+		return nil, err
+	}
+	scheduleByKey := make(map[store.GimmickSequenceKey]gimmickScheduleEntry)
+	chains := LoadGimmickSequenceChains()
+	for _, entry := range entries {
+		for _, sequenceId := range chains[entry.FirstSequenceId] {
+			scheduleByKey[store.GimmickSequenceKey{GimmickSequenceScheduleId: entry.ScheduleId, GimmickSequenceId: sequenceId}] = entry
+		}
+	}
 
 	log.Printf("gimmick catalog loaded: %d schedules (%d hidden-content, %d duplicates dropped), %d reward sequences, %d cage-memory items, %d ornament rewards",
 		len(entries), hiddenCount, dedupedCount, len(sequenceRewards), len(cageMemoryItems), len(ornamentRewards))
 	return &GimmickCatalog{
-		schedules:       entries,
-		hiddenSequences: hiddenSeq,
-		sequenceRewards: sequenceRewards,
-		gimmickTypes:    gimmickTypes().byGimmick,
-		cageMemoryItems: cageMemoryItems,
-		ornamentRewards: ornamentRewards,
+		schedules:               entries,
+		scheduleByKey:           scheduleByKey,
+		hiddenSequences:         hiddenSeq,
+		sequenceRewards:         sequenceRewards,
+		gimmickTypes:            gimmickTypes().byGimmick,
+		cageMemoryItems:         cageMemoryItems,
+		ornamentRewards:         ornamentRewards,
+		gimmicksBySequence:      gimmicksBySequence,
+		clearConditionByGimmick: clearConditionByGimmick,
+		conditions:              resolver,
 	}, nil
+}
+
+func loadGimmickConditionsBySequence() (map[int32]map[int32]bool, map[int32]int32, error) {
+	gimmicks, err := utils.ReadTable[EntityMGimmick]("m_gimmick")
+	if err != nil {
+		return nil, nil, fmt.Errorf("load gimmick conditions: %w", err)
+	}
+	groups, err := utils.ReadTable[EntityMGimmickGroup]("m_gimmick_group")
+	if err != nil {
+		return nil, nil, fmt.Errorf("load gimmick groups for conditions: %w", err)
+	}
+	sequences, err := utils.ReadTable[EntityMGimmickSequence]("m_gimmick_sequence")
+	if err != nil {
+		return nil, nil, fmt.Errorf("load gimmick sequences for conditions: %w", err)
+	}
+	gimmicksByGroup := make(map[int32][]int32)
+	for _, group := range groups {
+		gimmicksByGroup[group.GimmickGroupId] = append(gimmicksByGroup[group.GimmickGroupId], group.GimmickId)
+	}
+	gimmicksBySequence := make(map[int32]map[int32]bool)
+	for _, sequence := range sequences {
+		members := make(map[int32]bool)
+		for _, gimmickId := range gimmicksByGroup[sequence.GimmickGroupId] {
+			members[gimmickId] = true
+		}
+		gimmicksBySequence[sequence.GimmickSequenceId] = members
+	}
+	clearConditionByGimmick := make(map[int32]int32, len(gimmicks))
+	for _, gimmick := range gimmicks {
+		clearConditionByGimmick[gimmick.GimmickId] = gimmick.ClearEvaluateConditionId
+	}
+	return gimmicksBySequence, clearConditionByGimmick, nil
 }
 
 // OrnamentReward resolves one-shot treasure ornaments (types 1 and 7) to the
@@ -462,13 +509,10 @@ func (c *GimmickCatalog) ActiveScheduleKeys(user store.UserState, nowMillis int6
 	keys := make([]store.GimmickSequenceKey, 0, len(c.schedules))
 	for _, s := range c.schedules {
 		if nowMillis < s.StartDatetime {
-			continue // future schedules still skipped
+			continue
 		}
-		if !s.IsHidden && s.RequiredQuestId != 0 {
-			q, ok := user.Quests[s.RequiredQuestId]
-			if !ok || q.QuestStateType != model.UserQuestStateTypeCleared {
-				continue
-			}
+		if !c.conditions.Satisfied(s.ReleaseConditionId, &user) {
+			continue
 		}
 		keys = append(keys, store.GimmickSequenceKey{
 			GimmickSequenceScheduleId: s.ScheduleId,
@@ -476,6 +520,21 @@ func (c *GimmickCatalog) ActiveScheduleKeys(user store.UserState, nowMillis int6
 		})
 	}
 	return keys
+}
+
+func (c *GimmickCatalog) SequenceAvailable(user *store.UserState, scheduleId, sequenceId int32, nowMillis int64) bool {
+	entry, ok := c.scheduleByKey[store.GimmickSequenceKey{GimmickSequenceScheduleId: scheduleId, GimmickSequenceId: sequenceId}]
+	return ok && nowMillis >= entry.StartDatetime && c.conditions.Satisfied(entry.ReleaseConditionId, user)
+}
+
+func (c *GimmickCatalog) GimmickAvailable(user *store.UserState, scheduleId, sequenceId, gimmickId int32, nowMillis int64) bool {
+	if !c.SequenceAvailable(user, scheduleId, sequenceId, nowMillis) || !c.gimmicksBySequence[sequenceId][gimmickId] {
+		return false
+	}
+	if c.gimmickTypes[gimmickId] != model.GimmickTypeReport {
+		return true
+	}
+	return c.conditions.Satisfied(c.clearConditionByGimmick[gimmickId], user)
 }
 
 type GimmickOrnamentRef struct {

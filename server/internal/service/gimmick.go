@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
@@ -30,7 +33,12 @@ func (s *GimmickServiceServer) UpdateSequence(ctx context.Context, req *pb.Updat
 	log.Printf("[GimmickService] UpdateSequence: scheduleId=%d sequenceId=%d",
 		req.GimmickSequenceScheduleId, req.GimmickSequenceId)
 	userId := CurrentUserId(ctx, s.users, s.sessions)
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if !s.holder.Get().Gimmick.SequenceAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, gametime.NowMillis()) {
+			validationErr = status.Error(codes.FailedPrecondition, "gimmick sequence is not available")
+			return
+		}
 		key := store.GimmickSequenceKey{
 			GimmickSequenceScheduleId: req.GimmickSequenceScheduleId,
 			GimmickSequenceId:         req.GimmickSequenceId,
@@ -41,6 +49,9 @@ func (s *GimmickServiceServer) UpdateSequence(ctx context.Context, req *pb.Updat
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update gimmick sequence: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 	return &pb.UpdateSequenceResponse{}, nil
 }
@@ -53,8 +64,13 @@ func (s *GimmickServiceServer) UpdateGimmickProgress(ctx context.Context, req *p
 
 	var ornamentRewards []*pb.GimmickReward
 	var sequenceCleared bool
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		nowMillis := gametime.NowMillis()
+		if !cat.Gimmick.GimmickAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, req.GimmickId, nowMillis) {
+			validationErr = status.Error(codes.FailedPrecondition, "gimmick is not available")
+			return
+		}
 		progressKey := store.GimmickKey{
 			GimmickSequenceScheduleId: req.GimmickSequenceScheduleId,
 			GimmickSequenceId:         req.GimmickSequenceId,
@@ -147,6 +163,9 @@ func (s *GimmickServiceServer) UpdateGimmickProgress(ctx context.Context, req *p
 	if err != nil {
 		return nil, fmt.Errorf("update gimmick progress: %w", err)
 	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 
 	var clearReward []*pb.GimmickReward
 	if sequenceCleared {
@@ -228,7 +247,15 @@ func (s *GimmickServiceServer) InitSequenceSchedule(ctx context.Context, _ *empt
 func (s *GimmickServiceServer) Unlock(ctx context.Context, req *pb.UnlockRequest) (*pb.UnlockResponse, error) {
 	log.Printf("[GimmickService] Unlock: gimmickKeys=%d", len(req.GimmickKey))
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var validationErr error
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		nowMillis := gametime.NowMillis()
+		for _, item := range req.GimmickKey {
+			if !s.holder.Get().Gimmick.GimmickAvailable(user, item.GimmickSequenceScheduleId, item.GimmickSequenceId, item.GimmickId, nowMillis) {
+				validationErr = status.Error(codes.FailedPrecondition, "gimmick is not available")
+				return
+			}
+		}
 		for _, item := range req.GimmickKey {
 			key := store.GimmickKey{
 				GimmickSequenceScheduleId: item.GimmickSequenceScheduleId,
@@ -241,5 +268,11 @@ func (s *GimmickServiceServer) Unlock(ctx context.Context, req *pb.UnlockRequest
 			user.Gimmick.Unlocks[key] = unlock
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("unlock gimmick: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
+	}
 	return &pb.UnlockResponse{}, nil
 }
