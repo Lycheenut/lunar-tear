@@ -2,7 +2,7 @@
 //
 // The Holder atomically swaps a *Catalogs aggregate every time the operator
 // asks the server to re-read assets/release/20240404193219.bin.e (typically via
-// the admin webhook in cmd/lunar-tear/admin.go). gRPC services hold a *Holder
+// the admin service in cmd/lunar-tear/admin.go). gRPC services hold a *Holder
 // and call Get() at the start of each RPC, so they always see a consistent
 // snapshot.
 package runtime
@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/store"
+	"lunar-tear/server/internal/userdata"
 )
 
 // Catalogs is an immutable snapshot of every catalog and catalog-derived
@@ -64,6 +66,7 @@ type Catalogs struct {
 type Holder struct {
 	binPath string
 	cur     atomic.Pointer[Catalogs]
+	mu      sync.Mutex
 }
 
 func NewHolder(binPath string) (*Holder, error) {
@@ -75,19 +78,73 @@ func NewHolder(binPath string) (*Holder, error) {
 }
 
 func (h *Holder) Reload() error {
-	if err := memorydb.Init(h.binPath); err != nil {
-		return fmt.Errorf("memorydb.Init: %w", err)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	c, err := loadCatalogs(h.binPath)
+	if err != nil {
+		return err
+	}
+	h.publish(c)
+	h.touch()
+	return nil
+}
+
+// InstallAndReload fully loads a candidate master-data file before atomically
+// replacing the file consumed by the game server and CDN. A bad candidate is
+// never published and never replaces the current file.
+func (h *Holder) InstallAndReload(candidatePath string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	candidateInfo, err := os.Stat(candidatePath)
+	if err != nil {
+		return fmt.Errorf("stat candidate: %w", err)
+	}
+	if candidateInfo.Size() == 0 {
+		return fmt.Errorf("candidate master data is empty")
+	}
+	if currentInfo, statErr := os.Stat(h.binPath); statErr == nil {
+		if err := os.Chmod(candidatePath, currentInfo.Mode().Perm()); err != nil {
+			return fmt.Errorf("preserve master-data permissions: %w", err)
+		}
+	}
+
+	c, err := loadCatalogs(candidatePath)
+	if err != nil {
+		_ = memorydb.Init(h.binPath)
+		return fmt.Errorf("validate candidate: %w", err)
+	}
+	if err := os.Rename(candidatePath, h.binPath); err != nil {
+		_ = memorydb.Init(h.binPath)
+		return fmt.Errorf("install candidate: %w", err)
+	}
+	h.publish(c)
+	h.touch()
+	return nil
+}
+
+func loadCatalogs(path string) (*Catalogs, error) {
+	if err := memorydb.Init(path); err != nil {
+		return nil, fmt.Errorf("memorydb.Init: %w", err)
 	}
 	c, err := buildCatalogs()
 	if err != nil {
-		return fmt.Errorf("buildCatalogs: %w", err)
+		return nil, fmt.Errorf("buildCatalogs: %w", err)
 	}
+	return c, nil
+}
+
+func (h *Holder) publish(c *Catalogs) {
 	h.cur.Store(c)
+	userdata.SetQuestHandler(c.QuestHandler)
+}
+
+func (h *Holder) touch() {
 	now := time.Now()
 	if err := os.Chtimes(h.binPath, now, now); err != nil {
 		log.Printf("[runtime] os.Chtimes(%s) failed (clients may not invalidate cache): %v", h.binPath, err)
 	}
-	return nil
 }
 
 func (h *Holder) Get() *Catalogs {

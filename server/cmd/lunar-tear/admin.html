@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lunar Tear · 限时内容管理</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">LUNAR TEAR / MASTER DATA</p>
+      <h1>限时内容管理</h1>
+    </div>
+    <div class="top-actions">
+      <span id="version" class="version">尚未连接</span>
+      <button id="logout" class="button ghost hidden" type="button">断开</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="login-panel" class="login-panel">
+      <div class="login-copy">
+        <p class="eyebrow">ADMIN ACCESS</p>
+        <h2>连接当前环境</h2>
+        <p>使用当前服务的 <code>LUNAR_ADMIN_TOKEN</code>。令牌仅保存在此标签页的 sessionStorage 中。</p>
+      </div>
+      <form id="login-form" class="login-form">
+        <label for="token">管理令牌</label>
+        <div class="login-row">
+          <input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
+          <button class="button primary" type="submit">连接</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="workspace" class="workspace hidden" aria-live="polite">
+      <div class="summary-grid">
+        <article class="metric"><span>限时表</span><strong id="table-count">—</strong></article>
+        <article class="metric"><span>内容行</span><strong id="row-count">—</strong></article>
+        <article class="metric"><span>待应用修改</span><strong id="dirty-count">0</strong></article>
+        <article class="metric accent"><span>时间显示</span><strong id="timezone">本地时区</strong></article>
+      </div>
+
+      <div class="toolbar">
+        <label>数据表
+          <select id="table-select"></select>
+        </label>
+        <label>状态
+          <select id="status-filter">
+            <option value="all">全部</option>
+            <option value="active">进行中</option>
+            <option value="upcoming">未开始</option>
+            <option value="expired">已结束</option>
+            <option value="disabled">已禁用</option>
+          </select>
+        </label>
+        <label>标题语言
+          <select id="language-select" aria-label="标题语言"></select>
+        </label>
+        <label class="search-field">筛选当前表
+          <input id="search" type="search" placeholder="按标题、ID、字段值或行号搜索">
+        </label>
+        <button id="refresh" class="button ghost" type="button">刷新</button>
+      </div>
+
+      <div id="notice" class="notice hidden" role="status"></div>
+
+      <section class="data-panel">
+        <div class="data-heading">
+          <div>
+            <p id="entity-name" class="eyebrow"></p>
+            <h2 id="table-name">—</h2>
+          </div>
+          <span id="visible-count" class="row-badge">0 行</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead id="schedule-head"></thead>
+            <tbody id="schedule-body"></tbody>
+          </table>
+        </div>
+        <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
+      </section>
+
+      <div class="savebar">
+        <div>
+          <strong id="save-summary">没有待应用的修改</strong>
+          <span>应用后会重建主数据、原子替换文件并热更新当前服务。</span>
+        </div>
+        <div class="save-actions">
+          <button id="discard" class="button ghost" type="button" disabled>放弃修改</button>
+          <button id="save" class="button primary" type="button" disabled>重建并应用</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/admin/admin.js" defer></script>
+</body>
+</html>
