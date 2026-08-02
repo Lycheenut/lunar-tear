@@ -308,9 +308,10 @@ All targets run from the `server/` directory.
 | `make build-dev`              | Build the dev runner binary to `bin/`                  |
 | `make build-all`              | Build all service binaries to `bin/`                   |
 | `make prod-build`             | Build the production Docker Compose images             |
-| `make prod-start`             | Start the production services in the background        |
+| `make prod-deploy`            | Build images, read the admin token, and start services  |
+| `make prod-start`             | Read the admin token and start production services      |
 | `make prod-stop`              | Stop the production services                           |
-| `make prod-restart`           | Restart the production services                        |
+| `make prod-restart`           | Reload the admin token and recreate production services |
 | `make client-check`           | Validate Android client build inputs and tools         |
 | `make client`                 | Patch, rebuild, align, and sign the Android client     |
 | `make build-import`           | Build the import-snapshot tool                         |
@@ -327,6 +328,12 @@ before decoding the APK. Set `GRPC_TLS=true` when `GRPC_ADDR` terminates TLS,
 set `AUTH_HOST=` to omit the Facebook login redirect patch, and use
 `DEFAULT_TEXT_LANGUAGE` / `DEFAULT_VOICE_LANGUAGE` to select initial language
 defaults.
+
+The production start, restart, and deploy targets read `LUNAR_ADMIN_TOKEN`
+directly from Google Cloud Secret Manager without writing it to disk. They use
+secret `LUNAR_ADMIN_TOKEN`, version `1`, and the active `gcloud` project by
+default. Override these with `PROD_ADMIN_TOKEN_SECRET`,
+`PROD_ADMIN_TOKEN_VERSION`, and `GCP_PROJECT_ID`.
 
 ### Client Localization CSV
 

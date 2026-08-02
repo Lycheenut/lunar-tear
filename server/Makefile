@@ -48,9 +48,15 @@ DEV_STOP_TIMEOUT ?= 30
 
 # Production lifecycle via Docker Compose. Paths are relative to server/.
 DOCKER_COMPOSE ?= docker compose
+GCLOUD ?= gcloud
 PROD_ENV_FILE ?= deploy/.env.production
 PROD_COMPOSE_FILE ?= deploy/docker-compose.production.yaml
 PROD_COMPOSE = $(DOCKER_COMPOSE) --env-file "$(PROD_ENV_FILE)" -f "$(PROD_COMPOSE_FILE)"
+PROD_ADMIN_TOKEN_SECRET ?= LUNAR_ADMIN_TOKEN
+PROD_ADMIN_TOKEN_VERSION ?= 1
+GCP_PROJECT_ID ?=
+PROD_GCP_PROJECT_ARG = $(if $(strip $(GCP_PROJECT_ID)),--project "$(GCP_PROJECT_ID)")
+PROD_ADMIN_TOKEN_COMMAND = $(GCLOUD) secrets versions access "$(PROD_ADMIN_TOKEN_VERSION)" --secret="$(PROD_ADMIN_TOKEN_SECRET)" $(PROD_GCP_PROJECT_ARG)
 
 GRPC_ADDR ?= 10.0.2.2:8003
 GRPC_TLS ?= false
@@ -211,16 +217,25 @@ restart:
 	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" restart -- $(ARGS)
 
 prod-build:
-	$(PROD_COMPOSE) build
+	@LUNAR_ADMIN_TOKEN=unused-during-build $(PROD_COMPOSE) build
 
 prod-start:
-	$(PROD_COMPOSE) up -d --no-build
+	@LUNAR_ADMIN_TOKEN="$$($(PROD_ADMIN_TOKEN_COMMAND))" || exit $$?; \
+		test -n "$$LUNAR_ADMIN_TOKEN" || { echo "Secret $(PROD_ADMIN_TOKEN_SECRET) version $(PROD_ADMIN_TOKEN_VERSION) is empty" >&2; exit 1; }; \
+		export LUNAR_ADMIN_TOKEN; \
+		$(PROD_COMPOSE) up -d --no-build
 
 prod-stop:
-	$(PROD_COMPOSE) stop
+	@LUNAR_ADMIN_TOKEN=unused-during-stop $(PROD_COMPOSE) stop
 
 prod-restart:
-	$(PROD_COMPOSE) restart
+	@LUNAR_ADMIN_TOKEN="$$($(PROD_ADMIN_TOKEN_COMMAND))" || exit $$?; \
+		test -n "$$LUNAR_ADMIN_TOKEN" || { echo "Secret $(PROD_ADMIN_TOKEN_SECRET) version $(PROD_ADMIN_TOKEN_VERSION) is empty" >&2; exit 1; }; \
+		export LUNAR_ADMIN_TOKEN; \
+		$(PROD_COMPOSE) up -d --no-build --force-recreate
+
+prod-deploy: prod-build
+	@$(MAKE) --no-print-directory prod-start
 
 clean:
 	rm -rf bin/*
@@ -243,4 +258,4 @@ ifndef UUID
 endif
 	go run ./cmd/import-snapshot --snapshot $(SNAPSHOT) --uuid $(UUID)
 
-.PHONY: proto build build-cdn build-auth build-import build-claim-account build-register-account build-dev build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-restart clean dev migrate restore import
+.PHONY: proto build build-cdn build-auth build-import build-claim-account build-register-account build-dev build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-restart prod-deploy clean dev migrate restore import

@@ -109,8 +109,10 @@ cp .env.production.example .env.production
 chmod 600 .env.production
 ```
 
-Replace every example domain and token in `.env.production` and
-`nginx/lunar-tear.conf`. The Android WebView login flow uses
+Replace every example domain in `.env.production` and
+`nginx/lunar-tear.conf`. `LUNAR_ADMIN_TOKEN` is read from Google Cloud Secret
+Manager at deployment time and must not be added to `.env.production`. The
+Android WebView login flow uses
 `fbconnect://success`, which is already set in the example. If another client
 uses a different login path, set `AUTH_ALLOWED_REDIRECT_URIS` to its exact
 `redirect_uri` value as well. Install a Cloudflare Origin CA certificate
@@ -122,11 +124,17 @@ ECS `octo` hostname.
 ## 4. Validate and start
 
 ```sh
-docker compose --env-file .env.production \
-  -f docker-compose.production.yaml config
-docker compose --env-file .env.production \
-  -f docker-compose.production.yaml up -d --build
+cd ..
+make prod-deploy \
+  GCP_PROJECT_ID=your-google-cloud-project \
+  PROD_ADMIN_TOKEN_VERSION=1
 ```
+
+The VM service account must have `roles/secretmanager.secretAccessor` on the
+`LUNAR_ADMIN_TOKEN` secret. `prod-build` never reads the secret or passes it to
+the image build. `prod-start` reads it immediately before creating containers,
+and `prod-restart` reads it again before recreating them. Set
+`PROD_ADMIN_TOKEN_SECRET` only when the Secret Manager secret uses another ID.
 
 The auth token secret is generated once at `${DATA_DIR}/db/auth.secret` with
 mode 0600 and reused after restarts. Do not delete it while users have active
