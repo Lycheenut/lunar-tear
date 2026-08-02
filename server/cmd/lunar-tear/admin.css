@@ -303,25 +303,33 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   font-weight: 700;
   overflow-wrap: anywhere;
 }
-.content-cell { min-width: 220px; max-width: 360px; font-weight: 650; line-height: 1.5; }
+.content-cell { min-width: 220px; max-width: 360px; font-weight: 650; line-height: 1.5; white-space: pre-line; }
 .status-cell { min-width: 104px; }
 .notes-cell { min-width: 270px; max-width: 430px; }
 .time-column { min-width: 215px; }
 .identity { display: grid; gap: 4px; }
-.identity-meta { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.identity-meta { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-line; }
 .notes-empty { color: var(--muted); }
-.shop-relations { display: grid; gap: 6px; margin: 5px 0 2px; }
-.shop-relation {
+.cron-expression {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   padding: 7px 9px;
   border-left: 2px solid rgba(119, 222, 199, .48);
   border-radius: 0 7px 7px 0;
   background: rgba(119, 222, 199, .055);
 }
-.relation-path { color: var(--accent); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 700; }
-.relation-title { color: #cbd8dc; font-size: 11px; }
-.relation-cells { overflow-wrap: anywhere; color: #70858e; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; line-height: 1.45; }
+.cron-readable { color: #d7e4e7; font-size: 11px; font-weight: 700; }
+.cron-raw { overflow-wrap: anywhere; color: #70858e; font-size: 10px; }
+.shop-names {
+  display: grid;
+  gap: 3px;
+  margin: 5px 0 2px;
+  padding: 7px 9px;
+  border-left: 2px solid rgba(119, 222, 199, .48);
+  border-radius: 0 7px 7px 0;
+  background: rgba(119, 222, 199, .055);
+}
+.shop-name { color: #cbd8dc; font-size: 11px; white-space: pre-line; }
 .time-cell { display: grid; gap: 5px; }
 .time-cell input { width: 100%; min-height: 38px; font-size: 12px; }
 .time-cell input.changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
@@ -371,7 +379,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .card-id { display: grid; gap: 3px; min-width: 0; }
 .card-id span, .card-label { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .card-id strong { color: var(--accent-strong); font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
-.schedule-card h3 { margin: 0; font-size: 15px; line-height: 1.45; }
+.schedule-card h3 { margin: 0; font-size: 15px; line-height: 1.45; white-space: pre-line; }
 .card-section { display: grid; gap: 7px; min-width: 0; }
 .card-times { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 10px; }
 .card-times label { min-width: 0; font-size: 10px; }

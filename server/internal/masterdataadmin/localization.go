@@ -62,7 +62,7 @@ func localizedBundlePaths(languageRoot string) []string {
 
 	// Base bundles contain the bulk of the strings. These small patch
 	// directories contain additions and replacements for limited-time content.
-	for _, directory := range []string{"appeal_dialog", "campaign", "limited_open", "login_bonus", "mission", filepath.Join("quest", "event_quest"), "shop", "tip"} {
+	for _, directory := range []string{"appeal_dialog", "campaign", "gacha_title", "limited_open", "login_bonus", "mission", "possession", filepath.Join("quest", "event_quest"), "shop", "tip"} {
 		root := filepath.Join(languageRoot, directory)
 		_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err == nil && !entry.IsDir() && strings.HasSuffix(entry.Name(), ".assetbundle") {

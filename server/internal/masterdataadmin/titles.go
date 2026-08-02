@@ -20,6 +20,9 @@ type titleResolver struct {
 	restrictionContents  map[int64][]int64
 	missionTermTextIDs   map[int64]int64
 	shopTermTextIDs      map[int64]int64
+	shopTextIDs          map[int64]int64
+	consumableTermKeys   map[int64][]string
+	importantEffectTexts map[int64]int64
 	shopRelationsByShop  map[int64][]ShopRelation
 	shopRelationsByTerm  map[int64][]ShopRelation
 	dokanGroupTextIDs    map[int64]int64
@@ -37,6 +40,9 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		restrictionContents:  make(map[int64][]int64),
 		missionTermTextIDs:   make(map[int64]int64),
 		shopTermTextIDs:      make(map[int64]int64),
+		shopTextIDs:          make(map[int64]int64),
+		consumableTermKeys:   make(map[int64][]string),
+		importantEffectTexts: make(map[int64]int64),
 		dokanGroupTextIDs:    make(map[int64]int64),
 		questEffectTypes:     make(map[int64]int64),
 	}
@@ -55,6 +61,21 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 	}
 	for _, row := range readRows(file, "m_mission") {
 		resolver.putPairIfAbsent(resolver.missionTermTextIDs, row, 12, 5)
+	}
+	for _, row := range readRows(file, "m_shop") {
+		resolver.putPair(resolver.shopTextIDs, row, 0, 4)
+	}
+	for _, row := range readRows(file, "m_consumable_item") {
+		termID, termOK := integerAt(row, 4)
+		categoryID, categoryOK := integerAt(row, 6)
+		variationID, variationOK := integerAt(row, 7)
+		if termOK && categoryOK && variationOK && termID != 0 {
+			key := fmt.Sprintf("consumable_item.name.%d", categoryID*1000+variationID)
+			resolver.consumableTermKeys[termID] = append(resolver.consumableTermKeys[termID], key)
+		}
+	}
+	for _, row := range readRows(file, "m_important_item") {
+		resolver.putPair(resolver.importantEffectTexts, row, 6, 1)
 	}
 
 	cellItems := make(map[int64]int64)
@@ -99,6 +120,15 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 		}
 	case "m_event_quest_chapter":
 		key = integerKey(row, 3, "quest.event.chapter_title.%d")
+	case "m_enhance_campaign":
+		if effectType, ok := integerAt(row, 2); ok {
+			switch effectType {
+			case 1:
+				key = "campaign.name.02.01"
+			case 2:
+				key = "campaign.name.02.02.01"
+			}
+		}
 	case "m_event_quest_daily_group":
 		if groupID, ok := integerAt(row, 3); ok {
 			return r.eventChapterTitles(r.dailyGroupChapters[groupID])
@@ -144,8 +174,20 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 				key = "campaign.name.01.03.01"
 			case 4:
 				key = "campaign.name.01.04.01"
+			case 5:
+				key = "campaign.name.01.05.01"
 			}
 		}
+	case "m_consumable_item_term":
+		if termID, ok := integerAt(row, 0); ok {
+			return r.titlesForKeys(r.consumableTermKeys[termID])
+		}
+	case "m_important_item_effect":
+		if effectID, ok := integerAt(row, 0); ok {
+			key = fmt.Sprintf("important_item.name.%d", r.importantEffectTexts[effectID])
+		}
+	case "m_mom_banner":
+		return r.momBannerTitles(row)
 	case "m_shop":
 		key = integerKey(row, 4, "shop.name.%d")
 	case "m_shop_item_cell_term":
@@ -169,19 +211,66 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 	return r.byKey(key)
 }
 
-func (r *titleResolver) eventChapterTitles(chapterIDs []int64) map[string]string {
+func (r *titleResolver) momBannerTitles(row []interface{}) map[string]string {
+	domainType, typeOK := integerAt(row, 2)
+	domainID, idOK := integerAt(row, 3)
+	assetName, assetOK := stringAt(row, 4)
+	if typeOK && domainType == 1 && assetOK {
+		if titles := r.byKey("gacha.title." + assetName); len(titles) != 0 {
+			return titles
+		}
+		if value, ok := strings.CutPrefix(assetName, "limited_"); ok {
+			return r.byKey("gacha.title.limitd_" + value)
+		}
+		return nil
+	}
+	if typeOK && idOK {
+		switch domainType {
+		case 2:
+			return r.byKey(fmt.Sprintf("shop.name.%d", r.shopTextIDs[domainID]))
+		case 22:
+			if titles := r.byKey(fmt.Sprintf("mission.name.%d", r.missionTermTextIDs[domainID])); len(titles) != 0 {
+				return titles
+			}
+		}
+	}
+	if assetOK {
+		if key := numberedAssetKey(assetName, "event_mom_banner_", "quest.event.chapter_title.%d"); key != "" {
+			return r.byKey(key)
+		}
+		for _, prefix := range []string{"mission_mom_banner_", "mission_"} {
+			if key := numberedAssetKey(assetName, prefix, "mission.name.%d"); key != "" {
+				return r.byKey(key)
+			}
+		}
+	}
+	return nil
+}
+
+func numberedAssetKey(assetName, prefix, format string) string {
+	value, ok := strings.CutPrefix(assetName, prefix)
+	if !ok {
+		return ""
+	}
+	if number, _, found := strings.Cut(value, "_"); found {
+		value = number
+	}
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf(format, id)
+}
+
+func (r *titleResolver) titlesForKeys(keys []string) map[string]string {
 	parts := make(map[string][]string, len(supportedLanguages))
 	seen := make(map[string]map[string]bool, len(supportedLanguages))
-	for _, chapterID := range chapterIDs {
-		textID, ok := r.chapterTextIDs[chapterID]
-		if !ok {
-			continue
-		}
-		for language, title := range r.byKey(fmt.Sprintf("quest.event.chapter_title.%d", textID)) {
+	for _, key := range keys {
+		for language, title := range r.byKey(key) {
 			if seen[language] == nil {
 				seen[language] = make(map[string]bool)
 			}
-			if title != "" && !seen[language][title] {
+			if !seen[language][title] {
 				seen[language][title] = true
 				parts[language] = append(parts[language], title)
 			}
@@ -195,6 +284,17 @@ func (r *titleResolver) eventChapterTitles(chapterIDs []int64) map[string]string
 		return nil
 	}
 	return titles
+}
+
+func (r *titleResolver) eventChapterTitles(chapterIDs []int64) map[string]string {
+	keys := make([]string, 0, len(chapterIDs))
+	for _, chapterID := range chapterIDs {
+		textID, ok := r.chapterTextIDs[chapterID]
+		if ok {
+			keys = append(keys, fmt.Sprintf("quest.event.chapter_title.%d", textID))
+		}
+	}
+	return r.titlesForKeys(keys)
 }
 
 func (r *titleResolver) byKey(key string) map[string]string {
