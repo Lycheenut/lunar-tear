@@ -67,7 +67,7 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 			continue
 		}
 		bs := user.Gacha.BannerStates[entry.GachaId]
-		entry.IsUserGachaUnlock = gachaUnlocked(cat, &user, entry, nowMillis)
+		entry = gachaForUser(cat, &user, entry, nowMillis)
 		gachaList = append(gachaList, toProtoGacha(entry, &bs))
 	}
 
@@ -123,7 +123,8 @@ func autoConvertExpiredMedals(user *store.UserState, catalog []store.GachaCatalo
 func (s *GachaServiceServer) GetGacha(ctx context.Context, req *pb.GetGachaRequest) (*pb.GetGachaResponse, error) {
 	log.Printf("[GachaService] GetGacha: ids=%v", req.GachaId)
 
-	catalog := s.holder.Get().GachaEntries
+	cat := s.holder.Get()
+	catalog := cat.GachaEntries
 	nowMillis := gametime.NowMillis()
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
@@ -138,10 +139,10 @@ func (s *GachaServiceServer) GetGacha(ctx context.Context, req *pb.GetGachaReque
 			if entry.GachaId != wantedId {
 				continue
 			}
-			if !gachaVisible(s.holder.Get(), entry, nowMillis) {
+			if !gachaVisible(cat, entry, nowMillis) {
 				break
 			}
-			entry.IsUserGachaUnlock = gachaUnlocked(s.holder.Get(), &user, entry, nowMillis)
+			entry = gachaForUser(cat, &user, entry, nowMillis)
 			bs := user.Gacha.BannerStates[entry.GachaId]
 			byId[wantedId] = toProtoGacha(entry, &bs)
 			break
@@ -292,8 +293,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 	}
 
 	bs := updatedUser.Gacha.BannerStates[entry.GachaId]
-	nextEntry := *entry
-	nextEntry.IsUserGachaUnlock = true
+	nextEntry := gachaForUser(cat, &updatedUser, *entry, nowMillis)
 	nextGacha := toProtoGacha(nextEntry, &bs)
 
 	return &pb.DrawResponse{
@@ -454,6 +454,11 @@ func gachaVisible(cat *runtime.Catalogs, entry store.GachaCatalogEntry, nowMilli
 		}
 	}
 	return true
+}
+
+func gachaForUser(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) store.GachaCatalogEntry {
+	entry.IsUserGachaUnlock = gachaUnlocked(cat, user, entry, nowMillis)
+	return entry
 }
 
 func gachaUnlocked(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) bool {

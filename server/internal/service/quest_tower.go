@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/model"
@@ -18,6 +21,13 @@ func (s *QuestServiceServer) ReceiveTowerAccumulationReward(ctx context.Context,
 	cat := s.holder.Get()
 	tower := cat.Tower
 	granter := cat.QuestHandler.Granter
+	if _, ok := tower.TiersByChapter[req.EventQuestChapterId]; !ok {
+		return nil, status.Error(codes.InvalidArgument, "tower chapter not found")
+	}
+	questIds := cat.Quest.EventQuestIdsByChapterId[req.EventQuestChapterId]
+	if len(questIds) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "tower chapter quests are unavailable")
+	}
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
@@ -25,11 +35,12 @@ func (s *QuestServiceServer) ReceiveTowerAccumulationReward(ctx context.Context,
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		rec := user.TowerAccumulationRewards[req.EventQuestChapterId]
 		old := rec.LatestRewardReceiveQuestMissionClearCount
+		actualClearCount := cat.QuestHandler.ClearedQuestMissionCount(user, questIds)
 
-		items, highest := tower.CollectRewards(req.EventQuestChapterId, old, req.TargetMissionClearCount)
+		items, highest := tower.CollectRewards(req.EventQuestChapterId, old, actualClearCount)
 		if highest <= old {
 			log.Printf("[QuestService] ReceiveTowerAccumulationReward: nothing to grant for chapter=%d (claimed=%d, target=%d)",
-				req.EventQuestChapterId, old, req.TargetMissionClearCount)
+				req.EventQuestChapterId, old, actualClearCount)
 			return
 		}
 

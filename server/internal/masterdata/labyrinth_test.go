@@ -24,3 +24,20 @@ func TestLabyrinthSeasonUsesEndedSeasonRewardGroup(t *testing.T) {
 		t.Fatalf("season milestones = %+v", milestones)
 	}
 }
+
+func TestLabyrinthStageQuestIdsUsesConfiguredSortRange(t *testing.T) {
+	catalog := &LabyrinthCatalog{StagesByKey: map[labyrinthStageKey]EntityMEventQuestLabyrinthStage{
+		{ChapterId: 10, StageOrder: 2}: {EventQuestChapterId: 10, StageOrder: 2, StartSequenceSortOrder: 2, EndSequenceSortOrder: 3},
+	}}
+	quests := &QuestCatalog{EventQuestIdsByChapterSortOrder: map[int32]map[int32][]int32{
+		10: {1: {100}, 2: {200}, 3: {300}, 4: {400}},
+	}}
+	questIds, ok := catalog.StageQuestIds(quests, 10, 2)
+	if !ok || len(questIds) != 2 || questIds[0] != 200 || questIds[1] != 300 {
+		t.Fatalf("stage quests = %v, ok=%v", questIds, ok)
+	}
+	delete(quests.EventQuestIdsByChapterSortOrder[10], 3)
+	if _, ok := catalog.StageQuestIds(quests, 10, 2); ok {
+		t.Fatal("stage mapping with a missing sort order was accepted")
+	}
+}

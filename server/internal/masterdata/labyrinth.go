@@ -31,10 +31,33 @@ type labyrinthStageKey struct {
 
 type LabyrinthCatalog struct {
 	ChaptersByOrder               []LabyrinthChapter
+	StagesByKey                   map[labyrinthStageKey]EntityMEventQuestLabyrinthStage
 	ClearRewardsByStage           map[labyrinthStageKey][]RewardItem
 	AccumTiersByStage             map[labyrinthStageKey][]LabyrinthStageTier
 	SeasonMilestonesByRewardGroup map[int32][]LabyrinthSeasonMilestone
 	SeasonsByChapter              map[int32]map[int32]EntityMEventQuestLabyrinthSeason
+}
+
+func (c *LabyrinthCatalog) HasStage(chapterId, stageOrder int32) bool {
+	_, ok := c.StagesByKey[labyrinthStageKey{chapterId, stageOrder}]
+	return ok
+}
+
+func (c *LabyrinthCatalog) StageQuestIds(quests *QuestCatalog, chapterId, stageOrder int32) ([]int32, bool) {
+	stage, ok := c.StagesByKey[labyrinthStageKey{chapterId, stageOrder}]
+	if !ok || stage.StartSequenceSortOrder <= 0 || stage.EndSequenceSortOrder < stage.StartSequenceSortOrder {
+		return nil, false
+	}
+	bySortOrder := quests.EventQuestIdsByChapterSortOrder[chapterId]
+	var questIds []int32
+	for sortOrder := stage.StartSequenceSortOrder; sortOrder <= stage.EndSequenceSortOrder; sortOrder++ {
+		ids := bySortOrder[sortOrder]
+		if len(ids) == 0 {
+			return nil, false
+		}
+		questIds = append(questIds, ids...)
+	}
+	return questIds, len(questIds) > 0
 }
 
 func (c *LabyrinthCatalog) LatestEndedSeason(chapterId int32, nowMillis int64) (EntityMEventQuestLabyrinthSeason, bool) {
@@ -100,8 +123,10 @@ func LoadLabyrinthCatalog() *LabyrinthCatalog {
 	}
 	// chapterId -> stage orders
 	stagesByChapter := make(map[int32][]int32)
+	stagesByKey := make(map[labyrinthStageKey]EntityMEventQuestLabyrinthStage, len(stageRows))
 	for _, r := range stageRows {
 		stagesByChapter[r.EventQuestChapterId] = append(stagesByChapter[r.EventQuestChapterId], r.StageOrder)
+		stagesByKey[labyrinthStageKey{r.EventQuestChapterId, r.StageOrder}] = r
 	}
 
 	chapters := make([]LabyrinthChapter, 0, len(latestSeason))
@@ -131,6 +156,7 @@ func LoadLabyrinthCatalog() *LabyrinthCatalog {
 		len(chapters), len(clearRewards), len(accumTiers), len(seasonMilestones))
 	return &LabyrinthCatalog{
 		ChaptersByOrder:               chapters,
+		StagesByKey:                   stagesByKey,
 		ClearRewardsByStage:           clearRewards,
 		AccumTiersByStage:             accumTiers,
 		SeasonMilestonesByRewardGroup: seasonMilestones,
