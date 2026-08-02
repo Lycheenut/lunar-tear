@@ -116,7 +116,10 @@ Android WebView login flow uses
 `fbconnect://success`, which is already set in the example. If another client
 uses a different login path, set `AUTH_ALLOWED_REDIRECT_URIS` to its exact
 `redirect_uri` value as well. Install a Cloudflare Origin CA certificate
-covering the three ECS hostnames.
+covering the four ECS hostnames: `grpc.example.com`, `auth.example.com`,
+`octo.example.com`, and `admin.example.com`. The nginx template exposes the
+management UI only through `https://admin.example.com/admin/`; port 8082
+remains bound to loopback.
 
 Set `OCTO_RESOURCES_BASE_URL` to the R2 custom domain used in step 1, not the
 ECS `octo` hostname.
@@ -144,6 +147,12 @@ Install `nginx/lunar-tear.conf`, validate with `nginx -t`, and reload nginx.
 Restrict ECS port 443 to Cloudflare IP ranges and port 22 to administrator IPs.
 Do not open ports 3000, 8003, 8080, or 8082.
 
+The public admin hostname still requires `LUNAR_ADMIN_TOKEN` for every data API
+call. Use a high-entropy generated token and put a Cloudflare Access
+self-hosted application in front of `admin.example.com` as a second
+authentication layer. Do not create a Cache Rule for this hostname; the admin
+responses are marked `no-store`.
+
 Build the Android client with `--grpc-tls` when its gRPC address points to this
 Cloudflare/nginx TLS endpoint. The patcher's default plaintext gRPC mode is for
 direct local-server connections and will be rejected before nginx can log an
@@ -169,7 +178,36 @@ Add a Cloudflare Cache Rule for the `octo` hostname and `/v1/list/` and
 `/v2/.../list/` request paths so repeat downloads are served from the edge.
 Keep its edge TTL short enough to purge or roll out a changed list safely.
 
-## 5. Backups
+## 5. Configure Cloudflare DNS for the admin hostname
+
+In the Cloudflare dashboard, open the zone and add this record under
+**DNS > Records**:
+
+| Type | Name | Content | Proxy status | TTL |
+| ---- | ---- | ------- | ------------ | --- |
+| `A` | `admin` | the ECS public IPv4 address | Proxied | Auto |
+
+Add a proxied `AAAA` record as well only when the ECS host has a working public
+IPv6 address. If an existing origin hostname already resolves to the same host,
+a proxied `CNAME` from `admin` to that hostname is also valid. Never switch this
+record to DNS only when the origin uses a Cloudflare Origin CA certificate.
+
+Then:
+
+1. Under **SSL/TLS > Overview**, select **Full (strict)**.
+2. Confirm the installed origin certificate includes `admin.example.com` (or a
+   matching `*.example.com` SAN), then reload nginx.
+3. Open `https://admin.example.com/admin/` and enter the token sourced from
+   Secret Manager. A request without the token should receive HTTP 401 from the
+   data API.
+4. Under **Zero Trust > Access controls > Applications**, create a
+   **Self-hosted** public-hostname application for `admin.example.com`, and add
+   an Allow policy containing only the administrator identities. Access is an
+   additional gate; it does not replace `LUNAR_ADMIN_TOKEN`.
+5. Keep the origin firewall restricted to current Cloudflare IP ranges on port
+   443. Ports 8082 and the other application ports must remain closed publicly.
+
+## 6. Backups
 
 Back up `game.db`, `auth.db`, `auth.secret`, and the master-data file. Use an
 SQLite online backup or stop the containers before copying the database files.

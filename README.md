@@ -293,7 +293,7 @@ The game server is configured via environment variables in the compose file:
 | `LUNAR_ADMIN_LISTEN` | Admin UI/API bind address inside the container (compose default: `0.0.0.0:8082`)      |
 | `LUNAR_ADMIN_TOKEN`  | Bearer token for admin data APIs. **The admin listener does not bind unless this is set.** |
 
-Auth is optional — if `LUNAR_AUTH_URL` is unset the game server starts without it. The admin service is published to `127.0.0.1:8082` on the host so the management UI and APIs stay loopback-only by default; set `LUNAR_ADMIN_TOKEN` (e.g. via a `.env` file) before bringing the stack up.
+Auth is optional — if `LUNAR_AUTH_URL` is unset the game server starts without it. The admin service is published to `127.0.0.1:8082` on the host so it cannot be reached directly; the production nginx template exposes it at `https://admin.example.com/admin/` through Cloudflare while keeping the Bearer-token API gate. Set `LUNAR_ADMIN_TOKEN` (e.g. via a `.env` file) before bringing the stack up.
 
 ### Makefile Targets
 
