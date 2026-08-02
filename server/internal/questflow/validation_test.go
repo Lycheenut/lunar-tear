@@ -80,6 +80,57 @@ func TestNormalQuestStartHonorsDailyClearLimit(t *testing.T) {
 	}
 }
 
+func TestValidateQuestContinuationAllowsClearedMenuReplay(t *testing.T) {
+	const (
+		questId int32 = 13
+		sceneId int32 = 22
+	)
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById:                      map[int32]masterdata.EntityMQuest{questId: {QuestId: questId, IsCountedAsQuest: true}},
+		SceneById:                      map[int32]masterdata.EntityMQuestScene{sceneId: {QuestSceneId: sceneId, QuestId: questId}},
+		SceneIdsByQuestId:              map[int32][]int32{questId: {sceneId}},
+		BattleOnlyTargetSceneByQuestId: map[int32]int32{questId: sceneId},
+		MaxStaminaByLevel:              map[int32]int32{1: 100},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Status.Level = 1
+	user.Quests[questId] = store.UserQuestState{
+		QuestId:        questId,
+		QuestStateType: model.UserQuestStateTypeCleared,
+		ClearCount:     1,
+	}
+
+	if err := h.HandleQuestStart(user, questId, true, false, 1, 100); err != nil {
+		t.Fatalf("start cleared menu replay: %v", err)
+	}
+	if got := user.Quests[questId].QuestStateType; got != model.UserQuestStateTypeCleared {
+		t.Fatalf("stored quest state = %d, want cleared", got)
+	}
+	if err := h.ValidateQuestContinuation(user, questId); err != nil {
+		t.Fatalf("validate cleared menu replay: %v", err)
+	}
+}
+
+func TestValidateQuestContinuationRejectsUnrelatedClearedQuest(t *testing.T) {
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			13: {QuestId: 13},
+			14: {QuestId: 14},
+		},
+		SceneById: map[int32]masterdata.EntityMQuestScene{
+			22: {QuestSceneId: 22, QuestId: 13},
+		},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Quests[14] = store.UserQuestState{QuestId: 14, QuestStateType: model.UserQuestStateTypeCleared}
+	user.MainQuest.SavedContext.Active = true
+	user.MainQuest.ProgressQuestSceneId = 22
+
+	if err := h.ValidateQuestContinuation(user, 14); err == nil {
+		t.Fatal("unrelated cleared quest bypassed continuation validation")
+	}
+}
+
 func TestEventChapterAvailableUsesNormalizedUnlockQuests(t *testing.T) {
 	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
 		EventChapterById:      map[int32]masterdata.EntityMEventQuestChapter{20: {EventQuestChapterId: 20, EventQuestType: 3, StartDatetime: 10, EndDatetime: 30}},
