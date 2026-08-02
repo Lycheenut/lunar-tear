@@ -9,6 +9,18 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
+func (h *QuestHandler) ClearedQuestMissionCount(user *store.UserState, questIds []int32) int32 {
+	var count int32
+	for _, questId := range questIds {
+		for _, missionId := range h.MissionIdsByQuestId[questId] {
+			if user.QuestMissions[store.QuestMissionKey{QuestId: questId, QuestMissionId: missionId}].IsClear {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 func (h *QuestHandler) initQuestState(user *store.UserState, questId int32) {
 	quest := user.Quests[questId]
 	quest.QuestId = questId

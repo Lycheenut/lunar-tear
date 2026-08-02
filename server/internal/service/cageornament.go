@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
@@ -30,9 +33,7 @@ func (s *CageOrnamentServiceServer) ReceiveReward(ctx context.Context, req *pb.R
 	cat := s.holder.Get()
 	reward, ok := cat.CageOrnament.LookupReward(req.CageOrnamentId)
 	if !ok {
-		log.Printf("[CageOrnamentService] ReceiveReward: no reward mapping for cageOrnamentId=%d, returning empty",
-			req.CageOrnamentId)
-		return &pb.ReceiveRewardResponse{}, nil
+		return nil, status.Error(codes.NotFound, "cage ornament reward not found")
 	}
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)

@@ -2,10 +2,30 @@ package masterdata
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"lunar-tear/server/internal/masterdata/memorydb"
 )
+
+func TestBuildEventQuestIndexesUsesSequenceSortOrder(t *testing.T) {
+	chapters := []EntityMEventQuestChapter{{EventQuestChapterId: 10, EventQuestSequenceGroupId: 20}}
+	groups := []EntityMEventQuestSequenceGroup{{EventQuestSequenceGroupId: 20, EventQuestSequenceId: 30}}
+	sequences := []EntityMEventQuestSequence{
+		{EventQuestSequenceId: 30, SortOrder: 2, QuestId: 200},
+		{EventQuestSequenceId: 30, SortOrder: 1, QuestId: 100},
+	}
+	chapterByQuest, questsByChapter, questsBySortOrder := buildEventQuestIndexes(chapters, groups, sequences)
+	if chapterByQuest[100] != 10 || chapterByQuest[200] != 10 {
+		t.Fatalf("chapter index = %v", chapterByQuest)
+	}
+	if want := []int32{100, 200}; !reflect.DeepEqual(questsByChapter[10], want) {
+		t.Fatalf("chapter quests = %v, want %v", questsByChapter[10], want)
+	}
+	if want := []int32{200}; !reflect.DeepEqual(questsBySortOrder[10][2], want) {
+		t.Fatalf("sort-order quests = %v, want %v", questsBySortOrder[10][2], want)
+	}
+}
 
 func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
@@ -25,5 +45,22 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	}
 	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockConditions) == 0 {
 		t.Fatal("event chapters or normalized unlock quests were not loaded")
+	}
+	labyrinth := LoadLabyrinthCatalog()
+	for _, chapter := range labyrinth.ChaptersByOrder {
+		for _, stageOrder := range chapter.StageOrders {
+			questIds, ok := labyrinth.StageQuestIds(catalog, chapter.EventQuestChapterId, stageOrder)
+			if !ok {
+				t.Fatalf("labyrinth chapter %d stage %d has no quest mapping", chapter.EventQuestChapterId, stageOrder)
+			}
+			missionCount := 0
+			for _, questId := range questIds {
+				missionCount += len(catalog.MissionIdsByQuestId[questId])
+			}
+			tiers := labyrinth.AccumTiersByStage[labyrinthStageKey{chapter.EventQuestChapterId, stageOrder}]
+			if len(tiers) > 0 && int(tiers[len(tiers)-1].QuestMissionClearCount) > missionCount {
+				t.Fatalf("labyrinth chapter %d stage %d needs %d missions, only %d are mapped", chapter.EventQuestChapterId, stageOrder, tiers[len(tiers)-1].QuestMissionClearCount, missionCount)
+			}
+		}
 	}
 }

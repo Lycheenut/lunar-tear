@@ -63,6 +63,7 @@ type QuestCatalog struct {
 	EventChapterById                   map[int32]EntityMEventQuestChapter
 	EventChapterIdByQuestId            map[int32]int32
 	EventQuestIdsByChapterId           map[int32][]int32
+	EventQuestIdsByChapterSortOrder    map[int32]map[int32][]int32
 	EventUnlockConditions              []EventQuestUnlockCondition
 	EventCharacterIdsByChapterId       map[int32]map[int32]bool
 	EventDailyGroups                   []EventQuestDailyGroup
@@ -103,6 +104,67 @@ func (c *QuestCatalog) EventUnlockQuestIdsForChapter(chapterId int32) []int32 {
 		result = append(result, condition.RequiredQuestId)
 	}
 	return result
+}
+
+func buildEventQuestIndexes(
+	chapters []EntityMEventQuestChapter,
+	groups []EntityMEventQuestSequenceGroup,
+	sequences []EntityMEventQuestSequence,
+) (map[int32]int32, map[int32][]int32, map[int32]map[int32][]int32) {
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].EventQuestSequenceGroupId != groups[j].EventQuestSequenceGroupId {
+			return groups[i].EventQuestSequenceGroupId < groups[j].EventQuestSequenceGroupId
+		}
+		if groups[i].DifficultyType != groups[j].DifficultyType {
+			return groups[i].DifficultyType < groups[j].DifficultyType
+		}
+		return groups[i].EventQuestSequenceId < groups[j].EventQuestSequenceId
+	})
+	sort.Slice(sequences, func(i, j int) bool {
+		if sequences[i].EventQuestSequenceId != sequences[j].EventQuestSequenceId {
+			return sequences[i].EventQuestSequenceId < sequences[j].EventQuestSequenceId
+		}
+		if sequences[i].SortOrder != sequences[j].SortOrder {
+			return sequences[i].SortOrder < sequences[j].SortOrder
+		}
+		return sequences[i].QuestId < sequences[j].QuestId
+	})
+
+	sequenceIdsByGroup := make(map[int32][]int32)
+	for _, row := range groups {
+		sequenceIdsByGroup[row.EventQuestSequenceGroupId] = append(sequenceIdsByGroup[row.EventQuestSequenceGroupId], row.EventQuestSequenceId)
+	}
+	questRowsBySequence := make(map[int32][]EntityMEventQuestSequence)
+	for _, row := range sequences {
+		questRowsBySequence[row.EventQuestSequenceId] = append(questRowsBySequence[row.EventQuestSequenceId], row)
+	}
+
+	chapterByQuest := make(map[int32]int32)
+	questIdsByChapter := make(map[int32][]int32)
+	questIdsByChapterSortOrder := make(map[int32]map[int32][]int32)
+	for _, chapter := range chapters {
+		seen := make(map[int32]bool)
+		seenBySortOrder := make(map[int32]map[int32]bool)
+		bySortOrder := make(map[int32][]int32)
+		for _, sequenceId := range sequenceIdsByGroup[chapter.EventQuestSequenceGroupId] {
+			for _, row := range questRowsBySequence[sequenceId] {
+				if !seen[row.QuestId] {
+					seen[row.QuestId] = true
+					questIdsByChapter[chapter.EventQuestChapterId] = append(questIdsByChapter[chapter.EventQuestChapterId], row.QuestId)
+					chapterByQuest[row.QuestId] = chapter.EventQuestChapterId
+				}
+				if seenBySortOrder[row.SortOrder] == nil {
+					seenBySortOrder[row.SortOrder] = make(map[int32]bool)
+				}
+				if !seenBySortOrder[row.SortOrder][row.QuestId] {
+					seenBySortOrder[row.SortOrder][row.QuestId] = true
+					bySortOrder[row.SortOrder] = append(bySortOrder[row.SortOrder], row.QuestId)
+				}
+			}
+		}
+		questIdsByChapterSortOrder[chapter.EventQuestChapterId] = bySortOrder
+	}
+	return chapterByQuest, questIdsByChapter, questIdsByChapterSortOrder
 }
 
 func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionResolver) (*QuestCatalog, error) {
@@ -488,29 +550,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load event quest sequences: %w", err)
 	}
-	sequenceIdsByGroup := make(map[int32][]int32)
-	for _, row := range eventSequenceGroups {
-		sequenceIdsByGroup[row.EventQuestSequenceGroupId] = append(sequenceIdsByGroup[row.EventQuestSequenceGroupId], row.EventQuestSequenceId)
-	}
-	questIdsBySequence := make(map[int32][]int32)
-	for _, row := range eventSequences {
-		questIdsBySequence[row.EventQuestSequenceId] = append(questIdsBySequence[row.EventQuestSequenceId], row.QuestId)
-	}
-	eventChapterIdByQuestId := make(map[int32]int32)
-	eventQuestIdsByChapterId := make(map[int32][]int32)
-	for _, chapter := range eventChapters {
-		seen := make(map[int32]bool)
-		for _, sequenceId := range sequenceIdsByGroup[chapter.EventQuestSequenceGroupId] {
-			for _, questId := range questIdsBySequence[sequenceId] {
-				if seen[questId] {
-					continue
-				}
-				seen[questId] = true
-				eventQuestIdsByChapterId[chapter.EventQuestChapterId] = append(eventQuestIdsByChapterId[chapter.EventQuestChapterId], questId)
-				eventChapterIdByQuestId[questId] = chapter.EventQuestChapterId
-			}
-		}
-	}
+	eventChapterIdByQuestId, eventQuestIdsByChapterId, eventQuestIdsByChapterSortOrder := buildEventQuestIndexes(eventChapters, eventSequenceGroups, eventSequences)
 	eventUnlockRows, err := utils.ReadTable[EntityMEventQuestUnlockCondition]("m_event_quest_unlock_condition")
 	if err != nil {
 		return nil, fmt.Errorf("load event unlock conditions: %w", err)
@@ -777,6 +817,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		EventChapterById:                   eventChapterById,
 		EventChapterIdByQuestId:            eventChapterIdByQuestId,
 		EventQuestIdsByChapterId:           eventQuestIdsByChapterId,
+		EventQuestIdsByChapterSortOrder:    eventQuestIdsByChapterSortOrder,
 		EventUnlockConditions:              eventUnlockConditions,
 		EventCharacterIdsByChapterId:       eventCharacterIdsByChapterId,
 		EventDailyGroups:                   eventDailyGroups,

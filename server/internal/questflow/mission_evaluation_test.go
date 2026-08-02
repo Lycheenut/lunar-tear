@@ -38,6 +38,19 @@ func TestQuestMissionUsesBattleResultAndFailureDoesNotClear(t *testing.T) {
 	}
 }
 
+func TestClearedQuestMissionCountUsesStoredState(t *testing.T) {
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{MissionIdsByQuestId: map[int32][]int32{10: {1, 2}, 20: {3}}}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.QuestMissions[store.QuestMissionKey{QuestId: 10, QuestMissionId: 1}] = store.UserQuestMissionState{IsClear: true}
+	user.QuestMissions[store.QuestMissionKey{QuestId: 20, QuestMissionId: 3}] = store.UserQuestMissionState{IsClear: true}
+	if got := h.ClearedQuestMissionCount(user, []int32{10}); got != 1 {
+		t.Fatalf("single-quest count = %d, want 1", got)
+	}
+	if got := h.ClearedQuestMissionCount(user, []int32{10, 20}); got != 2 {
+		t.Fatalf("multi-quest count = %d, want 2", got)
+	}
+}
+
 func TestQuestMissionRejectsMissingOrIncompleteBattleDetail(t *testing.T) {
 	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{MissionConditionValuesByGroupId: map[int32][]int32{}}}
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
