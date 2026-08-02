@@ -86,7 +86,8 @@
     state.catalog.tables.forEach((table) => {
       const option = document.createElement("option");
       option.value = table.name;
-      option.textContent = `${table.name} · ${table.rows.length}`;
+      option.textContent = `${tableDisplayName(table)} · ${table.rows.length}`;
+      option.title = table.name;
       elements.tableSelect.append(option);
     });
     if (state.catalog.tables.some((table) => table.name === previous)) elements.tableSelect.value = previous;
@@ -155,15 +156,14 @@
   }
 
   function typeOptionLabel(tableName, fieldName, value) {
-    if (tableName === "m_mom_banner" && fieldName === "DestinationDomainType" && value === "1") return "1 · Gacha";
     return value;
   }
 
   function renderTable() {
     const table = currentTable();
     if (!table) return;
-    elements.entityName.textContent = table.entityName;
-    elements.tableName.textContent = table.name;
+    elements.entityName.textContent = table.name;
+    elements.tableName.textContent = tableDisplayName(table);
     elements.head.replaceChildren();
     elements.body.replaceChildren();
     elements.grid.replaceChildren();
@@ -224,7 +224,7 @@
 
     const notesCell = document.createElement("td");
     notesCell.className = "notes-cell";
-    notesCell.append(renderNotes(row, localizedTitle));
+    notesCell.append(renderNotes(table, row));
     tr.append(notesCell);
 
     table.timeFields.forEach((field) => {
@@ -263,7 +263,7 @@
     const notesLabel = document.createElement("span");
     notesLabel.className = "card-label";
     notesLabel.textContent = "备注";
-    notesSection.append(notesLabel, renderNotes(row, localizedTitle));
+    notesSection.append(notesLabel, renderNotes(table, row));
     card.append(notesSection);
 
     const times = document.createElement("div");
@@ -285,20 +285,23 @@
     return element;
   }
 
-  function renderNotes(row, rowTitle) {
+  function renderNotes(table, row) {
     const notes = document.createElement("div");
     notes.className = "identity";
     row.identity.slice(1).forEach((field) => {
+      if (table.name === "m_shop" && field.name === "ShopItemCellGroupId") return;
+      if (field.name === "QuestScheduleCronExpression") {
+        notes.append(renderCronExpression(field.value));
+        return;
+      }
       const meta = document.createElement("div");
       meta.className = "identity-meta";
-      meta.textContent = `${field.name}=${field.value}`;
+      meta.textContent = `${field.name}=${displayText(field.value)}`;
       notes.append(meta);
     });
-    if (row.shopRelations?.length) {
-      const relations = document.createElement("div");
-      relations.className = "shop-relations";
-      row.shopRelations.forEach((relation) => relations.append(renderShopRelation(relation, rowTitle)));
-      notes.append(relations);
+    if (table.name === "m_shop_item_cell_term") {
+      const shopNames = renderShopNames(row.shopRelations);
+      if (shopNames) notes.append(shopNames);
     }
     if (!notes.childElementCount) {
       const empty = document.createElement("span");
@@ -307,6 +310,45 @@
       notes.append(empty);
     }
     return notes;
+  }
+
+  function renderCronExpression(expression) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "cron-expression";
+    const readable = document.createElement("span");
+    readable.className = "cron-readable";
+    readable.textContent = humanizeCron(expression) || "自定义计划";
+    const raw = document.createElement("code");
+    raw.className = "cron-raw";
+    raw.textContent = expression;
+    wrapper.append(readable, raw);
+    return wrapper;
+  }
+
+  function humanizeCron(expression) {
+    const parts = expression.trim().split(/\s+/);
+    if (parts.length !== 6) return "";
+    const [seconds, minutes, hours, days, months, weekdays] = parts;
+    if (seconds !== "*" || !["*", "0-59"].includes(minutes) || !["*", "1-31"].includes(days) || months !== "*") return "";
+
+    const weekdayNames = { SUN: "日", MON: "一", TUE: "二", WED: "三", THU: "四", FRI: "五", SAT: "六" };
+    let dayLabel = "每天";
+    if (weekdays !== "*") {
+      const names = weekdays.split(",").map((day) => weekdayNames[day]);
+      if (names.some((name) => !name)) return "";
+      dayLabel = names.length === 1 ? `每周${names[0]}` : `每周${names.join("、")}`;
+    }
+
+    let timeLabel = "全天";
+    if (hours !== "*") {
+      const match = /^(\d{1,2})(?:-(\d{1,2}))?$/.exec(hours);
+      if (!match) return "";
+      const start = Number(match[1]);
+      const end = Number(match[2] ?? match[1]);
+      if (start < 0 || end > 23 || start > end || minutes !== "0-59") return "";
+      timeLabel = `${String(start).padStart(2, "0")}:00–${String(end).padStart(2, "0")}:59`;
+    }
+    return `${dayLabel} · ${timeLabel}（UTC）`;
   }
 
   function renderTimeEditor(table, row, field) {
@@ -326,35 +368,33 @@
     return wrapper;
   }
 
-  function renderShopRelation(relation, rowTitle) {
+  function renderShopNames(relations = []) {
+    const names = [...new Set(relations.map((relation) => localizedText(relation.shopTitles)).filter(Boolean))];
+    if (!names.length) return null;
     const wrapper = document.createElement("div");
-    wrapper.className = "shop-relation";
-    const path = document.createElement("div");
-    path.className = "relation-path";
-    path.textContent = `SHOP ${relation.shopId} → CELL GROUP ${relation.shopItemCellGroupId}`;
-    wrapper.append(path);
-    const shopTitle = localizedText(relation.shopTitles);
-    if (shopTitle && shopTitle !== rowTitle) {
-      const title = document.createElement("div");
-      title.className = "relation-title";
-      title.textContent = shopTitle;
-      wrapper.append(title);
-    }
-    const cells = document.createElement("div");
-    cells.className = "relation-cells";
-    cells.textContent = `CELLS ${summarizeIds(relation.shopItemCellIds)}`;
-    cells.title = relation.shopItemCellIds.join(", ");
-    wrapper.append(cells);
+    wrapper.className = "shop-names";
+    names.forEach((name) => {
+      const item = document.createElement("div");
+      item.className = "shop-name";
+      item.textContent = name;
+      wrapper.append(item);
+    });
     return wrapper;
   }
 
   function localizedText(titles) {
-    return titles?.[state.language] || titles?.[state.catalog.defaultLanguage] || Object.values(titles || {})[0] || "";
+    const text = titles?.[state.language] || titles?.[state.catalog.defaultLanguage] || Object.values(titles || {})[0] || "";
+    return displayText(text);
   }
 
-  function summarizeIds(ids, limit = 8) {
-    const shown = ids.slice(0, limit).join(", ");
-    return ids.length > limit ? `${shown} · +${ids.length - limit}` : shown;
+  function displayText(value) {
+    return String(value ?? "").replace(/\\n/g, "\n");
+  }
+
+  function tableDisplayName(table) {
+    if (table.entityName?.startsWith("EntityM")) return table.entityName.slice("EntityM".length);
+    return table.name.replace(/^m_/, "").split("_").filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
   }
 
   function onTimeChange(table, row, field, input) {

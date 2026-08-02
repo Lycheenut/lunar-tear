@@ -39,8 +39,15 @@ func TestLoadAddsInstalledLocalizedTitles(t *testing.T) {
 		t.Fatal(err)
 	}
 	index := loadLocalizationIndex(masterDataPath)
-	if index["en"]["quest.event.chapter_title.500"] == "" {
-		t.Fatal("English localization index is missing event chapter title 500")
+	for _, key := range []string{
+		"quest.event.chapter_title.500",
+		"gacha.title.limited_45",
+		"consumable_item.name.110004",
+		"important_item.name.100001",
+	} {
+		if index["en"][key] == "" {
+			t.Fatalf("English localization index is missing %s", key)
+		}
 	}
 	catalog, err := Load(masterDataPath)
 	if err != nil {
