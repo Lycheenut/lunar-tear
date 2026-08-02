@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import ipaddress
 import json
 from pathlib import Path
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -65,6 +67,81 @@ def wait_until(predicate, timeout: float) -> bool:
     return predicate()
 
 
+def has_option(values: list[str], name: str) -> bool:
+    prefix = f"{name}="
+    return any(value == name or value.startswith(prefix) for value in values)
+
+
+def option_value(values: list[str], name: str) -> str | None:
+    prefix = f"{name}="
+    for index, value in enumerate(values):
+        if value.startswith(prefix):
+            return value[len(prefix) :]
+        if value == name and index + 1 < len(values):
+            return values[index + 1]
+    return None
+
+
+def listen_port(values: list[str], name: str, default: int) -> int:
+    value = option_value(values, name)
+    if value is None:
+        return default
+    try:
+        return int(value.rsplit(":", 1)[-1])
+    except ValueError:
+        return default
+
+
+def detect_lan_ipv4() -> str:
+    candidates: list[str] = []
+
+    # UDP connect selects a route without sending traffic. It is the most
+    # reliable cross-platform way to identify the active outbound interface.
+    for target in ("1.1.1.1", "8.8.8.8"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect((target, 80))
+                candidates.append(sock.getsockname()[0])
+        except OSError:
+            pass
+
+    try:
+        candidates.extend(
+            address[4][0]
+            for address in socket.getaddrinfo(
+                socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM
+            )
+        )
+    except OSError:
+        pass
+
+    for candidate in candidates:
+        address = ipaddress.ip_address(candidate)
+        if not (
+            address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_unspecified
+        ):
+            return candidate
+
+    raise RuntimeError(
+        "could not detect a host LAN IPv4 address; pass --cdn.public-addr "
+        "and --grpc.public-addr explicitly through ARGS"
+    )
+
+
+def add_detected_public_addresses(values: list[str], lan_ip: str) -> list[str]:
+    result = list(values)
+    if not has_option(result, "--cdn.public-addr"):
+        port = listen_port(result, "--cdn.listen", 8080)
+        result.extend(("--cdn.public-addr", f"{lan_ip}:{port}"))
+    if not has_option(result, "--grpc.public-addr"):
+        port = listen_port(result, "--grpc.listen", 8003)
+        result.extend(("--grpc.public-addr", f"{lan_ip}:{port}"))
+    return result
+
+
 def start(args: argparse.Namespace) -> None:
     pid = read_pid(args.pid_file)
     if pid is not None and process_is_running(pid):
@@ -81,6 +158,15 @@ def start(args: argparse.Namespace) -> None:
     args.log_file.parent.mkdir(parents=True, exist_ok=True)
     args.binary.parent.mkdir(parents=True, exist_ok=True)
 
+    dev_args = list(args.dev_args)
+    missing_public_address = not has_option(
+        dev_args, "--cdn.public-addr"
+    ) or not has_option(dev_args, "--grpc.public-addr")
+    if args.auto_public_addr and missing_public_address:
+        lan_ip = detect_lan_ipv4()
+        dev_args = add_detected_public_addresses(dev_args, lan_ip)
+        print(f"Detected host LAN IPv4: {lan_ip}", flush=True)
+
     print("Building service supervisor ...", flush=True)
     subprocess.run(
         [args.go, "build", "-o", str(args.binary), "./cmd/dev"], check=True
@@ -96,7 +182,7 @@ def start(args: argparse.Namespace) -> None:
         str(args.ready_file),
         "--stop-file",
         str(args.stop_file),
-        *args.dev_args,
+        *dev_args,
     ]
     creation_options: dict[str, object] = {}
     if os.name == "nt":
@@ -177,6 +263,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-file", required=True, type=Path)
     parser.add_argument("--start-timeout", type=float, default=90)
     parser.add_argument("--stop-timeout", type=float, default=30)
+    parser.add_argument(
+        "--auto-public-addr",
+        action="store_true",
+        help="fill missing CDN and gRPC public addresses from the host LAN IPv4",
+    )
     parser.add_argument("dev_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.dev_args and args.dev_args[0] == "--":

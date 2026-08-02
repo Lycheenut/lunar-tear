@@ -181,6 +181,10 @@ Or via `make`:
 make dev ARGS="--grpc.listen 0.0.0.0:9000 --grpc.public-addr 10.0.2.2:9000"
 ```
 
+For background operation, `make start` detects the host's active LAN IPv4 and
+uses it for missing `--cdn.public-addr` and `--grpc.public-addr` values. Explicit
+values in `ARGS` take precedence. `make restart` re-detects the address.
+
 | Flag                 | Default                 | Description                                                                                                          |
 | -------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `--auth.listen`      | `0.0.0.0:3000`          | auth-server listen address                                                                                           |

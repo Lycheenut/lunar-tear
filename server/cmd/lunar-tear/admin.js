@@ -6,16 +6,18 @@
     loginPanel: $("#login-panel"), loginForm: $("#login-form"), token: $("#token"),
     workspace: $("#workspace"), logout: $("#logout"), version: $("#version"),
     tableCount: $("#table-count"), rowCount: $("#row-count"), dirtyCount: $("#dirty-count"),
-    timezone: $("#timezone"), tableSelect: $("#table-select"), statusFilter: $("#status-filter"),
+    timezone: $("#timezone"), tableSelect: $("#table-select"), typeFilters: $("#type-filters"), statusFilter: $("#status-filter"),
     languageSelect: $("#language-select"), search: $("#search"), refresh: $("#refresh"), notice: $("#notice"),
     entityName: $("#entity-name"), tableName: $("#table-name"), visibleCount: $("#visible-count"),
-    head: $("#schedule-head"), body: $("#schedule-body"), empty: $("#empty-state"),
+    tableScroll: $("#table-scroll"), head: $("#schedule-head"), body: $("#schedule-body"),
+    grid: $("#schedule-grid"), viewButtons: document.querySelectorAll(".view-button"), empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save")
   };
 
   const state = {
     token: sessionStorage.getItem("lunar-admin-token") || "",
     language: localStorage.getItem("lunar-admin-language") || "en",
+    view: localStorage.getItem("lunar-admin-view") === "grid" ? "grid" : "list",
     catalog: null,
     dirty: new Map()
   };
@@ -89,11 +91,12 @@
     });
     if (state.catalog.tables.some((table) => table.name === previous)) elements.tableSelect.value = previous;
     renderLanguages();
+    renderTypeFilters(currentTable());
     elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
     elements.version.title = state.catalog.version;
     elements.tableCount.textContent = state.catalog.tableCount.toLocaleString();
     elements.rowCount.textContent = state.catalog.rowCount.toLocaleString();
-    elements.timezone.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone || "浏览器本地时区";
+    elements.timezone.textContent = "UTC";
     updateDirtyUI();
     renderTable();
   }
@@ -115,6 +118,47 @@
     return state.catalog?.tables.find((table) => table.name === elements.tableSelect.value) || state.catalog?.tables[0];
   }
 
+  function renderTypeFilters(table) {
+    const previous = new Map([...elements.typeFilters.querySelectorAll("select")].map((select) => [select.dataset.field, select.value]));
+    elements.typeFilters.replaceChildren();
+    const fields = [...new Set((table?.rows || []).flatMap((row) => row.identity.map((field) => field.name)).filter((name) => name.endsWith("Type")))];
+    fields.forEach((fieldName) => {
+      const label = document.createElement("label");
+      label.textContent = `类型 · ${fieldName}`;
+      const select = document.createElement("select");
+      select.dataset.field = fieldName;
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "全部";
+      select.append(all);
+      const values = [...new Set(table.rows.map((row) => row.identity.find((field) => field.name === fieldName)?.value).filter((value) => value !== undefined))];
+      values.sort(compareFieldValues);
+      values.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = typeOptionLabel(table.name, fieldName, value);
+        select.append(option);
+      });
+      if (values.includes(previous.get(fieldName))) select.value = previous.get(fieldName);
+      select.addEventListener("change", renderTable);
+      label.append(select);
+      elements.typeFilters.append(label);
+    });
+    elements.typeFilters.classList.toggle("hidden", fields.length === 0);
+  }
+
+  function compareFieldValues(left, right) {
+    const leftNumber = Number(left);
+    const rightNumber = Number(right);
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) return leftNumber - rightNumber;
+    return left.localeCompare(right);
+  }
+
+  function typeOptionLabel(tableName, fieldName, value) {
+    if (tableName === "m_mom_banner" && fieldName === "DestinationDomainType" && value === "1") return "1 · Gacha";
+    return value;
+  }
+
   function renderTable() {
     const table = currentTable();
     if (!table) return;
@@ -122,87 +166,164 @@
     elements.tableName.textContent = table.name;
     elements.head.replaceChildren();
     elements.body.replaceChildren();
-
-    const headerRow = document.createElement("tr");
-    headerRow.append(makeCell("th", "内容 / 状态"));
-    table.timeFields.forEach((field) => headerRow.append(makeCell("th", field)));
-    elements.head.append(headerRow);
+    elements.grid.replaceChildren();
 
     const query = elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
+    const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
+      .filter((select) => select.value !== "")
+      .map((select) => ({ field: select.dataset.field, value: select.value }));
     const visibleRows = table.rows.filter((row) => {
       const status = rowStatus(table, row);
       if (statusFilter !== "all" && status !== statusFilter) return false;
+      if (typeFilters.some((filter) => row.identity.find((field) => field.name === filter.field)?.value !== filter.value)) return false;
       if (!query) return true;
       const relationValues = (row.shopRelations || []).flatMap((relation) => [
         relation.shopId, relation.shopItemCellGroupId, ...relation.shopItemCellIds,
         ...Object.values(relation.shopTitles || {})
       ]);
-      const haystack = [row.index, ...Object.values(row.titles || {}), ...relationValues, ...row.identity.flatMap((field) => [field.name, field.value])].join(" ").toLocaleLowerCase();
+      const haystack = [...Object.values(row.titles || {}), ...relationValues, ...row.identity.flatMap((field) => [field.name, field.value])].join(" ").toLocaleLowerCase();
       return haystack.includes(query);
     });
 
-    visibleRows.forEach((row) => elements.body.append(renderRow(table, row)));
+    const isGrid = state.view === "grid";
+    elements.tableScroll.classList.toggle("hidden", isGrid);
+    elements.grid.classList.toggle("hidden", !isGrid);
+    syncViewToggle();
+    if (isGrid) {
+      visibleRows.forEach((row) => elements.grid.append(renderCard(table, row)));
+    } else {
+      const headerRow = document.createElement("tr");
+      ["ID", "内容", "状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
+      table.timeFields.forEach((field) => headerRow.append(makeCell("th", field)));
+      elements.head.append(headerRow);
+      visibleRows.forEach((row) => elements.body.append(renderRow(table, row)));
+    }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
   function renderRow(table, row) {
     const tr = document.createElement("tr");
-    const identityCell = document.createElement("td");
-    const identity = document.createElement("div");
-    identity.className = "identity";
-    const title = document.createElement("div");
-    title.className = "identity-main";
     const primary = row.identity[0];
     const localizedTitle = localizedText(row.titles);
-    title.textContent = localizedTitle || (primary ? `${primary.name} = ${primary.value}` : `Row ${row.index}`);
-    const status = rowStatus(table, row);
-    const statusEl = document.createElement("span");
-    statusEl.className = `status ${status}`;
-    statusEl.textContent = statusLabels[status];
-    title.append(statusEl);
-    identity.append(title);
-    row.identity.slice(localizedTitle ? 0 : 1).forEach((field) => {
+
+    const idCell = makeCell("td", primary?.value || "-");
+    idCell.className = "id-cell";
+    idCell.title = primary?.name || "ID";
+    tr.append(idCell);
+
+    const contentCell = makeCell("td", localizedTitle || "-");
+    contentCell.className = "content-cell";
+    tr.append(contentCell);
+
+    const statusCell = document.createElement("td");
+    statusCell.className = "status-cell";
+    statusCell.append(renderStatus(rowStatus(table, row)));
+    tr.append(statusCell);
+
+    const notesCell = document.createElement("td");
+    notesCell.className = "notes-cell";
+    notesCell.append(renderNotes(row, localizedTitle));
+    tr.append(notesCell);
+
+    table.timeFields.forEach((field) => {
+      const td = document.createElement("td");
+      td.className = "time-column";
+      td.append(renderTimeEditor(table, row, field));
+      tr.append(td);
+    });
+    return tr;
+  }
+
+  function renderCard(table, row) {
+    const card = document.createElement("article");
+    card.className = "schedule-card";
+    const primary = row.identity[0];
+    const localizedTitle = localizedText(row.titles);
+
+    const header = document.createElement("div");
+    header.className = "card-header";
+    const id = document.createElement("div");
+    id.className = "card-id";
+    const idLabel = document.createElement("span");
+    idLabel.textContent = "ID";
+    const idValue = document.createElement("strong");
+    idValue.textContent = primary?.value || "-";
+    idValue.title = primary?.name || "ID";
+    id.append(idLabel, idValue);
+    header.append(id, renderStatus(rowStatus(table, row)));
+
+    const title = document.createElement("h3");
+    title.textContent = localizedTitle || "-";
+    card.append(header, title);
+
+    const notesSection = document.createElement("section");
+    notesSection.className = "card-section";
+    const notesLabel = document.createElement("span");
+    notesLabel.className = "card-label";
+    notesLabel.textContent = "备注";
+    notesSection.append(notesLabel, renderNotes(row, localizedTitle));
+    card.append(notesSection);
+
+    const times = document.createElement("div");
+    times.className = "card-times";
+    table.timeFields.forEach((field) => {
+      const group = document.createElement("label");
+      group.textContent = field;
+      group.append(renderTimeEditor(table, row, field));
+      times.append(group);
+    });
+    card.append(times);
+    return card;
+  }
+
+  function renderStatus(status) {
+    const element = document.createElement("span");
+    element.className = `status ${status}`;
+    element.textContent = statusLabels[status];
+    return element;
+  }
+
+  function renderNotes(row, rowTitle) {
+    const notes = document.createElement("div");
+    notes.className = "identity";
+    row.identity.slice(1).forEach((field) => {
       const meta = document.createElement("div");
       meta.className = "identity-meta";
       meta.textContent = `${field.name}=${field.value}`;
-      identity.append(meta);
+      notes.append(meta);
     });
     if (row.shopRelations?.length) {
       const relations = document.createElement("div");
       relations.className = "shop-relations";
-      row.shopRelations.forEach((relation) => relations.append(renderShopRelation(relation, localizedTitle)));
-      identity.append(relations);
+      row.shopRelations.forEach((relation) => relations.append(renderShopRelation(relation, rowTitle)));
+      notes.append(relations);
     }
-    const index = document.createElement("div");
-    index.className = "identity-meta";
-    index.textContent = `row ${row.index}`;
-    identity.append(index);
-    identityCell.append(identity);
-    tr.append(identityCell);
+    if (!notes.childElementCount) {
+      const empty = document.createElement("span");
+      empty.className = "notes-empty";
+      empty.textContent = "-";
+      notes.append(empty);
+    }
+    return notes;
+  }
 
-    table.timeFields.forEach((field) => {
-      const td = document.createElement("td");
-      const wrapper = document.createElement("div");
-      wrapper.className = "time-cell";
-      const input = document.createElement("input");
-      input.type = "datetime-local";
-      input.step = "1";
-      input.value = localInputValue(effectiveValue(table.name, row, field));
-      input.dataset.table = table.name;
-      input.dataset.row = String(row.index);
-      input.dataset.field = field;
-      input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field)));
-      const exact = document.createElement("span");
-      exact.className = "iso-time";
-      exact.textContent = exactTime(effectiveValue(table.name, row, field));
-      input.addEventListener("change", () => onTimeChange(table, row, field, input, exact));
-      wrapper.append(input, exact);
-      td.append(wrapper);
-      tr.append(td);
-    });
-    return tr;
+  function renderTimeEditor(table, row, field) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "time-cell";
+    const input = document.createElement("input");
+    input.type = "datetime-local";
+    input.step = "1";
+    input.value = utcInputValue(effectiveValue(table.name, row, field));
+    input.dataset.table = table.name;
+    input.dataset.row = String(row.index);
+    input.dataset.field = field;
+    input.setAttribute("aria-label", `${field} UTC`);
+    input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field)));
+    input.addEventListener("change", () => onTimeChange(table, row, field, input));
+    wrapper.append(input);
+    return wrapper;
   }
 
   function renderShopRelation(relation, rowTitle) {
@@ -236,8 +357,8 @@
     return ids.length > limit ? `${shown} · +${ids.length - limit}` : shown;
   }
 
-  function onTimeChange(table, row, field, input, exact) {
-    const value = input.value ? new Date(input.value).getTime() : 0;
+  function onTimeChange(table, row, field, input) {
+    const value = input.value ? Date.parse(`${input.value}Z`) : 0;
     if (!Number.isSafeInteger(value) || value < 0) {
       input.classList.add("invalid");
       showNotice("请输入有效的日期时间。", true);
@@ -248,7 +369,6 @@
     if (value === row.times[field]) state.dirty.delete(key);
     else state.dirty.set(key, { table: table.name, row: row.index, field, value });
     input.classList.toggle("changed", state.dirty.has(key));
-    exact.textContent = exactTime(value);
     updateDirtyUI();
   }
 
@@ -270,18 +390,19 @@
 
   function changeKey(table, row, field) { return `${table}\u0000${row}\u0000${field}`; }
 
-  function localInputValue(milliseconds) {
+  function utcInputValue(milliseconds) {
     if (milliseconds === 0) return "";
     const date = new Date(milliseconds);
     if (Number.isNaN(date.getTime())) return "";
-    const part = (value) => String(value).padStart(2, "0");
-    return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())}T${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}`;
+    return date.toISOString().slice(0, 19);
   }
 
-  function exactTime(milliseconds) {
-    if (milliseconds === 0) return "0 · 禁用";
-    try { return `${milliseconds} · ${new Date(milliseconds).toISOString()}`; }
-    catch (_) { return String(milliseconds); }
+  function syncViewToggle() {
+    elements.viewButtons.forEach((button) => {
+      const active = button.dataset.view === state.view;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
   }
 
   function updateDirtyUI() {
@@ -324,7 +445,10 @@
     showLogin();
   });
 
-  elements.tableSelect.addEventListener("change", renderTable);
+  elements.tableSelect.addEventListener("change", () => {
+    renderTypeFilters(currentTable());
+    renderTable();
+  });
   elements.statusFilter.addEventListener("change", renderTable);
   elements.languageSelect.addEventListener("change", () => {
     state.language = elements.languageSelect.value;
@@ -332,6 +456,11 @@
     renderTable();
   });
   elements.search.addEventListener("input", renderTable);
+  elements.viewButtons.forEach((button) => button.addEventListener("click", () => {
+    state.view = button.dataset.view;
+    localStorage.setItem("lunar-admin-view", state.view);
+    renderTable();
+  }));
   elements.refresh.addEventListener("click", async () => {
     if (state.dirty.size && !confirm("刷新会放弃尚未应用的修改，是否继续？")) return;
     try { await loadCatalog(); } catch (_) { /* notice is already shown */ }

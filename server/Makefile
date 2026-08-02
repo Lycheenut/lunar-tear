@@ -206,15 +206,16 @@ masterdata:
 	$(PYTHON) "$(MASTERDATA_INSTALLER)" --patcher "$(PATCH_MASTERDATA_SCRIPT)" --input "$(MASTERDATA_INPUT)" --target "$(MASTERDATA_TARGET)" --reload-url="$(MASTERDATA_RELOAD_URL)"
 
 # Run cmd/dev as the background supervisor for auth-server, octo-cdn, and
-# lunar-tear. ARGS is forwarded unchanged to cmd/dev.
+# lunar-tear. Missing public addresses are derived from the host LAN IPv4;
+# explicit values in ARGS take precedence.
 start:
-	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" start -- $(ARGS)
+	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" --auto-public-addr start -- $(ARGS)
 
 stop:
 	$(PYTHON) "$(DEV_MANAGER)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --stop-timeout "$(DEV_STOP_TIMEOUT)" stop
 
 restart:
-	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" restart -- $(ARGS)
+	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" --auto-public-addr restart -- $(ARGS)
 
 prod-build:
 	@LUNAR_ADMIN_TOKEN=unused-during-build $(PROD_COMPOSE) build
