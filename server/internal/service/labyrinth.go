@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/model"
@@ -17,6 +20,18 @@ type LabyrinthServiceServer struct {
 	users    store.UserRepository
 	sessions store.SessionRepository
 	holder   *runtime.Holder
+}
+
+func labyrinthStageCleared(user *store.UserState, questIds []int32) bool {
+	if len(questIds) == 0 {
+		return false
+	}
+	for _, questId := range questIds {
+		if user.Quests[questId].QuestStateType != model.UserQuestStateTypeCleared {
+			return false
+		}
+	}
+	return true
 }
 
 func NewLabyrinthServiceServer(users store.UserRepository, sessions store.SessionRepository, holder *runtime.Holder) *LabyrinthServiceServer {
@@ -33,6 +48,13 @@ func (s *LabyrinthServiceServer) ReceiveStageAccumulationReward(ctx context.Cont
 	cat := s.holder.Get()
 	laby := cat.Labyrinth
 	granter := cat.QuestHandler.Granter
+	if !laby.HasStage(req.EventQuestChapterId, req.StageOrder) {
+		return nil, status.Error(codes.InvalidArgument, "labyrinth stage not found")
+	}
+	questIds, ok := laby.StageQuestIds(cat.Quest, req.EventQuestChapterId, req.StageOrder)
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "labyrinth stage quests are unavailable")
+	}
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
@@ -45,11 +67,12 @@ func (s *LabyrinthServiceServer) ReceiveStageAccumulationReward(ctx context.Cont
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		rec := user.LabyrinthStages[key]
 		old := rec.AccumulationRewardReceivedQuestMissionCount
+		actualClearCount := cat.QuestHandler.ClearedQuestMissionCount(user, questIds)
 
-		items, highest := laby.CollectAccumulationRewards(req.EventQuestChapterId, req.StageOrder, old, req.QuestMissionClearCount)
+		items, highest := laby.CollectAccumulationRewards(req.EventQuestChapterId, req.StageOrder, old, actualClearCount)
 		if highest <= old {
 			log.Printf("[LabyrinthService] ReceiveStageAccumulationReward: nothing to grant for chapter=%d stage=%d (claimed=%d, target=%d)",
-				req.EventQuestChapterId, req.StageOrder, old, req.QuestMissionClearCount)
+				req.EventQuestChapterId, req.StageOrder, old, actualClearCount)
 			return
 		}
 
@@ -80,6 +103,17 @@ func (s *LabyrinthServiceServer) ReceiveStageClearReward(ctx context.Context, re
 	cat := s.holder.Get()
 	laby := cat.Labyrinth
 	granter := cat.QuestHandler.Granter
+	if !laby.HasStage(req.EventQuestChapterId, req.StageOrder) {
+		return nil, status.Error(codes.InvalidArgument, "labyrinth stage not found")
+	}
+	questIds, ok := laby.StageQuestIds(cat.Quest, req.EventQuestChapterId, req.StageOrder)
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "labyrinth stage quests are unavailable")
+	}
+	items := laby.StageClearReward(req.EventQuestChapterId, req.StageOrder)
+	if len(items) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "labyrinth stage reward is unavailable")
+	}
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
@@ -89,6 +123,7 @@ func (s *LabyrinthServiceServer) ReceiveStageClearReward(ctx context.Context, re
 		StageOrder:          req.StageOrder,
 	}
 
+	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		rec := user.LabyrinthStages[key]
 		if rec.IsReceivedStageClearReward {
@@ -96,7 +131,10 @@ func (s *LabyrinthServiceServer) ReceiveStageClearReward(ctx context.Context, re
 				req.EventQuestChapterId, req.StageOrder)
 			return
 		}
-		items := laby.StageClearReward(req.EventQuestChapterId, req.StageOrder)
+		if !labyrinthStageCleared(user, questIds) {
+			validationErr = status.Error(codes.FailedPrecondition, "labyrinth stage is not cleared")
+			return
+		}
 		for _, it := range items {
 			granter.GrantFull(user, model.PossessionType(it.PossessionType), it.PossessionId, it.Count, nowMillis)
 		}
@@ -112,6 +150,9 @@ func (s *LabyrinthServiceServer) ReceiveStageClearReward(ctx context.Context, re
 	})
 	if err != nil {
 		return nil, fmt.Errorf("receive labyrinth stage clear reward: %w", err)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 
 	return &pb.ReceiveStageClearRewardResponse{}, nil

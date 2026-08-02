@@ -79,6 +79,24 @@ func TestSyncMissionProgressRejectsInvalidRhythmMetricWithoutMutation(t *testing
 	}
 }
 
+func TestSyncMissionProgressIgnoresEmptyRhythmMetric(t *testing.T) {
+	catalog := &masterdata.MissionCatalog{
+		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: 36, ClearConditionValue: 1}},
+		MeasurableMissionIdsByType: map[int32][]int32{36: {1}},
+		TermById:                   map[int32]masterdata.EntityMMissionTerm{},
+		UnlockById:                 map[int32]masterdata.EntityMMissionUnlockCondition{},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	err := syncMissionProgress(catalog, user, &pb.UpdateMissionProgressRequest{PictureBookMeasurableValues: &pb.PictureBookMeasurableValues{RhythmInteractionMeasurableValues: &pb.RhythmInteractionMeasurableValues{}}}, 2)
+	if err != nil {
+		t.Fatalf("empty rhythm metric was rejected: %v", err)
+	}
+	if _, ok := user.Missions[1]; ok {
+		t.Fatal("empty rhythm metric mutated mission state")
+	}
+}
+
 func TestClaimMissionPassRewardsIsIdempotent(t *testing.T) {
 	cat := &runtime.Catalogs{Mission: &masterdata.MissionCatalog{PassById: map[int32]masterdata.MissionPassCatalog{7: {Definition: masterdata.EntityMMissionPass{MissionPassId: 7, StartDatetime: 1, EndDatetime: 100}, Levels: []masterdata.EntityMMissionPassLevelGroup{{Level: 1, NecessaryPoint: 10}}, Rewards: []masterdata.EntityMMissionPassRewardGroup{{Level: 1, PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 20, Count: 2}}}}}, QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}}}
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
