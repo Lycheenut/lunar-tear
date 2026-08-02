@@ -9,7 +9,6 @@ import (
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/questflow"
-	"lunar-tear/server/internal/userdata"
 )
 
 // buildCatalogs runs the full Load*/Build*/Enrich* sequence against whatever
@@ -56,7 +55,6 @@ func buildCatalogs() (*Catalogs, error) {
 	}
 	log.Printf("character rebirth catalog loaded: %d characters", len(characterRebirthCatalog.StepGroupByCharacterId))
 	questHandler := questflow.NewQuestHandler(questCatalog, gameConfig, sideStoryCatalog, campaignCatalog, characterRebirthCatalog)
-	userdata.SetQuestHandler(questHandler)
 
 	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog()
 	if err != nil {

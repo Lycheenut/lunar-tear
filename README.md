@@ -53,7 +53,7 @@ go run ./cmd/wizard --grpc-port 9003 --cdn-port 9080
 | `--grpc-port`    | `8003`  | gRPC server port                                                                                                         |
 | `--cdn-port`     | `8080`  | CDN server port                                                                                                          |
 | `--auth-port`    | `3000`  | Auth server port                                                                                                         |
-| `--admin-port`   | `0`     | Admin webhook port (`0` = disabled). Bound on `127.0.0.1`; only takes effect when `LUNAR_ADMIN_TOKEN` is set in the env. |
+| `--admin-port`   | `0`     | Admin management port (`0` = disabled). Bound on `127.0.0.1`; only takes effect when `LUNAR_ADMIN_TOKEN` is set in the env. |
 
 Custom ports are saved to `.wizard.json` alongside your other settings. On the next run the saved ports are reused automatically — no need to pass the flags again. If you later pass different port flags, the wizard warns you that the ports changed and asks for confirmation before continuing.
 
@@ -192,7 +192,7 @@ make dev ARGS="--grpc.listen 0.0.0.0:9000 --grpc.public-addr 10.0.2.2:9000"
 | `--grpc.octo-url`    | `http://10.0.2.2:8080`  | Octo CDN base URL passed to lunar-tear                                                                               |
 | `--grpc.auth-url`    | `http://localhost:3000` | auth server base URL passed to lunar-tear                                                                            |
 | `--no-register`      | `false`                 | disable new user registrations (only already registered users can connect).                                          |
-| `--admin.listen`     | _(empty)_               | lunar-tear admin webhook bind. Empty = leave default; webhook only binds when `LUNAR_ADMIN_TOKEN` is set in the env. |
+| `--admin.listen`     | _(empty)_               | lunar-tear admin HTTP bind. Empty = leave default; the listener only binds when `LUNAR_ADMIN_TOKEN` is set in the env. |
 | `--no-color`         | `false`                 | disable colored output                                                                                               |
 
 ### Ports
@@ -201,7 +201,7 @@ make dev ARGS="--grpc.listen 0.0.0.0:9000 --grpc.public-addr 10.0.2.2:9000"
 | -------- | ---- | ------------- | ---------------------------------------------------------------------------------------------------------------- |
 | gRPC     | 443  | `lunar-tear`  | default; configurable with `--listen` (requires patched client)                                                  |
 | HTTP     | 8080 | `octo-cdn`    | Octo asset API + game web pages                                                                                  |
-| HTTP     | 8082 | `lunar-tear`  | admin webhook (`/api/admin/master-data/reload`); loopback by default, only binds when `LUNAR_ADMIN_TOKEN` is set |
+| HTTP     | 8082 | `lunar-tear`  | master-data management UI (`/admin/`) and API; loopback by default, token-gated and opt-in |
 | HTTP     | 3000 | `auth-server` | account registration and login                                                                                   |
 
 ### Game Server Flags (`lunar-tear`)
@@ -213,15 +213,26 @@ make dev ARGS="--grpc.listen 0.0.0.0:9000 --grpc.public-addr 10.0.2.2:9000"
 | `--octo-url`     | _(required)_     | CDN base URL the client uses for assets (e.g. `http://10.0.2.2:8080`)       |
 | `--db`           | `db/game.db`     | SQLite database path                                                        |
 | `--auth-url`     | _(empty)_        | Auth server base URL (e.g. `http://localhost:3000`)                         |
-| `--admin-listen` | `127.0.0.1:8082` | Admin webhook listen address. Only binds when `LUNAR_ADMIN_TOKEN` is set.   |
+| `--admin-listen` | `127.0.0.1:8082` | Admin UI/API listen address. Only binds when `LUNAR_ADMIN_TOKEN` is set.    |
 | `--no-register`  | `false`          | Disable new user registrations (only already registered users can connect). |
 
-### Live Master Data Reload
+### Master Data Management and Live Reload
 
-The game server reads its master data from `assets/release/20240404193219.bin.e` at startup. To swap in updated content **without restarting** the server:
+The game server reads its master data from `assets/release/20240404193219.bin.e` at startup. When `LUNAR_ADMIN_TOKEN` is set, open [http://127.0.0.1:8082/admin/](http://127.0.0.1:8082/admin/) and enter that token to manage limited-time content.
+
+The management UI reads every table whose schema has a matching `*StartDatetime` / `*EndDatetime` pair and exposes all datetime fields on those rows. Where a row references localized text assets, the UI also shows its English title by default and can switch to Japanese or Korean. Shop and shop-item-cell-term rows include their `shop → cell group → cell` relationships. Saving performs the following as one guarded operation:
+
+1. Validates the submitted fields and start/end ordering (an end value of `0` keeps its existing disabled-row meaning).
+2. Rebuilds and encrypts a candidate `.bin.e` while preserving MessagePack int64 cell widths.
+3. Fully loads every runtime catalog from the candidate.
+4. Atomically replaces the file shared by the game server and CDN, then publishes the new in-memory catalogs.
+
+The UI uses a content hash for optimistic locking, so a stale browser cannot overwrite a newer master-data file. The asset directory and existing `.bin.e` must be writable by the `lunar-tear` process.
+
+To swap in an externally edited file **without restarting** the server:
 
 1. Replace `assets/release/20240404193219.bin.e` on disk with your edited copy.
-2. POST to the admin webhook with a Bearer token matching `LUNAR_ADMIN_TOKEN`:
+2. POST to the reload API with a Bearer token matching `LUNAR_ADMIN_TOKEN`:
 
 ```bash
 curl -X POST -H "Authorization: Bearer ${LUNAR_ADMIN_TOKEN}" \
@@ -232,9 +243,9 @@ The server re-reads the file, atomically swaps every in-memory catalog and deriv
 
 Security defaults are fail-closed:
 
-- `LUNAR_ADMIN_TOKEN` **must** be set in the environment, or the webhook listener never binds.
+- `LUNAR_ADMIN_TOKEN` **must** be set in the environment, or the admin listener never binds.
 - `--admin-listen` defaults to `127.0.0.1:8082` (loopback only). Bind to `0.0.0.0` only if you intend to expose it.
-- Authentication uses constant-time Bearer-token comparison.
+- Data APIs use constant-time Bearer-token comparison. The UI stores the supplied token in tab-scoped `sessionStorage`, never in a URL or persistent cookie.
 
 ### CDN Flags (`octo-cdn`)
 
@@ -267,7 +278,7 @@ Each service has its own image and can be deployed independently:
 
 | Service  | Image                       | Default Port | Notes                            |
 | -------- | --------------------------- | ------------ | -------------------------------- |
-| `server` | `kretts/lunar-tear:latest`  | 8003, 8082   | gRPC game server + admin webhook |
+| `server` | `kretts/lunar-tear:latest`  | 8003, 8082   | gRPC game server + master-data admin UI/API |
 | `cdn`    | `kretts/octo-cdn:latest`    | 8080         | HTTP asset CDN                   |
 | `auth`   | `kretts/auth-server:latest` | 3000         | Account registration and login   |
 
@@ -279,10 +290,10 @@ The game server is configured via environment variables in the compose file:
 | `LUNAR_PUBLIC_ADDR`  | Client-facing address advertised to the game                                          |
 | `LUNAR_OCTO_URL`     | CDN base URL the client uses for assets                                               |
 | `LUNAR_AUTH_URL`     | Auth server base URL (optional)                                                       |
-| `LUNAR_ADMIN_LISTEN` | Admin webhook bind address inside the container (compose default: `0.0.0.0:8082`)     |
-| `LUNAR_ADMIN_TOKEN`  | Bearer token for the admin webhook. **The webhook does not bind unless this is set.** |
+| `LUNAR_ADMIN_LISTEN` | Admin UI/API bind address inside the container (compose default: `0.0.0.0:8082`)      |
+| `LUNAR_ADMIN_TOKEN`  | Bearer token for admin data APIs. **The admin listener does not bind unless this is set.** |
 
-Auth is optional — if `LUNAR_AUTH_URL` is unset the game server starts without it. The admin webhook is published to `127.0.0.1:8082` on the host so the master-data reload endpoint stays loopback-only by default; set `LUNAR_ADMIN_TOKEN` (e.g. via a `.env` file) before bringing the stack up.
+Auth is optional — if `LUNAR_AUTH_URL` is unset the game server starts without it. The admin service is published to `127.0.0.1:8082` on the host so the management UI and APIs stay loopback-only by default; set `LUNAR_ADMIN_TOKEN` (e.g. via a `.env` file) before bringing the stack up.
 
 ### Makefile Targets
 

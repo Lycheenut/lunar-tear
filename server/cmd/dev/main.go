@@ -95,9 +95,9 @@ func main() {
 	grpcOctoURL := flag.String("grpc.octo-url", "", "Octo CDN base URL passed to lunar-tear (default: derived from cdn.public-addr)")
 	grpcAuthURL := flag.String("grpc.auth-url", "", "auth server base URL passed to lunar-tear (default: derived from auth.listen)")
 
-	// admin webhook is opt-in; empty leaves lunar-tear's own default in place
+	// admin UI/API is opt-in; empty leaves lunar-tear's own default in place
 	// (the listener still only binds if LUNAR_ADMIN_TOKEN is set in the env).
-	adminListen := flag.String("admin.listen", "", "lunar-tear admin webhook listen address (host:port). Empty = leave default; webhook only binds when LUNAR_ADMIN_TOKEN is set in the env.")
+	adminListen := flag.String("admin.listen", "", "lunar-tear admin UI/API listen address (host:port). Empty = leave default; listener only binds when LUNAR_ADMIN_TOKEN is set in the env.")
 
 	// Controlled server access
 	noRegister := flag.Bool("no-register", false, "Disallow new account registrations for clients, when present. Default = false")
