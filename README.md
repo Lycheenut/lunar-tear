@@ -307,6 +307,10 @@ All targets run from the `server/` directory.
 | `make build-auth`             | Build the auth server binary                           |
 | `make build-dev`              | Build the dev runner binary to `bin/`                  |
 | `make build-all`              | Build all service binaries to `bin/`                   |
+| `make prod-build`             | Build the production Docker Compose images             |
+| `make prod-start`             | Start the production services in the background        |
+| `make prod-stop`              | Stop the production services                           |
+| `make prod-restart`           | Restart the production services                        |
 | `make client-check`           | Validate Android client build inputs and tools         |
 | `make client`                 | Patch, rebuild, align, and sign the Android client     |
 | `make build-import`           | Build the import-snapshot tool                         |
