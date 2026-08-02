@@ -39,13 +39,14 @@
         <article class="metric"><span>限时表</span><strong id="table-count">—</strong></article>
         <article class="metric"><span>内容行</span><strong id="row-count">—</strong></article>
         <article class="metric"><span>待应用修改</span><strong id="dirty-count">0</strong></article>
-        <article class="metric accent"><span>时间显示</span><strong id="timezone">本地时区</strong></article>
+        <article class="metric accent"><span>时间基准</span><strong id="timezone">UTC</strong></article>
       </div>
 
       <div class="toolbar">
         <label>数据表
           <select id="table-select"></select>
         </label>
+        <div id="type-filters" class="type-filters hidden" aria-label="类型筛选"></div>
         <label>状态
           <select id="status-filter">
             <option value="all">全部</option>
@@ -59,8 +60,15 @@
           <select id="language-select" aria-label="标题语言"></select>
         </label>
         <label class="search-field">筛选当前表
-          <input id="search" type="search" placeholder="按标题、ID、字段值或行号搜索">
+          <input id="search" type="search" placeholder="按标题、ID 或字段值搜索">
         </label>
+        <div class="view-control">
+          <span>视图</span>
+          <div class="view-toggle" role="group" aria-label="视图模式">
+            <button class="view-button active" type="button" data-view="list" aria-pressed="true">列表</button>
+            <button class="view-button" type="button" data-view="grid" aria-pressed="false">网格</button>
+          </div>
+        </div>
         <button id="refresh" class="button ghost" type="button">刷新</button>
       </div>
 
@@ -74,12 +82,13 @@
           </div>
           <span id="visible-count" class="row-badge">0 行</span>
         </div>
-        <div class="table-scroll">
-          <table>
+        <div id="table-scroll" class="table-scroll">
+          <table id="schedule-table">
             <thead id="schedule-head"></thead>
             <tbody id="schedule-body"></tbody>
           </table>
         </div>
+        <div id="schedule-grid" class="card-grid hidden"></div>
         <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
       </section>
 
