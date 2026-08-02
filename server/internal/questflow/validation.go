@@ -109,10 +109,16 @@ func (h *QuestHandler) ValidateQuestContinuation(user *store.UserState, questId 
 	if _, ok := h.QuestById[questId]; !ok {
 		return fmt.Errorf("unknown quest %d", questId)
 	}
-	if user.Quests[questId].QuestStateType != model.UserQuestStateTypeActive {
-		return fmt.Errorf("quest %d is not active", questId)
+	questState := user.Quests[questId].QuestStateType
+	if questState == model.UserQuestStateTypeActive {
+		return nil
 	}
-	return nil
+	if questState == model.UserQuestStateTypeCleared && user.MainQuest.SavedContext.Active {
+		if scene, ok := h.SceneById[user.MainQuest.ProgressQuestSceneId]; ok && scene.QuestId == questId {
+			return nil
+		}
+	}
+	return fmt.Errorf("quest %d is not active", questId)
 }
 
 func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCount int32, nowMillis int64) error {
