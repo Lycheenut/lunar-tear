@@ -53,14 +53,6 @@ func TestRollReplaceableLineupChangesLineupWithoutChangingPool(t *testing.T) {
 	}
 }
 
-func TestShopStartOfUTCDayMillis(t *testing.T) {
-	now := time.Date(2026, time.August, 1, 18, 30, 0, 0, time.FixedZone("offset", 8*60*60))
-	want := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
-	if got := shopStartOfUTCDayMillis(now.UnixMilli()); got != want {
-		t.Fatalf("UTC day start = %d, want %d", got, want)
-	}
-}
-
 func TestReplaceableRefreshCountResetsBeforeFirstPaidRefreshOfDay(t *testing.T) {
 	if got := nextReplaceableRefreshCount(12, true); got != 1 {
 		t.Fatalf("first paid refresh of day count = %d, want 1", got)
@@ -71,9 +63,10 @@ func TestReplaceableRefreshCountResetsBeforeFirstPaidRefreshOfDay(t *testing.T) 
 }
 
 func TestResetShopItemStockIfDue(t *testing.T) {
-	now := time.Date(2026, time.August, 5, 12, 0, 0, 0, time.UTC)
-	beforeWeeklyReset := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC).UnixMilli()
-	afterWeeklyReset := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.UTC).UnixMilli()
+	// UTC+9 Monday starts at 15:00 UTC on the preceding Sunday.
+	now := time.Date(2026, time.August, 2, 16, 30, 0, 0, time.UTC)
+	beforeWeeklyReset := time.Date(2026, time.August, 2, 14, 59, 0, 0, time.UTC).UnixMilli()
+	afterWeeklyReset := time.Date(2026, time.August, 2, 15, 30, 0, 0, time.UTC).UnixMilli()
 	rule := masterdata.ShopLimitedStockRule{MaxCount: 5, AutoResetType: model.ShopItemAutoResetWeekly, AutoResetPeriod: 1}
 
 	reset, err := resetShopItemStockIfDue(store.UserShopItemState{BoughtCount: 5, LatestBoughtCountChangedDatetime: beforeWeeklyReset}, rule, now.UnixMilli())
@@ -88,7 +81,7 @@ func TestResetShopItemStockIfDue(t *testing.T) {
 	monthlyRule := masterdata.ShopLimitedStockRule{MaxCount: 5, AutoResetType: model.ShopItemAutoResetMonthly, AutoResetPeriod: 1}
 	monthly, err := resetShopItemStockIfDue(store.UserShopItemState{
 		BoughtCount:                      2,
-		LatestBoughtCountChangedDatetime: time.Date(2026, time.July, 31, 23, 0, 0, 0, time.UTC).UnixMilli(),
+		LatestBoughtCountChangedDatetime: time.Date(2026, time.July, 31, 14, 59, 0, 0, time.UTC).UnixMilli(),
 	}, monthlyRule, now.UnixMilli())
 	if err != nil || monthly.BoughtCount != 0 {
 		t.Fatalf("monthly reset state = %+v, err=%v", monthly, err)

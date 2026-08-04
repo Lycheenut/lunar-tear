@@ -44,6 +44,27 @@ func TestValidateLoginBonusTerm(t *testing.T) {
 	}
 }
 
+func TestValidateLoginBonusTermUsesUTCPlusNineDayBoundary(t *testing.T) {
+	// 2026-08-04 16:30 UTC is already 2026-08-05 01:30 in UTC+9.
+	now := time.Date(2026, 8, 4, 16, 30, 0, 0, time.UTC)
+	previousServerDay := time.Date(2026, 8, 4, 8, 30, 0, 0, time.UTC)
+	sameServerDay := time.Date(2026, 8, 4, 15, 30, 0, 0, time.UTC)
+
+	term := masterdata.LoginBonusTerm{}
+	lb := store.UserLoginBonusState{
+		LoginBonusId:                1,
+		LatestRewardReceiveDatetime: previousServerDay.UnixMilli(),
+	}
+	if err := validateLoginBonusTerm(term, lb, now.UnixMilli()); err != nil {
+		t.Fatalf("previous UTC+9 day rejected: %v", err)
+	}
+
+	lb.LatestRewardReceiveDatetime = sameServerDay.UnixMilli()
+	if err := validateLoginBonusTerm(term, lb, now.UnixMilli()); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("same UTC+9 day status = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+}
+
 func TestAdvanceLoginStateCountsCalendarDays(t *testing.T) {
 	day := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 
@@ -73,6 +94,15 @@ func TestAdvanceLoginStateCountsCalendarDays(t *testing.T) {
 	}
 	advanceLoginState(&broken, day.UnixMilli())
 	assertLoginCounts(t, broken, 6, 1, 7)
+
+	utcPlusNineRollover := store.UserLoginState{
+		TotalLoginCount:        5,
+		ContinualLoginCount:    4,
+		MaxContinualLoginCount: 4,
+		LastLoginDatetime:      time.Date(2026, 8, 4, 14, 30, 0, 0, time.UTC).UnixMilli(),
+	}
+	advanceLoginState(&utcPlusNineRollover, time.Date(2026, 8, 4, 15, 30, 0, 0, time.UTC).UnixMilli())
+	assertLoginCounts(t, utcPlusNineRollover, 6, 5, 5)
 }
 
 func assertLoginCounts(t *testing.T, login store.UserLoginState, total, continual, maximum int32) {

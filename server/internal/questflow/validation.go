@@ -197,7 +197,7 @@ func (h *QuestHandler) validateQuestSkipBulk(user *store.UserState, questIds, sk
 }
 
 func dailyClearCount(state store.UserQuestState, nowMillis int64) int32 {
-	if state.LastClearDatetime < gametime.StartOfDayAtMillis(nowMillis) {
+	if state.LastClearDatetime < gametime.StartOfBusinessDayAtMillis(nowMillis) {
 		return 0
 	}
 	return state.DailyClearCount
@@ -211,7 +211,7 @@ func validateDailyClearLimit(state store.UserQuestState, quest masterdata.Entity
 }
 
 func recordQuestClears(state *store.UserQuestState, count int32, nowMillis int64) {
-	if state.LastClearDatetime < gametime.StartOfDayAtMillis(nowMillis) {
+	if state.LastClearDatetime < gametime.StartOfBusinessDayAtMillis(nowMillis) {
 		state.DailyClearCount = 0
 	}
 	state.ClearCount += count

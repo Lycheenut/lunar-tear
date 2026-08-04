@@ -112,7 +112,7 @@ func (s *FriendServiceServer) GetFriendList(ctx context.Context, _ *pb.GetFriend
 		return nil, fmt.Errorf("load current user: %w", err)
 	}
 
-	today := startOfUTCDayMillis(gametime.NowMillis())
+	today := gametime.StartOfBusinessDayAtMillis(gametime.NowMillis())
 	friendUsers := make([]*pb.FriendUser, 0, len(current.Friends))
 	for _, friendUserId := range sortedFriendIds(current.Friends) {
 		friend, loadErr := s.users.LoadUser(friendUserId)
@@ -325,7 +325,7 @@ func (s *FriendServiceServer) BulkCheerFriend(ctx context.Context, _ *emptypb.Em
 		current := users[currentUserId]
 		nowMillis := gametime.NowMillis()
 		for _, friendUserId := range friendUserIds {
-			if countDailySentCheers(*current, startOfUTCDayMillis(nowMillis)) >= limit {
+			if countDailySentCheers(*current, gametime.StartOfBusinessDayAtMillis(nowMillis)) >= limit {
 				break
 			}
 			friend := users[friendUserId]
@@ -460,7 +460,7 @@ func (s *FriendServiceServer) maxStaminaMillis(user store.UserState) int32 {
 }
 
 func sendCheer(sender, receiver *store.UserState, nowMillis int64, dailyLimit int32) error {
-	today := startOfUTCDayMillis(nowMillis)
+	today := gametime.StartOfBusinessDayAtMillis(nowMillis)
 	senderFriend, exists := sender.Friends[receiver.UserId]
 	if !exists || !senderFriend.IsFriend {
 		return status.Error(codes.FailedPrecondition, "friend not found")
@@ -483,7 +483,7 @@ func sendCheer(sender, receiver *store.UserState, nowMillis int64, dailyLimit in
 }
 
 func receiveCheer(user *store.UserState, friendUserId, nowMillis int64, maxStaminaMillis, dailyLimit int32) error {
-	today := startOfUTCDayMillis(nowMillis)
+	today := gametime.StartOfBusinessDayAtMillis(nowMillis)
 	friend, exists := user.Friends[friendUserId]
 	if !exists || !friend.IsFriend {
 		return status.Error(codes.FailedPrecondition, "friend not found")
