@@ -39,7 +39,13 @@
         <article class="metric"><span>限时表</span><strong id="table-count">—</strong></article>
         <article class="metric"><span>内容行</span><strong id="row-count">—</strong></article>
         <article class="metric"><span>待应用修改</span><strong id="dirty-count">0</strong></article>
-        <article class="metric accent"><span>时间基准</span><strong id="timezone">UTC</strong></article>
+        <article class="metric accent">
+          <label for="timezone">时间基准</label>
+          <select id="timezone">
+            <option value="local" selected>本机时间</option>
+            <option value="utc">UTC</option>
+          </select>
+        </article>
       </div>
 
       <div class="toolbar">

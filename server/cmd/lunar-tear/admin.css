@@ -172,6 +172,7 @@ input:focus, select:focus {
 .metric strong { display: block; margin-top: 12px; font-size: 28px; font-weight: 630; }
 .metric.accent { border-color: rgba(119, 222, 199, .38); }
 .metric.accent strong { color: var(--accent); font-size: 17px; }
+.metric.accent select { width: 100%; margin-top: 12px; color: var(--accent); }
 
 .toolbar {
   display: grid;
