@@ -18,6 +18,7 @@
     token: sessionStorage.getItem("lunar-admin-token") || "",
     language: localStorage.getItem("lunar-admin-language") || "en",
     view: localStorage.getItem("lunar-admin-view") === "grid" ? "grid" : "list",
+    timeMode: "local",
     catalog: null,
     dirty: new Map()
   };
@@ -97,7 +98,7 @@
     elements.version.title = state.catalog.version;
     elements.tableCount.textContent = state.catalog.tableCount.toLocaleString();
     elements.rowCount.textContent = state.catalog.rowCount.toLocaleString();
-    elements.timezone.textContent = "UTC";
+    elements.timezone.value = state.timeMode;
     updateDirtyUI();
     renderTable();
   }
@@ -357,11 +358,11 @@
     const input = document.createElement("input");
     input.type = "datetime-local";
     input.step = "1";
-    input.value = utcInputValue(effectiveValue(table.name, row, field));
+    input.value = timeInputValue(effectiveValue(table.name, row, field));
     input.dataset.table = table.name;
     input.dataset.row = String(row.index);
     input.dataset.field = field;
-    input.setAttribute("aria-label", `${field} UTC`);
+    input.setAttribute("aria-label", `${field} ${timeModeLabel()}`);
     input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field)));
     input.addEventListener("change", () => onTimeChange(table, row, field, input));
     wrapper.append(input);
@@ -398,7 +399,7 @@
   }
 
   function onTimeChange(table, row, field, input) {
-    const value = input.value ? Date.parse(`${input.value}Z`) : 0;
+    const value = parseTimeInput(input.value);
     if (!Number.isSafeInteger(value) || value < 0) {
       input.classList.add("invalid");
       showNotice("请输入有效的日期时间。", true);
@@ -430,10 +431,23 @@
 
   function changeKey(table, row, field) { return `${table}\u0000${row}\u0000${field}`; }
 
-  function utcInputValue(milliseconds) {
+  function timeModeLabel() {
+    return state.timeMode === "utc" ? "UTC" : "本机时间";
+  }
+
+  function parseTimeInput(value) {
+    if (!value) return 0;
+    return state.timeMode === "utc" ? Date.parse(`${value}Z`) : new Date(value).getTime();
+  }
+
+  function timeInputValue(milliseconds) {
     if (milliseconds === 0) return "";
     const date = new Date(milliseconds);
     if (Number.isNaN(date.getTime())) return "";
+    if (state.timeMode === "local") {
+      const localMilliseconds = milliseconds - date.getTimezoneOffset() * 60 * 1000;
+      return new Date(localMilliseconds).toISOString().slice(0, 19);
+    }
     return date.toISOString().slice(0, 19);
   }
 
@@ -490,6 +504,10 @@
     renderTable();
   });
   elements.statusFilter.addEventListener("change", renderTable);
+  elements.timezone.addEventListener("change", () => {
+    state.timeMode = elements.timezone.value === "utc" ? "utc" : "local";
+    renderTable();
+  });
   elements.languageSelect.addEventListener("change", () => {
     state.language = elements.languageSelect.value;
     localStorage.setItem("lunar-admin-language", state.language);

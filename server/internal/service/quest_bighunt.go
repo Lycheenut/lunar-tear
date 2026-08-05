@@ -47,7 +47,7 @@ func (s *BigHuntServiceServer) StartBigHuntQuest(ctx context.Context, req *pb.St
 		return nil, status.Error(codes.InvalidArgument, "unknown big hunt quest")
 	}
 
-	today := gametime.StartOfDayMillis()
+	today := gametime.StartOfBusinessDayMillis()
 
 	var validationErr error
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
@@ -183,7 +183,7 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 			}
 		}
 
-		weeklyVersion := gametime.WeeklyVersion(nowMillis)
+		weeklyVersion := gametime.BusinessWeeklyVersion(nowMillis)
 		weekKey := store.BigHuntWeeklyScoreKey{
 			BigHuntWeeklyVersion: weeklyVersion,
 			AttributeType:        boss.AttributeType,
@@ -299,7 +299,7 @@ func (s *BigHuntServiceServer) RestartBigHuntQuest(ctx context.Context, req *pb.
 	var battleBinary []byte
 	var deckNumber int32
 
-	today := gametime.StartOfDayMillis()
+	today := gametime.StartOfBusinessDayMillis()
 
 	var validationErr error
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
@@ -344,7 +344,7 @@ func (s *BigHuntServiceServer) SkipBigHuntQuest(ctx context.Context, req *pb.Ski
 	granter := cat.QuestHandler.Granter
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	today := gametime.StartOfDayMillis()
+	today := gametime.StartOfBusinessDayMillis()
 
 	bossQuest, hasBossQuest := catalog.BossQuestById[req.BigHuntBossQuestId]
 	var scoreRewards []*pb.BigHuntReward
@@ -459,7 +459,7 @@ func (s *BigHuntServiceServer) GetBigHuntTopData(ctx context.Context, _ *emptypb
 	user, _ := s.users.LoadUser(userId)
 
 	nowMillis := gametime.NowMillis()
-	weeklyVersion := gametime.WeeklyVersion(nowMillis)
+	weeklyVersion := gametime.BusinessWeeklyVersion(nowMillis)
 
 	var weeklyScoreResults []*pb.WeeklyScoreResult
 	for _, boss := range catalog.BossByBossId {

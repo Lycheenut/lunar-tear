@@ -206,7 +206,7 @@ func (h *GachaHandler) HandleRewardDraw(
 	count int32,
 ) ([]DrawnItem, error) {
 	nowMillis := gametime.NowMillis()
-	todayStart := gametime.StartOfDayMillis()
+	todayStart := gametime.StartOfBusinessDayMillis()
 
 	maxCount := h.Config.RewardGachaDailyMaxCount
 	if maxCount <= 0 {

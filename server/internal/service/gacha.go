@@ -355,7 +355,7 @@ func (s *GachaServiceServer) GetRewardGacha(ctx context.Context, req *emptypb.Em
 		maxCount = model.DefaultDailyDrawLimit
 	}
 
-	todayStart := gametime.StartOfDayMillis()
+	todayStart := gametime.StartOfBusinessDayMillis()
 	drawCount := user.Gacha.TodaysCurrentDrawCount
 	if user.Gacha.LastRewardDrawDate < todayStart {
 		drawCount = 0
