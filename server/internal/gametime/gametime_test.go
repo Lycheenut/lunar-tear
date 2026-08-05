@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-func TestBusinessLocationUsesUTCPlusNine(t *testing.T) {
+func TestBusinessLocationUsesUTCMinusEight(t *testing.T) {
 	name, offset := InBusinessLocation(0).Zone()
-	if name != "UTC+9" || offset != 9*60*60 {
-		t.Fatalf("business timezone = %s (%d), want UTC+9 (%d)", name, offset, 9*60*60)
+	if name != "UTC-8" || offset != -8*60*60 {
+		t.Fatalf("business timezone = %s (%d), want UTC-8 (%d)", name, offset, -8*60*60)
 	}
 }
 
@@ -18,18 +18,38 @@ func TestNowRemainsUTC(t *testing.T) {
 	}
 }
 
-func TestStartOfBusinessDayAtMillisUsesUTCPlusNine(t *testing.T) {
-	now := time.Date(2026, time.August, 4, 16, 30, 0, 0, time.UTC)
-	want := time.Date(2026, time.August, 4, 15, 0, 0, 0, time.UTC).UnixMilli()
-	if got := StartOfBusinessDayAtMillis(now.UnixMilli()); got != want {
-		t.Fatalf("UTC+9 day start = %d, want %d", got, want)
+func TestStartOfBusinessDayAtMillisUsesUTC0800Boundary(t *testing.T) {
+	cases := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{name: "before boundary", now: time.Date(2026, time.August, 4, 7, 59, 0, 0, time.UTC), want: time.Date(2026, time.August, 3, 8, 0, 0, 0, time.UTC)},
+		{name: "at boundary", now: time.Date(2026, time.August, 4, 8, 0, 0, 0, time.UTC), want: time.Date(2026, time.August, 4, 8, 0, 0, 0, time.UTC)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := StartOfBusinessDayAtMillis(tc.now.UnixMilli()); got != tc.want.UnixMilli() {
+				t.Fatalf("business day start = %d, want %d", got, tc.want.UnixMilli())
+			}
+		})
 	}
 }
 
-func TestBusinessWeeklyVersionUsesUTCPlusNineMonday(t *testing.T) {
-	now := time.Date(2026, time.August, 2, 16, 30, 0, 0, time.UTC)
-	want := time.Date(2026, time.August, 2, 15, 0, 0, 0, time.UTC).UnixMilli()
-	if got := BusinessWeeklyVersion(now.UnixMilli()); got != want {
-		t.Fatalf("UTC+9 weekly version = %d, want %d", got, want)
+func TestBusinessWeeklyVersionUsesMondayUTC0800Boundary(t *testing.T) {
+	cases := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{name: "before boundary", now: time.Date(2026, time.August, 3, 7, 59, 0, 0, time.UTC), want: time.Date(2026, time.July, 27, 8, 0, 0, 0, time.UTC)},
+		{name: "at boundary", now: time.Date(2026, time.August, 3, 8, 0, 0, 0, time.UTC), want: time.Date(2026, time.August, 3, 8, 0, 0, 0, time.UTC)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := BusinessWeeklyVersion(tc.now.UnixMilli()); got != tc.want.UnixMilli() {
+				t.Fatalf("weekly version = %d, want %d", got, tc.want.UnixMilli())
+			}
+		})
 	}
 }
