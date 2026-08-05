@@ -38,8 +38,8 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 	granter := cat.QuestHandler.Granter
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	weeklyVersion := gametime.WeeklyVersion(nowMillis)
-	today := gametime.StartOfDayMillis()
+	weeklyVersion := gametime.BusinessWeeklyVersion(nowMillis)
+	today := gametime.StartOfBusinessDayMillis()
 
 	var weeklyScoreResults []*pb.WeeklyScoreResult
 	var weeklyRewards []*pb.BigHuntReward

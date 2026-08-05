@@ -34,7 +34,7 @@ func TestHandleQuestSkipBulkAggregatesDuplicateQuestLimits(t *testing.T) {
 	}
 }
 
-func TestDailyClearLimitResetsAfterUTCDateChanges(t *testing.T) {
+func TestDailyClearLimitResetsAfterServerDateChanges(t *testing.T) {
 	h := &QuestHandler{
 		QuestCatalog: &masterdata.QuestCatalog{
 			QuestById:            map[int32]masterdata.EntityMQuest{10: {QuestId: 10, Stamina: 1, IsUsableSkipTicket: true, DailyClearableCount: 2}},

@@ -11,17 +11,18 @@ import (
 	"strings"
 	"time"
 
+	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/runtime"
+	"lunar-tear/server/internal/store"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	pb "lunar-tear/server/gen/proto"
-	"lunar-tear/server/internal/gametime"
-	"lunar-tear/server/internal/model"
-	"lunar-tear/server/internal/runtime"
-	"lunar-tear/server/internal/store"
 )
 
 type UserServiceServer struct {
@@ -96,8 +97,8 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 }
 
 func advanceLoginState(login *store.UserLoginState, nowMillis int64) {
-	today := startOfUTCDayMillis(nowMillis)
-	lastDay := startOfUTCDayMillis(login.LastLoginDatetime)
+	today := gametime.StartOfBusinessDayAtMillis(nowMillis)
+	lastDay := gametime.StartOfBusinessDayAtMillis(login.LastLoginDatetime)
 
 	if login.LastLoginDatetime == 0 {
 		login.TotalLoginCount = 1

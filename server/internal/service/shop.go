@@ -160,7 +160,7 @@ func (s *ShopServiceServer) RefreshUserData(ctx context.Context, req *pb.Refresh
 
 	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		isFreeRefreshDue := len(user.ShopReplaceableLineup) == 0 || user.ShopReplaceable.LatestLineupUpdateDatetime < shopStartOfUTCDayMillis(nowMillis)
+		isFreeRefreshDue := len(user.ShopReplaceableLineup) == 0 || user.ShopReplaceable.LatestLineupUpdateDatetime < gametime.StartOfBusinessDayAtMillis(nowMillis)
 		if !req.IsGemUsed && !isFreeRefreshDue {
 			return
 		}
@@ -233,11 +233,6 @@ func (s *ShopServiceServer) PurchaseGooglePlayStoreProduct(ctx context.Context, 
 	return nil, status.Error(codes.FailedPrecondition, "platform purchases are disabled")
 }
 
-func shopStartOfUTCDayMillis(nowMillis int64) int64 {
-	now := time.UnixMilli(nowMillis).UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).UnixMilli()
-}
-
 func nextReplaceableRefreshCount(currentCount int32, isNewDay bool) int32 {
 	if isNewDay {
 		return 1
@@ -303,18 +298,18 @@ func resetShopItemStockIfDue(item store.UserShopItemState, rule masterdata.ShopL
 		if rule.AutoResetPeriod < 1 || rule.AutoResetPeriod > 7 {
 			return item, fmt.Errorf("invalid weekly reset day %d", rule.AutoResetPeriod)
 		}
-		now := time.UnixMilli(nowMillis).UTC()
+		now := gametime.InBusinessLocation(nowMillis)
 		currentWeekday := int32(now.Weekday())
 		if currentWeekday == 0 {
 			currentWeekday = 7
 		}
 		daysSinceReset := (currentWeekday - rule.AutoResetPeriod + 7) % 7
-		boundaryMillis = time.Date(now.Year(), now.Month(), now.Day()-int(daysSinceReset), 0, 0, 0, 0, time.UTC).UnixMilli()
+		boundaryMillis = time.Date(now.Year(), now.Month(), now.Day()-int(daysSinceReset), 0, 0, 0, 0, gametime.BusinessLocation()).UnixMilli()
 	case model.ShopItemAutoResetMonthly:
 		if rule.AutoResetPeriod < 1 || rule.AutoResetPeriod > 31 {
 			return item, fmt.Errorf("invalid monthly reset day %d", rule.AutoResetPeriod)
 		}
-		now := time.UnixMilli(nowMillis).UTC()
+		now := gametime.InBusinessLocation(nowMillis)
 		boundary := monthlyShopResetBoundary(now, int(rule.AutoResetPeriod))
 		boundaryMillis = boundary.UnixMilli()
 	default:
@@ -327,9 +322,10 @@ func resetShopItemStockIfDue(item store.UserShopItemState, rule masterdata.ShopL
 }
 
 func monthlyShopResetBoundary(now time.Time, resetDay int) time.Time {
+	now = now.In(gametime.BusinessLocation())
 	year, month := now.Year(), now.Month()
 	day := min(resetDay, daysInMonth(year, month))
-	boundary := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	boundary := time.Date(year, month, day, 0, 0, 0, 0, gametime.BusinessLocation())
 	if now.Before(boundary) {
 		month--
 		if month == 0 {
@@ -337,13 +333,13 @@ func monthlyShopResetBoundary(now time.Time, resetDay int) time.Time {
 			year--
 		}
 		day = min(resetDay, daysInMonth(year, month))
-		boundary = time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+		boundary = time.Date(year, month, day, 0, 0, 0, 0, gametime.BusinessLocation())
 	}
 	return boundary
 }
 
 func daysInMonth(year int, month time.Month) int {
-	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, gametime.BusinessLocation()).Day()
 }
 
 func applyShopContentEffects(catalog *masterdata.ShopCatalog, user *store.UserState, shopItemId, qty int32, nowMillis int64) {

@@ -110,15 +110,10 @@ func validateLoginBonusTerm(term masterdata.LoginBonusTerm, lb store.UserLoginBo
 	if term.StampReceiveEndDatetime != 0 && nowMillis >= term.StampReceiveEndDatetime {
 		return status.Errorf(codes.FailedPrecondition, "login bonus %d stamp receiving has ended", lb.LoginBonusId)
 	}
-	if lb.LatestRewardReceiveDatetime >= startOfUTCDayMillis(nowMillis) {
+	if lb.LatestRewardReceiveDatetime >= gametime.StartOfBusinessDayAtMillis(nowMillis) {
 		return status.Error(codes.FailedPrecondition, "login bonus stamp already received today")
 	}
 	return nil
-}
-
-func startOfUTCDayMillis(millis int64) int64 {
-	now := time.UnixMilli(millis).UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).UnixMilli()
 }
 
 func resolveNextStamp(catalog *masterdata.LoginBonusCatalog, lb store.UserLoginBonusState) (nextPage, nextStamp int32, reward masterdata.LoginBonusReward, err error) {

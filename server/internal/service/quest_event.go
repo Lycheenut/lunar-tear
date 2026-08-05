@@ -307,7 +307,7 @@ func (s *QuestServiceServer) ReceiveDailyQuestGroupCompleteReward(ctx context.Co
 	cat := s.holder.Get()
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
-	today := gametime.StartOfDayMillis()
+	today := gametime.StartOfBusinessDayMillis()
 	var validationErr error
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		var active *masterdata.EventQuestDailyGroup
