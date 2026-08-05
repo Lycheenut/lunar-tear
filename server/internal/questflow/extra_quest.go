@@ -26,6 +26,7 @@ func (h *QuestHandler) HandleExtraQuestStart(user *store.UserState, questId, use
 			return err
 		}
 	}
+	clearBattleCheckpoint(user)
 
 	questState := user.Quests[questId]
 	questState.UserDeckNumber = userDeckNumber
@@ -67,6 +68,7 @@ func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int
 	user.ExtraQuest.CurrentQuestId = 0
 	user.ExtraQuest.CurrentQuestSceneId = 0
 	user.ExtraQuest.HeadQuestSceneId = 0
+	clearBattleCheckpoint(user)
 
 	return outcome
 }

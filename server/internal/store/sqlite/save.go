@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -106,10 +107,10 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 			return err
 		}
 	}
-	if err := exec(`INSERT INTO user_battle (user_id, is_active, start_count, finish_count, last_started_at, last_finished_at, last_user_party_count, last_npc_party_count, last_battle_binary_size, last_elapsed_frame_count) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+	if err := exec(`INSERT INTO user_battle (user_id, is_active, start_count, finish_count, last_started_at, last_finished_at, last_user_party_count, last_npc_party_count, last_battle_binary_size, last_elapsed_frame_count, battle_binary) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		uid, boolToInt(u.Battle.IsActive), u.Battle.StartCount, u.Battle.FinishCount, u.Battle.LastStartedAt,
 		u.Battle.LastFinishedAt, u.Battle.LastUserPartyCount, u.Battle.LastNpcPartyCount,
-		u.Battle.LastBattleBinarySize, u.Battle.LastElapsedFrameCount); err != nil {
+		u.Battle.LastBattleBinarySize, u.Battle.LastElapsedFrameCount, u.BattleBinary); err != nil {
 		return err
 	}
 	if err := exec(`INSERT INTO user_notification (user_id, gift_not_receive_count, friend_request_receive_count, is_exist_unread_information) VALUES (?,?,?,?)`,
@@ -729,11 +730,11 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 			}
 		}
 	}
-	if before.Battle != after.Battle {
-		if err := exec(`UPDATE user_battle SET is_active=?, start_count=?, finish_count=?, last_started_at=?, last_finished_at=?, last_user_party_count=?, last_npc_party_count=?, last_battle_binary_size=?, last_elapsed_frame_count=? WHERE user_id=?`,
+	if before.Battle != after.Battle || !bytes.Equal(before.BattleBinary, after.BattleBinary) {
+		if err := exec(`UPDATE user_battle SET is_active=?, start_count=?, finish_count=?, last_started_at=?, last_finished_at=?, last_user_party_count=?, last_npc_party_count=?, last_battle_binary_size=?, last_elapsed_frame_count=?, battle_binary=? WHERE user_id=?`,
 			boolToInt(after.Battle.IsActive), after.Battle.StartCount, after.Battle.FinishCount, after.Battle.LastStartedAt,
 			after.Battle.LastFinishedAt, after.Battle.LastUserPartyCount, after.Battle.LastNpcPartyCount,
-			after.Battle.LastBattleBinarySize, after.Battle.LastElapsedFrameCount, uid); err != nil {
+			after.Battle.LastBattleBinarySize, after.Battle.LastElapsedFrameCount, after.BattleBinary, uid); err != nil {
 			return err
 		}
 	}
