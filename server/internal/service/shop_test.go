@@ -63,10 +63,10 @@ func TestReplaceableRefreshCountResetsBeforeFirstPaidRefreshOfDay(t *testing.T) 
 }
 
 func TestResetShopItemStockIfDue(t *testing.T) {
-	// UTC+9 Monday starts at 15:00 UTC on the preceding Sunday.
-	now := time.Date(2026, time.August, 2, 16, 30, 0, 0, time.UTC)
-	beforeWeeklyReset := time.Date(2026, time.August, 2, 14, 59, 0, 0, time.UTC).UnixMilli()
-	afterWeeklyReset := time.Date(2026, time.August, 2, 15, 30, 0, 0, time.UTC).UnixMilli()
+	// The international server's Monday starts at 08:00 UTC.
+	now := time.Date(2026, time.August, 3, 8, 1, 0, 0, time.UTC)
+	beforeWeeklyReset := time.Date(2026, time.August, 3, 7, 59, 0, 0, time.UTC).UnixMilli()
+	afterWeeklyReset := time.Date(2026, time.August, 3, 8, 0, 0, 0, time.UTC).UnixMilli()
 	rule := masterdata.ShopLimitedStockRule{MaxCount: 5, AutoResetType: model.ShopItemAutoResetWeekly, AutoResetPeriod: 1}
 
 	reset, err := resetShopItemStockIfDue(store.UserShopItemState{BoughtCount: 5, LatestBoughtCountChangedDatetime: beforeWeeklyReset}, rule, now.UnixMilli())
@@ -81,7 +81,7 @@ func TestResetShopItemStockIfDue(t *testing.T) {
 	monthlyRule := masterdata.ShopLimitedStockRule{MaxCount: 5, AutoResetType: model.ShopItemAutoResetMonthly, AutoResetPeriod: 1}
 	monthly, err := resetShopItemStockIfDue(store.UserShopItemState{
 		BoughtCount:                      2,
-		LatestBoughtCountChangedDatetime: time.Date(2026, time.July, 31, 14, 59, 0, 0, time.UTC).UnixMilli(),
+		LatestBoughtCountChangedDatetime: time.Date(2026, time.August, 1, 7, 59, 0, 0, time.UTC).UnixMilli(),
 	}, monthlyRule, now.UnixMilli())
 	if err != nil || monthly.BoughtCount != 0 {
 		t.Fatalf("monthly reset state = %+v, err=%v", monthly, err)
