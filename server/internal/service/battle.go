@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"log"
 
@@ -48,6 +49,7 @@ func (s *BattleServiceServer) FinishWave(ctx context.Context, req *pb.FinishWave
 		user.Battle.LastUserPartyCount = int32(len(req.UserPartyResultInfoList))
 		user.Battle.LastNpcPartyCount = int32(len(req.NpcPartyResultInfoList))
 		user.Battle.LastBattleBinarySize = int32(len(req.BattleBinary))
+		user.BattleBinary = bytes.Clone(req.BattleBinary)
 		user.Battle.LastElapsedFrameCount = req.ElapsedFrameCount
 		user.Battle.MissionDetail = store.BattleMissionDetailState{}
 		if detail := req.BattleDetail; detail != nil {
@@ -79,4 +81,8 @@ func (s *BattleServiceServer) FinishWave(ctx context.Context, req *pb.FinishWave
 		}
 	})
 	return &pb.FinishWaveResponse{}, nil
+}
+
+func battleCheckpoint(user *store.UserState) []byte {
+	return bytes.Clone(user.BattleBinary)
 }

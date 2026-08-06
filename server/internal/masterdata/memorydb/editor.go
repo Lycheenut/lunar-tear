@@ -137,22 +137,39 @@ func (f *File) Rebuild(edits []Int64Edit) ([]byte, error) {
 	}
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].offset < ordered[j].offset })
 
-	newTOC := make(map[string][2]int, len(ordered))
 	var data bytes.Buffer
-	for _, entry := range ordered {
+	for i, entry := range ordered {
 		part, replaced := replacements[entry.name]
 		if !replaced {
 			part = f.dataBlob[entry.offset : entry.offset+entry.length]
 		}
-		newTOC[entry.name] = [2]int{data.Len(), len(part)}
+		ordered[i].offset = data.Len()
+		ordered[i].length = len(part)
 		_, _ = data.Write(part)
 	}
 
+	// Preserve the official table order as well as the signed int32 widths. The
+	// client walks the TOC in serialized order while consuming the data blob;
+	// emitting a Go map randomizes that order even though the explicit offsets
+	// still make the file readable by our looser server parser.
 	var header bytes.Buffer
 	enc := msgpack.NewEncoder(&header)
-	enc.SetSortMapKeys(true)
-	if err := enc.Encode(newTOC); err != nil {
+	if err := enc.EncodeMapLen(len(ordered)); err != nil {
 		return nil, fmt.Errorf("encode header: %w", err)
+	}
+	for _, entry := range ordered {
+		if err := enc.EncodeString(entry.name); err != nil {
+			return nil, fmt.Errorf("encode header table name %q: %w", entry.name, err)
+		}
+		if err := enc.EncodeArrayLen(2); err != nil {
+			return nil, fmt.Errorf("encode header range for %q: %w", entry.name, err)
+		}
+		if err := enc.EncodeInt32(int32(entry.offset)); err != nil {
+			return nil, fmt.Errorf("encode header offset for %q: %w", entry.name, err)
+		}
+		if err := enc.EncodeInt32(int32(entry.length)); err != nil {
+			return nil, fmt.Errorf("encode header length for %q: %w", entry.name, err)
+		}
 	}
 	decrypted := append(header.Bytes(), data.Bytes()...)
 	encrypted, err := encrypt(decrypted)

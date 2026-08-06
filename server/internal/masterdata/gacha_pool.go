@@ -332,11 +332,13 @@ func (pool *GachaCatalog) BuildFeaturedFromTerms(entries []store.GachaCatalogEnt
 		gachaEligible++
 
 		costumes, weapons := pool.unionTermFeatured(entry.StartDatetime)
+		usedShopFallback := false
 
 		if len(costumes) == 0 && len(weapons) == 0 && entry.MedalConsumableItemId != 0 {
 			if shopEntries, ok := pool.ShopFeaturedByMedal[entry.MedalConsumableItemId]; ok {
 				costumes, weapons = pool.featuredFromShop(shopEntries)
 				if len(costumes) > 0 || len(weapons) > 0 {
+					usedShopFallback = true
 					fromShop++
 				}
 			}
@@ -344,8 +346,11 @@ func (pool *GachaCatalog) BuildFeaturedFromTerms(entries []store.GachaCatalogEnt
 		if len(costumes) == 0 && len(weapons) == 0 {
 			continue
 		}
-		sort.Slice(costumes, func(i, j int) bool { return costumes[i].PossessionId < costumes[j].PossessionId })
-		sort.Slice(weapons, func(i, j int) bool { return weapons[i].PossessionId < weapons[j].PossessionId })
+		// Exchange shop cells already carry the authoritative display order.
+		if !usedShopFallback {
+			sort.Slice(costumes, func(i, j int) bool { return costumes[i].PossessionId < costumes[j].PossessionId })
+			sort.Slice(weapons, func(i, j int) bool { return weapons[i].PossessionId < weapons[j].PossessionId })
+		}
 
 		pool.FeaturedByGacha[entry.GachaId] = FeaturedSet{Costumes: costumes, Weapons: weapons}
 		matched++

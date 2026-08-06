@@ -26,6 +26,7 @@ func (h *QuestHandler) HandleEventQuestStart(user *store.UserState, eventQuestCh
 			return err
 		}
 	}
+	clearBattleCheckpoint(user)
 
 	questState := user.Quests[questId]
 	questState.IsBattleOnly = isBattleOnly
@@ -72,6 +73,7 @@ func (h *QuestHandler) HandleEventQuestFinish(user *store.UserState, eventQuestC
 	user.EventQuest.CurrentQuestSceneId = 0
 	user.EventQuest.HeadQuestSceneId = 0
 	user.EventQuest.LatestVersion = nowMillis
+	clearBattleCheckpoint(user)
 
 	return outcome
 }

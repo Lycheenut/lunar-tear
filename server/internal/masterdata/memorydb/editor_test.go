@@ -77,6 +77,85 @@ func TestFileRebuildRejectsNonInt64Cell(t *testing.T) {
 	}
 }
 
+func TestFileRebuildEncodesTOCValuesAsInt32(t *testing.T) {
+	table, err := msgpack.Marshal([][]interface{}{{int64(1)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := OpenBytes(buildEditorTestFile(t, map[string][]byte{"m_test": table}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rebuilt, err := file.Rebuild(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decrypted, err := decrypt(rebuilt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// map(1), "m_test", array(2), int32(0), int32(table length)
+	wantPrefix := []byte{0x81, 0xa6, 'm', '_', 't', 'e', 's', 't', 0x92, 0xd2, 0, 0, 0, 0, 0xd2}
+	if !bytes.HasPrefix(decrypted, wantPrefix) {
+		t.Fatalf("rebuilt header prefix = %x, want prefix %x", decrypted[:len(wantPrefix)], wantPrefix)
+	}
+}
+
+func TestFileRebuildOrdersTOCByDataOffset(t *testing.T) {
+	tableA, err := msgpack.Marshal([][]interface{}{{int64(1)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tableB, err := msgpack.Marshal([][]interface{}{{int64(2)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := OpenBytes(buildEditorTestFile(t, map[string][]byte{
+		"m_z_table": tableA,
+		"m_a_table": tableB,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rebuilt, err := file.Rebuild(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decrypted, err := decrypt(rebuilt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := msgpack.NewDecoder(bytes.NewReader(decrypted))
+	tableCount, err := decoder.DecodeMapLen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousEnd := 0
+	for i := 0; i < tableCount; i++ {
+		name, err := decoder.DecodeString()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decoder.DecodeArrayLen(); err != nil {
+			t.Fatal(err)
+		}
+		offset, err := decoder.DecodeInt64()
+		if err != nil {
+			t.Fatal(err)
+		}
+		length, err := decoder.DecodeInt64()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int(offset) != previousEnd {
+			t.Fatalf("table %q offset = %d, want contiguous offset %d", name, offset, previousEnd)
+		}
+		previousEnd += int(length)
+	}
+}
+
 func buildEditorTestFile(t *testing.T, tables map[string][]byte) []byte {
 	t.Helper()
 	toc := make(map[string][2]int, len(tables))

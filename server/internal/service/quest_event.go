@@ -254,12 +254,16 @@ func (s *QuestServiceServer) RestartEventQuest(ctx context.Context, req *pb.Rest
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	var validationErr error
+	var battleBinary []byte
+	var deckNumber int32
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if err := engine.ValidateEventQuestContinuation(user, req.EventQuestChapterId, req.QuestId, nowMillis); err != nil {
 			validationErr = err
 			return
 		}
 		engine.HandleEventQuestRestart(user, req.EventQuestChapterId, req.QuestId, nowMillis)
+		battleBinary = battleCheckpoint(user)
+		deckNumber = user.Quests[req.QuestId].UserDeckNumber
 	})
 	if updateErr != nil {
 		return nil, fmt.Errorf("restart event quest: %w", updateErr)
@@ -270,6 +274,8 @@ func (s *QuestServiceServer) RestartEventQuest(ctx context.Context, req *pb.Rest
 
 	return &pb.RestartEventQuestResponse{
 		BattleDropReward: []*pb.BattleDropReward{},
+		BattleBinary:     battleBinary,
+		DeckNumber:       deckNumber,
 	}, nil
 }
 

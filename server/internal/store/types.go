@@ -58,6 +58,7 @@ type UserState struct {
 	BigHuntDeckNumber        int32
 
 	Battle         BattleState
+	BattleBinary   []byte
 	Gifts          GiftState
 	Gacha          GachaState
 	Notifications  NotificationState

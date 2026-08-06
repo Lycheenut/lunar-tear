@@ -210,9 +210,11 @@ func (s *QuestServiceServer) RestartMainQuest(ctx context.Context, req *pb.Resta
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	var deckNumber int32
+	var battleBinary []byte
 	s.users.UpdateUser(userId, func(user *store.UserState) {
 		engine.HandleQuestRestart(user, req.QuestId, gametime.NowMillis())
 		deckNumber = user.Quests[req.QuestId].UserDeckNumber
+		battleBinary = battleCheckpoint(user)
 	})
 
 	drops := engine.BattleDropRewards(req.QuestId)
@@ -227,6 +229,7 @@ func (s *QuestServiceServer) RestartMainQuest(ctx context.Context, req *pb.Resta
 
 	return &pb.RestartMainQuestResponse{
 		BattleDropReward: pbDrops,
+		BattleBinary:     battleBinary,
 		DeckNumber:       deckNumber,
 	}, nil
 }

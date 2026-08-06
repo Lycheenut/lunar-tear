@@ -199,11 +199,11 @@ func load1to1(db *sql.DB, uid int64, u *store.UserState) {
 
 	var isActive, isUnread int
 	_ = db.QueryRow(`SELECT is_active, start_count, finish_count, last_started_at, last_finished_at,
-		last_user_party_count, last_npc_party_count, last_battle_binary_size, last_elapsed_frame_count
+		last_user_party_count, last_npc_party_count, last_battle_binary_size, last_elapsed_frame_count, battle_binary
 		FROM user_battle WHERE user_id=?`, uid).
 		Scan(&isActive, &u.Battle.StartCount, &u.Battle.FinishCount, &u.Battle.LastStartedAt,
 			&u.Battle.LastFinishedAt, &u.Battle.LastUserPartyCount, &u.Battle.LastNpcPartyCount,
-			&u.Battle.LastBattleBinarySize, &u.Battle.LastElapsedFrameCount)
+			&u.Battle.LastBattleBinarySize, &u.Battle.LastElapsedFrameCount, &u.BattleBinary)
 	u.Battle.IsActive = isActive != 0
 
 	_ = db.QueryRow(`SELECT gift_not_receive_count, friend_request_receive_count, is_exist_unread_information
