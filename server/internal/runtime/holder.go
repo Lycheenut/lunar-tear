@@ -8,6 +8,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -29,6 +30,7 @@ import (
 // handler the server needs at runtime. A new *Catalogs is built from scratch
 // on every reload and atomically published via Holder.
 type Catalogs struct {
+	MasterDataHash    string
 	GameConfig        *masterdata.GameConfig
 	Parts             *masterdata.PartsCatalog
 	Quest             *masterdata.QuestCatalog
@@ -36,6 +38,10 @@ type Catalogs struct {
 	GachaEntries      []store.GachaCatalogEntry
 	GachaMedals       map[int32]masterdata.GachaMedalInfo
 	GachaPool         *masterdata.GachaCatalog
+	GachaConfig       *gacha.Config
+	GachaConfigHash   string
+	GachaConfigExists bool
+	PremiumGacha      *gacha.PremiumCatalog
 	Shop              *masterdata.ShopCatalog
 	DupExchange       map[int32][]model.DupExchangeEntry
 	ConditionResolver *masterdata.ConditionResolver
@@ -64,13 +70,18 @@ type Catalogs struct {
 }
 
 type Holder struct {
-	binPath string
-	cur     atomic.Pointer[Catalogs]
-	mu      sync.Mutex
+	binPath         string
+	gachaConfigPath string
+	cur             atomic.Pointer[Catalogs]
+	mu              sync.Mutex
 }
 
 func NewHolder(binPath string) (*Holder, error) {
-	h := &Holder{binPath: binPath}
+	return NewHolderWithGachaConfig(binPath, "")
+}
+
+func NewHolderWithGachaConfig(binPath, gachaConfigPath string) (*Holder, error) {
+	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath}
 	if err := h.Reload(); err != nil {
 		return nil, err
 	}
@@ -81,7 +92,7 @@ func (h *Holder) Reload() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	c, err := loadCatalogs(h.binPath)
+	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, false)
 	if err != nil {
 		return err
 	}
@@ -110,12 +121,12 @@ func (h *Holder) InstallAndReload(candidatePath string) error {
 		}
 	}
 
-	c, err := loadCatalogs(candidatePath)
+	c, err := loadCatalogs(candidatePath, h.gachaConfigPath, false)
 	if err != nil {
 		_ = memorydb.Init(h.binPath)
 		return fmt.Errorf("validate candidate: %w", err)
 	}
-	if err := os.Rename(candidatePath, h.binPath); err != nil {
+	if err := replaceFile(candidatePath, h.binPath); err != nil {
 		_ = memorydb.Init(h.binPath)
 		return fmt.Errorf("install candidate: %w", err)
 	}
@@ -124,11 +135,59 @@ func (h *Holder) InstallAndReload(candidatePath string) error {
 	return nil
 }
 
-func loadCatalogs(path string) (*Catalogs, error) {
+var ErrGachaConfigConflict = errors.New("Gacha config changed since it was loaded")
+
+func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.gachaConfigPath == "" {
+		return fmt.Errorf("Gacha config path is not configured")
+	}
+	current := h.cur.Load()
+	if current == nil || expectedHash == "" || current.GachaConfigHash != expectedHash {
+		return ErrGachaConfigConflict
+	}
+	candidateInfo, err := os.Stat(candidatePath)
+	if err != nil {
+		return fmt.Errorf("stat Gacha config candidate: %w", err)
+	}
+	if candidateInfo.Size() == 0 {
+		return fmt.Errorf("Gacha config candidate is empty")
+	}
+	if currentInfo, statErr := os.Stat(h.gachaConfigPath); statErr == nil {
+		if err := os.Chmod(candidatePath, currentInfo.Mode().Perm()); err != nil {
+			return fmt.Errorf("preserve Gacha config permissions: %w", err)
+		}
+	}
+	c, err := loadCatalogs(h.binPath, candidatePath, true)
+	if err != nil {
+		return fmt.Errorf("validate Gacha config candidate: %w", err)
+	}
+	if err := replaceFile(candidatePath, h.gachaConfigPath); err != nil {
+		return fmt.Errorf("install Gacha config candidate: %w", err)
+	}
+	h.publish(c)
+	return nil
+}
+
+func loadCatalogs(path, gachaConfigPath string, requireCompleteGacha bool) (*Catalogs, error) {
 	if err := memorydb.Init(path); err != nil {
 		return nil, fmt.Errorf("memorydb.Init: %w", err)
 	}
-	c, err := buildCatalogs()
+	masterDataHash, err := gacha.FileHash(path)
+	if err != nil {
+		return nil, fmt.Errorf("hash master data: %w", err)
+	}
+	config := gacha.DefaultConfig()
+	configHash := gacha.ContentHash(nil)
+	configExists := false
+	if gachaConfigPath != "" {
+		config, configHash, configExists, err = gacha.ReadConfig(gachaConfigPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	c, err := buildCatalogs(config, configHash, configExists, masterDataHash, requireCompleteGacha)
 	if err != nil {
 		return nil, fmt.Errorf("buildCatalogs: %w", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"lunar-tear/server/internal/gacha"
 	"lunar-tear/server/internal/masterdataadmin"
 	"lunar-tear/server/internal/runtime"
 )
@@ -22,7 +23,7 @@ var adminAssets embed.FS
 
 // startAdmin serves the token-gated master-data API and its static management
 // UI. The listener stays disabled when LUNAR_ADMIN_TOKEN is empty.
-func startAdmin(listen, binPath string, holder *runtime.Holder) {
+func startAdmin(listen, binPath, gachaConfigPath string, holder *runtime.Holder) {
 	token := os.Getenv("LUNAR_ADMIN_TOKEN")
 	if token == "" {
 		log.Println("[admin] disabled (no LUNAR_ADMIN_TOKEN set)")
@@ -117,6 +118,80 @@ func startAdmin(listen, binPath string, holder *runtime.Holder) {
 		log.Printf("[admin] master data reloaded by %s", r.RemoteAddr)
 		writeAdminJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("/api/admin/gacha-config", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(r) {
+			writeAdminError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			snapshot := holder.Get()
+			catalog, err := masterdataadmin.LoadGachaEditorCatalog(
+				binPath,
+				snapshot.GachaPool,
+				snapshot.Weapon,
+				snapshot.Costume,
+				snapshot.GachaEntries,
+				snapshot.GachaConfig,
+				snapshot.GachaConfigHash,
+				snapshot.MasterDataHash,
+				snapshot.GachaConfigExists,
+			)
+			if err != nil {
+				log.Printf("[admin] read Gacha config failed: %v", err)
+				writeAdminError(w, http.StatusInternalServerError, "读取 Gacha 配置失败")
+				return
+			}
+			writeAdminJSON(w, http.StatusOK, catalog)
+		case http.MethodPost:
+			updateMu.Lock()
+			defer updateMu.Unlock()
+			var request struct {
+				ExpectedContentHash string       `json:"expectedContentHash"`
+				Config              gacha.Config `json:"config"`
+			}
+			body := http.MaxBytesReader(w, r.Body, 4<<20)
+			decoder := json.NewDecoder(body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&request); err != nil {
+				writeAdminError(w, http.StatusBadRequest, "请求格式无效: "+err.Error())
+				return
+			}
+			snapshot := holder.Get()
+			request.Config.SourceMasterDataHash = snapshot.MasterDataHash
+			filtered := gacha.ConfigWithoutAutomaticEventWeapons(&request.Config, snapshot.GachaPool)
+			raw, _, err := gacha.EncodeConfig(filtered)
+			if err != nil {
+				writeAdminError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			candidate, err := writeGachaCandidate(gachaConfigPath, raw)
+			if err != nil {
+				log.Printf("[admin] write Gacha candidate failed: %v", err)
+				writeAdminError(w, http.StatusInternalServerError, "写入 Gacha 候选配置失败")
+				return
+			}
+			defer os.Remove(candidate)
+			if err := holder.InstallGachaConfig(candidate, request.ExpectedContentHash); err != nil {
+				if errors.Is(err, runtime.ErrGachaConfigConflict) {
+					writeAdminError(w, http.StatusConflict, "Gacha 配置已被其他操作更新，请刷新后重试")
+					return
+				}
+				writeAdminError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			updated := holder.Get()
+			log.Printf("[admin] installed Gacha config from %s: %d weapons, %d banners", r.RemoteAddr, len(updated.GachaConfig.Weapons), len(updated.GachaConfig.Banners))
+			writeAdminJSON(w, http.StatusOK, map[string]interface{}{
+				"contentHash":    updated.GachaConfigHash,
+				"masterDataHash": updated.MasterDataHash,
+			})
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			writeAdminError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	})
 
 	server := &http.Server{
 		Addr:              listen,
@@ -166,6 +241,33 @@ func serveAdminAsset(w http.ResponseWriter, r *http.Request) {
 func writeCandidate(binPath string, data []byte) (path string, err error) {
 	directory := filepath.Dir(binPath)
 	file, err := os.CreateTemp(directory, ".master-data-admin-*.bin.e")
+	if err != nil {
+		return "", err
+	}
+	path = file.Name()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+		if err != nil {
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err = file.Write(data); err != nil {
+		return "", err
+	}
+	if err = file.Sync(); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func writeGachaCandidate(configPath string, data []byte) (path string, err error) {
+	directory := filepath.Dir(configPath)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(directory, ".gacha-admin-*.json")
 	if err != nil {
 		return "", err
 	}

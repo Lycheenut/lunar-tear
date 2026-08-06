@@ -14,6 +14,11 @@ if [ -n "${LUNAR_ADMIN_LISTEN}" ]; then
   ADMIN_FLAG="--admin-listen ${LUNAR_ADMIN_LISTEN}"
 fi
 
+GACHA_CONFIG_FLAG=""
+if [ -n "${LUNAR_GACHA_CONFIG}" ]; then
+  GACHA_CONFIG_FLAG="--gacha-config ${LUNAR_GACHA_CONFIG}"
+fi
+
 REGISTER_FLAG=""
 case "${LUNAR_NO_REGISTER:-}" in
   1|true|TRUE|yes|YES)
@@ -27,4 +32,5 @@ exec ./lunar-tear \
   --octo-url "${LUNAR_OCTO_URL}" \
   ${AUTH_FLAG} \
   ${ADMIN_FLAG} \
+  ${GACHA_CONFIG_FLAG} \
   ${REGISTER_FLAG}

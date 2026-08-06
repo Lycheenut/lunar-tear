@@ -14,7 +14,7 @@ import (
 // buildCatalogs runs the full Load*/Build*/Enrich* sequence against whatever
 // memorydb currently holds and returns a fully populated *Catalogs. Called
 // once at startup and again on every reload.
-func buildCatalogs() (*Catalogs, error) {
+func buildCatalogs(gachaConfig *gacha.Config, gachaConfigHash string, gachaConfigExists bool, masterDataHash string, requireCompleteGacha bool) (*Catalogs, error) {
 	log.Printf("master data loaded (%d tables)", memorydb.TableCount())
 
 	gameConfig, err := masterdata.LoadGameConfig()
@@ -77,11 +77,16 @@ func buildCatalogs() (*Catalogs, error) {
 	log.Printf("shop catalog loaded: %d items, %d content groups, %d exchange shops",
 		len(shopCatalog.Items), len(shopCatalog.Contents), len(shopCatalog.ExchangeShopCells))
 
-	gachaPool.BuildShopFeatured(shopCatalog)
 	gachaPool.PruneUnpairedCostumes()
-	gachaPool.BuildFeaturedFromTerms(gachaEntries)
-	gachaPool.BuildBannerPools(gachaEntries)
+	premiumGacha, err := gacha.BuildPremiumCatalog(gachaConfig, gachaPool, gachaEntries, gacha.BuildOptions{
+		RequireComplete:       requireCompleteGacha,
+		CurrentMasterDataHash: masterDataHash,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build configured Gacha pools: %w", err)
+	}
 	masterdata.EnrichCatalogPromotions(gachaEntries, gachaPool)
+	gacha.ApplyConfiguredPromotions(gachaEntries, premiumGacha)
 
 	dupExchange, err := masterdata.LoadDupExchange()
 	if err != nil {
@@ -99,7 +104,7 @@ func buildCatalogs() (*Catalogs, error) {
 	questHandler.Granter.CostumeDupExchange = dupExchange
 	questHandler.Granter.CompanionDupExchange = companionDupExchange
 
-	gachaHandler := gacha.NewGachaHandler(gachaPool, gameConfig, questHandler.Granter, medalInfo, dupExchange)
+	gachaHandler := gacha.NewGachaHandler(gachaPool, premiumGacha, gameConfig, questHandler.Granter, medalInfo, dupExchange)
 
 	cageOrnamentCatalog := masterdata.LoadCageOrnamentCatalog()
 	loginBonusCatalog := masterdata.LoadLoginBonusCatalog()
@@ -164,6 +169,7 @@ func buildCatalogs() (*Catalogs, error) {
 	}
 
 	return &Catalogs{
+		MasterDataHash:    masterDataHash,
 		GameConfig:        gameConfig,
 		Parts:             partsCatalog,
 		Quest:             questCatalog,
@@ -171,6 +177,10 @@ func buildCatalogs() (*Catalogs, error) {
 		GachaEntries:      gachaEntries,
 		GachaMedals:       medalInfo,
 		GachaPool:         gachaPool,
+		GachaConfig:       gachaConfig,
+		GachaConfigHash:   gachaConfigHash,
+		GachaConfigExists: gachaConfigExists,
+		PremiumGacha:      premiumGacha,
 		Shop:              shopCatalog,
 		DupExchange:       dupExchange,
 		ConditionResolver: conditionResolver,

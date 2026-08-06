@@ -23,6 +23,7 @@ func main() {
 	octoURL := flag.String("octo-url", "", "Octo CDN base URL the client will use for assets (e.g. http://10.0.2.2:8080)")
 	authURL := flag.String("auth-url", "", "Auth server base URL for Facebook token validation (e.g. http://localhost:3000)")
 	adminListen := flag.String("admin-listen", "127.0.0.1:8082", "admin UI/API listen address (host:port). Loopback by default; only binds when LUNAR_ADMIN_TOKEN is set.")
+	gachaConfigPath := flag.String("gacha-config", "config/gacha.json", "server-owned plaintext Gacha configuration path")
 	noRegister := flag.Bool("no-register", false, "Disallow new account registrations for clients, when present. Default = false")
 	flag.Parse()
 
@@ -30,7 +31,7 @@ func main() {
 		log.Fatalf("--octo-url is required (e.g. http://10.0.2.2:8080)")
 	}
 
-	holder, err := runtime.NewHolder(masterDataPath)
+	holder, err := runtime.NewHolderWithGachaConfig(masterDataPath, *gachaConfigPath)
 	if err != nil {
 		log.Fatalf("init master data: %v", err)
 	}
@@ -49,7 +50,7 @@ func main() {
 
 	grpcServer := startGRPC(*listen, *publicAddr, *octoURL, *authURL, userStore, holder, *noRegister)
 
-	startAdmin(*adminListen, masterDataPath, holder)
+	startAdmin(*adminListen, masterDataPath, *gachaConfigPath, holder)
 
 	<-ctx.Done()
 	log.Println("shutting down...")

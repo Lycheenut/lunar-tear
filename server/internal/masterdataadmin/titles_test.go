@@ -1,6 +1,10 @@
 package masterdataadmin
 
-import "testing"
+import (
+	"testing"
+
+	"lunar-tear/server/internal/masterdata"
+)
 
 func TestResolveAdditionalAssetTitles(t *testing.T) {
 	resolver := &titleResolver{
@@ -80,5 +84,29 @@ func TestEventChapterTitlesCombinesDistinctRelations(t *testing.T) {
 	}
 	if _, exists := titles["ko"]; exists {
 		t.Fatal("unexpected empty Korean title")
+	}
+}
+
+func TestWeaponTitlesUsesAssetNameKey(t *testing.T) {
+	resolver := &titleResolver{texts: localizationIndex{
+		"en": {"weapon.name.wp001051.1": "Black Sunflower"},
+		"ja": {},
+		"ko": {},
+	}}
+	titles := weaponTitles(resolver, masterdata.EntityMWeapon{WeaponCategoryType: 1, WeaponType: 1, AssetVariationId: 51})
+	if titles["en"] != "Black Sunflower" {
+		t.Fatalf("weapon title = %q", titles["en"])
+	}
+}
+
+func TestCostumeTitlesUsesSkeletonAndVariationKey(t *testing.T) {
+	resolver := &titleResolver{texts: localizationIndex{
+		"en": {"costume.name.ch008001": "Celebratory Assassin"},
+		"ja": {},
+		"ko": {},
+	}}
+	titles := costumeTitles(resolver, masterdata.EntityMCostume{ActorSkeletonId: 8, AssetVariationId: 1})
+	if titles["en"] != "Celebratory Assassin" {
+		t.Fatalf("costume title = %q", titles["en"])
 	}
 }

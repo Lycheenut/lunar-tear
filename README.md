@@ -218,6 +218,7 @@ values in `ARGS` take precedence. `make restart` re-detects the address.
 | `--db`           | `db/game.db`     | SQLite database path                                                        |
 | `--auth-url`     | _(empty)_        | Auth server base URL (e.g. `http://localhost:3000`)                         |
 | `--admin-listen` | `127.0.0.1:8082` | Admin UI/API listen address. Only binds when `LUNAR_ADMIN_TOKEN` is set.    |
+| `--gacha-config` | `config/gacha.json` | Plaintext Gacha classification, limited-set, and pickup configuration.    |
 | `--no-register`  | `false`          | Disable new user registrations (only already registered users can connect). |
 
 ### Master Data Management and Live Reload
@@ -232,6 +233,10 @@ The management UI reads every table whose schema has a matching `*StartDatetime`
 4. Atomically replaces the file shared by the game server and CDN, then publishes the new in-memory catalogs.
 
 The UI uses a content hash for optimistic locking, so a stale browser cannot overwrite a newer master-data file. The asset directory and existing `.bin.e` must be writable by the `lunar-tear` process.
+
+The **Gacha Configuration** tab builds a developer-facing weapon reference from master data (ID, localized weapon name, paired Costume name, attribute, weapon type, and star rating), with filters for attribute, weapon type, and whether a weapon grants a character. Every eligible weapon defaults to standard and therefore needs no JSON entry; developers only store per-weapon event/limited overrides, allowed limited sets, and ordered pickup lists. Root weapons automatically excluded by master data are omitted from both the editor and the published file. The page previews both normal-draw and tenth-draw probabilities before publishing. Publishing validates every override and banner pool, writes `--gacha-config` as readable JSON, and atomically swaps the live catalog; it never modifies or imports these choices into master data. With no configuration file, all eligible weapons remain available as standard weapons and every banner has no limited sets or pickups.
+
+At draw time, the server first selects one of the six `grant type × rarity` groups using the configured group weights. If that group has pickups, the group probability is divided 50/50 between all pickups and all non-pickups, with uniform selection inside each side. On every tenth result, each 2-star group's full weight moves to the 3-star group with the same grant type while 4-star weights stay unchanged. Event-only weapons never enter a pool, standard weapons enter every premium banner, and limited weapons enter only banners that allow their limited set.
 
 To swap in an externally edited file **without restarting** the server:
 
@@ -296,6 +301,7 @@ The game server is configured via environment variables in the compose file:
 | `LUNAR_AUTH_URL`     | Auth server base URL (optional)                                                       |
 | `LUNAR_ADMIN_LISTEN` | Admin UI/API bind address inside the container (compose default: `0.0.0.0:8082`)      |
 | `LUNAR_ADMIN_TOKEN`  | Bearer token for admin data APIs. **The admin listener does not bind unless this is set.** |
+| `LUNAR_GACHA_CONFIG` | Plaintext Gacha config path (compose uses `db/gacha.json` so it persists with the DB volume). |
 
 Auth is optional — if `LUNAR_AUTH_URL` is unset the game server starts without it. The admin service is published to `127.0.0.1:8082` on the host so it cannot be reached directly; the production nginx template exposes it at `https://admin.example.com/admin/` through Cloudflare while keeping the Bearer-token API gate. Set `LUNAR_ADMIN_TOKEN` (e.g. via a `.env` file) before bringing the stack up.
 
