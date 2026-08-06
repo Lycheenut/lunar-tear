@@ -81,6 +81,7 @@ func CloneUserState(u UserState) UserState {
 		Received:    cloneReceivedGifts(u.Gifts.Received),
 	}
 	out.Battle = u.Battle
+	out.BattleBinary = append([]byte(nil), u.BattleBinary...)
 	out.SideStoryQuests = maps.Clone(u.SideStoryQuests)
 	out.QuestLimitContentStatus = maps.Clone(u.QuestLimitContentStatus)
 	out.BigHuntMaxScores = maps.Clone(u.BigHuntMaxScores)

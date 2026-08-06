@@ -70,6 +70,7 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 			return err
 		}
 	}
+	clearBattleCheckpoint(user)
 
 	questState := user.Quests[questId]
 	questState.IsBattleOnly = isBattleOnly
@@ -267,6 +268,10 @@ func restoreClearedAfterRetire(user *store.UserState, questId int32, isRetired b
 	}
 }
 
+func clearBattleCheckpoint(user *store.UserState) {
+	user.BattleBinary = nil
+}
+
 func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {
 	quest, ok := h.QuestById[questId]
 	if !ok {
@@ -329,6 +334,7 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 			questId, ctx.CurrentMainQuestRouteId, ctx.MainQuestSeasonId,
 			ctx.CurrentQuestSceneId, ctx.HeadQuestSceneId, ctx.PortalCageInProgress, ctx.CurrentQuestFlowType)
 	}
+	clearBattleCheckpoint(user)
 
 	return outcome
 }
