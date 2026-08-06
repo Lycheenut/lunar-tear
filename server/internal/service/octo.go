@@ -209,12 +209,9 @@ func (s *OctoHTTPServer) handleAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Master data download (should not be reached if version matches)
+	// Master data download advertised by ConfigService.MasterData.UrlFormat.
 	if strings.HasPrefix(path, "/master-data/") {
-		log.Printf("[HTTP] Master data request for path: %s — returning empty", path)
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", "0")
-		w.WriteHeader(200)
+		s.serveDatabaseBinE(w, r, path)
 		return
 	}
 
