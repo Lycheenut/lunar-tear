@@ -52,7 +52,10 @@ type GachaCatalog struct {
 	Materials                []GachaPoolItem
 	CostumeById              map[int32]GachaPoolItem
 	WeaponById               map[int32]GachaPoolItem
-	CostumeWeaponMap         map[int32]int32 // costumeId -> paired weaponId
+	ConfigurableWeaponById   map[int32]GachaPoolItem // catalog root weapons with a supported Gacha rarity
+	EligibleWeaponById       map[int32]GachaPoolItem // configurable weapons allowed to enter a configured pool
+	CostumeWeaponMap         map[int32]int32         // costumeId -> paired weaponId
+	CostumeByWeaponId        map[int32]GachaPoolItem // paired catalog costume selected by weaponId
 	FeaturedByGacha          map[int32]FeaturedSet
 	BannerPools              map[int32]*BannerPool
 	ShopFeaturedByMedal      map[int32][]ShopFeaturedEntry // consumableId -> paired entries
@@ -141,14 +144,17 @@ func LoadGachaPool() (*GachaCatalog, error) {
 	}
 
 	pool := &GachaCatalog{
-		CostumesByRarity:     make(map[int32][]GachaPoolItem),
-		WeaponsByRarity:      make(map[int32][]GachaPoolItem),
-		CostumeById:          make(map[int32]GachaPoolItem),
-		WeaponById:           make(map[int32]GachaPoolItem),
-		CostumeWeaponMap:     make(map[int32]int32),
-		FeaturedByGacha:      make(map[int32]FeaturedSet),
-		TermById:             make(map[int32]*CatalogTerm),
-		TermsByStartDatetime: make(map[int64][]*CatalogTerm),
+		CostumesByRarity:       make(map[int32][]GachaPoolItem),
+		WeaponsByRarity:        make(map[int32][]GachaPoolItem),
+		CostumeById:            make(map[int32]GachaPoolItem),
+		WeaponById:             make(map[int32]GachaPoolItem),
+		ConfigurableWeaponById: make(map[int32]GachaPoolItem),
+		EligibleWeaponById:     make(map[int32]GachaPoolItem),
+		CostumeWeaponMap:       make(map[int32]int32),
+		CostumeByWeaponId:      make(map[int32]GachaPoolItem),
+		FeaturedByGacha:        make(map[int32]FeaturedSet),
+		TermById:               make(map[int32]*CatalogTerm),
+		TermsByStartDatetime:   make(map[int64][]*CatalogTerm),
 	}
 	for _, t := range terms {
 		ct := &CatalogTerm{TermId: t.CatalogTermId, StartDatetime: t.StartDatetime}
@@ -189,14 +195,17 @@ func LoadGachaPool() (*GachaCatalog, error) {
 			evolvedFilteredCount++
 			continue
 		}
-		if questGrantedWeapons[w.WeaponId] {
-			questGrantedWeaponCount++
-			continue
-		}
 		item := GachaPoolItem{
 			PossessionType: int32(model.PossessionTypeWeapon),
 			PossessionId:   w.WeaponId,
 			RarityType:     w.RarityType,
+		}
+		if w.RarityType == model.RarityRare || w.RarityType == model.RaritySRare || w.RarityType == model.RaritySSRare {
+			pool.ConfigurableWeaponById[w.WeaponId] = item
+		}
+		if questGrantedWeapons[w.WeaponId] {
+			questGrantedWeaponCount++
+			continue
 		}
 		pool.WeaponById[w.WeaponId] = item
 		if w.IsRestrictDiscard {
@@ -204,6 +213,7 @@ func LoadGachaPool() (*GachaCatalog, error) {
 			continue
 		}
 		pool.WeaponsByRarity[w.RarityType] = append(pool.WeaponsByRarity[w.RarityType], item)
+		pool.EligibleWeaponById[w.WeaponId] = item
 	}
 
 	// Bucket catalog items into their terms (uses the post-filter CostumeById/WeaponById).
@@ -253,6 +263,11 @@ func LoadGachaPool() (*GachaCatalog, error) {
 	for costumeId := range pool.CostumeById {
 		if wid, ok := costumeWeaponPairings[costumeId]; ok {
 			pool.CostumeWeaponMap[costumeId] = wid
+			if _, eligible := pool.EligibleWeaponById[wid]; eligible {
+				if previous, exists := pool.CostumeByWeaponId[wid]; !exists || costumeId < previous.PossessionId {
+					pool.CostumeByWeaponId[wid] = pool.CostumeById[costumeId]
+				}
+			}
 		}
 	}
 	log.Printf("[GachaPool] costume-weapon pairing: %d entries from lookup table", len(pool.CostumeWeaponMap))

@@ -30,6 +30,7 @@ services:
       LUNAR_AUTH_URL: http://auth:3000
       LUNAR_ADMIN_LISTEN: 0.0.0.0:8082
       LUNAR_ADMIN_TOKEN: ${LUNAR_ADMIN_TOKEN:?set LUNAR_ADMIN_TOKEN}
+      LUNAR_GACHA_CONFIG: db/gacha.json
       LUNAR_NO_REGISTER: "true"
     volumes:
       - ${DATA_DIR:?set DATA_DIR}/db:/opt/lunar-tear/db

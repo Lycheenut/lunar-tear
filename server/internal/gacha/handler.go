@@ -27,6 +27,7 @@ type DuplicateInfo struct {
 
 type GachaHandler struct {
 	Pool        *masterdata.GachaCatalog
+	Premium     *PremiumCatalog
 	Config      *masterdata.GameConfig
 	Granter     *store.PossessionGranter
 	MedalInfo   map[int32]masterdata.GachaMedalInfo
@@ -40,6 +41,7 @@ const (
 
 func NewGachaHandler(
 	pool *masterdata.GachaCatalog,
+	premium *PremiumCatalog,
 	config *masterdata.GameConfig,
 	granter *store.PossessionGranter,
 	medalInfo map[int32]masterdata.GachaMedalInfo,
@@ -47,6 +49,7 @@ func NewGachaHandler(
 ) *GachaHandler {
 	return &GachaHandler{
 		Pool:        pool,
+		Premium:     premium,
 		Config:      config,
 		Granter:     granter,
 		MedalInfo:   medalInfo,
@@ -72,6 +75,11 @@ func (h *GachaHandler) HandleDraw(
 	}
 	if entry.GachaLabelType == model.GachaLabelEvent && len(entry.BoxItems) == 0 {
 		return nil, fmt.Errorf("event gacha %d has no box catalog", entry.GachaId)
+	}
+	if entry.GachaLabelType == model.GachaLabelPremium {
+		if h.Premium == nil || h.Premium.Banners[entry.GachaId] == nil {
+			return nil, fmt.Errorf("premium gacha %d is not configured", entry.GachaId)
+		}
 	}
 
 	bs := user.Gacha.BannerStates[entry.GachaId]
@@ -99,11 +107,6 @@ func (h *GachaHandler) HandleDraw(
 		return nil, fmt.Errorf("event gacha %d has insufficient box items", entry.GachaId)
 	}
 	totalCost := int32(totalCost64)
-	if totalCost > 0 {
-		if err := store.DeductPrice(user, phase.PriceType, phase.PriceId, totalCost); err != nil {
-			return nil, err
-		}
-	}
 
 	drawCount := int(drawCount64)
 	nowMillis := gametime.NowMillis()
@@ -112,13 +115,24 @@ func (h *GachaHandler) HandleDraw(
 
 	switch entry.GachaLabelType {
 	case model.GachaLabelPremium:
-		items = h.drawPremium(entry, phase, drawCount)
+		items, err = h.drawPremium(entry, phase, drawCount)
+		if err != nil {
+			return nil, err
+		}
 	case model.GachaLabelChapter, model.GachaLabelRecycle:
 		items = h.drawMaterial(drawCount)
 	case model.GachaLabelEvent:
 		items = h.drawBox(entry, &bs, drawCount)
 	default:
-		items = h.drawPremium(entry, phase, drawCount)
+		items, err = h.drawPremium(entry, phase, drawCount)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if totalCost > 0 {
+		if err := store.DeductPrice(user, phase.PriceType, phase.PriceId, totalCost); err != nil {
+			return nil, err
+		}
 	}
 
 	if entry.GachaModeType == model.GachaModeStepup {
@@ -235,17 +249,11 @@ func (h *GachaHandler) HandleRewardDraw(
 	return items, nil
 }
 
-func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.GachaPricePhaseEntry, count int) []DrawnItem {
+func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.GachaPricePhaseEntry, count int) ([]DrawnItem, error) {
 	fixedMin := phase.FixedRarityMin
 	fixedCount := int(phase.FixedCount)
 
-	bp := h.Pool.BannerPools[entry.GachaId]
-	if bp == nil {
-		bp = &masterdata.BannerPool{
-			CostumesByRarity: h.Pool.CostumesByRarity,
-			WeaponsByRarity:  h.Pool.WeaponsByRarity,
-		}
-	}
+	bp := h.Premium.Banners[entry.GachaId]
 
 	rateMultiplier := 1.0
 	if entry.GachaModeType == model.GachaModeStepup {

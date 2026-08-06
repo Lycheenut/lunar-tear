@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lunar Tear · 限时内容管理</title>
+  <title>Lunar Tear · 内容配置管理</title>
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <p class="eyebrow">LUNAR TEAR / MASTER DATA</p>
-      <h1>限时内容管理</h1>
+      <p class="eyebrow">LUNAR TEAR / ADMIN</p>
+      <h1>内容配置管理</h1>
     </div>
     <div class="top-actions">
       <span id="version" class="version">尚未连接</span>
@@ -35,7 +35,12 @@
     </section>
 
     <section id="workspace" class="workspace hidden" aria-live="polite">
-      <div class="summary-grid">
+      <nav class="admin-tabs" aria-label="配置区域">
+        <button id="tab-master" class="admin-tab active" type="button" aria-pressed="true">限时内容</button>
+        <button id="tab-gacha" class="admin-tab" type="button" aria-pressed="false">Gacha 配置</button>
+      </nav>
+
+      <div class="summary-grid master-only">
         <article class="metric"><span>限时表</span><strong id="table-count">—</strong></article>
         <article class="metric"><span>内容行</span><strong id="row-count">—</strong></article>
         <article class="metric"><span>待应用修改</span><strong id="dirty-count">0</strong></article>
@@ -48,7 +53,7 @@
         </article>
       </div>
 
-      <div class="toolbar">
+      <div class="toolbar master-only">
         <label>数据表
           <select id="table-select"></select>
         </label>
@@ -80,7 +85,7 @@
 
       <div id="notice" class="notice hidden" role="status"></div>
 
-      <section class="data-panel">
+      <section class="data-panel master-only">
         <div class="data-heading">
           <div>
             <p id="entity-name" class="eyebrow"></p>
@@ -98,7 +103,7 @@
         <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
       </section>
 
-      <div class="savebar">
+      <div class="savebar master-only">
         <div>
           <strong id="save-summary">没有待应用的修改</strong>
           <span>应用后会重建主数据、原子替换文件并热更新当前服务。</span>
@@ -108,8 +113,174 @@
           <button id="save" class="button primary" type="button" disabled>重建并应用</button>
         </div>
       </div>
+
+      <section id="gacha-editor" class="gacha-editor hidden">
+        <div class="summary-grid">
+          <article class="metric"><span>常驻候选</span><strong id="gacha-standard-count">0</strong></article>
+          <article class="metric"><span>活动 / 限定覆盖</span><strong id="gacha-override-count">0</strong></article>
+          <article class="metric"><span>付费卡池</span><strong id="gacha-banner-count">0</strong></article>
+          <article class="metric"><span>当前卡池 Pickup</span><strong id="gacha-pickup-count">0</strong></article>
+        </div>
+
+        <div id="gacha-warnings" class="notice gacha-warnings hidden"></div>
+
+        <div class="gacha-layout">
+          <section class="data-panel gacha-weapons-panel">
+            <div class="data-heading">
+              <div>
+                <p class="eyebrow">WEAPON AVAILABILITY</p>
+                <h2>武器分类</h2>
+              </div>
+              <div class="heading-actions">
+                <label>标题语言
+                  <select id="gacha-language-select"></select>
+                </label>
+              </div>
+            </div>
+            <div class="limited-set-editor">
+              <div class="limited-set-create">
+                <label>稳定键
+                  <input id="gacha-limited-set-id" type="text" placeholder="example_limited_01">
+                </label>
+                <label>显示名称
+                  <input id="gacha-limited-set-name" type="text" placeholder="示例限定 01">
+                </label>
+                <button id="gacha-add-limited-set" class="button ghost" type="button">新增限定集合</button>
+              </div>
+              <div id="gacha-limited-sets" class="limited-set-list"></div>
+            </div>
+            <div class="gacha-toolbar">
+              <label class="search-field">搜索武器
+                <input id="gacha-weapon-search" type="search" placeholder="武器 ID、武器名或 Costume 名">
+              </label>
+              <label>分类状态
+                <select id="gacha-availability-filter">
+                  <option value="all">全部</option>
+                  <option value="standard">常驻</option>
+                  <option value="event">活动</option>
+                  <option value="limited">限定</option>
+                </select>
+              </label>
+              <label>属性
+                <select id="gacha-attribute-filter">
+                  <option value="all">全部</option>
+                  <option value="2">火</option>
+                  <option value="5">水</option>
+                  <option value="6">风</option>
+                  <option value="3">光</option>
+                  <option value="1">暗</option>
+                </select>
+              </label>
+              <label>武器类型
+                <select id="gacha-weapon-type-filter">
+                  <option value="all">全部</option>
+                  <option value="1">小剑</option>
+                  <option value="3">大剑</option>
+                  <option value="2">枪</option>
+                  <option value="6">铳</option>
+                  <option value="5">杖</option>
+                  <option value="4">拳</option>
+                </select>
+              </label>
+              <label>赠送角色
+                <select id="gacha-grant-filter">
+                  <option value="all">全部</option>
+                  <option value="character_weapon">是</option>
+                  <option value="weapon_only">否</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-scroll gacha-table-scroll">
+              <table class="gacha-table">
+                <thead>
+                  <tr>
+                    <th>武器 ID</th>
+                    <th>武器名称</th>
+                    <th>Costume 名称</th>
+                    <th>属性</th>
+                    <th>类型</th>
+                    <th>星级</th>
+                    <th>获取类别</th>
+                    <th>限定集合</th>
+                  </tr>
+                </thead>
+                <tbody id="gacha-weapon-body"></tbody>
+              </table>
+            </div>
+            <div id="gacha-weapon-empty" class="empty-state hidden">当前筛选条件下没有武器。</div>
+          </section>
+
+          <aside class="gacha-banner-panel">
+            <section class="data-panel">
+              <div class="data-heading">
+                <div>
+                  <p class="eyebrow">BANNER PICKUP</p>
+                  <h2>卡池配置</h2>
+                </div>
+                <span id="gacha-banner-state" class="row-badge">默认配置</span>
+              </div>
+              <div class="banner-controls">
+                <label>卡池
+                  <select id="gacha-banner-select"></select>
+                </label>
+                <fieldset>
+                  <legend>允许的限定集合</legend>
+                  <div id="gacha-banner-limited-sets" class="check-list"></div>
+                </fieldset>
+                <label>搜索候选武器
+                  <input id="gacha-pickup-search" type="search" placeholder="武器 ID、武器名或 Costume 名">
+                </label>
+              </div>
+              <div class="table-scroll pickup-table-scroll">
+                <table class="pickup-table">
+                  <thead><tr><th>Pickup</th><th>候选武器</th><th>星级</th><th>顺序</th></tr></thead>
+                  <tbody id="gacha-pickup-body"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="data-panel odds-panel">
+              <div class="data-heading">
+                <div>
+                  <p class="eyebrow">PROBABILITY PREVIEW</p>
+                  <h2>概率预览</h2>
+                </div>
+              </div>
+              <div class="table-scroll odds-table-scroll">
+                <table class="odds-table">
+                  <thead><tr><th>随机组</th><th>候选</th><th>Pickup</th><th>普通位</th><th>十连末位</th><th>单件 Pickup</th><th>单件非 Pickup</th></tr></thead>
+                  <tbody id="gacha-odds-body"></tbody>
+                </table>
+              </div>
+            </section>
+          </aside>
+        </div>
+
+        <div class="savebar">
+          <div>
+            <strong id="gacha-save-summary">没有待发布的 Gacha 修改</strong>
+            <span>发布后会原子替换服务端明文配置；不会修改或重新分发主数据。</span>
+          </div>
+          <div class="save-actions">
+            <button id="gacha-discard" class="button ghost" type="button" disabled>放弃修改</button>
+            <button id="gacha-save" class="button primary" type="button" disabled>校验并发布</button>
+          </div>
+        </div>
+      </section>
     </section>
   </main>
+
+  <dialog id="gacha-publish-dialog" class="confirm-dialog">
+    <div>
+      <p class="eyebrow">PUBLISH GACHA CONFIG</p>
+      <h2>发布当前 Gacha 配置？</h2>
+      <p>服务端会重新校验全部武器和卡池，成功后原子替换明文配置并立即切换新请求。</p>
+    </div>
+    <div class="save-actions">
+      <button id="gacha-publish-cancel" class="button ghost" type="button">取消</button>
+      <button id="gacha-publish-confirm" class="button primary" type="button">确认发布</button>
+    </div>
+  </dialog>
 
   <script src="/admin/admin.js" defer></script>
 </body>

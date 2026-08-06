@@ -11,7 +11,22 @@
     entityName: $("#entity-name"), tableName: $("#table-name"), visibleCount: $("#visible-count"),
     tableScroll: $("#table-scroll"), head: $("#schedule-head"), body: $("#schedule-body"),
     grid: $("#schedule-grid"), viewButtons: document.querySelectorAll(".view-button"), empty: $("#empty-state"),
-    saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save")
+    saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
+    tabMaster: $("#tab-master"), tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
+    gachaStandardCount: $("#gacha-standard-count"), gachaOverrideCount: $("#gacha-override-count"),
+    gachaBannerCount: $("#gacha-banner-count"), gachaPickupCount: $("#gacha-pickup-count"), gachaWarnings: $("#gacha-warnings"),
+    gachaLanguageSelect: $("#gacha-language-select"), gachaLimitedSetId: $("#gacha-limited-set-id"),
+    gachaLimitedSetName: $("#gacha-limited-set-name"), gachaAddLimitedSet: $("#gacha-add-limited-set"),
+    gachaLimitedSets: $("#gacha-limited-sets"), gachaWeaponSearch: $("#gacha-weapon-search"),
+    gachaAvailabilityFilter: $("#gacha-availability-filter"), gachaAttributeFilter: $("#gacha-attribute-filter"),
+    gachaWeaponTypeFilter: $("#gacha-weapon-type-filter"), gachaGrantFilter: $("#gacha-grant-filter"),
+    gachaWeaponBody: $("#gacha-weapon-body"), gachaWeaponEmpty: $("#gacha-weapon-empty"),
+    gachaBannerSelect: $("#gacha-banner-select"), gachaBannerState: $("#gacha-banner-state"),
+    gachaBannerLimitedSets: $("#gacha-banner-limited-sets"), gachaPickupSearch: $("#gacha-pickup-search"),
+    gachaPickupBody: $("#gacha-pickup-body"), gachaOddsBody: $("#gacha-odds-body"),
+    gachaSaveSummary: $("#gacha-save-summary"), gachaDiscard: $("#gacha-discard"), gachaSave: $("#gacha-save"),
+    gachaPublishDialog: $("#gacha-publish-dialog"), gachaPublishCancel: $("#gacha-publish-cancel"),
+    gachaPublishConfirm: $("#gacha-publish-confirm")
   };
 
   const state = {
@@ -20,7 +35,11 @@
     view: localStorage.getItem("lunar-admin-view") === "grid" ? "grid" : "list",
     timeMode: "local",
     catalog: null,
-    dirty: new Map()
+    dirty: new Map(),
+    section: "master",
+    gachaCatalog: null,
+    gachaDraft: null,
+    gachaDirty: false
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
   const languageLabels = { en: "English", ja: "日本語", ko: "한국어" };
@@ -47,12 +66,20 @@
   async function loadCatalog() {
     setBusy(true, "正在读取主数据…");
     try {
-      state.catalog = await api("/api/admin/master-data/schedules");
+      const [catalog, gachaCatalog] = await Promise.all([
+        api("/api/admin/master-data/schedules"),
+        api("/api/admin/gacha-config")
+      ]);
+      state.catalog = catalog;
+      state.gachaCatalog = gachaCatalog;
+      resetGachaDraft();
       state.dirty.clear();
       sessionStorage.setItem("lunar-admin-token", state.token);
       showWorkspace();
       renderCatalog();
-      showNotice(`已读取 ${state.catalog.tableCount} 张限时表、${state.catalog.rowCount} 行内容。`);
+      renderGachaEditor();
+      switchAdminSection(state.section);
+      showNotice(`已读取 ${state.catalog.tableCount} 张限时表、${state.catalog.rowCount} 行内容，以及 ${state.gachaCatalog.weapons.length} 件 Gacha 武器。`);
     } catch (error) {
       if (error.status === 401) {
         state.token = "";
@@ -485,6 +512,535 @@
     if (message) showNotice(message);
   }
 
+  const availabilityLabels = { standard: "常驻", event: "活动", limited: "限定" };
+  const weaponAttributeLabels = { 1: "暗", 2: "火", 3: "光", 5: "水", 6: "风" };
+  const weaponTypeLabels = { 1: "小剑", 2: "枪", 3: "大剑", 4: "拳", 5: "杖", 6: "铳" };
+  const gachaGroupDefinitions = [
+    { id: "character_weapon_4", grantType: "character_weapon", star: 4, label: "赠送角色 · 4星" },
+    { id: "weapon_only_4", grantType: "weapon_only", star: 4, label: "仅武器 · 4星" },
+    { id: "character_weapon_3", grantType: "character_weapon", star: 3, label: "赠送角色 · 3星" },
+    { id: "weapon_only_3", grantType: "weapon_only", star: 3, label: "仅武器 · 3星" },
+    { id: "character_weapon_2", grantType: "character_weapon", star: 2, label: "赠送角色 · 2星" },
+    { id: "weapon_only_2", grantType: "weapon_only", star: 2, label: "仅武器 · 2星" }
+  ];
+
+  function switchAdminSection(section) {
+    state.section = section === "gacha" ? "gacha" : "master";
+    const isGacha = state.section === "gacha";
+    document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha));
+    elements.gachaEditor.classList.toggle("hidden", !isGacha);
+    elements.tabMaster.classList.toggle("active", !isGacha);
+    elements.tabGacha.classList.toggle("active", isGacha);
+    elements.tabMaster.setAttribute("aria-pressed", String(!isGacha));
+    elements.tabGacha.setAttribute("aria-pressed", String(isGacha));
+    if (isGacha) renderGachaEditor();
+  }
+
+  function resetGachaDraft() {
+    state.gachaDraft = JSON.parse(JSON.stringify(state.gachaCatalog?.config || {}));
+    state.gachaDraft.version ||= 1;
+    state.gachaDraft.limitedSets ||= {};
+    state.gachaDraft.weapons ||= {};
+    state.gachaDraft.banners ||= {};
+    state.gachaDraft.groupWeights ||= {
+      characterWeapon: { "2": 0, "3": 500, "4": 200 },
+      weaponOnly: { "2": 8000, "3": 1000, "4": 300 }
+    };
+    state.gachaDraft.sourceMasterDataHash = state.gachaCatalog?.masterDataHash || "";
+    state.gachaDirty = false;
+  }
+
+  function renderGachaEditor() {
+    if (!state.gachaCatalog || !state.gachaDraft) return;
+    renderGachaLanguages();
+    renderGachaLimitedSets();
+    renderGachaWeapons();
+    renderGachaBanners();
+    renderGachaBannerEditor();
+    renderGachaWarnings();
+    updateGachaDirtyUI();
+  }
+
+  function renderGachaLanguages() {
+    const languages = state.gachaCatalog.languages?.length ? state.gachaCatalog.languages : [state.gachaCatalog.defaultLanguage || "en"];
+    elements.gachaLanguageSelect.replaceChildren();
+    languages.forEach((language) => {
+      const option = document.createElement("option");
+      option.value = language;
+      option.textContent = languageLabels[language] || language;
+      elements.gachaLanguageSelect.append(option);
+    });
+    if (!languages.includes(state.language)) state.language = state.gachaCatalog.defaultLanguage || "en";
+    elements.gachaLanguageSelect.value = state.language;
+  }
+
+  function renderGachaWarnings() {
+    const warnings = [];
+    if (!state.gachaCatalog.configExists) {
+      warnings.push("Gacha 配置尚未发布，当前所有可抽取武器按常驻处理，且无限定、无 Pickup。");
+    } else if (!state.gachaDirty && state.gachaCatalog.config?.sourceMasterDataHash !== state.gachaCatalog.masterDataHash) {
+      warnings.push("Gacha 配置基于旧版主数据；新增可抽取武器已按常驻处理，请检查后重新发布。");
+    }
+    elements.gachaWarnings.textContent = warnings.join("\n");
+    elements.gachaWarnings.classList.toggle("hidden", warnings.length === 0);
+  }
+
+  function renderGachaLimitedSets() {
+    elements.gachaLimitedSets.replaceChildren();
+    const entries = Object.entries(state.gachaDraft.limitedSets).sort(([left], [right]) => left.localeCompare(right));
+    if (!entries.length) {
+      const empty = document.createElement("span");
+      empty.className = "notes-empty";
+      empty.textContent = "尚未定义限定集合。";
+      elements.gachaLimitedSets.append(empty);
+      return;
+    }
+    entries.forEach(([id, definition]) => {
+      const chip = document.createElement("span");
+      chip.className = "limited-set-chip";
+      const name = document.createElement("strong");
+      name.textContent = definition.displayName;
+      const key = document.createElement("code");
+      key.textContent = id;
+      const rename = document.createElement("button");
+      rename.className = "chip-action";
+      rename.type = "button";
+      rename.textContent = "重命名";
+      rename.addEventListener("click", () => renameLimitedSet(id));
+      const remove = document.createElement("button");
+      remove.className = "chip-action";
+      remove.type = "button";
+      remove.textContent = "删除";
+      remove.addEventListener("click", () => removeLimitedSet(id));
+      chip.append(name, key, rename, remove);
+      elements.gachaLimitedSets.append(chip);
+    });
+  }
+
+  function addLimitedSet() {
+    const id = elements.gachaLimitedSetId.value.trim();
+    const displayName = elements.gachaLimitedSetName.value.trim();
+    if (!id || !displayName) {
+      showNotice("请填写限定集合稳定键和显示名称。", true);
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(id)) {
+      showNotice("限定集合稳定键只能包含英文、数字、下划线、点和连字符。", true);
+      return;
+    }
+    if (state.gachaDraft.limitedSets[id]) {
+      showNotice(`限定集合 ${id} 已存在。`, true);
+      return;
+    }
+    state.gachaDraft.limitedSets[id] = { displayName };
+    elements.gachaLimitedSetId.value = "";
+    elements.gachaLimitedSetName.value = "";
+    markGachaDirty();
+  }
+
+  function renameLimitedSet(id) {
+    const current = state.gachaDraft.limitedSets[id]?.displayName || id;
+    const displayName = (prompt("新的显示名称：", current) || "").trim();
+    if (!displayName || displayName === current) return;
+    state.gachaDraft.limitedSets[id].displayName = displayName;
+    markGachaDirty();
+  }
+
+  function removeLimitedSet(id) {
+    if (!confirm(`删除限定集合 ${id}？引用它的武器会恢复为常驻，卡池引用也会被移除。`)) return;
+    delete state.gachaDraft.limitedSets[id];
+    Object.entries(state.gachaDraft.weapons).forEach(([weaponId, definition]) => {
+      if (definition.limitedSet === id) delete state.gachaDraft.weapons[weaponId];
+    });
+    Object.values(state.gachaDraft.banners).forEach((banner) => {
+      banner.limitedSets = (banner.limitedSets || []).filter((value) => value !== id);
+    });
+    pruneAllBannerPickups();
+    markGachaDirty();
+  }
+
+  function visibleGachaWeapons() {
+    const query = elements.gachaWeaponSearch.value.trim().toLocaleLowerCase();
+    const availability = elements.gachaAvailabilityFilter.value;
+    const attributeType = elements.gachaAttributeFilter.value;
+    const weaponType = elements.gachaWeaponTypeFilter.value;
+    const grantType = elements.gachaGrantFilter.value;
+    return state.gachaCatalog.weapons.filter((weapon) => {
+      if (!weapon.eligible) return false;
+      const effective = effectiveWeaponAvailability(weapon);
+      if (availability !== "all" && effective !== availability) return false;
+      if (attributeType !== "all" && weapon.attributeType !== Number(attributeType)) return false;
+      if (weaponType !== "all" && weapon.weaponType !== Number(weaponType)) return false;
+      if (grantType !== "all" && weapon.grantType !== grantType) return false;
+      if (!query) return true;
+      const haystack = [weapon.weaponId, ...Object.values(weapon.weaponNames || {}), ...Object.values(weapon.costumeNames || {})].join(" ").toLocaleLowerCase();
+      return haystack.includes(query);
+    });
+  }
+
+  function effectiveWeaponAvailability(weapon) {
+    if (!weapon.eligible) return "event";
+    return state.gachaDraft.weapons[String(weapon.weaponId)]?.availability || "standard";
+  }
+
+  function starSymbols(star) {
+    return "★".repeat(Math.max(0, Number(star) || 0));
+  }
+
+  function renderGachaWeapons() {
+    elements.gachaWeaponBody.replaceChildren();
+    const visible = visibleGachaWeapons();
+    visible.forEach((weapon) => elements.gachaWeaponBody.append(renderGachaWeaponRow(weapon)));
+    elements.gachaWeaponEmpty.classList.toggle("hidden", visible.length !== 0);
+
+    const standard = state.gachaCatalog.weapons.filter((weapon) => weapon.eligible && effectiveWeaponAvailability(weapon) === "standard").length;
+    const overridden = state.gachaCatalog.weapons.filter((weapon) => weapon.eligible && effectiveWeaponAvailability(weapon) !== "standard").length;
+    elements.gachaStandardCount.textContent = standard.toLocaleString();
+    elements.gachaOverrideCount.textContent = overridden.toLocaleString();
+  }
+
+  function renderGachaWeaponRow(weapon) {
+    const tr = document.createElement("tr");
+    tr.append(
+      makeCell("td", String(weapon.weaponId)),
+      makeCell("td", gachaLocalizedText(weapon.weaponNames) || `#${weapon.weaponId}`),
+      makeCell("td", gachaLocalizedText(weapon.costumeNames) || (weapon.costumeId ? `Costume #${weapon.costumeId}` : "—")),
+      makeCell("td", weaponAttributeLabels[weapon.attributeType] || `#${weapon.attributeType}`),
+      makeCell("td", weaponTypeLabels[weapon.weaponType] || `#${weapon.weaponType}`)
+    );
+
+    const groupCell = document.createElement("td");
+    const group = document.createElement("span");
+    group.className = "star-rating";
+    group.textContent = starSymbols(weapon.star);
+    group.title = `${weapon.star} 星`;
+    groupCell.append(group);
+    tr.append(groupCell);
+
+    const definition = state.gachaDraft.weapons[String(weapon.weaponId)];
+    const availabilityCell = document.createElement("td");
+    const availability = document.createElement("select");
+    const availabilityOptions = weapon.eligible ? [["standard", "常驻"], ["event", "活动"], ["limited", "限定"]] : [["event", "活动（自动）"]];
+    availabilityOptions.forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      availability.append(option);
+    });
+    availability.value = effectiveWeaponAvailability(weapon);
+    availability.disabled = !weapon.eligible;
+    availability.addEventListener("change", () => setWeaponAvailability(weapon, availability.value));
+    availabilityCell.append(availability);
+    if (!weapon.eligible) {
+      const note = document.createElement("div");
+      note.className = "unavailable";
+      note.textContent = "主数据已排除，自动视为活动";
+      availabilityCell.append(note);
+    }
+    tr.append(availabilityCell);
+
+    const setCell = document.createElement("td");
+    const limitedSet = document.createElement("select");
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "请选择";
+    limitedSet.append(empty);
+    Object.entries(state.gachaDraft.limitedSets).sort(([left], [right]) => left.localeCompare(right)).forEach(([id, value]) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = value.displayName;
+      limitedSet.append(option);
+    });
+    limitedSet.value = definition?.limitedSet || "";
+    limitedSet.disabled = effectiveWeaponAvailability(weapon) !== "limited";
+    limitedSet.addEventListener("change", () => {
+      state.gachaDraft.weapons[String(weapon.weaponId)].limitedSet = limitedSet.value;
+      pruneAllBannerPickups();
+      markGachaDirty();
+    });
+    setCell.append(limitedSet);
+    tr.append(setCell);
+    return tr;
+  }
+
+  function setWeaponAvailability(weapon, availability) {
+    const key = String(weapon.weaponId);
+    if (!availability || availability === "standard") {
+      delete state.gachaDraft.weapons[key];
+    } else if (availability === "limited") {
+      const existing = state.gachaDraft.weapons[key];
+      const firstSet = Object.keys(state.gachaDraft.limitedSets).sort()[0] || "";
+      state.gachaDraft.weapons[key] = { availability, limitedSet: existing?.limitedSet || firstSet };
+    } else {
+      state.gachaDraft.weapons[key] = { availability };
+    }
+    pruneAllBannerPickups();
+    markGachaDirty();
+  }
+
+  function renderGachaBanners() {
+    const previous = elements.gachaBannerSelect.value;
+    elements.gachaBannerSelect.replaceChildren();
+    state.gachaCatalog.banners.forEach((banner) => {
+      const option = document.createElement("option");
+      option.value = String(banner.gachaId);
+      const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || "未命名卡池";
+      option.textContent = `${banner.gachaId} · ${name}`;
+      elements.gachaBannerSelect.append(option);
+    });
+    if (state.gachaCatalog.banners.some((banner) => String(banner.gachaId) === previous)) elements.gachaBannerSelect.value = previous;
+    elements.gachaBannerCount.textContent = state.gachaCatalog.banners.length.toLocaleString();
+  }
+
+  function currentGachaBanner() {
+    const id = Number(elements.gachaBannerSelect.value);
+    return state.gachaCatalog.banners.find((banner) => banner.gachaId === id) || state.gachaCatalog.banners[0];
+  }
+
+  function bannerConfig(gachaId, create = false) {
+    const key = String(gachaId);
+    if (!state.gachaDraft.banners[key] && create) state.gachaDraft.banners[key] = { limitedSets: [], pickupWeaponIds: [] };
+    return state.gachaDraft.banners[key] || { limitedSets: [], pickupWeaponIds: [] };
+  }
+
+  function renderGachaBannerEditor() {
+    const banner = currentGachaBanner();
+    if (!banner) return;
+    const configured = Object.prototype.hasOwnProperty.call(state.gachaDraft.banners, String(banner.gachaId));
+    const definition = bannerConfig(banner.gachaId);
+    elements.gachaBannerState.textContent = configured ? "已配置" : "默认配置";
+    elements.gachaPickupCount.textContent = (definition.pickupWeaponIds || []).length.toLocaleString();
+    renderBannerLimitedSets(banner);
+    renderPickupWeapons(banner);
+    renderOddsPreview(banner);
+  }
+
+  function renderBannerLimitedSets(banner) {
+    elements.gachaBannerLimitedSets.replaceChildren();
+    const entries = Object.entries(state.gachaDraft.limitedSets).sort(([left], [right]) => left.localeCompare(right));
+    if (!entries.length) {
+      const empty = document.createElement("span");
+      empty.className = "notes-empty";
+      empty.textContent = "没有可选限定集合。";
+      elements.gachaBannerLimitedSets.append(empty);
+      return;
+    }
+    const selected = new Set(bannerConfig(banner.gachaId).limitedSets || []);
+    entries.forEach(([id, definition]) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = selected.has(id);
+      input.addEventListener("change", () => {
+        const current = bannerConfig(banner.gachaId, true);
+        const values = new Set(current.limitedSets || []);
+        if (input.checked) values.add(id);
+        else values.delete(id);
+        current.limitedSets = [...values].sort();
+        pruneBannerPickups(banner.gachaId);
+        markGachaDirty();
+      });
+      label.append(input, document.createTextNode(`${definition.displayName} · ${id}`));
+      elements.gachaBannerLimitedSets.append(label);
+    });
+  }
+
+  function candidateWeaponsForBanner(gachaId) {
+    const allowed = new Set(bannerConfig(gachaId).limitedSets || []);
+    return state.gachaCatalog.weapons.filter((weapon) => {
+      if (!weapon.eligible) return false;
+      const definition = state.gachaDraft.weapons[String(weapon.weaponId)];
+      if (!definition) return true;
+      if (definition.availability === "event") return false;
+      if (definition.availability === "standard") return true;
+      return definition.availability === "limited" && allowed.has(definition.limitedSet);
+    });
+  }
+
+  function renderPickupWeapons(banner) {
+    elements.gachaPickupBody.replaceChildren();
+    const definition = bannerConfig(banner.gachaId);
+    const pickupIds = definition.pickupWeaponIds || [];
+    const pickupSet = new Set(pickupIds);
+    const allReferences = new Map(state.gachaCatalog.weapons.map((weapon) => [weapon.weaponId, weapon]));
+    const candidates = candidateWeaponsForBanner(banner.gachaId);
+    const candidateSet = new Set(candidates.map((weapon) => weapon.weaponId));
+    const ordered = [];
+    pickupIds.forEach((weaponId) => { if (allReferences.has(weaponId)) ordered.push(allReferences.get(weaponId)); });
+    candidates.filter((weapon) => !pickupSet.has(weapon.weaponId)).sort((left, right) => left.weaponId - right.weaponId).forEach((weapon) => ordered.push(weapon));
+    const query = elements.gachaPickupSearch.value.trim().toLocaleLowerCase();
+    ordered.filter((weapon) => {
+      if (!query) return true;
+      return [weapon.weaponId, ...Object.values(weapon.weaponNames || {}), ...Object.values(weapon.costumeNames || {})].join(" ").toLocaleLowerCase().includes(query);
+    }).forEach((weapon) => {
+      const tr = document.createElement("tr");
+      if (!candidateSet.has(weapon.weaponId)) tr.className = "invalid";
+      const checkCell = document.createElement("td");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = pickupSet.has(weapon.weaponId);
+      checkbox.disabled = !candidateSet.has(weapon.weaponId) && !checkbox.checked;
+      checkbox.addEventListener("change", () => {
+        const current = bannerConfig(banner.gachaId, true);
+        if (checkbox.checked) current.pickupWeaponIds = [...(current.pickupWeaponIds || []), weapon.weaponId];
+        else current.pickupWeaponIds = (current.pickupWeaponIds || []).filter((id) => id !== weapon.weaponId);
+        markGachaDirty();
+      });
+      checkCell.append(checkbox);
+      const nameCell = document.createElement("td");
+      nameCell.className = "pickup-name";
+      const name = document.createElement("strong");
+      name.textContent = gachaLocalizedText(weapon.weaponNames) || `#${weapon.weaponId}`;
+      const details = document.createElement("small");
+      const costume = weapon.costumeId ? ` · ${gachaLocalizedText(weapon.costumeNames) || `Costume #${weapon.costumeId}`}` : "";
+      details.textContent = `${weapon.weaponId}${costume} · ${weaponAttributeLabels[weapon.attributeType] || `属性 #${weapon.attributeType}`} · ${weaponTypeLabels[weapon.weaponType] || `类型 #${weapon.weaponType}`}`;
+      nameCell.append(name, details);
+      const groupCell = makeCell("td", starSymbols(weapon.star));
+      groupCell.className = "star-rating";
+      groupCell.title = `${weapon.star} 星`;
+      const orderCell = document.createElement("td");
+      if (pickupSet.has(weapon.weaponId)) {
+        const index = pickupIds.indexOf(weapon.weaponId);
+        const actions = document.createElement("div");
+        actions.className = "order-actions";
+        [["↑", -1], ["↓", 1]].forEach(([label, offset]) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "order-button";
+          button.textContent = label;
+          button.disabled = index + offset < 0 || index + offset >= pickupIds.length;
+          button.addEventListener("click", () => movePickup(banner.gachaId, index, index + offset));
+          actions.append(button);
+        });
+        orderCell.append(actions);
+      }
+      tr.append(checkCell, nameCell, groupCell, orderCell);
+      elements.gachaPickupBody.append(tr);
+    });
+  }
+
+  function movePickup(gachaId, from, to) {
+    const current = bannerConfig(gachaId, true);
+    const ids = [...(current.pickupWeaponIds || [])];
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    current.pickupWeaponIds = ids;
+    markGachaDirty();
+  }
+
+  function pruneBannerPickups(gachaId) {
+    const current = state.gachaDraft.banners[String(gachaId)];
+    if (!current) return;
+    const candidates = new Set(candidateWeaponsForBanner(gachaId).map((weapon) => weapon.weaponId));
+    current.pickupWeaponIds = (current.pickupWeaponIds || []).filter((weaponId) => candidates.has(weaponId));
+  }
+
+  function pruneAllBannerPickups() {
+    Object.keys(state.gachaDraft.banners).forEach((gachaId) => pruneBannerPickups(Number(gachaId)));
+  }
+
+  function groupWeight(definition) {
+    const weights = definition.grantType === "character_weapon" ? state.gachaDraft.groupWeights.characterWeapon : state.gachaDraft.groupWeights.weaponOnly;
+    return Number(weights?.[String(definition.star)] || 0);
+  }
+
+  function groupStatsForBanner(banner) {
+    const definition = bannerConfig(banner.gachaId);
+    const pickupSet = new Set(definition.pickupWeaponIds || []);
+    const candidates = candidateWeaponsForBanner(banner.gachaId);
+    const groups = gachaGroupDefinitions.map((group) => {
+      const items = candidates.filter((weapon) => weapon.star === group.star && weapon.grantType === group.grantType);
+      const pickup = items.filter((weapon) => pickupSet.has(weapon.weaponId));
+      return { ...group, weight: groupWeight(group), itemCount: items.length, pickupCount: pickup.length, nonPickupCount: items.length - pickup.length };
+    });
+    const totalWeight = groups.reduce((sum, group) => sum + group.weight, 0);
+    const tenthWeights = Object.fromEntries(groups.map((group) => [group.id, group.weight]));
+    groups.filter((group) => group.star === 2).forEach((group) => {
+      const target = groups.find((candidate) => candidate.star === 3 && candidate.grantType === group.grantType);
+      if (target) tenthWeights[target.id] += group.weight;
+      tenthWeights[group.id] = 0;
+    });
+    const tenthTotalWeight = Object.values(tenthWeights).reduce((sum, weight) => sum + weight, 0);
+    return { groups, candidates, totalWeight, tenthWeights, tenthTotalWeight };
+  }
+
+  function renderOddsPreview(banner) {
+    elements.gachaOddsBody.replaceChildren();
+    const stats = groupStatsForBanner(banner);
+    stats.groups.forEach((group) => {
+      const normalRate = stats.totalWeight > 0 ? group.weight / stats.totalWeight : 0;
+      const tenthWeight = stats.tenthWeights[group.id] || 0;
+      const lastRate = tenthWeight > 0 && stats.tenthTotalWeight > 0 ? tenthWeight / stats.tenthTotalWeight : 0;
+      const invalid = (group.weight > 0 && group.itemCount === 0) || (group.pickupCount > 0 && group.nonPickupCount === 0);
+      const pickupRate = group.pickupCount > 0 ? normalRate * .5 / group.pickupCount : 0;
+      const nonPickupRate = group.nonPickupCount > 0 ? normalRate * (group.pickupCount > 0 ? .5 : 1) / group.nonPickupCount : 0;
+      const tr = document.createElement("tr");
+      tr.classList.toggle("invalid", invalid);
+      if (invalid) tr.title = group.itemCount === 0 ? "正权重组没有候选武器" : "该组全部候选均为 Pickup";
+      tr.append(
+        makeCell("td", group.label),
+        makeCell("td", String(group.itemCount)),
+        makeCell("td", String(group.pickupCount)),
+        makeCell("td", formatProbability(normalRate)),
+        makeCell("td", group.star >= 3 ? formatProbability(lastRate) : "—"),
+        makeCell("td", group.pickupCount ? formatProbability(pickupRate) : "—"),
+        makeCell("td", group.nonPickupCount ? formatProbability(nonPickupRate) : "—")
+      );
+      elements.gachaOddsBody.append(tr);
+    });
+  }
+
+  function formatProbability(value) {
+    if (!Number.isFinite(value)) return "—";
+    return `${(value * 100).toFixed(value > 0 && value < .001 ? 5 : 3).replace(/0+$/, "").replace(/\.$/, "")}%`;
+  }
+
+  function gachaValidationErrors() {
+    const errors = [];
+    const weights = gachaGroupDefinitions.map((definition) => ({ definition, weight: groupWeight(definition) }));
+    if (weights.some(({ weight }) => !Number.isInteger(weight) || weight < 0)) errors.push("六组权重必须是非负整数");
+    if (weights.reduce((sum, { weight }) => sum + weight, 0) <= 0) errors.push("六组权重合计必须大于 0");
+    state.gachaCatalog.weapons.forEach((weapon) => {
+      const definition = state.gachaDraft.weapons[String(weapon.weaponId)];
+      if (!definition) return;
+      if (!weapon.eligible && definition.availability !== "event") errors.push(`武器 ${weapon.weaponId} 不可抽取，只能设为活动`);
+      if (definition.availability === "limited" && !state.gachaDraft.limitedSets[definition.limitedSet]) errors.push(`限定武器 ${weapon.weaponId} 尚未选择有效限定集合`);
+    });
+    Object.entries(state.gachaDraft.limitedSets).forEach(([id, definition]) => {
+      if (!id.trim() || !definition.displayName?.trim()) errors.push(`限定集合 ${id || "<空>"} 缺少稳定键或显示名称`);
+    });
+    state.gachaCatalog.banners.forEach((banner) => {
+      const stats = groupStatsForBanner(banner);
+      stats.groups.forEach((group) => {
+        if (group.weight > 0 && group.itemCount === 0) errors.push(`卡池 ${banner.gachaId} 的 ${group.label} 没有候选武器`);
+        if ((stats.tenthWeights[group.id] || 0) > 0 && group.star >= 3 && group.itemCount === 0) errors.push(`卡池 ${banner.gachaId} 的十连末位 ${group.label} 没有候选武器`);
+        if (group.pickupCount > 0 && group.nonPickupCount === 0) errors.push(`卡池 ${banner.gachaId} 的 ${group.label} 全部为 Pickup`);
+      });
+      const candidates = new Set(stats.candidates.map((weapon) => weapon.weaponId));
+      (bannerConfig(banner.gachaId).pickupWeaponIds || []).forEach((weaponId) => {
+        if (!candidates.has(weaponId)) errors.push(`卡池 ${banner.gachaId} 的 Pickup 武器 ${weaponId} 不在候选池`);
+      });
+    });
+    return errors;
+  }
+
+  function updateGachaDirtyUI() {
+    const errors = gachaValidationErrors();
+    if (errors.length) elements.gachaSaveSummary.textContent = `无法发布：${errors[0]}${errors.length > 1 ? `（另有 ${errors.length - 1} 项）` : ""}`;
+    else elements.gachaSaveSummary.textContent = state.gachaDirty ? "Gacha 配置修改等待发布" : "没有待发布的 Gacha 修改";
+    elements.gachaSave.disabled = !state.gachaDirty || errors.length > 0;
+    elements.gachaDiscard.disabled = !state.gachaDirty;
+  }
+
+  function markGachaDirty() {
+    state.gachaDirty = true;
+    renderGachaEditor();
+  }
+
+  function gachaLocalizedText(titles) {
+    const text = titles?.[state.language] || titles?.[state.gachaCatalog.defaultLanguage] || Object.values(titles || {})[0] || "";
+    return displayText(text);
+  }
+
   elements.loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.token = elements.token.value;
@@ -494,10 +1050,16 @@
   elements.logout.addEventListener("click", () => {
     state.token = "";
     state.catalog = null;
+    state.gachaCatalog = null;
+    state.gachaDraft = null;
+    state.gachaDirty = false;
     state.dirty.clear();
     sessionStorage.removeItem("lunar-admin-token");
     showLogin();
   });
+
+  elements.tabMaster.addEventListener("click", () => switchAdminSection("master"));
+  elements.tabGacha.addEventListener("click", () => switchAdminSection("gacha"));
 
   elements.tableSelect.addEventListener("change", () => {
     renderTypeFilters(currentTable());
@@ -512,6 +1074,7 @@
     state.language = elements.languageSelect.value;
     localStorage.setItem("lunar-admin-language", state.language);
     renderTable();
+    renderGachaEditor();
   });
   elements.search.addEventListener("input", renderTable);
   elements.viewButtons.forEach((button) => button.addEventListener("click", () => {
@@ -520,7 +1083,7 @@
     renderTable();
   }));
   elements.refresh.addEventListener("click", async () => {
-    if (state.dirty.size && !confirm("刷新会放弃尚未应用的修改，是否继续？")) return;
+    if ((state.dirty.size || state.gachaDirty) && !confirm("刷新会放弃尚未应用的修改，是否继续？")) return;
     try { await loadCatalog(); } catch (_) { /* notice is already shown */ }
   });
   elements.discard.addEventListener("click", () => {
@@ -554,8 +1117,66 @@
     }
   });
 
+  elements.gachaLanguageSelect.addEventListener("change", () => {
+    state.language = elements.gachaLanguageSelect.value;
+    localStorage.setItem("lunar-admin-language", state.language);
+    if (elements.languageSelect.querySelector(`option[value="${CSS.escape(state.language)}"]`)) elements.languageSelect.value = state.language;
+    renderGachaEditor();
+    renderTable();
+  });
+  elements.gachaAddLimitedSet.addEventListener("click", addLimitedSet);
+  elements.gachaWeaponSearch.addEventListener("input", renderGachaWeapons);
+  elements.gachaAvailabilityFilter.addEventListener("change", renderGachaWeapons);
+  elements.gachaAttributeFilter.addEventListener("change", renderGachaWeapons);
+  elements.gachaWeaponTypeFilter.addEventListener("change", renderGachaWeapons);
+  elements.gachaGrantFilter.addEventListener("change", renderGachaWeapons);
+  elements.gachaBannerSelect.addEventListener("change", renderGachaBannerEditor);
+  elements.gachaPickupSearch.addEventListener("input", () => {
+    const banner = currentGachaBanner();
+    if (banner) renderPickupWeapons(banner);
+  });
+  elements.gachaDiscard.addEventListener("click", () => {
+    if (!confirm("放弃全部尚未发布的 Gacha 修改？")) return;
+    resetGachaDraft();
+    renderGachaEditor();
+    showNotice("已放弃本次 Gacha 修改。");
+  });
+  elements.gachaSave.addEventListener("click", async () => {
+    const validationErrors = gachaValidationErrors();
+    if (validationErrors.length) {
+      showNotice(validationErrors[0], true);
+      return;
+    }
+    elements.gachaPublishDialog.showModal();
+  });
+  elements.gachaPublishCancel.addEventListener("click", () => elements.gachaPublishDialog.close());
+  elements.gachaPublishConfirm.addEventListener("click", async () => {
+    elements.gachaPublishDialog.close();
+    elements.gachaSave.disabled = true;
+    elements.gachaDiscard.disabled = true;
+    showNotice("正在校验、写入并热更新 Gacha 配置…");
+    try {
+      await api("/api/admin/gacha-config", {
+        method: "POST",
+        body: JSON.stringify({ expectedContentHash: state.gachaCatalog.contentHash, config: state.gachaDraft })
+      });
+      await loadCatalog();
+      state.section = "gacha";
+      switchAdminSection("gacha");
+      showNotice("Gacha 配置发布成功，新的抽取请求已使用新版本。");
+    } catch (error) {
+      showNotice(error.message, true);
+      if (error.status === 409) {
+        try { await loadCatalog(); } catch (_) { /* keep the conflict notice */ }
+        switchAdminSection("gacha");
+      }
+    } finally {
+      updateGachaDirtyUI();
+    }
+  });
+
   window.addEventListener("beforeunload", (event) => {
-    if (!state.dirty.size) return;
+    if (!state.dirty.size && !state.gachaDirty) return;
     event.preventDefault();
     event.returnValue = "";
   });
