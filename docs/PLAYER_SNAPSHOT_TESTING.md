@@ -81,7 +81,7 @@ Get-Content -Raw -LiteralPath $Snapshot | ConvertFrom-Json | Out-Null
 
 ## 3. 覆盖本地玩家 1
 
-本地代码和 master data 最好与线上版本一致。导入工具会覆盖默认 `db/game.db` 中的玩家 `1`，同时保留该玩家当前的客户端 UUID。
+本地代码和 master data 最好与线上版本一致。导入工具会先自动更新本地数据库结构，再覆盖默认 `db/game.db` 中的玩家 `1`，同时保留该玩家当前的客户端 UUID。
 
 Windows PowerShell：
 

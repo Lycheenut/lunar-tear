@@ -125,8 +125,9 @@ make import SNAPSHOT=snapshots/scene_1.json
 ```
 
 By default this replaces player `1` in `db/game.db` and keeps that local
-player's current client UUID. Use `SNAPSHOT_DB=...` only when targeting another
-database, or pass `UUID=...` when player `1` does not exist locally yet.
+player's current client UUID. Pending database migrations are applied before
+the import. Use `SNAPSHOT_DB=...` only when targeting another database, or pass
+`UUID=...` when player `1` does not exist locally yet.
 
 Or directly:
 
