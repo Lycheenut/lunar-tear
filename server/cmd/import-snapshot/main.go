@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -14,16 +15,12 @@ import (
 func main() {
 	dbPath := flag.String("db", "db/game.db", "SQLite database path")
 	snapshotPath := flag.String("snapshot", "", "Path to JSON snapshot file (required)")
-	userUuid := flag.String("uuid", "", "UUID to assign to the imported user (must match the client's UUID)")
+	userUuid := flag.String("uuid", "", "UUID to assign (default: keep the existing local user's UUID)")
 	flag.Parse()
 
 	if *snapshotPath == "" {
 		log.Fatal("--snapshot flag is required")
 	}
-	if *userUuid == "" {
-		log.Fatal("--uuid flag is required")
-	}
-
 	data, err := os.ReadFile(*snapshotPath)
 	if err != nil {
 		log.Fatalf("read snapshot: %v", err)
@@ -35,10 +32,6 @@ func main() {
 		log.Fatalf("unmarshal snapshot: %v", err)
 	}
 	u.EnsureMaps()
-	u.Uuid = *userUuid
-
-	log.Printf("parsed user %d (uuid=%s, costumes=%d, weapons=%d, characters=%d, quests=%d)",
-		u.UserId, u.Uuid, len(u.Costumes), len(u.Weapons), len(u.Characters), len(u.Quests))
 
 	db, err := database.Open(*dbPath)
 	if err != nil {
@@ -47,10 +40,30 @@ func main() {
 	defer db.Close()
 
 	userStore := sqlite.New(db, nil)
+	if err := resolveTargetUUID(userStore, &u, *userUuid); err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("parsed user %d (uuid=%s, costumes=%d, weapons=%d, characters=%d, quests=%d)",
+		u.UserId, u.Uuid, len(u.Costumes), len(u.Weapons), len(u.Characters), len(u.Quests))
 
 	if err := userStore.ImportUser(&u); err != nil {
 		log.Fatalf("import user: %v", err)
 	}
 
 	log.Printf("imported user %d successfully", u.UserId)
+}
+
+func resolveTargetUUID(userStore *sqlite.SQLiteStore, user *store.UserState, provided string) error {
+	if provided != "" {
+		user.Uuid = provided
+		return nil
+	}
+
+	local, err := userStore.LoadUser(user.UserId)
+	if err != nil {
+		return fmt.Errorf("--uuid is required because local user %d does not exist: %w", user.UserId, err)
+	}
+	user.Uuid = local.Uuid
+	return nil
 }
