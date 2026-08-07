@@ -92,14 +92,41 @@ make restore
 
 Pick a backup from the list and confirm.
 
-### Importing a Snapshot
+### Exporting a Player Snapshot
 
-To import a JSON snapshot into the database, use the import tool. The `--uuid` flag must match the UUID your game client sends during authentication:
+Export one player by their in-game player ID. JSON is written to stdout; the
+summary and SHA-256 are written to stderr so redirection stays valid:
 
 ```bash
 cd server
-make import SNAPSHOT=snapshots/scene_1.json UUID=<your-client-uuid>
+mkdir -p snapshots
+make export PLAYER_ID=12345 > snapshots/player-12345.json
 ```
+
+For the production VM, run the exporter inside the cloud console's built-in
+SSH Shell and download the generated file through that console; public SSH is
+not required.
+
+The export is read-only and prepared to replace local player `1`. It rebases
+the account to user/player ID `1` and removes authentication data,
+external-account linkage, birth date, monthly charge amount, social links, and
+player-authored names/messages. See
+[Player snapshot testing](docs/PLAYER_SNAPSHOT_TESTING.md) for the production
+console-SSH export/download and Windows/macOS local import procedure.
+
+### Importing a Snapshot
+
+To import a JSON snapshot into the database, use the import tool. If that user
+already exists locally, its current client UUID is kept automatically:
+
+```bash
+cd server
+make import SNAPSHOT=snapshots/scene_1.json
+```
+
+By default this replaces player `1` in `db/game.db` and keeps that local
+player's current client UUID. Use `SNAPSHOT_DB=...` only when targeting another
+database, or pass `UUID=...` when player `1` does not exist locally yet.
 
 Or directly:
 
@@ -113,7 +140,7 @@ go run ./cmd/import-snapshot \
 | Flag         | Default      | Description                                   |
 | ------------ | ------------ | --------------------------------------------- |
 | `--snapshot` | _(required)_ | Path to JSON snapshot file                    |
-| `--uuid`     | _(required)_ | UUID to assign (must match the client's UUID) |
+| `--uuid`     | existing user | UUID to assign; omit to keep the local UUID  |
 | `--db`       | `db/game.db` | SQLite database path                          |
 
 ### Run
@@ -325,13 +352,15 @@ All targets run from the `server/` directory.
 | `make client-check`           | Validate Android client build inputs and tools         |
 | `make client`                 | Patch, rebuild, align, and sign the Android client     |
 | `make build-import`           | Build the import-snapshot tool                         |
+| `make build-export`           | Build the export-snapshot tool                         |
 | `make build-claim-account`    | Build the claim-account tool                           |
 | `make build-register-account` | Build the register-account tool                        |
 | `make clean`                  | Remove the `bin/` directory                            |
 | `make dev`                    | Run all three services with one command                |
 | `make migrate`                | Run goose migrations on `db/game.db`                   |
 | `make restore`                | Interactive restore of `db/game.db` from `db/backups/` |
-| `make import`                 | Import a snapshot (`SNAPSHOT=... UUID=...` required)   |
+| `make import`                 | Import a snapshot (`SNAPSHOT=...` required)            |
+| `make export`                 | Export a local-test snapshot (`PLAYER_ID=...`)         |
 
 `make client` defaults to local emulator addresses and runs `client-check`
 before decoding the APK. Set `GRPC_TLS=true` when `GRPC_ADDR` terminates TLS,

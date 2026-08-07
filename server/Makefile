@@ -6,6 +6,8 @@ PROTO_USED = proto/banner.proto proto/battle.proto proto/bighunt.proto proto/cag
 PROTOC ?= protoc
 GOOSE ?= goose
 GO ?= go
+SNAPSHOT_DB ?= db/game.db
+IMPORT_UUID_ARG = $(if $(strip $(UUID)),--uuid "$(UUID)")
 
 # Android client patching. Paths are relative to server/.
 ifeq ($(OS),Windows_NT)
@@ -116,6 +118,9 @@ build-cdn:
 
 build-import:
 	go build -o import-snapshot$(EXE) ./cmd/import-snapshot
+
+build-export:
+	go build -o export-snapshot$(EXE) ./cmd/export-snapshot
 
 build-auth:
 	go build -o auth-server$(EXE) ./cmd/auth-server
@@ -252,11 +257,14 @@ restore:
 
 import:
 ifndef SNAPSHOT
-	$(error SNAPSHOT is required, e.g. make import SNAPSHOT=snapshots/scene_1.json UUID=...)
+	$(error SNAPSHOT is required, e.g. make import SNAPSHOT=snapshots/scene_1.json)
 endif
-ifndef UUID
-	$(error UUID is required, e.g. make import SNAPSHOT=snapshots/scene_1.json UUID=...)
-endif
-	go run ./cmd/import-snapshot --snapshot $(SNAPSHOT) --uuid $(UUID)
+	$(GO) run ./cmd/import-snapshot --snapshot "$(SNAPSHOT)" $(IMPORT_UUID_ARG) --db "$(SNAPSHOT_DB)"
 
-.PHONY: proto build build-cdn build-auth build-import build-claim-account build-register-account build-dev build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-restart prod-deploy clean dev migrate restore import
+export:
+ifndef PLAYER_ID
+	$(error PLAYER_ID is required, e.g. make export PLAYER_ID=12345)
+endif
+	@$(GO) run ./cmd/export-snapshot --player-id "$(PLAYER_ID)" --db "$(SNAPSHOT_DB)"
+
+.PHONY: proto build build-cdn build-auth build-import build-export build-claim-account build-register-account build-dev build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-restart prod-deploy clean dev migrate restore import export

@@ -1133,6 +1133,20 @@ type LabyrinthStageKey struct {
 	StageOrder          int32
 }
 
+func (k LabyrinthStageKey) MarshalText() ([]byte, error) {
+	return marshalKey(int64(k.EventQuestChapterId), int64(k.StageOrder)), nil
+}
+
+func (k *LabyrinthStageKey) UnmarshalText(text []byte) error {
+	v, err := unmarshalKey(text, "LabyrinthStageKey", 2)
+	if err != nil {
+		return err
+	}
+	k.EventQuestChapterId = int32(v[0])
+	k.StageOrder = int32(v[1])
+	return nil
+}
+
 type LabyrinthStageState struct {
 	EventQuestChapterId                         int32
 	StageOrder                                  int32
@@ -1176,6 +1190,25 @@ type PartsPresetTagState struct {
 type PartsStatusSubKey struct {
 	UserPartsUuid string
 	StatusIndex   int32
+}
+
+func (k PartsStatusSubKey) MarshalText() ([]byte, error) {
+	return fmt.Appendf(nil, "%s:%d", k.UserPartsUuid, k.StatusIndex), nil
+}
+
+func (k *PartsStatusSubKey) UnmarshalText(text []byte) error {
+	s := string(text)
+	idx := strings.LastIndex(s, ":")
+	if idx < 0 {
+		return fmt.Errorf("invalid PartsStatusSubKey: %s", text)
+	}
+	k.UserPartsUuid = s[:idx]
+	v, err := strconv.ParseInt(s[idx+1:], 10, 32)
+	if err != nil {
+		return err
+	}
+	k.StatusIndex = int32(v)
+	return nil
 }
 
 type PartsStatusSubState struct {
@@ -1466,6 +1499,25 @@ type CostumeLotteryEffectAbilityState struct {
 type CostumeLotteryEffectStatusKey struct {
 	UserCostumeUuid       string
 	StatusCalculationType model.StatusCalculationType
+}
+
+func (k CostumeLotteryEffectStatusKey) MarshalText() ([]byte, error) {
+	return fmt.Appendf(nil, "%s:%d", k.UserCostumeUuid, k.StatusCalculationType), nil
+}
+
+func (k *CostumeLotteryEffectStatusKey) UnmarshalText(text []byte) error {
+	s := string(text)
+	idx := strings.LastIndex(s, ":")
+	if idx < 0 {
+		return fmt.Errorf("invalid CostumeLotteryEffectStatusKey: %s", text)
+	}
+	k.UserCostumeUuid = s[:idx]
+	v, err := strconv.ParseInt(s[idx+1:], 10, 32)
+	if err != nil {
+		return err
+	}
+	k.StatusCalculationType = model.StatusCalculationType(v)
+	return nil
 }
 
 type CostumeLotteryEffectStatusUpState struct {

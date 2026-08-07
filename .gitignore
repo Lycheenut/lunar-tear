@@ -6,6 +6,7 @@ server/bin/
 server/tmp/
 server/lunar-tear
 server/import-snapshot
+server/export-snapshot
 server/auth-server
 server/claim-account
 server/octo-cdn
