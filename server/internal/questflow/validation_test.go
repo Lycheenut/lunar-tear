@@ -147,6 +147,38 @@ func TestEventChapterAvailableUsesNormalizedUnlockQuests(t *testing.T) {
 	}
 }
 
+func TestEventQuestValidationAllowsQuestSharedWithExpiredChapter(t *testing.T) {
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			100: {QuestId: 100},
+			200: {QuestId: 200},
+		},
+		EventChapterById: map[int32]masterdata.EntityMEventQuestChapter{
+			6:  {EventQuestChapterId: 6, StartDatetime: 10, EndDatetime: 30},
+			10: {EventQuestChapterId: 10, StartDatetime: 1, EndDatetime: 9},
+		},
+		EventQuestIdsByChapterId: map[int32][]int32{
+			6:  {100},
+			10: {100},
+			11: {200},
+		},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.EventQuest.CurrentEventQuestChapterId = 6
+	user.EventQuest.CurrentQuestId = 100
+	user.Quests[100] = store.UserQuestState{QuestId: 100, QuestStateType: model.UserQuestStateTypeActive}
+
+	if err := h.validateEventQuest(user, 6, 100, 20); err != nil {
+		t.Fatalf("start shared event quest: %v", err)
+	}
+	if err := h.ValidateEventQuestContinuation(user, 6, 100, 20); err != nil {
+		t.Fatalf("continue shared event quest: %v", err)
+	}
+	if err := h.validateEventQuest(user, 6, 200, 20); err == nil {
+		t.Fatal("quest from another chapter was accepted")
+	}
+}
+
 func TestEventUnlockConditionsKeepCharacterAndQuestScope(t *testing.T) {
 	catalog := &masterdata.QuestCatalog{
 		EventChapterById:             map[int32]masterdata.EntityMEventQuestChapter{20: {EventQuestChapterId: 20, EventQuestType: 3}},
