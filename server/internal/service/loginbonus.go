@@ -35,13 +35,27 @@ func (s *LoginBonusServiceServer) ReceiveStamp(ctx context.Context, req *emptypb
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	catalog := s.holder.Get().LoginBonus
 	var receipt loginBonusReceipt
+	var applied bool
+	var replayed store.UserLoginBonusState
+	var replayedAt int64
 	_, err := s.users.UpdateUsers([]int64{userId}, func(users map[int64]*store.UserState) error {
+		nowMillis := gametime.NowMillis()
 		var applyErr error
-		receipt, applyErr = applyLoginBonusStamp(catalog, users[userId], gametime.NowMillis())
+		receipt, applied, applyErr = applyLoginBonusStamp(catalog, users[userId], nowMillis)
+		if applyErr == nil && !applied {
+			replayed = users[userId].LoginBonus
+			replayedAt = nowMillis
+		}
 		return applyErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
+	}
+	if !applied {
+		log.Printf("[LoginBonusService] idempotent replay userId=%d bonusId=%d latest=%d dayStart=%d",
+			userId, replayed.LoginBonusId, replayed.LatestRewardReceiveDatetime,
+			gametime.StartOfBusinessDayAtMillis(replayedAt))
+		return &pb.ReceiveStampResponse{}, nil
 	}
 
 	log.Printf("[LoginBonusService] bonusId=%d page %d->%d stamp %d->%d possType=%d possId=%d count=%d (-> gift box)",
@@ -58,13 +72,16 @@ type loginBonusReceipt struct {
 	reward              masterdata.LoginBonusReward
 }
 
-func applyLoginBonusStamp(catalog *masterdata.LoginBonusCatalog, user *store.UserState, nowMillis int64) (loginBonusReceipt, error) {
+func applyLoginBonusStamp(catalog *masterdata.LoginBonusCatalog, user *store.UserState, nowMillis int64) (loginBonusReceipt, bool, error) {
+	if isLoginBonusStampReceivedToday(user.LoginBonus, nowMillis) {
+		return loginBonusReceipt{}, false, nil
+	}
 	if err := validateLoginBonusReceive(catalog, user.LoginBonus, nowMillis); err != nil {
-		return loginBonusReceipt{}, err
+		return loginBonusReceipt{}, false, err
 	}
 	nextPage, nextStamp, reward, err := resolveNextStamp(catalog, user.LoginBonus)
 	if err != nil {
-		return loginBonusReceipt{}, err
+		return loginBonusReceipt{}, false, err
 	}
 	receipt := loginBonusReceipt{
 		bonusId:   user.LoginBonus.LoginBonusId,
@@ -89,7 +106,12 @@ func applyLoginBonusStamp(catalog *masterdata.LoginBonusCatalog, user *store.Use
 	user.LoginBonus.CurrentStampNumber = nextStamp
 	user.LoginBonus.LatestRewardReceiveDatetime = nowMillis
 	user.LoginBonus.LatestVersion = nowMillis
-	return receipt, nil
+	return receipt, true, nil
+}
+
+func isLoginBonusStampReceivedToday(lb store.UserLoginBonusState, nowMillis int64) bool {
+	return lb.LatestRewardReceiveDatetime >= gametime.StartOfBusinessDayAtMillis(nowMillis) &&
+		lb.LatestRewardReceiveDatetime <= nowMillis
 }
 
 func validateLoginBonusReceive(catalog *masterdata.LoginBonusCatalog, lb store.UserLoginBonusState, nowMillis int64) error {

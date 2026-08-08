@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"lunar-tear/server/internal/database"
 	"lunar-tear/server/internal/store"
 	"lunar-tear/server/internal/store/sqlite"
+	"lunar-tear/server/migrations"
 )
 
 func main() {
@@ -38,6 +41,9 @@ func main() {
 		log.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
+	if err := migrateDatabase(context.Background(), db); err != nil {
+		log.Fatalf("migrate database: %v", err)
+	}
 
 	userStore := sqlite.New(db, nil)
 	if err := resolveTargetUUID(userStore, &u, *userUuid); err != nil {
@@ -52,6 +58,10 @@ func main() {
 	}
 
 	log.Printf("imported user %d successfully", u.UserId)
+}
+
+func migrateDatabase(ctx context.Context, db *sql.DB) error {
+	return migrations.Up(ctx, db)
 }
 
 func resolveTargetUUID(userStore *sqlite.SQLiteStore, user *store.UserState, provided string) error {
