@@ -468,15 +468,20 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .check-list label { display: flex; align-items: flex-start; min-width: 0; gap: 8px; color: var(--text); font-size: 12px; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; }
 .check-list input[type="checkbox"] { flex: 0 0 16px; width: 16px; height: 16px; min-height: 16px; margin: 1px 0 0; padding: 0; }
 .pickup-table-scroll { max-height: 420px; }
-.pickup-table { min-width: 500px; table-layout: fixed; }
-.pickup-table th:first-child { width: 68px; }
-.pickup-table th:nth-child(3) { width: 86px; }
-.pickup-table th:nth-child(4) { width: 78px; }
+.pickup-table { min-width: 720px; table-layout: fixed; }
+.pickup-table th:first-child { width: 58px; }
+.pickup-table th:nth-child(2) { width: 72px; }
+.pickup-table th:nth-child(5) { width: 48px; }
+.pickup-table th:nth-child(6) { width: 54px; }
+.pickup-table th:nth-child(7) { width: 62px; }
+.pickup-table th:nth-child(8) { width: 72px; }
 .pickup-table td:first-child, .pickup-table th:first-child { position: static; min-width: 0; background: inherit; }
 .pickup-table th:first-child { background: #121b20; }
-.pickup-table td { vertical-align: middle; }
-.pickup-name { display: grid; gap: 3px; min-width: 190px; }
-.pickup-name small { color: var(--muted); font-size: 10px; }
+.pickup-table td, .pickup-table th { padding: 10px 8px; }
+.pickup-table td { vertical-align: middle; overflow-wrap: anywhere; }
+.pickup-table td:nth-child(2) { color: var(--accent-strong); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.pickup-table input[type="checkbox"] { display: block; width: 16px; height: 16px; min-height: 16px; margin: 0 auto; padding: 0; }
+.pickup-weapon-name { font-size: 12px; }
 .order-actions { display: flex; gap: 4px; }
 .order-button { min-width: 28px; min-height: 28px; padding: 2px 6px; color: var(--muted); border: 1px solid var(--line); border-radius: 7px; background: transparent; }
 .order-button:disabled { opacity: .25; }

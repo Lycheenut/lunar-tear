@@ -869,9 +869,20 @@
     const allReferences = new Map(state.gachaCatalog.weapons.map((weapon) => [weapon.weaponId, weapon]));
     const candidates = candidateWeaponsForBanner(banner.gachaId);
     const candidateSet = new Set(candidates.map((weapon) => weapon.weaponId));
-    const ordered = [];
-    pickupIds.forEach((weaponId) => { if (allReferences.has(weaponId)) ordered.push(allReferences.get(weaponId)); });
-    candidates.filter((weapon) => !pickupSet.has(weapon.weaponId)).sort((left, right) => left.weaponId - right.weaponId).forEach((weapon) => ordered.push(weapon));
+    const pickupOrder = new Map(pickupIds.map((weaponId, index) => [weaponId, index]));
+    const orderedById = new Map(candidates.map((weapon) => [weapon.weaponId, weapon]));
+    pickupIds.forEach((weaponId) => { if (allReferences.has(weaponId)) orderedById.set(weaponId, allReferences.get(weaponId)); });
+    const availabilityRanks = { limited: 0, standard: 1, event: 2 };
+    const ordered = [...orderedById.values()].sort((left, right) => {
+      const availabilityDifference = (availabilityRanks[effectiveWeaponAvailability(left)] ?? 3) - (availabilityRanks[effectiveWeaponAvailability(right)] ?? 3);
+      if (availabilityDifference) return availabilityDifference;
+      const leftPickupOrder = pickupOrder.get(left.weaponId);
+      const rightPickupOrder = pickupOrder.get(right.weaponId);
+      if (leftPickupOrder !== undefined && rightPickupOrder !== undefined) return leftPickupOrder - rightPickupOrder;
+      if (leftPickupOrder !== undefined) return -1;
+      if (rightPickupOrder !== undefined) return 1;
+      return left.weaponId - right.weaponId;
+    });
     const query = elements.gachaPickupSearch.value.trim().toLocaleLowerCase();
     const star = elements.gachaPickupStarFilter.value;
     const attributeType = elements.gachaPickupAttributeFilter.value;
@@ -900,13 +911,11 @@
       });
       checkCell.append(checkbox);
       const nameCell = document.createElement("td");
-      nameCell.className = "pickup-name";
+      nameCell.className = "pickup-weapon-name";
       const name = document.createElement("strong");
       name.textContent = gachaLocalizedText(weapon.weaponNames) || `#${weapon.weaponId}`;
-      const details = document.createElement("small");
-      const costume = weapon.costumeId ? ` · ${gachaLocalizedText(weapon.costumeNames) || `Costume #${weapon.costumeId}`}` : "";
-      details.textContent = `${weapon.weaponId}${costume} · ${weaponAttributeLabels[weapon.attributeType] || `属性 #${weapon.attributeType}`} · ${weaponTypeLabels[weapon.weaponType] || `类型 #${weapon.weaponType}`}`;
-      nameCell.append(name, details);
+      nameCell.append(name);
+      const costumeName = weapon.costumeId ? gachaLocalizedText(weapon.costumeNames) || `Costume #${weapon.costumeId}` : "—";
       const groupCell = makeCell("td", starSymbols(weapon.star));
       groupCell.className = "star-rating";
       groupCell.title = `${weapon.star} 星`;
@@ -926,7 +935,16 @@
         });
         orderCell.append(actions);
       }
-      tr.append(checkCell, nameCell, groupCell, orderCell);
+      tr.append(
+        checkCell,
+        makeCell("td", String(weapon.weaponId)),
+        nameCell,
+        makeCell("td", costumeName),
+        makeCell("td", weaponAttributeLabels[weapon.attributeType] || `#${weapon.attributeType}`),
+        makeCell("td", weaponTypeLabels[weapon.weaponType] || `#${weapon.weaponType}`),
+        groupCell,
+        orderCell
+      );
       elements.gachaPickupBody.append(tr);
     });
   }
