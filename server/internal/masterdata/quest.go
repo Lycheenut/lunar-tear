@@ -61,7 +61,6 @@ type QuestCatalog struct {
 	MainQuestChapterIdByQuestId        map[int32]int32
 	EventQuestTypeByChapterId          map[int32]int32
 	EventChapterById                   map[int32]EntityMEventQuestChapter
-	EventChapterIdByQuestId            map[int32]int32
 	EventQuestIdsByChapterId           map[int32][]int32
 	EventQuestIdsByChapterSortOrder    map[int32]map[int32][]int32
 	EventUnlockConditions              []EventQuestUnlockCondition
@@ -81,6 +80,15 @@ type QuestCatalog struct {
 	WeaponAbilitySlots map[int32][]int32
 
 	*PartsCatalog
+}
+
+func (c *QuestCatalog) EventQuestBelongsToChapter(chapterId, questId int32) bool {
+	for _, candidateId := range c.EventQuestIdsByChapterId[chapterId] {
+		if candidateId == questId {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *QuestCatalog) EventUnlockQuestIdsForChapter(chapterId int32) []int32 {
@@ -110,7 +118,7 @@ func buildEventQuestIndexes(
 	chapters []EntityMEventQuestChapter,
 	groups []EntityMEventQuestSequenceGroup,
 	sequences []EntityMEventQuestSequence,
-) (map[int32]int32, map[int32][]int32, map[int32]map[int32][]int32) {
+) (map[int32][]int32, map[int32]map[int32][]int32) {
 	sort.Slice(groups, func(i, j int) bool {
 		if groups[i].EventQuestSequenceGroupId != groups[j].EventQuestSequenceGroupId {
 			return groups[i].EventQuestSequenceGroupId < groups[j].EventQuestSequenceGroupId
@@ -139,7 +147,6 @@ func buildEventQuestIndexes(
 		questRowsBySequence[row.EventQuestSequenceId] = append(questRowsBySequence[row.EventQuestSequenceId], row)
 	}
 
-	chapterByQuest := make(map[int32]int32)
 	questIdsByChapter := make(map[int32][]int32)
 	questIdsByChapterSortOrder := make(map[int32]map[int32][]int32)
 	for _, chapter := range chapters {
@@ -151,7 +158,6 @@ func buildEventQuestIndexes(
 				if !seen[row.QuestId] {
 					seen[row.QuestId] = true
 					questIdsByChapter[chapter.EventQuestChapterId] = append(questIdsByChapter[chapter.EventQuestChapterId], row.QuestId)
-					chapterByQuest[row.QuestId] = chapter.EventQuestChapterId
 				}
 				if seenBySortOrder[row.SortOrder] == nil {
 					seenBySortOrder[row.SortOrder] = make(map[int32]bool)
@@ -164,7 +170,7 @@ func buildEventQuestIndexes(
 		}
 		questIdsByChapterSortOrder[chapter.EventQuestChapterId] = bySortOrder
 	}
-	return chapterByQuest, questIdsByChapter, questIdsByChapterSortOrder
+	return questIdsByChapter, questIdsByChapterSortOrder
 }
 
 func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionResolver) (*QuestCatalog, error) {
@@ -550,7 +556,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load event quest sequences: %w", err)
 	}
-	eventChapterIdByQuestId, eventQuestIdsByChapterId, eventQuestIdsByChapterSortOrder := buildEventQuestIndexes(eventChapters, eventSequenceGroups, eventSequences)
+	eventQuestIdsByChapterId, eventQuestIdsByChapterSortOrder := buildEventQuestIndexes(eventChapters, eventSequenceGroups, eventSequences)
 	eventUnlockRows, err := utils.ReadTable[EntityMEventQuestUnlockCondition]("m_event_quest_unlock_condition")
 	if err != nil {
 		return nil, fmt.Errorf("load event unlock conditions: %w", err)
@@ -815,7 +821,6 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		MainQuestChapterIdByQuestId:        mainQuestChapterIdByQuestId,
 		EventQuestTypeByChapterId:          eventQuestTypeByChapterId,
 		EventChapterById:                   eventChapterById,
-		EventChapterIdByQuestId:            eventChapterIdByQuestId,
 		EventQuestIdsByChapterId:           eventQuestIdsByChapterId,
 		EventQuestIdsByChapterSortOrder:    eventQuestIdsByChapterSortOrder,
 		EventUnlockConditions:              eventUnlockConditions,

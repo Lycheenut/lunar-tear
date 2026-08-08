@@ -75,7 +75,7 @@ func (h *QuestHandler) validateEventQuest(user *store.UserState, chapterId, ques
 	if err := h.EventChapterAvailable(user, chapterId, nowMillis); err != nil {
 		return err
 	}
-	if h.EventChapterIdByQuestId[questId] != chapterId {
+	if !h.EventQuestBelongsToChapter(chapterId, questId) {
 		return fmt.Errorf("quest %d does not belong to event chapter %d", questId, chapterId)
 	}
 	quest := h.QuestById[questId]
@@ -93,7 +93,7 @@ func (h *QuestHandler) ValidateEventQuestContinuation(user *store.UserState, cha
 	if err := h.EventChapterAvailable(user, chapterId, nowMillis); err != nil {
 		return err
 	}
-	if h.EventChapterIdByQuestId[questId] != chapterId {
+	if !h.EventQuestBelongsToChapter(chapterId, questId) {
 		return fmt.Errorf("quest %d does not belong to event chapter %d", questId, chapterId)
 	}
 	if user.EventQuest.CurrentEventQuestChapterId != chapterId || user.EventQuest.CurrentQuestId != questId {

@@ -9,18 +9,25 @@ import (
 )
 
 func TestBuildEventQuestIndexesUsesSequenceSortOrder(t *testing.T) {
-	chapters := []EntityMEventQuestChapter{{EventQuestChapterId: 10, EventQuestSequenceGroupId: 20}}
-	groups := []EntityMEventQuestSequenceGroup{{EventQuestSequenceGroupId: 20, EventQuestSequenceId: 30}}
+	chapters := []EntityMEventQuestChapter{
+		{EventQuestChapterId: 10, EventQuestSequenceGroupId: 20},
+		{EventQuestChapterId: 11, EventQuestSequenceGroupId: 21},
+	}
+	groups := []EntityMEventQuestSequenceGroup{
+		{EventQuestSequenceGroupId: 20, EventQuestSequenceId: 30},
+		{EventQuestSequenceGroupId: 21, EventQuestSequenceId: 31},
+	}
 	sequences := []EntityMEventQuestSequence{
 		{EventQuestSequenceId: 30, SortOrder: 2, QuestId: 200},
 		{EventQuestSequenceId: 30, SortOrder: 1, QuestId: 100},
+		{EventQuestSequenceId: 31, SortOrder: 1, QuestId: 100},
 	}
-	chapterByQuest, questsByChapter, questsBySortOrder := buildEventQuestIndexes(chapters, groups, sequences)
-	if chapterByQuest[100] != 10 || chapterByQuest[200] != 10 {
-		t.Fatalf("chapter index = %v", chapterByQuest)
-	}
+	questsByChapter, questsBySortOrder := buildEventQuestIndexes(chapters, groups, sequences)
 	if want := []int32{100, 200}; !reflect.DeepEqual(questsByChapter[10], want) {
 		t.Fatalf("chapter quests = %v, want %v", questsByChapter[10], want)
+	}
+	if want := []int32{100}; !reflect.DeepEqual(questsByChapter[11], want) {
+		t.Fatalf("shared chapter quests = %v, want %v", questsByChapter[11], want)
 	}
 	if want := []int32{200}; !reflect.DeepEqual(questsBySortOrder[10][2], want) {
 		t.Fatalf("sort-order quests = %v, want %v", questsBySortOrder[10][2], want)
