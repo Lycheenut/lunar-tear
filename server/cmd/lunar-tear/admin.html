@@ -161,6 +161,14 @@
                   <option value="limited">限定</option>
                 </select>
               </label>
+              <label>星级
+                <select id="gacha-star-filter">
+                  <option value="all">全部</option>
+                  <option value="2">★★</option>
+                  <option value="3">★★★</option>
+                  <option value="4">★★★★</option>
+                </select>
+              </label>
               <label>属性
                 <select id="gacha-attribute-filter">
                   <option value="all">全部</option>
@@ -220,37 +228,64 @@
                 <span id="gacha-banner-state" class="row-badge">默认配置</span>
               </div>
               <div class="banner-controls">
-                <label>卡池
-                  <select id="gacha-banner-select"></select>
-                </label>
-                <fieldset>
-                  <legend>允许的限定集合</legend>
-                  <div id="gacha-banner-limited-sets" class="check-list"></div>
-                </fieldset>
-                <label>搜索候选武器
-                  <input id="gacha-pickup-search" type="search" placeholder="武器 ID、武器名或 Costume 名">
-                </label>
-              </div>
-              <div class="table-scroll pickup-table-scroll">
-                <table class="pickup-table">
-                  <thead><tr><th>Pickup</th><th>候选武器</th><th>星级</th><th>顺序</th></tr></thead>
-                  <tbody id="gacha-pickup-body"></tbody>
-                </table>
-              </div>
-            </section>
-
-            <section class="data-panel odds-panel">
-              <div class="data-heading">
-                <div>
-                  <p class="eyebrow">PROBABILITY PREVIEW</p>
-                  <h2>概率预览</h2>
+                <div class="banner-control-column">
+                  <label>卡池
+                    <select id="gacha-banner-select"></select>
+                  </label>
+                  <fieldset>
+                    <legend>允许的限定集合</legend>
+                    <div id="gacha-banner-limited-sets" class="check-list"></div>
+                  </fieldset>
                 </div>
-              </div>
-              <div class="table-scroll odds-table-scroll">
-                <table class="odds-table">
-                  <thead><tr><th>随机组</th><th>候选</th><th>Pickup</th><th>普通位</th><th>十连末位</th><th>单件 Pickup</th><th>单件非 Pickup</th></tr></thead>
-                  <tbody id="gacha-odds-body"></tbody>
-                </table>
+                <div class="banner-control-column">
+                  <label>搜索候选武器
+                    <input id="gacha-pickup-search" type="search" placeholder="武器 ID、武器名或 Costume 名">
+                  </label>
+                  <div class="pickup-filter-grid">
+                    <label>星级
+                      <select id="gacha-pickup-star-filter">
+                        <option value="all">全部</option>
+                        <option value="2">★★</option>
+                        <option value="3">★★★</option>
+                        <option value="4">★★★★</option>
+                      </select>
+                    </label>
+                    <label>属性
+                      <select id="gacha-pickup-attribute-filter">
+                        <option value="all">全部</option>
+                        <option value="2">火</option>
+                        <option value="5">水</option>
+                        <option value="6">风</option>
+                        <option value="3">光</option>
+                        <option value="1">暗</option>
+                      </select>
+                    </label>
+                    <label>武器类别
+                      <select id="gacha-pickup-weapon-type-filter">
+                        <option value="all">全部</option>
+                        <option value="1">小剑</option>
+                        <option value="3">大剑</option>
+                        <option value="2">枪</option>
+                        <option value="6">铳</option>
+                        <option value="5">杖</option>
+                        <option value="4">拳</option>
+                      </select>
+                    </label>
+                    <label>赠送角色
+                      <select id="gacha-pickup-grant-filter">
+                        <option value="all">全部</option>
+                        <option value="character_weapon">是</option>
+                        <option value="weapon_only">否</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="table-scroll pickup-table-scroll">
+                    <table class="pickup-table">
+                      <thead><tr><th>Pickup</th><th>候选武器</th><th>星级</th><th>顺序</th></tr></thead>
+                      <tbody id="gacha-pickup-body"></tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </section>
           </aside>

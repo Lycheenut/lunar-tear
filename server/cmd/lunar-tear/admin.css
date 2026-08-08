@@ -431,7 +431,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .gacha-editor { display: grid; gap: 16px; }
 .gacha-warnings { margin: 0; white-space: pre-line; }
 .gacha-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-.gacha-banner-panel { display: grid; grid-template-columns: minmax(500px, .9fr) minmax(620px, 1.1fr); gap: 16px; min-width: 0; align-items: start; }
+.gacha-banner-panel { min-width: 0; }
 .heading-actions { display: flex; align-items: end; gap: 10px; }
 .heading-actions label { min-width: 126px; }
 .limited-set-editor { border-bottom: 1px solid var(--line); }
@@ -442,7 +442,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .limited-set-chip code { color: var(--muted); }
 .chip-action { padding: 2px 5px; color: var(--muted); border: 0; background: transparent; font-size: 11px; }
 .chip-action:hover { color: var(--text); }
-.gacha-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(108px, 140px)); align-items: end; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.gacha-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) repeat(5, minmax(100px, 132px)); align-items: end; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .gacha-toolbar input, .gacha-toolbar select { width: 100%; min-width: 0; }
 .gacha-table-scroll { max-height: 610px; }
 .gacha-table { min-width: 900px; table-layout: fixed; }
@@ -458,32 +458,28 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .gacha-table select { width: 100%; min-height: 36px; min-width: 0; max-width: 170px; }
 .gacha-table .unavailable { color: var(--muted); font-size: 10px; }
 .star-rating { color: #f1c879; font-size: 13px; letter-spacing: .04em; white-space: nowrap; }
-.banner-controls { display: grid; gap: 14px; padding: 16px; border-bottom: 1px solid var(--line); }
-.banner-controls input, .banner-controls select { width: 100%; }
+.banner-controls { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); align-items: start; gap: 16px; padding: 16px; border-bottom: 1px solid var(--line); }
+.banner-control-column { display: grid; gap: 14px; min-width: 0; }
+.banner-controls input, .banner-controls select { width: 100%; min-width: 0; }
+.pickup-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 fieldset { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
-.check-list { display: grid; gap: 8px; }
-.check-list label { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 12px; font-weight: 550; }
-.check-list input { min-height: 0; }
+.check-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 16px; align-items: start; }
+.check-list label { display: flex; align-items: flex-start; min-width: 0; gap: 8px; color: var(--text); font-size: 12px; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; }
+.check-list input[type="checkbox"] { flex: 0 0 16px; width: 16px; height: 16px; min-height: 16px; margin: 1px 0 0; padding: 0; }
 .pickup-table-scroll { max-height: 420px; }
 .pickup-table { min-width: 500px; table-layout: fixed; }
 .pickup-table th:first-child { width: 68px; }
 .pickup-table th:nth-child(3) { width: 86px; }
 .pickup-table th:nth-child(4) { width: 78px; }
-.odds-table { min-width: 620px; }
-.pickup-table td:first-child, .pickup-table th:first-child,
-.odds-table td:first-child, .odds-table th:first-child { position: static; width: auto; min-width: 0; background: inherit; }
-.pickup-table th:first-child, .odds-table th:first-child { background: #121b20; }
+.pickup-table td:first-child, .pickup-table th:first-child { position: static; min-width: 0; background: inherit; }
+.pickup-table th:first-child { background: #121b20; }
 .pickup-table td { vertical-align: middle; }
 .pickup-name { display: grid; gap: 3px; min-width: 190px; }
 .pickup-name small { color: var(--muted); font-size: 10px; }
 .order-actions { display: flex; gap: 4px; }
 .order-button { min-width: 28px; min-height: 28px; padding: 2px 6px; color: var(--muted); border: 1px solid var(--line); border-radius: 7px; background: transparent; }
 .order-button:disabled { opacity: .25; }
-.odds-panel td, .odds-panel th { padding: 9px 10px; font-size: 11px; white-space: nowrap; }
-.odds-table-scroll { max-height: 350px; }
-.odds-table tr.invalid td { color: var(--danger); background: rgba(164, 61, 54, .08); }
-.odds-zero { color: var(--muted); }
 
 .confirm-dialog {
   width: min(520px, calc(100% - 32px));
@@ -505,13 +501,9 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .search-field { grid-column: span 2; }
   .login-panel { grid-template-columns: 1fr; }
   .gacha-layout { grid-template-columns: 1fr; }
-  .gacha-banner-panel { grid-template-columns: 1fr; }
   .gacha-toolbar { grid-template-columns: 1fr 1fr; }
+  .banner-controls { grid-template-columns: 1fr; }
   .limited-set-create { grid-template-columns: 1fr 1fr; }
-}
-
-@media (max-width: 1200px) {
-  .gacha-banner-panel { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 620px) {
@@ -529,5 +521,6 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .login-row { align-items: stretch; flex-direction: column; }
   .heading-actions { align-items: stretch; flex-direction: column; }
   .gacha-toolbar { grid-template-columns: 1fr; }
+  .pickup-filter-grid { grid-template-columns: 1fr 1fr; }
   .limited-set-create { grid-template-columns: 1fr; }
 }
