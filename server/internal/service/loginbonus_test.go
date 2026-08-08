@@ -1,6 +1,7 @@
 package service
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -10,6 +11,57 @@ import (
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/store"
 )
+
+func TestApplyLoginBonusStampTreatsSameBusinessDayAsIdempotentReplay(t *testing.T) {
+	now := time.Date(2026, 8, 4, 8, 1, 0, 0, time.UTC).UnixMilli()
+	user := store.UserState{
+		LoginBonus: store.UserLoginBonusState{
+			LoginBonusId:                1,
+			CurrentPageNumber:           2,
+			CurrentStampNumber:          3,
+			LatestRewardReceiveDatetime: now - int64(time.Minute/time.Millisecond),
+			LatestVersion:               now - int64(time.Minute/time.Millisecond),
+		},
+	}
+	before := user
+
+	receipt, applied, err := applyLoginBonusStamp(nil, &user, now)
+	if err != nil {
+		t.Fatalf("idempotent replay returned error: %v", err)
+	}
+	if applied {
+		t.Fatal("idempotent replay applied another login bonus stamp")
+	}
+	if receipt != (loginBonusReceipt{}) {
+		t.Fatalf("idempotent replay receipt = %+v, want empty", receipt)
+	}
+	if !reflect.DeepEqual(user, before) {
+		t.Fatalf("idempotent replay changed user state\nbefore: %+v\nafter:  %+v", before, user)
+	}
+}
+
+func TestIsLoginBonusStampReceivedTodayUsesUTC0800Boundary(t *testing.T) {
+	now := time.Date(2026, 8, 4, 8, 1, 0, 0, time.UTC)
+	cases := []struct {
+		name   string
+		latest time.Time
+		want   bool
+	}{
+		{name: "previous business day", latest: time.Date(2026, 8, 4, 7, 59, 59, 999_000_000, time.UTC), want: false},
+		{name: "at business day boundary", latest: time.Date(2026, 8, 4, 8, 0, 0, 0, time.UTC), want: true},
+		{name: "current business day", latest: time.Date(2026, 8, 4, 8, 0, 30, 0, time.UTC), want: true},
+		{name: "future timestamp", latest: now.Add(time.Millisecond), want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lb := store.UserLoginBonusState{LatestRewardReceiveDatetime: tc.latest.UnixMilli()}
+			if got := isLoginBonusStampReceivedToday(lb, now.UnixMilli()); got != tc.want {
+				t.Fatalf("isLoginBonusStampReceivedToday() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestValidateLoginBonusTerm(t *testing.T) {
 	day := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC).UnixMilli()
