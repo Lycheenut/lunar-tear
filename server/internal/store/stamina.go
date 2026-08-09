@@ -76,9 +76,11 @@ func RecoverStamina(user *UserState, millis int32, maxStaminaMillis int32, nowMi
 }
 
 func ReplenishStamina(user *UserState, maxStaminaMillis int32, nowMillis int64) {
-	user.Status.StaminaMilliValue = maxStaminaMillis
+	if user.Status.StaminaMilliValue < maxStaminaMillis {
+		user.Status.StaminaMilliValue = maxStaminaMillis
+	}
 	user.Status.StaminaUpdateDatetime = nowMillis
-	log.Printf("[ReplenishStamina] set to %d", maxStaminaMillis)
+	log.Printf("[ReplenishStamina] minimum=%d -> total=%d", maxStaminaMillis, user.Status.StaminaMilliValue)
 }
 
 func ResolveStaminaEffectMillis(effectValueType, effectValue, maxStaminaMillis int32) int32 {

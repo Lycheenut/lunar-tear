@@ -91,7 +91,7 @@ func (h *QuestHandler) recordSideStoryLimitContentStatus(user *store.UserState, 
 }
 
 func (h *QuestHandler) HandleEventQuestRestart(user *store.UserState, eventQuestChapterId, questId int32, nowMillis int64) {
-	h.HandleQuestRestart(user, questId, nowMillis)
+	h.restartQuest(user, questId, nowMillis)
 
 	user.EventQuest.CurrentEventQuestChapterId = eventQuestChapterId
 	user.EventQuest.CurrentQuestId = questId

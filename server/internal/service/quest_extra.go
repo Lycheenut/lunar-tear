@@ -83,13 +83,24 @@ func (s *QuestServiceServer) RestartExtraQuest(ctx context.Context, req *pb.Rest
 
 	engine := s.holder.Get().QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
 	var deckNumber int32
 	var battleBinary []byte
-	s.users.UpdateUser(userId, func(user *store.UserState) {
-		engine.HandleExtraQuestRestart(user, req.QuestId, gametime.NowMillis())
+	var validationErr error
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if err := engine.HandleExtraQuestRestart(user, req.QuestId, nowMillis); err != nil {
+			validationErr = err
+			return
+		}
 		deckNumber = user.Quests[req.QuestId].UserDeckNumber
 		battleBinary = battleCheckpoint(user)
 	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("restart extra quest: %w", updateErr)
+	}
+	if validationErr != nil {
+		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
+	}
 
 	drops := engine.BattleDropRewards(req.QuestId)
 	pbDrops := make([]*pb.BattleDropReward, len(drops))
