@@ -73,10 +73,14 @@ func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int
 	return outcome
 }
 
-func (h *QuestHandler) HandleExtraQuestRestart(user *store.UserState, questId int32, nowMillis int64) {
-	h.HandleQuestRestart(user, questId, nowMillis)
+func (h *QuestHandler) HandleExtraQuestRestart(user *store.UserState, questId int32, nowMillis int64) error {
+	if err := h.ValidateQuestContinuation(user, questId); err != nil {
+		return err
+	}
+	h.restartQuest(user, questId, nowMillis)
 
 	user.ExtraQuest.CurrentQuestId = questId
+	return nil
 }
 
 func (h *QuestHandler) HandleExtraQuestSceneProgress(user *store.UserState, questSceneId int32, nowMillis int64) {

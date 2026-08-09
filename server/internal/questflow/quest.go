@@ -401,7 +401,15 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 	return FinishOutcome{DropRewards: allDrops}, nil
 }
 
-func (h *QuestHandler) HandleQuestRestart(user *store.UserState, questId int32, nowMillis int64) {
+func (h *QuestHandler) HandleQuestRestart(user *store.UserState, questId int32, nowMillis int64) error {
+	if err := h.ValidateQuestContinuation(user, questId); err != nil {
+		return err
+	}
+	h.restartQuest(user, questId, nowMillis)
+	return nil
+}
+
+func (h *QuestHandler) restartQuest(user *store.UserState, questId int32, nowMillis int64) {
 	questDef, ok := h.QuestById[questId]
 	// Only seed CurrentQuestFlowType when it's not already set (initial
 	// natural progression). Don't clobber an in-flight ReplayFlow (Map Play

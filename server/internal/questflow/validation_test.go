@@ -131,6 +131,39 @@ func TestValidateQuestContinuationRejectsUnrelatedClearedQuest(t *testing.T) {
 	}
 }
 
+func TestHandleQuestRestartRejectsClearedQuestWithoutMutation(t *testing.T) {
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{10: {QuestId: 10}},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Quests[10] = store.UserQuestState{QuestId: 10, QuestStateType: model.UserQuestStateTypeCleared, ClearCount: 1}
+
+	if err := h.HandleQuestRestart(user, 10, 100); err == nil {
+		t.Fatal("cleared main quest was restarted")
+	}
+	if got := user.Quests[10].QuestStateType; got != model.UserQuestStateTypeCleared {
+		t.Fatalf("quest state = %d, want cleared", got)
+	}
+}
+
+func TestHandleExtraQuestRestartRejectsClearedQuestWithoutMutation(t *testing.T) {
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{10: {QuestId: 10}},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Quests[10] = store.UserQuestState{QuestId: 10, QuestStateType: model.UserQuestStateTypeCleared, ClearCount: 1}
+
+	if err := h.HandleExtraQuestRestart(user, 10, 100); err == nil {
+		t.Fatal("cleared extra quest was restarted")
+	}
+	if got := user.Quests[10].QuestStateType; got != model.UserQuestStateTypeCleared {
+		t.Fatalf("quest state = %d, want cleared", got)
+	}
+	if got := user.ExtraQuest.CurrentQuestId; got != 0 {
+		t.Fatalf("current extra quest = %d, want 0", got)
+	}
+}
+
 func TestEventChapterAvailableUsesNormalizedUnlockQuests(t *testing.T) {
 	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
 		EventChapterById:      map[int32]masterdata.EntityMEventQuestChapter{20: {EventQuestChapterId: 20, EventQuestType: 3, StartDatetime: 10, EndDatetime: 30}},
