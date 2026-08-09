@@ -1,12 +1,32 @@
 package service
 
 import (
+	"math"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
+
+const (
+	// The normal Glorious Success chance is 2%; campaign rates are normalized to permil.
+	standardGreatSuccessRatePermil = int32(20)
+	// A Glorious Success doubles the effective enhancement material experience.
+	greatSuccessExpMultiplier      = int64(2)
+)
+
+func finalizeEnhancementExp(baseExp int64, ratePermil int32, roll int) (int32, bool, error) {
+	isGreatSuccess := baseExp > 0 && roll < int(ratePermil)
+	if isGreatSuccess {
+		baseExp *= greatSuccessExpMultiplier
+	}
+	if baseExp < 0 || baseExp > math.MaxInt32 {
+		return 0, false, status.Error(codes.InvalidArgument, "enhancement experience is too large")
+	}
+	return int32(baseExp), isGreatSuccess, nil
+}
 
 func materialCost(materialId, count int32) store.PossessionCost {
 	return store.PossessionCost{

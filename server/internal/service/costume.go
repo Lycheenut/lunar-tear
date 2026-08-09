@@ -165,6 +165,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 	nowMillis := gametime.NowMillis()
 
 	var validationErr error
+	var isGreatSuccess bool
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -178,13 +179,13 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 			return
 		}
 
-		expBonus := cat.Campaign.CostumeExpBonus(campaign.CostumeTarget{
+		rateBonus := cat.Campaign.CostumeRateBonus(campaign.CostumeTarget{
 			CostumeId:          costume.CostumeId,
 			CharacterId:        cm.CharacterId,
 			SkillfulWeaponType: cm.SkillfulWeaponType,
 		}, campaign.Filter{NowMillis: nowMillis, UserStatus: campaign.TargetUserStatusAll})
 
-		totalExp := int32(0)
+		totalExp := int64(0)
 		totalMaterialCount := int32(0)
 		costs := make([]store.PossessionCost, 0, len(req.Materials)+1)
 		for materialId, count := range req.Materials {
@@ -204,12 +205,20 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 			costs = append(costs, materialCost(materialId, count))
 			totalMaterialCount += count
 
-			expPerUnit := mat.EffectValue
+			expPerUnit := int64(mat.EffectValue)
 			if mat.WeaponType != 0 && mat.WeaponType == cm.SkillfulWeaponType {
-				expPerUnit = expPerUnit * config.MaterialSameWeaponExpCoefficientPermil / 1000
+				expPerUnit = expPerUnit * int64(config.MaterialSameWeaponExpCoefficientPermil) / 1000
 			}
-			totalExp += expBonus.Apply(expPerUnit * count)
+			totalExp += expPerUnit * int64(count)
 		}
+
+		greatSuccessRate := rateBonus.Apply(standardGreatSuccessRatePermil)
+		finalExp, greatSuccess, outcomeErr := finalizeEnhancementExp(totalExp, greatSuccessRate, rand.Intn(1000))
+		if outcomeErr != nil {
+			validationErr = outcomeErr
+			return
+		}
+		isGreatSuccess = greatSuccess
 
 		if costFunc, ok := catalog.EnhanceCostByRarity[cm.RarityType]; ok && totalMaterialCount > 0 {
 			goldCost := costFunc.Evaluate(totalMaterialCount)
@@ -221,7 +230,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 			return
 		}
 
-		costume.Exp += totalExp
+		costume.Exp += finalExp
 
 		if thresholds, ok := catalog.ExpByRarity[cm.RarityType]; ok {
 			var maxLevel int32
@@ -234,7 +243,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 
 		costume.LatestVersion = nowMillis
 		user.Costumes[req.UserCostumeUuid] = costume
-		log.Printf("[CostumeService] Enhance: costumeId=%d +%d exp -> total=%d level=%d", costume.CostumeId, totalExp, costume.Exp, costume.Level)
+		log.Printf("[CostumeService] Enhance: costumeId=%d +%d exp greatSuccess=%v -> total=%d level=%d", costume.CostumeId, finalExp, isGreatSuccess, costume.Exp, costume.Level)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("costume enhance: %w", err)
@@ -244,7 +253,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 	}
 
 	return &pb.EnhanceResponse{
-		IsGreatSuccess:         false,
+		IsGreatSuccess:         isGreatSuccess,
 		SurplusEnhanceMaterial: map[int32]int32{},
 	}, nil
 }

@@ -127,30 +127,28 @@ func loadQuestRows() ([]questRow, error) {
 		})
 	}
 
-	effectByGroup := make(map[int32]masterdata.EntityMQuestCampaignEffectGroup, len(effects))
+	effectsByGroup := make(map[int32][]masterdata.EntityMQuestCampaignEffectGroup, len(effects))
 	for _, e := range effects {
-		effectByGroup[e.QuestCampaignEffectGroupId] = e
+		effectsByGroup[e.QuestCampaignEffectGroupId] = append(effectsByGroup[e.QuestCampaignEffectGroupId], e)
 	}
 
-	rows := make([]questRow, 0, len(campaigns))
+	var rows []questRow
 	for _, c := range campaigns {
 		grp := targetsByGroup[c.QuestCampaignTargetGroupId]
 		if len(grp) == 0 {
 			continue
 		}
-		eff, ok := effectByGroup[c.QuestCampaignEffectGroupId]
-		if !ok {
-			continue
+		for _, eff := range effectsByGroup[c.QuestCampaignEffectGroupId] {
+			rows = append(rows, questRow{
+				effectType:  QuestCampaignEffectType(eff.QuestCampaignEffectType),
+				effectValue: eff.QuestCampaignEffectValue,
+				bonusItems:  bonusByGroup[eff.QuestCampaignTargetItemGroupId],
+				targets:     grp,
+				startMillis: c.StartDatetime,
+				endMillis:   c.EndDatetime,
+				userStatus:  TargetUserStatusType(c.TargetUserStatusType),
+			})
 		}
-		rows = append(rows, questRow{
-			effectType:  QuestCampaignEffectType(eff.QuestCampaignEffectType),
-			effectValue: eff.QuestCampaignEffectValue,
-			bonusItems:  bonusByGroup[eff.QuestCampaignTargetItemGroupId],
-			targets:     grp,
-			startMillis: c.StartDatetime,
-			endMillis:   c.EndDatetime,
-			userStatus:  TargetUserStatusType(c.TargetUserStatusType),
-		})
 	}
 	return rows, nil
 }

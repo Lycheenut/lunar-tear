@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -83,6 +84,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 	nowMillis := gametime.NowMillis()
 
 	var validationErr error
+	var isGreatSuccess bool
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -96,13 +98,13 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 			return
 		}
 
-		expBonus := cat.Campaign.WeaponExpBonus(campaign.WeaponTarget{
+		rateBonus := cat.Campaign.WeaponRateBonus(campaign.WeaponTarget{
 			WeaponId:      weapon.WeaponId,
 			WeaponType:    wm.WeaponType,
 			AttributeType: wm.AttributeType,
 		}, campaign.Filter{NowMillis: nowMillis, UserStatus: campaign.TargetUserStatusAll})
 
-		totalExp := int32(0)
+		totalExp := int64(0)
 		totalMaterialCount := int32(0)
 		costs := make([]store.PossessionCost, 0, len(req.Materials)+1)
 		for materialId, count := range req.Materials {
@@ -122,12 +124,20 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 			costs = append(costs, materialCost(materialId, count))
 			totalMaterialCount += count
 
-			expPerUnit := mat.EffectValue
+			expPerUnit := int64(mat.EffectValue)
 			if mat.WeaponType != 0 && mat.WeaponType == wm.WeaponType {
-				expPerUnit = expPerUnit * config.MaterialSameWeaponExpCoefficientPermil / 1000
+				expPerUnit = expPerUnit * int64(config.MaterialSameWeaponExpCoefficientPermil) / 1000
 			}
-			totalExp += expBonus.Apply(expPerUnit * count)
+			totalExp += expPerUnit * int64(count)
 		}
+
+		greatSuccessRate := rateBonus.Apply(standardGreatSuccessRatePermil)
+		finalExp, greatSuccess, outcomeErr := finalizeEnhancementExp(totalExp, greatSuccessRate, rand.Intn(1000))
+		if outcomeErr != nil {
+			validationErr = outcomeErr
+			return
+		}
+		isGreatSuccess = greatSuccess
 
 		if costFunc, ok := catalog.GoldCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && totalMaterialCount > 0 {
 			goldCost := costFunc.Evaluate(totalMaterialCount)
@@ -139,7 +149,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 			return
 		}
 
-		weapon.Exp += totalExp
+		weapon.Exp += finalExp
 		levelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[weapon.WeaponId]
 		if thresholds, ok := catalog.ExpByEnhanceId[levelingEnhanceId]; ok {
 			var maxLevel int32
@@ -159,7 +169,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 
 		weapon.LatestVersion = nowMillis
 		user.Weapons[req.UserWeaponUuid] = weapon
-		log.Printf("[WeaponService] EnhanceByMaterial: weaponId=%d +%d exp -> total=%d level=%d", weapon.WeaponId, totalExp, weapon.Exp, weapon.Level)
+		log.Printf("[WeaponService] EnhanceByMaterial: weaponId=%d +%d exp greatSuccess=%v -> total=%d level=%d", weapon.WeaponId, finalExp, isGreatSuccess, weapon.Exp, weapon.Level)
 
 		checkWeaponStoryUnlocks(catalog, user, weapon.WeaponId, weapon.Level, nowMillis)
 	})
@@ -171,7 +181,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 	}
 
 	return &pb.EnhanceByMaterialResponse{
-		IsGreatSuccess:         false,
+		IsGreatSuccess:         isGreatSuccess,
 		SurplusEnhanceMaterial: map[int32]int32{},
 	}, nil
 }
@@ -728,6 +738,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 	nowMillis := gametime.NowMillis()
 
 	var validationErr error
+	var isGreatSuccess bool
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -741,13 +752,13 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 			return
 		}
 
-		expBonus := cat.Campaign.WeaponExpBonus(campaign.WeaponTarget{
+		rateBonus := cat.Campaign.WeaponRateBonus(campaign.WeaponTarget{
 			WeaponId:      weapon.WeaponId,
 			WeaponType:    wm.WeaponType,
 			AttributeType: wm.AttributeType,
 		}, campaign.Filter{NowMillis: nowMillis, UserStatus: campaign.TargetUserStatusAll})
 
-		totalExp := int32(0)
+		totalExp := int64(0)
 		materialUUIDs, materialErr := validateMaterialWeapons(user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, false, 0)
 		if materialErr != nil {
 			validationErr = materialErr
@@ -763,13 +774,20 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 			}
 
 			matLevelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[matWeapon.WeaponId]
-			baseExp := catalog.BaseExpByEnhanceId[matLevelingEnhanceId]
+			baseExp := int64(catalog.BaseExpByEnhanceId[matLevelingEnhanceId])
 			if matMaster.WeaponType != 0 && matMaster.WeaponType == wm.WeaponType {
-				baseExp = baseExp * config.MaterialSameWeaponExpCoefficientPermil / 1000
+				baseExp = baseExp * int64(config.MaterialSameWeaponExpCoefficientPermil) / 1000
 			}
-			totalExp += expBonus.Apply(baseExp)
+			totalExp += baseExp
 		}
 		consumedCount := int32(len(materialUUIDs))
+		greatSuccessRate := rateBonus.Apply(standardGreatSuccessRatePermil)
+		finalExp, greatSuccess, outcomeErr := finalizeEnhancementExp(totalExp, greatSuccessRate, rand.Intn(1000))
+		if outcomeErr != nil {
+			validationErr = outcomeErr
+			return
+		}
+		isGreatSuccess = greatSuccess
 
 		if costFunc, ok := catalog.EnhanceCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
 			goldCost := costFunc.Evaluate(consumedCount)
@@ -796,7 +814,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 			delete(user.WeaponAwakens, uuid)
 		}
 
-		weapon.Exp += totalExp
+		weapon.Exp += finalExp
 		levelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[weapon.WeaponId]
 		if thresholds, ok := catalog.ExpByEnhanceId[levelingEnhanceId]; ok {
 			var maxLevel int32
@@ -816,7 +834,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 
 		weapon.LatestVersion = nowMillis
 		user.Weapons[req.UserWeaponUuid] = weapon
-		log.Printf("[WeaponService] EnhanceByWeapon: weaponId=%d +%d exp -> total=%d level=%d", weapon.WeaponId, totalExp, weapon.Exp, weapon.Level)
+		log.Printf("[WeaponService] EnhanceByWeapon: weaponId=%d +%d exp greatSuccess=%v -> total=%d level=%d", weapon.WeaponId, finalExp, isGreatSuccess, weapon.Exp, weapon.Level)
 
 		checkWeaponStoryUnlocks(catalog, user, weapon.WeaponId, weapon.Level, nowMillis)
 	})
@@ -828,7 +846,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 	}
 
 	return &pb.EnhanceByWeaponResponse{
-		IsGreatSuccess:       false,
+		IsGreatSuccess:       isGreatSuccess,
 		SurplusEnhanceWeapon: []string{},
 	}, nil
 }

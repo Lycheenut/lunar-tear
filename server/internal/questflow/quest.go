@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -188,9 +189,9 @@ func (h *QuestHandler) menuPickSceneId(questId int32, isBattleOnly bool) int32 {
 	return 0
 }
 
-func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, outcome *FinishOutcome, nowMillis int64, wasReplay bool) {
+func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, target campaign.QuestTarget, outcome *FinishOutcome, nowMillis int64, wasReplay bool) {
 	questState := user.Quests[questId]
-	h.applyExpAndGoldRewards(user, questId, nowMillis)
+	h.applyExpAndGoldRewards(user, questId, target, nowMillis)
 	if !questState.IsRewardGranted {
 		if !wasReplay {
 			h.applyFirstClearItemRewards(user, questId, nowMillis)
@@ -292,8 +293,9 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 
 	var outcome FinishOutcome
 	if !isRetired && !isAnnihilated {
-		outcome = h.evaluateFinishOutcome(user, questId, h.targetForMain(questId), nowMillis)
-		h.applyQuestVictory(user, questId, &outcome, nowMillis, wasReplay)
+		target := h.targetForMain(questId)
+		outcome = h.evaluateFinishOutcome(user, questId, target, nowMillis)
+		h.applyQuestVictory(user, questId, target, &outcome, nowMillis, wasReplay)
 		store.AddMissionCount(user, int32(model.MissionClearConditionTypeDefeatBossCount), 1, questId, 0)
 
 		// A replay-flow finish must NOT move the MainFlow scene pointer: the
@@ -389,13 +391,14 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 	user.ConsumableItems[skipTicketId] -= skipCount
 	raritySet, rankSet := parseAutoSaleRules(user.AutoSaleSettings)
 	var allDrops []RewardGrant
+	goldPerSkip := h.goldWithCampaign(questDef.Gold, target, nowMillis)
 	for range skipCount {
 		drops := h.computeDropRewards(questDef, target, nowMillis)
 		h.grantDropRewards(user, drops, raritySet, rankSet, nowMillis)
 		allDrops = append(allDrops, drops...)
 
 		if questDef.Gold != 0 {
-			user.ConsumableItems[h.Config.ConsumableItemIdForGold] += questDef.Gold
+			user.ConsumableItems[h.Config.ConsumableItemIdForGold] += goldPerSkip
 		}
 		h.applyExpRewards(user, questId, nowMillis)
 	}
@@ -404,7 +407,7 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 	recordQuestClears(user, &questState, questId, skipCount, false, nowMillis)
 	user.Quests[questId] = questState
 
-	log.Printf("[HandleQuestSkip] questId=%d skipCount=%d drops=%d gold=%d", questId, skipCount, len(allDrops), questDef.Gold*skipCount)
+	log.Printf("[HandleQuestSkip] questId=%d skipCount=%d drops=%d gold=%d", questId, skipCount, len(allDrops), goldPerSkip*skipCount)
 	return FinishOutcome{DropRewards: allDrops}, nil
 }
 

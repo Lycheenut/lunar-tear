@@ -185,8 +185,10 @@ func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGra
 func (h *QuestHandler) computeDropRewards(questDef masterdata.EntityMQuest, target campaign.QuestTarget, nowMillis int64) []RewardGrant {
 	var drops []RewardGrant
 	var dropRate campaign.DropRateMul
+	var dropCount campaign.DropCountMul
 	if h.Campaigns != nil {
 		dropRate = h.Campaigns.QuestDropRate(target, h.campaignFilter(nowMillis))
+		dropCount = h.Campaigns.QuestDropCount(target, h.campaignFilter(nowMillis))
 	}
 	if questDef.QuestPickupRewardGroupId != 0 {
 		for _, dropId := range h.PickupRewardIdsByGroupId[questDef.QuestPickupRewardGroupId] {
@@ -194,7 +196,7 @@ func (h *QuestHandler) computeDropRewards(questDef masterdata.EntityMQuest, targ
 				drops = append(drops, RewardGrant{
 					PossessionType: model.PossessionType(bdr.PossessionType),
 					PossessionId:   bdr.PossessionId,
-					Count:          dropRate.Apply(bdr.Count),
+					Count:          dropCount.Apply(dropRate.Apply(bdr.Count)),
 				})
 			}
 		}
@@ -305,7 +307,7 @@ func (h *QuestHandler) resolveDeckUnits(user *store.UserState, questId int32) (c
 	return costumeUuids, characterIds
 }
 
-func (h *QuestHandler) applyExpAndGoldRewards(user *store.UserState, questId int32, nowMillis int64) {
+func (h *QuestHandler) applyExpAndGoldRewards(user *store.UserState, questId int32, target campaign.QuestTarget, nowMillis int64) {
 	questDef, ok := h.QuestById[questId]
 	if !ok {
 		return
@@ -314,8 +316,9 @@ func (h *QuestHandler) applyExpAndGoldRewards(user *store.UserState, questId int
 	h.applyExpRewards(user, questId, nowMillis)
 
 	if questDef.Gold != 0 {
-		user.ConsumableItems[h.Config.ConsumableItemIdForGold] += questDef.Gold
-		log.Printf("[applyQuestRewards] questId=%d gold: +%d -> total=%d", questId, questDef.Gold, user.ConsumableItems[h.Config.ConsumableItemIdForGold])
+		gold := h.goldWithCampaign(questDef.Gold, target, nowMillis)
+		user.ConsumableItems[h.Config.ConsumableItemIdForGold] += gold
+		log.Printf("[applyQuestRewards] questId=%d gold: +%d -> total=%d", questId, gold, user.ConsumableItems[h.Config.ConsumableItemIdForGold])
 	}
 }
 
@@ -331,7 +334,7 @@ func (h *QuestHandler) applyFirstClearItemRewards(user *store.UserState, questId
 }
 
 func (h *QuestHandler) applyQuestRewards(user *store.UserState, questId int32, nowMillis int64) {
-	h.applyExpAndGoldRewards(user, questId, nowMillis)
+	h.applyExpAndGoldRewards(user, questId, h.targetForMain(questId), nowMillis)
 	h.applyFirstClearItemRewards(user, questId, nowMillis)
 }
 

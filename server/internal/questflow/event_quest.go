@@ -55,7 +55,7 @@ func (h *QuestHandler) HandleEventQuestFinish(user *store.UserState, eventQuestC
 	var outcome FinishOutcome
 	if !isRetired && !isAnnihilated {
 		outcome = h.evaluateFinishOutcome(user, questId, target, nowMillis)
-		h.applyQuestVictory(user, questId, &outcome, nowMillis, false)
+		h.applyQuestVictory(user, questId, target, &outcome, nowMillis, false)
 		h.recordSideStoryLimitContentStatus(user, questId, nowMillis)
 	}
 

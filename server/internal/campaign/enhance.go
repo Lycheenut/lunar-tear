@@ -14,38 +14,42 @@ func (c *Catalog) PartsRateBonus(t PartsTarget, f Filter) RateBonus {
 	return out
 }
 
-func (c *Catalog) CostumeExpBonus(t CostumeTarget, f Filter) ExpBonus {
-	var sum int32
+func (c *Catalog) CostumeRateBonus(t CostumeTarget, f Filter) RateBonus {
+	var out RateBonus
 	for _, r := range c.enhance {
-		if !r.isActive(f) || r.effectType != EnhanceEffectAdditionalPerm {
+		if !r.isActive(f) {
 			continue
 		}
 		if matchesCostume(r.targets, t) {
-			sum += r.effectValue
+			out = applyEnhanceEffect(out, r)
 		}
 	}
-	return ExpBonus{bonusPermil: sum}
+	return out
 }
 
-func (c *Catalog) WeaponExpBonus(t WeaponTarget, f Filter) ExpBonus {
-	var sum int32
+func (c *Catalog) WeaponRateBonus(t WeaponTarget, f Filter) RateBonus {
+	var out RateBonus
 	for _, r := range c.enhance {
-		if !r.isActive(f) || r.effectType != EnhanceEffectAdditionalPerm {
+		if !r.isActive(f) {
 			continue
 		}
 		if matchesWeapon(r.targets, t) {
-			sum += r.effectValue
+			out = applyEnhanceEffect(out, r)
 		}
 	}
-	return ExpBonus{bonusPermil: sum}
+	return out
 }
 
 func applyEnhanceEffect(b RateBonus, r enhanceRow) RateBonus {
 	switch r.effectType {
 	case EnhanceEffectProbability:
-		b.override = r.effectValue
+		if r.effectValue > b.override {
+			b.override = r.effectValue
+		}
 	case EnhanceEffectAdditionalPerm:
-		b.bonusPermil += r.effectValue
+		if r.effectValue > b.bonusPermil {
+			b.bonusPermil = r.effectValue
+		}
 	}
 	return b
 }
