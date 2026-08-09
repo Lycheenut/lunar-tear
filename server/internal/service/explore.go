@@ -142,6 +142,10 @@ func (s *ExploreServiceServer) FinishExplore(ctx context.Context, req *pb.Finish
 		log.Printf("[ExploreService] FinishExplore: stamina +%d -> %d", exploreStaminaRecovery, user.Status.StaminaMilliValue)
 
 		user.Materials[exploreRewardMaterialId] += rewardCount
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeExploreFinishByCount), 1, req.ExploreId, req.ExploreId)
+		// EXPLORE_SCORE is cumulative from mission start; unlike
+		// EXPLORE_HIGH_SCORE it is not a single-run maximum.
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeExploreScore), req.Score, req.ExploreId, 391)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finish explore: %w", err)

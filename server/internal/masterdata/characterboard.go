@@ -18,6 +18,7 @@ type CharacterBoardCatalog struct {
 	EffectTargetsByGroupId  map[int32][]EntityMCharacterBoardEffectTargetGroup
 	BoardById               map[int32]EntityMCharacterBoard
 	CharacterIdByBoardId    map[int32]int32
+	MissionOptionByBoardId  map[int32]int32
 }
 
 func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
@@ -79,6 +80,7 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 		EffectTargetsByGroupId:  make(map[int32][]EntityMCharacterBoardEffectTargetGroup),
 		BoardById:               make(map[int32]EntityMCharacterBoard, len(boards)),
 		CharacterIdByBoardId:    make(map[int32]int32, len(boards)),
+		MissionOptionByBoardId:  make(map[int32]int32, len(boards)),
 	}
 
 	for _, p := range panels {
@@ -97,22 +99,32 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 		catalog.BoardById[b.CharacterBoardId] = b
 	}
 	characterByCategoryId := make(map[int32]int32, len(assignments))
+	missionOptionBaseByCategoryId := make(map[int32]int32, len(assignments))
 	for _, assignment := range assignments {
 		if existing := characterByCategoryId[assignment.CharacterBoardCategoryId]; existing != 0 && existing != assignment.CharacterId {
 			return nil, fmt.Errorf("character board category %d has multiple character assignments", assignment.CharacterBoardCategoryId)
 		}
 		characterByCategoryId[assignment.CharacterBoardCategoryId] = assignment.CharacterId
+		if assignment.CharacterBoardAssignmentType == 1 && assignment.SortOrder > 0 {
+			missionOptionBaseByCategoryId[assignment.CharacterBoardCategoryId] = 310001 + (assignment.SortOrder-1)*2
+		}
 	}
 	categoryByGroupId := make(map[int32]int32, len(groups))
+	groupTypeByGroupId := make(map[int32]int32, len(groups))
 	for _, group := range groups {
 		categoryByGroupId[group.CharacterBoardGroupId] = group.CharacterBoardCategoryId
+		groupTypeByGroupId[group.CharacterBoardGroupId] = group.CharacterBoardGroupType
 	}
 	for _, board := range boards {
-		characterId := characterByCategoryId[categoryByGroupId[board.CharacterBoardGroupId]]
+		categoryId := categoryByGroupId[board.CharacterBoardGroupId]
+		characterId := characterByCategoryId[categoryId]
 		if characterId == 0 {
 			return nil, fmt.Errorf("character board %d has no character assignment", board.CharacterBoardId)
 		}
 		catalog.CharacterIdByBoardId[board.CharacterBoardId] = characterId
+		if base := missionOptionBaseByCategoryId[categoryId]; base != 0 {
+			catalog.MissionOptionByBoardId[board.CharacterBoardId] = base + groupTypeByGroupId[board.CharacterBoardGroupId] - 1
+		}
 	}
 	for _, s := range statusUps {
 		catalog.StatusUpById[s.CharacterBoardStatusUpId] = s

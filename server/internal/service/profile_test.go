@@ -73,3 +73,27 @@ func TestBuildUserProfileUsesLatestFullDeckAndRealHistory(t *testing.T) {
 		t.Fatalf("quest graph progress = %d, want 500", got)
 	}
 }
+
+func TestRecordUserMessageMissionEventsUsesTextResourceWords(t *testing.T) {
+	tests := []struct {
+		message string
+		groups  []int32
+	}{
+		{message: "A Happy New Year", groups: []int32{420, 392}},
+		{message: "お年玉をありがとう", groups: []int32{420, 392}},
+		{message: "ママ", groups: []int32{420, 393}},
+		{message: "ordinary comment", groups: []int32{420}},
+	}
+	for _, tt := range tests {
+		user := &store.UserState{}
+		recordUserMessageMissionEvents(user, tt.message)
+		if len(user.PendingMissionEvents) != len(tt.groups) {
+			t.Fatalf("message %q emitted groups %+v, want %v", tt.message, user.PendingMissionEvents, tt.groups)
+		}
+		for i, group := range tt.groups {
+			if user.PendingMissionEvents[i].OptionGroupId != group {
+				t.Fatalf("message %q event %d group = %d, want %d", tt.message, i, user.PendingMissionEvents[i].OptionGroupId, group)
+			}
+		}
+	}
+}

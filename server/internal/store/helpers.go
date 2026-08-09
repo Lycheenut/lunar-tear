@@ -249,6 +249,9 @@ func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.Poss
 	default:
 		result.Status = GrantStatusUnsupported
 	}
+	if result.Status == GrantStatusGranted {
+		AddMissionCount(user, int32(model.MissionClearConditionTypePossessionAddByCount), count, possessionId, int32(possessionType))
+	}
 	return result
 }
 

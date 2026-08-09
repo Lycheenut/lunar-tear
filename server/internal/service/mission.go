@@ -12,6 +12,7 @@ import (
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
+	"lunar-tear/server/internal/missionprogress"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
@@ -28,83 +29,33 @@ func NewMissionServiceServer(users store.UserRepository, sessions store.SessionR
 	return &MissionServiceServer{users: users, sessions: sessions, holder: holder}
 }
 
-func missionIsActive(c *masterdata.MissionCatalog, mission masterdata.EntityMMission, nowMillis int64) bool {
-	if mission.MissionTermId == 0 {
-		return true
+func syncMissionProgress(catalogs *runtime.Catalogs, user *store.UserState, req *pb.UpdateMissionProgressRequest, nowMillis int64) error {
+	var events []store.MissionEvent
+	set := func(conditionType, value, targetId, optionGroupId int32) {
+		events = append(events, store.MissionEvent{ConditionType: conditionType, Value: value, IsValue: true, TargetId: targetId, OptionGroupId: optionGroupId})
 	}
-	term, ok := c.TermById[mission.MissionTermId]
-	return ok && nowMillis >= term.StartDatetime && (term.EndDatetime == 0 || nowMillis < term.EndDatetime)
-}
-
-func missionUnlocked(c *masterdata.MissionCatalog, user *store.UserState, mission masterdata.EntityMMission) bool {
-	if mission.MissionUnlockConditionId == 0 {
-		return true
-	}
-	condition, ok := c.UnlockById[mission.MissionUnlockConditionId]
-	if !ok {
-		return false
-	}
-	switch condition.MissionUnlockConditionType {
-	case 0, 1, 6:
-		return true
-	case 2:
-		return user.Quests[condition.ConditionValue].QuestStateType == model.UserQuestStateTypeCleared
-	case 5:
-		return user.Status.Level >= condition.ConditionValue
-	default:
-		return false
-	}
-}
-
-func syncMissionProgress(c *masterdata.MissionCatalog, user *store.UserState, req *pb.UpdateMissionProgressRequest, nowMillis int64) error {
-	measuredByType := make(map[int32]int32)
 	if req.CageMeasurableValues != nil {
-		measuredByType[37] = req.CageMeasurableValues.RunningDistanceMeters
-		measuredByType[38] = req.CageMeasurableValues.MamaTappedCount
+		set(int32(model.MissionClearConditionTypeTowerWalkedDistance), req.CageMeasurableValues.RunningDistanceMeters, 0, 0)
+		set(int32(model.MissionClearConditionTypeMamaTapByCount), req.CageMeasurableValues.MamaTappedCount, 0, 0)
 	}
 	if req.PictureBookMeasurableValues != nil {
-		measuredByType[39] = req.PictureBookMeasurableValues.DefeatWizardCount
+		set(int32(model.MissionClearConditionTypeDefeatWizardCount), req.PictureBookMeasurableValues.DefeatWizardCount, 0, 0)
 		if rhythm := req.PictureBookMeasurableValues.RhythmInteractionMeasurableValues; rhythm != nil {
 			if rhythm.LiveTypeId < 0 || (rhythm.TapCount > 0 && rhythm.LiveTypeId == 0) {
 				return status.Error(codes.InvalidArgument, "rhythm live type must be positive")
 			}
 			if rhythm.LiveTypeId != 0 || rhythm.TapCount != 0 {
-				measuredByType[36] = rhythm.TapCount
+				set(int32(model.MissionClearConditionTypeRhythmInteractionTapCount), rhythm.TapCount, rhythm.LiveTypeId, rhythm.LiveTypeId)
 			}
 		}
 	}
-	for missionType, measured := range measuredByType {
-		if measured < 0 {
-			return status.Errorf(codes.InvalidArgument, "mission metric type %d must not be negative", missionType)
+	for _, event := range events {
+		if event.Value < 0 {
+			return status.Errorf(codes.InvalidArgument, "mission metric type %d must not be negative", event.ConditionType)
 		}
 	}
-
-	for missionType, measured := range measuredByType {
-		for _, id := range c.MeasurableMissionIdsByType[missionType] {
-			mission := c.MissionById[id]
-			if !missionIsActive(c, mission, nowMillis) || !missionUnlocked(c, user, mission) {
-				continue
-			}
-			state := user.Missions[id]
-			if state.MissionId == 0 {
-				state = store.UserMissionState{MissionId: id, StartDatetime: nowMillis, MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress), LatestVersion: nowMillis}
-			}
-			if state.MissionProgressStatusType >= int32(model.MissionProgressStatusTypeClear) {
-				user.Missions[id] = state
-				continue
-			}
-			if measured > state.ProgressValue {
-				state.ProgressValue = measured
-				state.LatestVersion = nowMillis
-			}
-			if state.ProgressValue >= mission.ClearConditionValue {
-				state.MissionProgressStatusType = int32(model.MissionProgressStatusTypeClear)
-				state.ClearDatetime = nowMillis
-				state.LatestVersion = nowMillis
-			}
-			user.Missions[id] = state
-		}
-	}
+	before := store.CloneUserState(*user)
+	missionprogress.Apply(catalogs, &before, user, events, nowMillis)
 	return nil
 }
 
@@ -113,7 +64,7 @@ func (s *MissionServiceServer) UpdateMissionProgress(ctx context.Context, req *p
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		validationErr = syncMissionProgress(s.holder.Get().Mission, user, req, gametime.NowMillis())
+		validationErr = syncMissionProgress(s.holder.Get(), user, req, gametime.NowMillis())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update mission progress: %w", err)
