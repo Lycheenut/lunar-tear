@@ -97,9 +97,9 @@ func TestCampaignTitlesIncludeConcreteEffect(t *testing.T) {
 		{name: "weapon glorious success", table: "m_enhance_campaign", row: []interface{}{1, 10, 2, 400}, want: "Glorious success weapon-enhance rate up"},
 		{name: "memoir success", table: "m_enhance_campaign", row: []interface{}{2, 11, 2, 500}, want: "Memoir enhance success rate up"},
 		{name: "absolute glorious success", table: "m_enhance_campaign", row: []interface{}{6, 12, 1, 400}, want: "Glorious success enhance rate up (All Characters)"},
-		{name: "drop rate", table: "m_quest_campaign", row: []interface{}{3, 30, 20}, want: "Item drop rate"},
+		{name: "drop rate", table: "m_quest_campaign", row: []interface{}{3, 30, 20}, want: "Item drop rate x2.5"},
 		{name: "stamina", table: "m_quest_campaign", row: []interface{}{4, 31, 21}, want: "Stamina cost for quests halved"},
-		{name: "gold", table: "m_quest_campaign", row: []interface{}{5, 32, 22}, want: "Gold acquired"},
+		{name: "gold", table: "m_quest_campaign", row: []interface{}{5, 32, 22}, want: "Gold acquired x3"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestCampaignTitlesIncludeConcreteEffect(t *testing.T) {
 	}
 }
 
-func TestCampaignAndShopContentFootnotes(t *testing.T) {
+func TestContentFootnotes(t *testing.T) {
 	resolver := &titleResolver{
 		texts: localizationIndex{
 			"en": {
@@ -127,6 +127,7 @@ func TestCampaignAndShopContentFootnotes(t *testing.T) {
 		questTargets:         map[int64][]campaignTarget{30: {{targetType: 7, targetValue: 40}}},
 		weaponTitlesByID:     map[int64]map[string]string{20: {"en": "Black Sunflower"}},
 		eventChaptersByQuest: map[int64][]int64{40: {30}},
+		maintenanceAPIs:      map[int64][]string{50: {"apb.api.gacha.GachaService/Draw", "apb.api.pvp.PvpService/GetRanking"}},
 	}
 
 	enhance := resolver.resolveContentFootnotes("m_enhance_campaign", []interface{}{1, 10, 2, 400}, nil)
@@ -144,6 +145,13 @@ func TestCampaignAndShopContentFootnotes(t *testing.T) {
 	quest := resolver.resolveContentFootnotes("m_quest_campaign", []interface{}{4, 30, 20, int64(100), int64(200)}, nil)
 	if got, want := footnoteTexts(quest, "en"), []string{"×0.5", "Record: The Festival"}; !equalStrings(got, want) {
 		t.Fatalf("quest footnotes = %q, want %q", got, want)
+	}
+	maintenanceRow := []interface{}{5, int64(100), int64(200), 50}
+	if got, want := resolver.resolve("m_maintenance", maintenanceRow)["en"], "apb.api.gacha.GachaService/Draw / apb.api.pvp.PvpService/GetRanking"; got != want {
+		t.Fatalf("maintenance title = %q, want %q", got, want)
+	}
+	if footnotes := resolver.resolveContentFootnotes("m_maintenance", maintenanceRow, nil); len(footnotes) != 0 {
+		t.Fatalf("maintenance footnotes = %q, want none", footnoteTexts(footnotes, "en"))
 	}
 	shop := resolver.resolveContentFootnotes("m_shop_item_cell_term", []interface{}{5}, []ShopRelation{
 		{ShopTitles: map[string]string{"en": "Medal Exchange"}},

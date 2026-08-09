@@ -234,7 +234,7 @@
     const query = elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
     const hasSchedule = (table.pairs || []).length > 0;
-    const hasTitles = table.rows.some((row) => Object.keys(row.titles || {}).length > 0);
+    const hasContent = table.rows.some((row) => Object.keys(row.titles || {}).length > 0 || (row.contentFootnotes || []).length > 0);
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "")
@@ -261,7 +261,7 @@
       visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row)));
     } else {
       const headerRow = document.createElement("tr");
-      if (hasTitles) headerRow.append(makeCell("th", "内容"));
+      if (hasContent) headerRow.append(makeCell("th", "内容"));
       if (hasSchedule) headerRow.append(makeCell("th", "状态"));
       table.fields.forEach((field) => {
         const header = makeCell("th", field.name);
@@ -269,15 +269,15 @@
         headerRow.append(header);
       });
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, hasTitles, hasSchedule)));
+      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, hasContent, hasSchedule)));
     }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
-  function renderDetailedRow(table, row, hasTitles, hasSchedule) {
+  function renderDetailedRow(table, row, hasContent, hasSchedule) {
     const tr = document.createElement("tr");
-    if (hasTitles) {
+    if (hasContent) {
       const contentCell = renderContentCell(row);
       contentCell.className = "content-cell detailed-content-cell";
       tr.append(contentCell);
@@ -364,14 +364,13 @@
     title.className = "content-title";
     title.textContent = localizedText(row.titles) || "-";
     cell.append(title);
-    (row.contentFootnotes || []).forEach((footnote) => {
-      const text = localizedText(footnote);
-      if (!text) return;
+    const footnotes = [...new Set((row.contentFootnotes || []).map(localizedInlineText).filter(Boolean))];
+    if (footnotes.length) {
       const note = document.createElement("div");
       note.className = "content-footnote";
-      note.textContent = `※ ${text}`;
+      note.textContent = footnotes.join(" · ");
       cell.append(note);
-    });
+    }
     return cell;
   }
 
@@ -429,6 +428,10 @@
   function localizedText(titles) {
     const text = titles?.[state.language] || titles?.[state.catalog.defaultLanguage] || Object.values(titles || {})[0] || "";
     return displayContentText(text);
+  }
+
+  function localizedInlineText(titles) {
+    return localizedText(titles).replace(/\s*\n\s*/g, " ");
   }
 
   function displayContentText(value) {

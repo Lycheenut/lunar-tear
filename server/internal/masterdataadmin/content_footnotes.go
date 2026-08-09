@@ -202,10 +202,10 @@ func (r *titleResolver) enhanceEffectFootnotes(row []interface{}) []map[string]s
 	targets := r.enhanceTargets[groupID]
 	if len(targets) == 0 {
 		if effectType == 1 {
-			return neutralFootnotes([]string{formatDecimal(effectValue, 100) + "%"})
+			return neutralLocalizedTexts([]string{formatDecimal(effectValue, 100) + "%"})
 		}
 		if effectType == 2 {
-			return neutralFootnotes([]string{"+" + formatDecimal(effectValue, 100) + "%"})
+			return neutralLocalizedTexts([]string{"+" + formatDecimal(effectValue, 100) + "%"})
 		}
 		return nil
 	}
@@ -222,7 +222,7 @@ func (r *titleResolver) enhanceEffectFootnotes(row []interface{}) []map[string]s
 			}
 		}
 	}
-	return neutralFootnotes(values)
+	return neutralLocalizedTexts(values)
 }
 
 func (r *titleResolver) questEffectFootnotes(row []interface{}) []map[string]string {
@@ -239,10 +239,10 @@ func (r *titleResolver) questEffectFootnotes(row []interface{}) []map[string]str
 			values = append(values, "×"+formatDecimal(effect.effectValue, 1000))
 		}
 	}
-	return neutralFootnotes(values)
+	return neutralLocalizedTexts(values)
 }
 
-func neutralFootnotes(values []string) []map[string]string {
+func neutralLocalizedTexts(values []string) []map[string]string {
 	seen := make(map[string]bool)
 	var footnotes []map[string]string
 	for _, value := range values {

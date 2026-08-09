@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,7 +70,7 @@ func TestLoadAddsInstalledLocalizedTitles(t *testing.T) {
 	t.Fatal("event quest catalog has no English title")
 }
 
-func TestLoadAddsCampaignAndShopContentFootnotes(t *testing.T) {
+func TestLoadAddsContentFootnotes(t *testing.T) {
 	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {
 		t.Skip("repository master data is not installed")
@@ -85,6 +86,7 @@ func TestLoadAddsCampaignAndShopContentFootnotes(t *testing.T) {
 	questTargetGroups := map[string]bool{}
 	questTargetRows := map[string][]map[string]string{}
 	questMagnitudeGroups := map[string]bool{}
+	maintenanceGroups := map[string]bool{}
 	for _, table := range catalog.Tables {
 		for _, row := range table.Rows {
 			switch table.Name {
@@ -100,6 +102,8 @@ func TestLoadAddsCampaignAndShopContentFootnotes(t *testing.T) {
 				if row.Values["QuestCampaignEffectType"] != "5" {
 					questMagnitudeGroups[row.Values["QuestCampaignEffectGroupId"]] = true
 				}
+			case "m_maintenance_group":
+				maintenanceGroups[row.Values["MaintenanceGroupId"]] = true
 			}
 		}
 	}
@@ -111,6 +115,11 @@ func TestLoadAddsCampaignAndShopContentFootnotes(t *testing.T) {
 				if row.Titles["en"] == "" {
 					continue
 				}
+				for language, title := range row.Titles {
+					if strings.Contains(title, "{0}") {
+						t.Fatalf("%s row %d has unresolved %s title parameter: %q", table.Name, row.Index, language, title)
+					}
+				}
 				if len(row.ContentFootnotes) == 0 {
 					t.Fatalf("%s row %d has no content footnote: %v", table.Name, row.Index, row.Values)
 				}
@@ -121,6 +130,14 @@ func TestLoadAddsCampaignAndShopContentFootnotes(t *testing.T) {
 					t.Fatalf("%s row %d has no dungeon-name footnote: %v; targets: %v", table.Name, row.Index, row.Values, questTargetRows[row.Values["QuestCampaignTargetGroupId"]])
 				}
 				checked[table.Name]++
+			case "m_maintenance":
+				if maintenanceGroups[row.Values["MaintenanceGroupId"]] && row.Titles["en"] == "" {
+					t.Fatalf("%s row %d has no affected-API title", table.Name, row.Index)
+				}
+				if len(row.ContentFootnotes) != 0 {
+					t.Fatalf("%s row %d still has content footnotes", table.Name, row.Index)
+				}
+				checked[table.Name]++
 			case "m_shop_item_cell_term":
 				if len(row.ShopRelations) != 0 && len(row.ContentFootnotes) == 0 {
 					t.Fatalf("%s row %d has shops but no content footnote", table.Name, row.Index)
@@ -129,7 +146,7 @@ func TestLoadAddsCampaignAndShopContentFootnotes(t *testing.T) {
 			}
 		}
 	}
-	for _, table := range []string{"m_enhance_campaign", "m_quest_campaign", "m_shop_item_cell_term"} {
+	for _, table := range []string{"m_enhance_campaign", "m_quest_campaign", "m_maintenance", "m_shop_item_cell_term"} {
 		if checked[table] == 0 {
 			t.Fatalf("did not check any rows from %s", table)
 		}

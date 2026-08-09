@@ -23,6 +23,7 @@ type campaignTarget struct {
 type localizedTitlePart struct {
 	key       string
 	targetKey string
+	parameter string
 }
 
 // Costume and weapon enhancement use a 20‰ base Glorious Success rate.
@@ -42,6 +43,7 @@ type titleResolver struct {
 	shopTextIDs          map[int64]int64
 	consumableTermKeys   map[int64][]string
 	importantEffectTexts map[int64]int64
+	maintenanceAPIs      map[int64][]string
 	shopRelationsByShop  map[int64][]ShopRelation
 	shopRelationsByTerm  map[int64][]ShopRelation
 	dokanGroupTextIDs    map[int64]int64
@@ -74,6 +76,7 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		shopTextIDs:          make(map[int64]int64),
 		consumableTermKeys:   make(map[int64][]string),
 		importantEffectTexts: make(map[int64]int64),
+		maintenanceAPIs:      make(map[int64][]string),
 		dokanGroupTextIDs:    make(map[int64]int64),
 		enhanceTargets:       make(map[int64][]campaignTarget),
 		questEffects:         make(map[int64][]questCampaignEffect),
@@ -119,6 +122,13 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 	}
 	for _, row := range readRows(file, "m_important_item") {
 		resolver.putPair(resolver.importantEffectTexts, row, 6, 1)
+	}
+	for _, row := range readRows(file, "m_maintenance_group") {
+		groupID, groupOK := integerAt(row, 0)
+		apiPath, pathOK := stringAt(row, 1)
+		if groupOK && pathOK {
+			resolver.maintenanceAPIs[groupID] = append(resolver.maintenanceAPIs[groupID], apiPath)
+		}
 	}
 
 	cellItems := make(map[int64]int64)
@@ -188,6 +198,10 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 	case "m_login_bonus":
 		if assetName, ok := stringAt(row, 7); ok {
 			key = "loginbonus.title." + assetName
+		}
+	case "m_maintenance":
+		if groupID, ok := integerAt(row, 3); ok {
+			return combineLocalizedTitles(neutralLocalizedTexts(r.maintenanceAPIs[groupID]))
 		}
 	case "m_mission_term":
 		if termID, ok := integerAt(row, 0); ok {
@@ -283,7 +297,10 @@ func (r *titleResolver) questCampaignTitles(row []interface{}) map[string]string
 	if len(targets) == 0 {
 		parts := make([]localizedTitlePart, 0, len(effects))
 		for _, effect := range effects {
-			parts = append(parts, localizedTitlePart{key: fmt.Sprintf("campaign.description.01.%02d", effect.effectType)})
+			parts = append(parts, localizedTitlePart{
+				key:       fmt.Sprintf("campaign.description.01.%02d", effect.effectType),
+				parameter: questEffectParameter(effect),
+			})
 		}
 		return r.localizedTitles(parts)
 	}
@@ -291,11 +308,23 @@ func (r *titleResolver) questCampaignTitles(row []interface{}) map[string]string
 	for _, effect := range effects {
 		for _, target := range targets {
 			parts = append(parts, localizedTitlePart{
-				key: fmt.Sprintf("campaign.description.01.%02d.%02d", effect.effectType, target.targetType),
+				key:       fmt.Sprintf("campaign.description.01.%02d.%02d", effect.effectType, target.targetType),
+				parameter: questEffectParameter(effect),
 			})
 		}
 	}
 	return r.localizedTitles(parts)
+}
+
+func questEffectParameter(effect questCampaignEffect) string {
+	switch effect.effectType {
+	case 1, 2, 4:
+		return formatDecimal(1000+effect.effectValue, 1000)
+	case 3:
+		return formatDecimal(effect.effectValue, 1000)
+	default:
+		return ""
+	}
 }
 
 func enhanceTargetCategory(targetType int64) int64 {
@@ -387,7 +416,7 @@ func (r *titleResolver) localizedTitles(parts []localizedTitlePart) map[string]s
 			if value == "" {
 				continue
 			}
-			value = campaignDescriptionWithoutMagnitude(part.key, value)
+			value = strings.ReplaceAll(value, "{0}", part.parameter)
 			if target := r.texts[language][part.targetKey]; target != "" {
 				value += " (" + target + ")"
 			}
@@ -404,16 +433,6 @@ func (r *titleResolver) localizedTitles(parts []localizedTitlePart) map[string]s
 		return nil
 	}
 	return titles
-}
-
-func campaignDescriptionWithoutMagnitude(key, value string) string {
-	if !strings.HasPrefix(key, "campaign.description.") || !strings.Contains(value, "{0}") {
-		return value
-	}
-	for _, placeholder := range []string{"x{0}", "X{0}", "×{0}", "{0}x", "{0}X", "{0}×", "{0}倍", "{0}배", "{0}"} {
-		value = strings.ReplaceAll(value, placeholder, "")
-	}
-	return strings.Join(strings.Fields(value), " ")
 }
 
 func (r *titleResolver) eventChapterTitles(chapterIDs []int64) map[string]string {
