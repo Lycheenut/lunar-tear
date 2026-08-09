@@ -109,6 +109,13 @@ func TestFriendServiceLifecycleAndCheer(t *testing.T) {
 	if _, err := server.ReceiveCheer(ctxB, &pb.ReceiveCheerRequest{PlayerId: userA.PlayerId}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("duplicate receive status = %v, want FailedPrecondition", status.Code(err))
 	}
+	friendList, err = server.GetFriendList(ctxB, &pb.GetFriendListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if friendList.FriendUser[0].CheerReceived || !friendList.FriendUser[0].StaminaReceived {
+		t.Fatalf("cheer flags after receive = %+v, want no claimable cheer and received stamina", friendList.FriendUser)
+	}
 
 	if _, err := server.DeleteFriend(ctxA, &pb.DeleteFriendRequest{PlayerId: userB.PlayerId}); err != nil {
 		t.Fatal(err)
