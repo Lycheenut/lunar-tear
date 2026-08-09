@@ -7,13 +7,14 @@
     workspace: $("#workspace"), logout: $("#logout"), version: $("#version"),
     tableCount: $("#table-count"), rowCount: $("#row-count"), dirtyCount: $("#dirty-count"),
     timezone: $("#timezone"), tableSelect: $("#table-select"), typeFilters: $("#type-filters"),
+    modeControl: $("#detail-mode-control"), modeButtons: document.querySelectorAll(".mode-button"),
     statusFilter: $("#status-filter"), statusFilterLabel: $("#status-filter-label"),
     languageSelect: $("#language-select"), search: $("#search"), refresh: $("#refresh"), notice: $("#notice"),
     entityName: $("#entity-name"), tableName: $("#table-name"), visibleCount: $("#visible-count"),
-    tableScroll: $("#table-scroll"), head: $("#schedule-head"), body: $("#schedule-body"),
-    grid: $("#schedule-grid"), viewButtons: document.querySelectorAll(".view-button"), empty: $("#empty-state"),
+    tableScroll: $("#table-scroll"), scheduleTable: $("#schedule-table"), head: $("#schedule-head"), body: $("#schedule-body"),
+    empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
-    tabMaster: $("#tab-master"), tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
+    tabMaster: $("#tab-master"), tabRelated: $("#tab-related"), tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
     gachaStandardCount: $("#gacha-standard-count"), gachaOverrideCount: $("#gacha-override-count"),
     gachaBannerCount: $("#gacha-banner-count"), gachaPickupCount: $("#gacha-pickup-count"), gachaWarnings: $("#gacha-warnings"),
     gachaLanguageSelect: $("#gacha-language-select"), gachaLimitedSetId: $("#gacha-limited-set-id"),
@@ -36,17 +37,34 @@
   const state = {
     token: sessionStorage.getItem("lunar-admin-token") || "",
     language: localStorage.getItem("lunar-admin-language") || "en",
-    view: localStorage.getItem("lunar-admin-view") === "grid" ? "grid" : "list",
+    mode: "simple",
     timeMode: "local",
     catalog: null,
     dirty: new Map(),
     section: "master",
+    tableSelections: { master: "", related: "" },
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
   const languageLabels = { en: "English", ja: "日本語", ko: "한국어" };
+  const simpleFieldNames = {
+    m_big_hunt_schedule: ["BigHuntScheduleId"],
+    m_consumable_item_term: ["ConsumableItemTermId"],
+    m_enhance_campaign: ["EnhanceCampaignId", "EnhanceCampaignTargetGroupId", "EnhanceCampaignEffectType"],
+    m_event_quest_chapter: ["EventQuestChapterId", "EventQuestType", "SortOrder", "NameEventQuestTextId", "BannerAssetId"],
+    m_event_quest_daily_group: ["EventQuestDailyGroupId"],
+    m_event_quest_labyrinth_season: ["EventQuestChapterId", "SeasonNumber"],
+    m_login_bonus: ["LoginBonusId", "SortOrder", "LoginBonusStartConditionId", "LoginBonusAssetName"],
+    m_maintenance: ["MaintenanceId"],
+    m_mom_banner: ["MomBannerId", "SortOrderDesc", "DestinationDomainType", "DestinationDomainId", "BannerAssetName"],
+    m_omikuji: ["OmikujiId"],
+    m_pvp_season: ["PvpSeasonId", "NameAssetPath"],
+    m_quest_campaign: ["QuestCampaignId", "QuestCampaignTargetGroupId", "QuestCampaignEffectGroupId"],
+    m_shop: ["ShopId", "ShopGroupType", "SortOrderInShopGroup", "NameShopTextId", "ShopItemCellGroupId"],
+    m_shop_item_cell_term: ["ShopItemCellTermId"]
+  };
 
   async function api(path, options = {}) {
     const response = await fetch(path, {
@@ -83,7 +101,7 @@
       renderCatalog();
       renderGachaEditor();
       switchAdminSection(state.section);
-      showNotice(`已读取 ${state.catalog.primaryCount} 张限时主表、${state.catalog.relatedCount} 张直接关联表、${state.catalog.rowCount} 行内容，以及 ${state.gachaCatalog.weapons.length} 件 Gacha 武器。`);
+      showNotice(`已读取 ${state.catalog.primaryCount + state.catalog.relatedCount} 张配置表、${state.catalog.rowCount} 行内容，以及 ${state.gachaCatalog.weapons.length} 件 Gacha 武器。`);
     } catch (error) {
       if (error.status === 401) {
         state.token = "";
@@ -113,28 +131,25 @@
   }
 
   function renderCatalog() {
-    const previous = elements.tableSelect.value;
+    const tables = configurationTables();
+    const previous = state.tableSelections[state.section] || elements.tableSelect.value;
     elements.tableSelect.replaceChildren();
-    [[true, "限时主表"], [false, "直接关联表"]].forEach(([primary, label]) => {
-      const group = document.createElement("optgroup");
-      group.label = label;
-      state.catalog.tables.filter((table) => table.primary === primary).forEach((table) => {
-        const option = document.createElement("option");
-        option.value = table.name;
-        option.textContent = `${tableDisplayName(table)} · ${table.rows.length}`;
-        option.title = table.name;
-        group.append(option);
-      });
-      elements.tableSelect.append(group);
+    tables.forEach((table) => {
+      const option = document.createElement("option");
+      option.value = table.name;
+      option.textContent = `${tableDisplayName(table)}（${table.rows.length} 行）`;
+      option.title = table.name;
+      elements.tableSelect.append(option);
     });
-    if (state.catalog.tables.some((table) => table.name === previous)) elements.tableSelect.value = previous;
+    if (tables.some((table) => table.name === previous)) elements.tableSelect.value = previous;
+    state.tableSelections[state.section] = elements.tableSelect.value;
     renderLanguages();
     renderTypeFilters(currentTable());
     elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
     elements.version.title = state.catalog.version;
-    elements.tableCount.textContent = `${state.catalog.primaryCount} + ${state.catalog.relatedCount}`;
-    elements.tableCount.title = `${state.catalog.primaryCount} 张限时主表，${state.catalog.relatedCount} 张直接关联表`;
-    elements.rowCount.textContent = state.catalog.rowCount.toLocaleString();
+    elements.tableCount.textContent = tables.length.toLocaleString();
+    elements.tableCount.title = `${tables.length} 张配置表`;
+    elements.rowCount.textContent = tables.reduce((count, table) => count + table.rows.length, 0).toLocaleString();
     elements.timezone.value = state.timeMode;
     updateDirtyUI();
     renderTable();
@@ -154,7 +169,14 @@
   }
 
   function currentTable() {
-    return state.catalog?.tables.find((table) => table.name === elements.tableSelect.value) || state.catalog?.tables[0];
+    const tables = configurationTables();
+    return tables.find((table) => table.name === elements.tableSelect.value) || tables[0];
+  }
+
+  function configurationTables() {
+    if (!state.catalog) return [];
+    const primary = state.section !== "related";
+    return state.catalog.tables.filter((table) => table.primary === primary);
   }
 
   function renderTypeFilters(table) {
@@ -200,11 +222,14 @@
   function renderTable() {
     const table = currentTable();
     if (!table) return;
+    const detailed = !table.primary || state.mode === "detail";
     elements.entityName.textContent = table.name;
-    elements.tableName.textContent = `${tableDisplayName(table)} · ${table.primary ? "限时主表" : "直接关联表"}`;
+    elements.tableName.textContent = tableDisplayName(table);
+    elements.modeControl.classList.toggle("hidden", !table.primary);
+    elements.scheduleTable.classList.toggle("detail-mode", detailed);
+    syncModeToggle();
     elements.head.replaceChildren();
     elements.body.replaceChildren();
-    elements.grid.replaceChildren();
 
     const query = elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
@@ -227,12 +252,12 @@
       return haystack.includes(query);
     });
 
-    const isGrid = state.view === "grid";
-    elements.tableScroll.classList.toggle("hidden", isGrid);
-    elements.grid.classList.toggle("hidden", !isGrid);
-    syncViewToggle();
-    if (isGrid) {
-      visibleRows.forEach((row) => elements.grid.append(renderCard(table, row, hasTitles, hasSchedule)));
+    if (!detailed) {
+      const headerRow = document.createElement("tr");
+      ["ID", "内容", "状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
+      simpleTimeFields(table).forEach((field) => headerRow.append(makeCell("th", field.name)));
+      elements.head.append(headerRow);
+      visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row)));
     } else {
       const headerRow = document.createElement("tr");
       if (hasTitles) headerRow.append(makeCell("th", "内容"));
@@ -243,17 +268,17 @@
         headerRow.append(header);
       });
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderRow(table, row, hasTitles, hasSchedule)));
+      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, hasTitles, hasSchedule)));
     }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
-  function renderRow(table, row, hasTitles, hasSchedule) {
+  function renderDetailedRow(table, row, hasTitles, hasSchedule) {
     const tr = document.createElement("tr");
     if (hasTitles) {
       const contentCell = makeCell("td", localizedText(row.titles) || "-");
-      contentCell.className = "content-cell";
+      contentCell.className = "content-cell detailed-content-cell";
       tr.append(contentCell);
     }
     if (hasSchedule) {
@@ -271,39 +296,83 @@
     return tr;
   }
 
-  function renderCard(table, row, hasTitles, hasSchedule) {
-    const card = document.createElement("article");
-    card.className = "schedule-card";
+  function renderSimpleRow(table, row) {
+    const tr = document.createElement("tr");
+    const primary = row.identity[0];
 
-    const header = document.createElement("div");
-    header.className = "card-header";
-    const id = document.createElement("div");
-    id.className = "card-id";
-    const idLabel = document.createElement("span");
-    idLabel.textContent = row.identity.map((field) => field.name).join(" / ") || "ROW";
-    const idValue = document.createElement("strong");
-    idValue.textContent = row.identity.map((field) => field.value).join(" / ") || String(row.index);
-    id.append(idLabel, idValue);
-    header.append(id);
-    if (hasSchedule) header.append(renderStatus(rowStatus(table, row)));
-    card.append(header);
-    if (hasTitles) {
-      const title = document.createElement("h3");
-      title.textContent = localizedText(row.titles) || "-";
-      card.append(title);
-    }
+    const idCell = makeCell("td", primary?.value || "-");
+    idCell.className = "id-cell";
+    idCell.title = primary?.name || "ID";
+    tr.append(idCell);
 
-    const fields = document.createElement("div");
-    fields.className = "card-times card-fields";
-    table.fields.forEach((field) => {
-      const group = document.createElement("label");
-      group.textContent = `${field.name}${field.primaryKey ? " · 主键" : ""}`;
-      group.title = field.type;
-      group.append(renderFieldEditor(table, row, field));
-      fields.append(group);
+    const contentCell = makeCell("td", localizedText(row.titles) || "-");
+    contentCell.className = "content-cell";
+    tr.append(contentCell);
+
+    const statusCell = document.createElement("td");
+    statusCell.className = "status-cell";
+    statusCell.append(renderStatus(rowStatus(table, row)));
+    tr.append(statusCell);
+
+    const notesCell = document.createElement("td");
+    notesCell.className = "notes-cell";
+    notesCell.append(renderSimpleNotes(table, row));
+    tr.append(notesCell);
+
+    simpleTimeFields(table).forEach((field) => {
+      const td = document.createElement("td");
+      td.className = "time-column";
+      td.append(renderSimpleTimeEditor(table, row, field));
+      tr.append(td);
     });
-    card.append(fields);
-    return card;
+    return tr;
+  }
+
+  function renderSimpleNotes(table, row) {
+    const notes = document.createElement("div");
+    notes.className = "identity";
+    (simpleFieldNames[table.name] || []).slice(1).forEach((fieldName) => {
+      if (table.name === "m_shop" && fieldName === "ShopItemCellGroupId") return;
+      const meta = document.createElement("div");
+      meta.className = "identity-meta";
+      meta.textContent = `${fieldName}=${displayText(effectiveValue(table.name, row, fieldName))}`;
+      notes.append(meta);
+    });
+    if (table.name === "m_shop_item_cell_term") {
+      const shopNames = renderShopNames(row.shopRelations);
+      if (shopNames) notes.append(shopNames);
+    }
+    if (!notes.childElementCount) {
+      const empty = document.createElement("span");
+      empty.className = "notes-empty";
+      empty.textContent = "-";
+      notes.append(empty);
+    }
+    return notes;
+  }
+
+  function simpleTimeFields(table) {
+    return table.fields.filter((field) => field.datetime);
+  }
+
+  function renderSimpleTimeEditor(table, row, field) {
+    const editor = renderFieldEditor(table, row, field);
+    editor.classList.add("time-cell");
+    return editor;
+  }
+
+  function renderShopNames(relations = []) {
+    const names = [...new Set(relations.map((relation) => localizedText(relation.shopTitles)).filter(Boolean))];
+    if (!names.length) return null;
+    const wrapper = document.createElement("div");
+    wrapper.className = "shop-names";
+    names.forEach((name) => {
+      const item = document.createElement("div");
+      item.className = "shop-name";
+      item.textContent = name;
+      wrapper.append(item);
+    });
+    return wrapper;
   }
 
   function renderStatus(status) {
@@ -359,7 +428,11 @@
 
   function localizedText(titles) {
     const text = titles?.[state.language] || titles?.[state.catalog.defaultLanguage] || Object.values(titles || {})[0] || "";
-    return displayText(text);
+    return displayContentText(text);
+  }
+
+  function displayContentText(value) {
+    return displayText(value).replace(/<br>/g, "\n");
   }
 
   function displayText(value) {
@@ -451,9 +524,9 @@
     return date.toISOString().slice(0, 19);
   }
 
-  function syncViewToggle() {
-    elements.viewButtons.forEach((button) => {
-      const active = button.dataset.view === state.view;
+  function syncModeToggle() {
+    elements.modeButtons.forEach((button) => {
+      const active = button.dataset.mode === state.mode;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
@@ -498,15 +571,18 @@
   ];
 
   function switchAdminSection(section) {
-    state.section = section === "gacha" ? "gacha" : "master";
+    state.section = ["master", "related", "gacha"].includes(section) ? section : "master";
     const isGacha = state.section === "gacha";
     document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha));
     elements.gachaEditor.classList.toggle("hidden", !isGacha);
-    elements.tabMaster.classList.toggle("active", !isGacha);
+    elements.tabMaster.classList.toggle("active", state.section === "master");
+    elements.tabRelated.classList.toggle("active", state.section === "related");
     elements.tabGacha.classList.toggle("active", isGacha);
-    elements.tabMaster.setAttribute("aria-pressed", String(!isGacha));
+    elements.tabMaster.setAttribute("aria-pressed", String(state.section === "master"));
+    elements.tabRelated.setAttribute("aria-pressed", String(state.section === "related"));
     elements.tabGacha.setAttribute("aria-pressed", String(isGacha));
     if (isGacha) renderGachaEditor();
+    else if (state.catalog) renderCatalog();
   }
 
   function resetGachaDraft() {
@@ -1028,9 +1104,11 @@
   });
 
   elements.tabMaster.addEventListener("click", () => switchAdminSection("master"));
+  elements.tabRelated.addEventListener("click", () => switchAdminSection("related"));
   elements.tabGacha.addEventListener("click", () => switchAdminSection("gacha"));
 
   elements.tableSelect.addEventListener("change", () => {
+    state.tableSelections[state.section] = elements.tableSelect.value;
     renderTypeFilters(currentTable());
     renderTable();
   });
@@ -1046,9 +1124,8 @@
     renderGachaEditor();
   });
   elements.search.addEventListener("input", renderTable);
-  elements.viewButtons.forEach((button) => button.addEventListener("click", () => {
-    state.view = button.dataset.view;
-    localStorage.setItem("lunar-admin-view", state.view);
+  elements.modeButtons.forEach((button) => button.addEventListener("click", () => {
+    state.mode = button.dataset.mode === "detail" ? "detail" : "simple";
     renderTable();
   }));
   elements.refresh.addEventListener("click", async () => {

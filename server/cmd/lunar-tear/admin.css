@@ -199,7 +199,7 @@ input:focus, select:focus {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(130px, .55fr) 115px 110px minmax(180px, .8fr) 126px auto;
+  grid-template-columns: minmax(220px, 1.2fr) 126px 115px 110px minmax(240px, .9fr) auto;
   align-items: end;
   gap: 12px;
   margin: 22px 0 14px;
@@ -214,7 +214,15 @@ input:focus, select:focus {
   min-width: 0;
 }
 
-.type-filters { display: grid; gap: 8px; }
+.type-filters {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.type-filters label { flex: 0 1 260px; min-width: 180px; }
 
 .toolbar input,
 .toolbar select {
@@ -240,7 +248,7 @@ input:focus, select:focus {
   background: #0b1216;
 }
 
-.view-button {
+.mode-button {
   padding: 6px 9px;
   color: var(--muted);
   border: 0;
@@ -250,7 +258,7 @@ input:focus, select:focus {
   font-weight: 700;
 }
 
-.view-button.active {
+.mode-button.active {
   color: #082019;
   background: var(--accent);
 }
@@ -329,6 +337,21 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 }
 .content-cell { min-width: 220px; max-width: 360px; font-weight: 650; line-height: 1.5; white-space: pre-line; }
 .status-cell { min-width: 104px; }
+.notes-cell { min-width: 270px; max-width: 430px; }
+.time-column { min-width: 215px; }
+.identity { display: grid; gap: 4px; }
+.identity-meta { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-line; }
+.notes-empty { color: var(--muted); }
+.shop-names {
+  display: grid;
+  gap: 3px;
+  margin: 5px 0 2px;
+  padding: 7px 9px;
+  border-left: 2px solid rgba(119, 222, 199, .48);
+  border-radius: 0 7px 7px 0;
+  background: rgba(119, 222, 199, .055);
+}
+.shop-name { color: #cbd8dc; font-size: 11px; white-space: pre-line; }
 .field-column { min-width: 190px; }
 .field-editor { display: grid; min-width: 0; gap: 5px; }
 .field-editor input, .field-editor select { width: 100%; min-height: 38px; font-size: 12px; }
@@ -342,6 +365,11 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   color: var(--accent-strong);
   border: 1px solid transparent;
   font-size: 12px;
+}
+.detail-mode td.detailed-content-cell {
+  width: 440px;
+  min-width: 440px;
+  max-width: 620px;
 }
 
 .status {
@@ -357,41 +385,6 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .status.expired { color: #a3afb5; background: rgba(113, 128, 136, .16); }
 .status.disabled { color: var(--danger); background: rgba(168, 65, 58, .16); }
 .empty-state { padding: 46px; color: var(--muted); text-align: center; }
-
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 12px;
-  max-height: calc(100vh - 330px);
-  padding: 16px;
-  overflow: auto;
-}
-
-.schedule-card {
-  display: grid;
-  align-content: start;
-  gap: 15px;
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #0e161b;
-}
-
-.card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.card-id { display: grid; gap: 3px; min-width: 0; }
-.card-id span, .card-label { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-.card-id strong { color: var(--accent-strong); font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
-.schedule-card h3 { margin: 0; font-size: 15px; line-height: 1.45; white-space: pre-line; }
-.card-section { display: grid; gap: 7px; min-width: 0; }
-.card-times { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 10px; }
-.card-times label { min-width: 0; font-size: 10px; }
 
 .savebar {
   position: fixed;
@@ -505,7 +498,6 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .metric strong { font-size: 22px; }
   .toolbar { grid-template-columns: 1fr; }
   .search-field { grid-column: auto; }
-  .card-grid { grid-template-columns: 1fr; padding: 12px; }
   .savebar { align-items: stretch; flex-direction: column; gap: 10px; }
   .save-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .login-row { align-items: stretch; flex-direction: column; }

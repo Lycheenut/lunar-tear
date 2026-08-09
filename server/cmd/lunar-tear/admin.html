@@ -37,6 +37,7 @@
     <section id="workspace" class="workspace hidden" aria-live="polite">
       <nav class="admin-tabs" aria-label="配置区域">
         <button id="tab-master" class="admin-tab active" type="button" aria-pressed="true">运营活动配置</button>
+        <button id="tab-related" class="admin-tab" type="button" aria-pressed="false">关联表配置</button>
         <button id="tab-gacha" class="admin-tab" type="button" aria-pressed="false">Gacha 配置</button>
       </nav>
 
@@ -57,7 +58,13 @@
         <label>数据表
           <select id="table-select"></select>
         </label>
-        <div id="type-filters" class="type-filters hidden" aria-label="类型筛选"></div>
+        <div id="detail-mode-control" class="view-control">
+          <span>编辑模式</span>
+          <div class="view-toggle" role="group" aria-label="编辑模式">
+            <button class="mode-button active" type="button" data-mode="simple" aria-pressed="true">简化</button>
+            <button class="mode-button" type="button" data-mode="detail" aria-pressed="false">详细</button>
+          </div>
+        </div>
         <label id="status-filter-label">状态
           <select id="status-filter">
             <option value="all">全部</option>
@@ -73,14 +80,8 @@
         <label class="search-field">筛选当前表
           <input id="search" type="search" placeholder="按标题、字段名或字段值搜索">
         </label>
-        <div class="view-control">
-          <span>视图</span>
-          <div class="view-toggle" role="group" aria-label="视图模式">
-            <button class="view-button active" type="button" data-view="list" aria-pressed="true">列表</button>
-            <button class="view-button" type="button" data-view="grid" aria-pressed="false">网格</button>
-          </div>
-        </div>
         <button id="refresh" class="button ghost" type="button">刷新</button>
+        <div id="type-filters" class="type-filters hidden" aria-label="类型筛选"></div>
       </div>
 
       <div id="notice" class="notice hidden" role="status"></div>
@@ -99,7 +100,6 @@
             <tbody id="schedule-body"></tbody>
           </table>
         </div>
-        <div id="schedule-grid" class="card-grid hidden"></div>
         <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
       </section>
 
