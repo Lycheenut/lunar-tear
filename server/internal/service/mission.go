@@ -107,8 +107,11 @@ func missionPassEnded(pass masterdata.EntityMMissionPass, nowMillis int64) bool 
 func claimMissionRewards(cat *runtime.Catalogs, user *store.UserState, missionIds []int32, nowMillis int64) ([]*pb.MissionReward, []*pb.MissionReward) {
 	var received, expired []*pb.MissionReward
 	for _, id := range missionIds {
-		mission := cat.Mission.MissionById[id]
-		state := user.Missions[id]
+		mission, known := cat.Mission.MissionById[id]
+		state, exists := user.Missions[id]
+		if !known || !exists || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+			continue
+		}
 		isExpired := missionExpired(cat.Mission, mission, nowMillis)
 		for _, reward := range cat.Mission.RewardsById[mission.MissionRewardId] {
 			row := &pb.MissionReward{PossessionType: reward.PossessionType, PossessionId: reward.PossessionId, Count: reward.Count}
@@ -161,10 +164,6 @@ func (s *MissionServiceServer) ReceiveMissionRewardsById(ctx context.Context, re
 			seen[id] = true
 			if _, ok := cat.Mission.MissionById[id]; !ok {
 				validationErr = status.Errorf(codes.InvalidArgument, "unknown mission %d", id)
-				return
-			}
-			if user.Missions[id].MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
-				validationErr = status.Errorf(codes.FailedPrecondition, "mission %d is not claimable", id)
 				return
 			}
 		}
