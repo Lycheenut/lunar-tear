@@ -8,7 +8,7 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-func TestRepeatedEventQuestLevelUpPreservesOverflowStamina(t *testing.T) {
+func TestRepeatedEventQuestLevelUpGrantsNewMaximumStamina(t *testing.T) {
 	const (
 		chapterId = int32(7)
 		questId   = int32(100026)
@@ -50,7 +50,7 @@ func TestRepeatedEventQuestLevelUpPreservesOverflowStamina(t *testing.T) {
 	if got := user.Status.Level; got != 39 {
 		t.Fatalf("level = %d, want 39", got)
 	}
-	if got := user.Status.StaminaMilliValue; got != 868_000 {
-		t.Fatalf("stamina = %d, want 868000 after ten 10-stamina runs", got)
+	if got := user.Status.StaminaMilliValue; got != 956_000 {
+		t.Fatalf("stamina = %d, want 956000 after spending 100 and receiving the new 88-stamina maximum", got)
 	}
 }

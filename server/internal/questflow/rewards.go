@@ -215,7 +215,8 @@ func (h *QuestHandler) applyExpRewards(user *store.UserState, questId int32, now
 
 	if user.Status.Level > oldLevel {
 		if maxStamina, ok := h.MaxStaminaByLevel[user.Status.Level]; ok {
-			store.ReplenishStamina(user, maxStamina*1000, nowMillis)
+			maxStaminaMillis := maxStamina * 1000
+			store.RecoverStamina(user, maxStaminaMillis, maxStaminaMillis, nowMillis)
 		}
 	}
 
