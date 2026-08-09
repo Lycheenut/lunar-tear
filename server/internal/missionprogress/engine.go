@@ -386,7 +386,7 @@ func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *st
 		add(model.MissionClearConditionTypeCostumeLotteryEffectSlotUnlockCount, current.CostumeLotteryEffectUnlockedSlotCount-old.CostumeLotteryEffectUnlockedSlotCount, current.CostumeId)
 	}
 	for uuid, current := range after.CostumeActiveSkills {
-		if old := before.CostumeActiveSkills[uuid]; current.Level > old.Level {
+		if old, existed := before.CostumeActiveSkills[uuid]; existed && current.Level > old.Level {
 			add(model.MissionClearConditionTypeCostumeActiveSkillEnhanceByCount, current.Level-old.Level, after.Costumes[uuid].CostumeId)
 		}
 	}
