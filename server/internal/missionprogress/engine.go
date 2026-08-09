@@ -367,7 +367,11 @@ func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *st
 		}
 	}
 	for uuid, current := range after.WeaponSkills {
-		add(model.MissionClearConditionTypeWeaponEnhanceSkillByCount, positiveLevelDelta(before.WeaponSkills[uuid], current), after.Weapons[uuid].WeaponId)
+		old, existed := before.WeaponSkills[uuid]
+		if !existed {
+			continue
+		}
+		add(model.MissionClearConditionTypeWeaponEnhanceSkillByCount, positiveLevelDelta(old, current), after.Weapons[uuid].WeaponId)
 	}
 	for uuid, current := range after.Costumes {
 		old, existed := before.Costumes[uuid]

@@ -176,6 +176,56 @@ func TestPvpRankKeepsBestLowerRank(t *testing.T) {
 	}
 }
 
+func TestNewWeaponSkillsDoNotCountAsSkillEnhancement(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeWeaponEnhanceSkillByCount), ClearConditionValue: 1,
+	}
+	catalogs := testCatalog(mission)
+	before := &store.UserState{}
+	before.EnsureMaps()
+	after := store.CloneUserState(*before)
+	after.Weapons["new"] = store.WeaponState{UserWeaponUuid: "new", WeaponId: 100}
+	after.WeaponSkills["new"] = []store.WeaponSkillState{{UserWeaponUuid: "new", SlotNumber: 1, Level: 1}}
+
+	Apply(catalogs, before, &after, nil, 100)
+	if state := after.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
+		t.Fatalf("new weapon skills advanced enhancement mission: %+v", state)
+	}
+
+	nextBefore := store.CloneUserState(after)
+	skills := append([]store.WeaponSkillState(nil), after.WeaponSkills["new"]...)
+	skills[0].Level++
+	after.WeaponSkills["new"] = skills
+	Apply(catalogs, &nextBefore, &after, nil, 200)
+	if state := after.Missions[1]; state.ProgressValue != 1 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("real weapon skill enhancement was not counted: %+v", state)
+	}
+}
+
+func TestDailyGachaMissionOnlyCountsDailyGacha(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeGachaDrawByCount),
+		MissionClearConditionOptionGroupId: 100001, ClearConditionValue: 1,
+	}
+	catalogs := testCatalog(mission)
+	before := &store.UserState{}
+	before.EnsureMaps()
+	after := store.CloneUserState(*before)
+	after.Gacha.BannerStates[45] = store.GachaBannerState{GachaId: 45, DrawCount: 10}
+
+	Apply(catalogs, before, &after, nil, 100)
+	if state := after.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
+		t.Fatalf("ordinary Gacha advanced Daily Gacha mission: %+v", state)
+	}
+
+	nextBefore := store.CloneUserState(after)
+	after.Gacha.BannerStates[201] = store.GachaBannerState{GachaId: 201, DrawCount: 5}
+	Apply(catalogs, &nextBefore, &after, nil, 200)
+	if state := after.Missions[1]; state.ProgressValue != 5 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("Daily Gacha did not advance its mission: %+v", state)
+	}
+}
+
 func TestResourceDerivedEquipmentOptionTargets(t *testing.T) {
 	targets, ok := knownOptionTargets(model.MissionClearConditionTypeWeaponEnhanceByCount, 205)
 	if !ok || !containsTarget(targets, 340031) || !containsTarget(targets, 340032) || containsTarget(targets, 250141) {
