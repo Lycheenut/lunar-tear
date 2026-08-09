@@ -109,25 +109,7 @@ func init() {
 		return s
 	})
 	register("IUserMissionCompletionProgress", func(user store.UserState) string {
-		records := make([]map[string]any, 0, len(user.MissionPassRewards))
-		keys := make([]store.MissionPassRewardKey, 0, len(user.MissionPassRewards))
-		for key := range user.MissionPassRewards {
-			keys = append(keys, key)
-		}
-		sort.Slice(keys, func(i, j int) bool {
-			if keys[i].MissionPassId != keys[j].MissionPassId {
-				return keys[i].MissionPassId < keys[j].MissionPassId
-			}
-			if keys[i].Level != keys[j].Level {
-				return keys[i].Level < keys[j].Level
-			}
-			return !keys[i].IsPremium && keys[j].IsPremium
-		})
-		for _, key := range keys {
-			row := user.MissionPassRewards[key]
-			records = append(records, map[string]any{"userId": user.UserId, "missionPassId": row.MissionPassId, "level": row.Level, "isPremium": row.IsPremium, "rewardReceiveDatetime": row.RewardReceiveDatetime, "latestVersion": row.LatestVersion})
-		}
-		s, _ := utils.EncodeJSONMaps(records...)
+		s, _ := utils.EncodeJSONMaps(sortedMissionCompletionProgressRecords(user)...)
 		return s
 	})
 	register("IUserNaviCutIn", func(user store.UserState) string {
@@ -246,6 +228,26 @@ func sortedMissionRecords(user store.UserState) []map[string]any {
 			"missionProgressStatusType": row.MissionProgressStatusType,
 			"clearDatetime":             row.ClearDatetime,
 			"latestVersion":             row.LatestVersion,
+		})
+	}
+	return records
+}
+
+func sortedMissionCompletionProgressRecords(user store.UserState) []map[string]any {
+	ids := make([]int, 0, len(user.Missions))
+	for id := range user.Missions {
+		ids = append(ids, int(id))
+	}
+	sort.Ints(ids)
+
+	records := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		row := user.Missions[int32(id)]
+		records = append(records, map[string]any{
+			"userId":        user.UserId,
+			"missionId":     row.MissionId,
+			"progressValue": int64(row.ProgressValue),
+			"latestVersion": row.LatestVersion,
 		})
 	}
 	return records

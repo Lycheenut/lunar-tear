@@ -202,6 +202,32 @@ func TestNewWeaponSkillsDoNotCountAsSkillEnhancement(t *testing.T) {
 	}
 }
 
+func TestNewCostumeSkillDoesNotCountAsSkillEnhancement(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeCostumeActiveSkillEnhanceByCount), ClearConditionValue: 1,
+	}
+	catalogs := testCatalog(mission)
+	before := &store.UserState{}
+	before.EnsureMaps()
+	after := store.CloneUserState(*before)
+	after.Costumes["new"] = store.CostumeState{UserCostumeUuid: "new", CostumeId: 100}
+	after.CostumeActiveSkills["new"] = store.CostumeActiveSkillState{UserCostumeUuid: "new", Level: 1}
+
+	Apply(catalogs, before, &after, nil, 100)
+	if state := after.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
+		t.Fatalf("new costume skill advanced enhancement mission: %+v", state)
+	}
+
+	nextBefore := store.CloneUserState(after)
+	skill := after.CostumeActiveSkills["new"]
+	skill.Level++
+	after.CostumeActiveSkills["new"] = skill
+	Apply(catalogs, &nextBefore, &after, nil, 200)
+	if state := after.Missions[1]; state.ProgressValue != 1 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("real costume skill enhancement was not counted: %+v", state)
+	}
+}
+
 func TestDailyGachaMissionOnlyCountsDailyGacha(t *testing.T) {
 	mission := masterdata.EntityMMission{
 		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeGachaDrawByCount),

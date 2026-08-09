@@ -121,12 +121,10 @@ func ChangedTables(before, after *store.UserState) []string {
 	}
 	if !mapsEqualStruct(before.Missions, after.Missions) {
 		add("IUserMission")
+		add("IUserMissionCompletionProgress")
 	}
 	if !mapsEqualStruct(before.MissionPassPoints, after.MissionPassPoints) {
 		add("IUserMissionPassPoint")
-	}
-	if !mapsEqualStruct(before.MissionPassRewards, after.MissionPassRewards) {
-		add("IUserMissionCompletionProgress")
 	}
 	if !mapsEqualStruct(before.QuestReplayFlowRewards, after.QuestReplayFlowRewards) {
 		add("IUserQuestReplayFlowRewardGroup")
@@ -442,7 +440,7 @@ func keyFieldsForTable(table string) []string {
 	case "IUserMissionPassPoint":
 		return []string{"userId", "missionPassId"}
 	case "IUserMissionCompletionProgress":
-		return []string{"userId", "missionPassId", "level", "isPremium"}
+		return []string{"userId", "missionId"}
 	case "IUserQuestReplayFlowRewardGroup":
 		return []string{"userId", "questReplayFlowRewardGroupId"}
 	case "IUserQuestSceneChoice":
