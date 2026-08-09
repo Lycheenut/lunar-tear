@@ -248,7 +248,8 @@
         ...Object.values(relation.shopTitles || {})
       ]);
       const fieldValues = table.fields.flatMap((field) => [field.name, effectiveValue(table.name, row, field.name)]);
-      const haystack = [...Object.values(row.titles || {}), ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
+      const footnoteValues = (row.contentFootnotes || []).flatMap((footnote) => Object.values(footnote || {}));
+      const haystack = [...Object.values(row.titles || {}), ...footnoteValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
       return haystack.includes(query);
     });
 
@@ -277,7 +278,7 @@
   function renderDetailedRow(table, row, hasTitles, hasSchedule) {
     const tr = document.createElement("tr");
     if (hasTitles) {
-      const contentCell = makeCell("td", localizedText(row.titles) || "-");
+      const contentCell = renderContentCell(row);
       contentCell.className = "content-cell detailed-content-cell";
       tr.append(contentCell);
     }
@@ -305,7 +306,7 @@
     idCell.title = primary?.name || "ID";
     tr.append(idCell);
 
-    const contentCell = makeCell("td", localizedText(row.titles) || "-");
+    const contentCell = renderContentCell(row);
     contentCell.className = "content-cell";
     tr.append(contentCell);
 
@@ -338,10 +339,6 @@
       meta.textContent = `${fieldName}=${displayText(effectiveValue(table.name, row, fieldName))}`;
       notes.append(meta);
     });
-    if (table.name === "m_shop_item_cell_term") {
-      const shopNames = renderShopNames(row.shopRelations);
-      if (shopNames) notes.append(shopNames);
-    }
     if (!notes.childElementCount) {
       const empty = document.createElement("span");
       empty.className = "notes-empty";
@@ -361,18 +358,21 @@
     return editor;
   }
 
-  function renderShopNames(relations = []) {
-    const names = [...new Set(relations.map((relation) => localizedText(relation.shopTitles)).filter(Boolean))];
-    if (!names.length) return null;
-    const wrapper = document.createElement("div");
-    wrapper.className = "shop-names";
-    names.forEach((name) => {
-      const item = document.createElement("div");
-      item.className = "shop-name";
-      item.textContent = name;
-      wrapper.append(item);
+  function renderContentCell(row) {
+    const cell = document.createElement("td");
+    const title = document.createElement("div");
+    title.className = "content-title";
+    title.textContent = localizedText(row.titles) || "-";
+    cell.append(title);
+    (row.contentFootnotes || []).forEach((footnote) => {
+      const text = localizedText(footnote);
+      if (!text) return;
+      const note = document.createElement("div");
+      note.className = "content-footnote";
+      note.textContent = `※ ${text}`;
+      cell.append(note);
     });
-    return wrapper;
+    return cell;
   }
 
   function renderStatus(status) {

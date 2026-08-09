@@ -68,3 +68,70 @@ func TestLoadAddsInstalledLocalizedTitles(t *testing.T) {
 	}
 	t.Fatal("event quest catalog has no English title")
 }
+
+func TestLoadAddsCampaignAndShopContentFootnotes(t *testing.T) {
+	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master data is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(masterDataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enhanceTargetGroups := map[string]bool{}
+	enhanceTargetRows := map[string][]map[string]string{}
+	questTargetGroups := map[string]bool{}
+	questTargetRows := map[string][]map[string]string{}
+	questMagnitudeGroups := map[string]bool{}
+	for _, table := range catalog.Tables {
+		for _, row := range table.Rows {
+			switch table.Name {
+			case "m_enhance_campaign_target_group":
+				groupID := row.Values["EnhanceCampaignTargetGroupId"]
+				enhanceTargetGroups[groupID] = true
+				enhanceTargetRows[groupID] = append(enhanceTargetRows[groupID], row.Values)
+			case "m_quest_campaign_target_group":
+				groupID := row.Values["QuestCampaignTargetGroupId"]
+				questTargetGroups[groupID] = true
+				questTargetRows[groupID] = append(questTargetRows[groupID], row.Values)
+			case "m_quest_campaign_effect_group":
+				if row.Values["QuestCampaignEffectType"] != "5" {
+					questMagnitudeGroups[row.Values["QuestCampaignEffectGroupId"]] = true
+				}
+			}
+		}
+	}
+	checked := map[string]int{}
+	for _, table := range catalog.Tables {
+		for _, row := range table.Rows {
+			switch table.Name {
+			case "m_enhance_campaign", "m_quest_campaign":
+				if row.Titles["en"] == "" {
+					continue
+				}
+				if len(row.ContentFootnotes) == 0 {
+					t.Fatalf("%s row %d has no content footnote: %v", table.Name, row.Index, row.Values)
+				}
+				if table.Name == "m_enhance_campaign" && enhanceTargetGroups[row.Values["EnhanceCampaignTargetGroupId"]] && len(row.ContentFootnotes) < 2 {
+					t.Fatalf("%s row %d has no target-name footnote: %v; targets: %v", table.Name, row.Index, row.Values, enhanceTargetRows[row.Values["EnhanceCampaignTargetGroupId"]])
+				}
+				if table.Name == "m_quest_campaign" && questTargetGroups[row.Values["QuestCampaignTargetGroupId"]] && questMagnitudeGroups[row.Values["QuestCampaignEffectGroupId"]] && len(row.ContentFootnotes) < 2 {
+					t.Fatalf("%s row %d has no dungeon-name footnote: %v; targets: %v", table.Name, row.Index, row.Values, questTargetRows[row.Values["QuestCampaignTargetGroupId"]])
+				}
+				checked[table.Name]++
+			case "m_shop_item_cell_term":
+				if len(row.ShopRelations) != 0 && len(row.ContentFootnotes) == 0 {
+					t.Fatalf("%s row %d has shops but no content footnote", table.Name, row.Index)
+				}
+				checked[table.Name]++
+			}
+		}
+	}
+	for _, table := range []string{"m_enhance_campaign", "m_quest_campaign", "m_shop_item_cell_term"} {
+		if checked[table] == 0 {
+			t.Fatalf("did not check any rows from %s", table)
+		}
+	}
+}

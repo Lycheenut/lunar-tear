@@ -15,11 +15,14 @@ type questCampaignEffect struct {
 	effectValue int64
 }
 
+type campaignTarget struct {
+	targetType  int64
+	targetValue int64
+}
+
 type localizedTitlePart struct {
 	key       string
 	targetKey string
-	parameter string
-	suffix    string
 }
 
 // Costume and weapon enhancement use a 20‰ base Glorious Success rate.
@@ -42,9 +45,19 @@ type titleResolver struct {
 	shopRelationsByShop  map[int64][]ShopRelation
 	shopRelationsByTerm  map[int64][]ShopRelation
 	dokanGroupTextIDs    map[int64]int64
-	enhanceTargetTypes   map[int64][]int64
-	questEffects         map[int64]questCampaignEffect
-	questTargetTypes     map[int64][]int64
+	enhanceTargets       map[int64][]campaignTarget
+	questEffects         map[int64][]questCampaignEffect
+	questTargets         map[int64][]campaignTarget
+	characterTitlesByID  map[int64]map[string]string
+	costumeTitlesByID    map[int64]map[string]string
+	costumesByCharacter  map[int64][]map[string]string
+	costumesByWeaponType map[int64][]map[string]string
+	weaponTitlesByID     map[int64]map[string]string
+	weaponsByType        map[int64][]map[string]string
+	weaponsByAttribute   map[int64][]map[string]string
+	partsSeriesByPart    map[int64]int64
+	eventChaptersByQuest map[int64][]int64
+	eventChaptersByType  map[int64][]eventChapterReference
 }
 
 func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolver {
@@ -62,9 +75,19 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		consumableTermKeys:   make(map[int64][]string),
 		importantEffectTexts: make(map[int64]int64),
 		dokanGroupTextIDs:    make(map[int64]int64),
-		enhanceTargetTypes:   make(map[int64][]int64),
-		questEffects:         make(map[int64]questCampaignEffect),
-		questTargetTypes:     make(map[int64][]int64),
+		enhanceTargets:       make(map[int64][]campaignTarget),
+		questEffects:         make(map[int64][]questCampaignEffect),
+		questTargets:         make(map[int64][]campaignTarget),
+		characterTitlesByID:  make(map[int64]map[string]string),
+		costumeTitlesByID:    make(map[int64]map[string]string),
+		costumesByCharacter:  make(map[int64][]map[string]string),
+		costumesByWeaponType: make(map[int64][]map[string]string),
+		weaponTitlesByID:     make(map[int64]map[string]string),
+		weaponsByType:        make(map[int64][]map[string]string),
+		weaponsByAttribute:   make(map[int64][]map[string]string),
+		partsSeriesByPart:    make(map[int64]int64),
+		eventChaptersByQuest: make(map[int64][]int64),
+		eventChaptersByType:  make(map[int64][]eventChapterReference),
 	}
 
 	for _, row := range readRows(file, "m_event_quest_chapter") {
@@ -120,20 +143,7 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 	for _, row := range readRows(file, "m_dokan_content_group") {
 		resolver.putPairIfAbsent(resolver.dokanGroupTextIDs, row, 0, 4)
 	}
-	for _, row := range readRows(file, "m_enhance_campaign_target_group") {
-		resolver.appendPair(resolver.enhanceTargetTypes, row, 0, 2)
-	}
-	for _, row := range readRows(file, "m_quest_campaign_effect_group") {
-		groupID, groupOK := integerAt(row, 0)
-		effectType, typeOK := integerAt(row, 1)
-		effectValue, valueOK := integerAt(row, 2)
-		if groupOK && typeOK && valueOK {
-			resolver.questEffects[groupID] = questCampaignEffect{effectType: effectType, effectValue: effectValue}
-		}
-	}
-	for _, row := range readRows(file, "m_quest_campaign_target_group") {
-		resolver.appendPair(resolver.questTargetTypes, row, 0, 2)
-	}
+	resolver.loadCampaignReferences(file)
 	resolver.loadShopRelations(file)
 	return resolver
 }
@@ -229,36 +239,33 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 func (r *titleResolver) enhanceCampaignTitles(row []interface{}) map[string]string {
 	targetGroupID, groupOK := integerAt(row, 1)
 	effectType, typeOK := integerAt(row, 2)
-	effectValue, valueOK := integerAt(row, 3)
-	if !groupOK || !typeOK || !valueOK {
+	if !groupOK || !typeOK {
 		return nil
 	}
 
-	targetTypes := r.enhanceTargetTypes[targetGroupID]
-	if len(targetTypes) == 0 {
-		return nil
+	targets := r.enhanceTargets[targetGroupID]
+	if len(targets) == 0 {
+		key := "campaign.description.02.01"
+		if effectType == 2 {
+			key = "campaign.description.02.02.01"
+		}
+		return r.localizedTitles([]localizedTitlePart{{key: key}})
 	}
 	if effectType != 1 && effectType != 2 {
 		return nil
 	}
 
-	parts := make([]localizedTitlePart, 0, len(targetTypes))
-	for _, targetType := range targetTypes {
+	parts := make([]localizedTitlePart, 0, len(targets))
+	for _, target := range targets {
 		if effectType == 1 {
 			parts = append(parts, localizedTitlePart{
 				key:       "campaign.description.02.01",
-				targetKey: fmt.Sprintf("campaign.target.02.%02d", enhanceTargetCategory(targetType)),
-				suffix:    formatDecimal(effectValue, 100) + "%",
+				targetKey: fmt.Sprintf("campaign.target.02.%02d", enhanceTargetCategory(target.targetType)),
 			})
 			continue
 		}
-		suffix := "×" + formatDecimal(effectValue+enhanceGreatSuccessBaseValue, enhanceGreatSuccessBaseValue)
-		if targetType == 3 || targetType == 31 || targetType == 32 {
-			suffix = "+" + formatDecimal(effectValue, 100) + "%"
-		}
 		parts = append(parts, localizedTitlePart{
-			key:    fmt.Sprintf("campaign.description.02.%02d.%02d", effectType, targetType),
-			suffix: suffix,
+			key: fmt.Sprintf("campaign.description.02.%02d.%02d", effectType, target.targetType),
 		})
 	}
 	return r.localizedTitles(parts)
@@ -267,27 +274,26 @@ func (r *titleResolver) enhanceCampaignTitles(row []interface{}) map[string]stri
 func (r *titleResolver) questCampaignTitles(row []interface{}) map[string]string {
 	targetGroupID, groupOK := integerAt(row, 1)
 	effectGroupID, effectOK := integerAt(row, 2)
-	effect, found := r.questEffects[effectGroupID]
-	if !groupOK || !effectOK || !found {
+	effects := r.questEffects[effectGroupID]
+	if !groupOK || !effectOK || len(effects) == 0 {
 		return nil
 	}
 
-	parts := make([]localizedTitlePart, 0, len(r.questTargetTypes[targetGroupID]))
-	parameter := formatDecimal(1000+effect.effectValue, 1000)
-	suffix := ""
-	if effect.effectType == 3 {
-		parameter = formatDecimal(effect.effectValue, 1000)
-		suffix = "×" + parameter
-	} else if effect.effectType == 5 {
-		parameter = ""
+	targets := r.questTargets[targetGroupID]
+	if len(targets) == 0 {
+		parts := make([]localizedTitlePart, 0, len(effects))
+		for _, effect := range effects {
+			parts = append(parts, localizedTitlePart{key: fmt.Sprintf("campaign.description.01.%02d", effect.effectType)})
+		}
+		return r.localizedTitles(parts)
 	}
-
-	for _, targetType := range r.questTargetTypes[targetGroupID] {
-		parts = append(parts, localizedTitlePart{
-			key:       fmt.Sprintf("campaign.description.01.%02d.%02d", effect.effectType, targetType),
-			parameter: parameter,
-			suffix:    suffix,
-		})
+	parts := make([]localizedTitlePart, 0, len(effects)*len(targets))
+	for _, effect := range effects {
+		for _, target := range targets {
+			parts = append(parts, localizedTitlePart{
+				key: fmt.Sprintf("campaign.description.01.%02d.%02d", effect.effectType, target.targetType),
+			})
+		}
 	}
 	return r.localizedTitles(parts)
 }
@@ -381,12 +387,9 @@ func (r *titleResolver) localizedTitles(parts []localizedTitlePart) map[string]s
 			if value == "" {
 				continue
 			}
-			value = strings.ReplaceAll(value, "{0}", part.parameter)
+			value = campaignDescriptionWithoutMagnitude(part.key, value)
 			if target := r.texts[language][part.targetKey]; target != "" {
 				value += " (" + target + ")"
-			}
-			if part.suffix != "" {
-				value += " · " + part.suffix
 			}
 			if !seen[value] {
 				seen[value] = true
@@ -401,6 +404,16 @@ func (r *titleResolver) localizedTitles(parts []localizedTitlePart) map[string]s
 		return nil
 	}
 	return titles
+}
+
+func campaignDescriptionWithoutMagnitude(key, value string) string {
+	if !strings.HasPrefix(key, "campaign.description.") || !strings.Contains(value, "{0}") {
+		return value
+	}
+	for _, placeholder := range []string{"x{0}", "X{0}", "×{0}", "{0}x", "{0}X", "{0}×", "{0}倍", "{0}배", "{0}"} {
+		value = strings.ReplaceAll(value, placeholder, "")
+	}
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func (r *titleResolver) eventChapterTitles(chapterIDs []int64) map[string]string {

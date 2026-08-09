@@ -336,22 +336,19 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   overflow-wrap: anywhere;
 }
 .content-cell { min-width: 220px; max-width: 360px; font-weight: 650; line-height: 1.5; white-space: pre-line; }
+.content-footnote {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
 .status-cell { min-width: 104px; }
 .notes-cell { min-width: 270px; max-width: 430px; }
 .time-column { min-width: 215px; }
 .identity { display: grid; gap: 4px; }
 .identity-meta { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-line; }
 .notes-empty { color: var(--muted); }
-.shop-names {
-  display: grid;
-  gap: 3px;
-  margin: 5px 0 2px;
-  padding: 7px 9px;
-  border-left: 2px solid rgba(119, 222, 199, .48);
-  border-radius: 0 7px 7px 0;
-  background: rgba(119, 222, 199, .055);
-}
-.shop-name { color: #cbd8dc; font-size: 11px; white-space: pre-line; }
 .field-column { min-width: 190px; }
 .field-editor { display: grid; min-width: 0; gap: 5px; }
 .field-editor input, .field-editor select { width: 100%; min-height: 38px; font-size: 12px; }
