@@ -233,7 +233,7 @@
 
     const query = elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
-    const hasSchedule = table.pairs.length > 0;
+    const hasSchedule = (table.pairs || []).length > 0;
     const hasTitles = table.rows.some((row) => Object.keys(row.titles || {}).length > 0);
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
@@ -487,7 +487,7 @@
   }
 
   function rowStatus(table, row) {
-    const pair = table.pairs[0];
+    const pair = (table.pairs || [])[0];
     if (!pair) return "expired";
     const start = Number(effectiveValue(table.name, row, pair.start));
     const end = Number(effectiveValue(table.name, row, pair.end));
