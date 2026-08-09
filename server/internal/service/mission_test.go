@@ -152,6 +152,40 @@ func TestClaimMissionRewardsByCategoryClaimsOnlyClearMissionsInCategory(t *testi
 	}
 }
 
+func TestClaimMissionRewardsSkipsNonClaimableCandidates(t *testing.T) {
+	cat := &runtime.Catalogs{
+		Mission: &masterdata.MissionCatalog{
+			MissionById: map[int32]masterdata.EntityMMission{
+				1:      {MissionId: 1, MissionRewardId: 101},
+				200001: {MissionId: 200001, MissionRewardId: 102},
+				3:      {MissionId: 3, MissionRewardId: 103},
+			},
+			RewardsById: map[int32][]masterdata.EntityMMissionReward{
+				101: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 31, Count: 1}},
+				102: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 32, Count: 1}},
+				103: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 33, Count: 1}},
+			},
+			TermById: map[int32]masterdata.EntityMMissionTerm{},
+		},
+		QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}},
+	}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Missions[1] = store.UserMissionState{MissionId: 1, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear)}
+	user.Missions[200001] = store.UserMissionState{MissionId: 200001, MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress)}
+	user.Missions[3] = store.UserMissionState{MissionId: 3, MissionProgressStatusType: int32(model.MissionProgressStatusTypeRewardReceived)}
+
+	received, expired := claimMissionRewards(cat, user, []int32{1, 200001, 3}, 100)
+	if len(received) != 1 || len(expired) != 0 || user.Materials[31] != 1 {
+		t.Fatalf("unexpected candidate rewards: received=%v expired=%v material31=%d", received, expired, user.Materials[31])
+	}
+	if user.Materials[32] != 0 || user.Materials[33] != 0 {
+		t.Fatal("candidate claim granted a reward for a non-claimable mission")
+	}
+	if user.Missions[200001].MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
+		t.Fatal("candidate claim changed the in-progress mission state")
+	}
+}
+
 func TestMissionServiceRegistersReceiveMissionRewardsByCategory(t *testing.T) {
 	for _, method := range pb.MissionService_ServiceDesc.Methods {
 		if method.MethodName == "ReceiveMissionRewardsByCategory" {
