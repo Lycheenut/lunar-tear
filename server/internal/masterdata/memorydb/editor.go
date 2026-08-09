@@ -31,6 +31,16 @@ type Int64Edit struct {
 	Value  int64
 }
 
+// CellEdit identifies one editable scalar cell in a MessagePack table.
+// Supported values are int32, int64, bool, and string.
+type CellEdit struct {
+	Table        string
+	Row          int
+	Column       int
+	Value        interface{}
+	requireInt64 bool
+}
+
 // OpenFile reads and decodes a master-data file without publishing it.
 func OpenFile(path string) (*File, error) {
 	encrypted, err := os.ReadFile(path)
@@ -90,7 +100,20 @@ func (f *File) TableRows(name string) ([][]interface{}, bool, error) {
 // Rebuild applies int64 edits while preserving the original MessagePack cell
 // widths, rebuilds the table-of-contents, and encrypts a new master-data file.
 func (f *File) Rebuild(edits []Int64Edit) ([]byte, error) {
-	grouped := make(map[string][]Int64Edit)
+	cells := make([]CellEdit, 0, len(edits))
+	for _, edit := range edits {
+		cells = append(cells, CellEdit{
+			Table: edit.Table, Row: edit.Row, Column: edit.Column, Value: edit.Value, requireInt64: true,
+		})
+	}
+	return f.RebuildCells(cells)
+}
+
+// RebuildCells applies scalar edits while preserving every untouched
+// MessagePack value byte-for-byte, rebuilds the table-of-contents, and
+// encrypts a new master-data file.
+func (f *File) RebuildCells(edits []CellEdit) ([]byte, error) {
+	grouped := make(map[string][]CellEdit)
 	seen := make(map[[3]interface{}]struct{}, len(edits))
 	for _, edit := range edits {
 		key := [3]interface{}{edit.Table, edit.Row, edit.Column}
@@ -112,8 +135,8 @@ func (f *File) Rebuild(edits []Int64Edit) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode table %q: %w", name, err)
 		}
-		patched := append([]byte(nil), table...)
-		if err := patchInt64Cells(patched, tableEdits); err != nil {
+		patched, err := patchCells(table, tableEdits)
+		if err != nil {
 			return nil, fmt.Errorf("patch table %q: %w", name, err)
 		}
 		if compressed {
@@ -282,6 +305,120 @@ func patchInt64Cells(table []byte, edits []Int64Edit) error {
 		return fmt.Errorf("%d edit targets were outside the table", remaining)
 	}
 	return nil
+}
+
+type cellPatch struct {
+	start int
+	end   int
+	value []byte
+}
+
+func patchCells(table []byte, edits []CellEdit) ([]byte, error) {
+	targets := make(map[[2]int]CellEdit, len(edits))
+	for _, edit := range edits {
+		if edit.Row < 0 || edit.Column < 0 {
+			return nil, fmt.Errorf("negative row or column")
+		}
+		targets[[2]int{edit.Row, edit.Column}] = edit
+	}
+
+	rowCount, pos, err := readArrayLen(table, 0)
+	if err != nil {
+		return nil, err
+	}
+	patches := make([]cellPatch, 0, len(targets))
+	for row := 0; row < rowCount; row++ {
+		columnCount, next, err := readArrayLen(table, pos)
+		if err != nil {
+			return nil, fmt.Errorf("row %d: %w", row, err)
+		}
+		pos = next
+		for column := 0; column < columnCount; column++ {
+			valuePos := pos
+			pos, err = skipMsgpackValue(table, pos)
+			if err != nil {
+				return nil, fmt.Errorf("row %d column %d: %w", row, column, err)
+			}
+			edit, ok := targets[[2]int{row, column}]
+			if !ok {
+				continue
+			}
+			encoded, err := encodeCellValue(table[valuePos], edit.Value, edit.requireInt64)
+			if err != nil {
+				return nil, fmt.Errorf("row %d column %d: %w", row, column, err)
+			}
+			patches = append(patches, cellPatch{start: valuePos, end: pos, value: encoded})
+			delete(targets, [2]int{row, column})
+		}
+	}
+	if len(targets) != 0 {
+		return nil, fmt.Errorf("%d edit targets were outside the table", len(targets))
+	}
+	if len(patches) == 0 {
+		return append([]byte(nil), table...), nil
+	}
+
+	sort.Slice(patches, func(i, j int) bool { return patches[i].start < patches[j].start })
+	var patched bytes.Buffer
+	cursor := 0
+	for _, patch := range patches {
+		_, _ = patched.Write(table[cursor:patch.start])
+		_, _ = patched.Write(patch.value)
+		cursor = patch.end
+	}
+	_, _ = patched.Write(table[cursor:])
+	return patched.Bytes(), nil
+}
+
+func encodeCellValue(originalTag byte, value interface{}, requireInt64 bool) ([]byte, error) {
+	switch value := value.(type) {
+	case int32:
+		if !isIntegerTag(originalTag) {
+			return nil, fmt.Errorf("cell is not encoded as integer")
+		}
+		encoded := make([]byte, 5)
+		encoded[0] = 0xd2
+		binary.BigEndian.PutUint32(encoded[1:], uint32(value))
+		return encoded, nil
+	case int64:
+		if requireInt64 && originalTag != 0xd3 {
+			return nil, fmt.Errorf("cell is not encoded as int64")
+		}
+		if !requireInt64 && !isIntegerTag(originalTag) {
+			return nil, fmt.Errorf("cell is not encoded as integer")
+		}
+		encoded := make([]byte, 9)
+		encoded[0] = 0xd3
+		binary.BigEndian.PutUint64(encoded[1:], uint64(value))
+		return encoded, nil
+	case bool:
+		if originalTag != 0xc2 && originalTag != 0xc3 {
+			return nil, fmt.Errorf("cell is not encoded as bool")
+		}
+		if value {
+			return []byte{0xc3}, nil
+		}
+		return []byte{0xc2}, nil
+	case string:
+		if !isStringTag(originalTag) {
+			return nil, fmt.Errorf("cell is not encoded as string")
+		}
+		encoded, err := msgpack.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		return encoded, nil
+	default:
+		return nil, fmt.Errorf("unsupported edit value type %T", value)
+	}
+}
+
+func isStringTag(tag byte) bool {
+	return tag >= 0xa0 && tag <= 0xbf || tag == 0xd9 || tag == 0xda || tag == 0xdb
+}
+
+func isIntegerTag(tag byte) bool {
+	return tag <= 0x7f || tag >= 0xe0 || tag >= 0xcc && tag <= 0xd3
 }
 
 func readArrayLen(data []byte, pos int) (int, int, error) {

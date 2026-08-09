@@ -75,5 +75,5 @@ func identityValue(row Row, name string) string {
 			return field.Value
 		}
 	}
-	return ""
+	return row.Values[name]
 }

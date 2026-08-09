@@ -63,6 +63,70 @@ func TestFileRebuildInt64Cell(t *testing.T) {
 	}
 }
 
+func TestFileRebuildScalarCells(t *testing.T) {
+	table, err := msgpack.Marshal([][]interface{}{
+		{int32(7), int64(1000), false, "short"},
+		{int32(8), int64(2000), true, "untouched"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := OpenBytes(buildEditorTestFile(t, map[string][]byte{"m_test": table}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, err := file.RebuildCells([]CellEdit{
+		{Table: "m_test", Row: 0, Column: 0, Value: int32(-9)},
+		{Table: "m_test", Row: 0, Column: 1, Value: int64(9000)},
+		{Table: "m_test", Row: 0, Column: 2, Value: true},
+		{Table: "m_test", Row: 0, Column: 3, Value: "a replacement string that changes the encoded width"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, exists, err := rebuilt.TableRows("m_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || len(rows) != 2 {
+		t.Fatalf("unexpected rows: exists=%v len=%d", exists, len(rows))
+	}
+	if got := testInt64(t, rows[0][0]); got != -9 {
+		t.Fatalf("int32 value = %d, want -9", got)
+	}
+	if got := testInt64(t, rows[0][1]); got != 9000 {
+		t.Fatalf("int64 value = %d, want 9000", got)
+	}
+	if got := rows[0][2]; got != true {
+		t.Fatalf("bool value = %#v, want true", got)
+	}
+	if got := rows[0][3]; got != "a replacement string that changes the encoded width" {
+		t.Fatalf("string value = %#v", got)
+	}
+	if got := rows[1][3]; got != "untouched" {
+		t.Fatalf("untouched row changed to %#v", got)
+	}
+}
+
+func TestFileRebuildScalarCellsRejectsStorageTypeMismatch(t *testing.T) {
+	table, err := msgpack.Marshal([][]interface{}{{int32(7), "value"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := OpenBytes(buildEditorTestFile(t, map[string][]byte{"m_test": table}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.RebuildCells([]CellEdit{{Table: "m_test", Row: 0, Column: 0, Value: "wrong"}}); err == nil {
+		t.Fatal("expected storage type mismatch to fail")
+	}
+}
+
 func TestFileRebuildRejectsNonInt64Cell(t *testing.T) {
 	table, err := msgpack.Marshal([][]interface{}{{int32(7), int64(1000), int64(2000)}})
 	if err != nil {

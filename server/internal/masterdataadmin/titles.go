@@ -10,6 +10,22 @@ import (
 
 type translatedText map[int64]map[string]string
 
+type questCampaignEffect struct {
+	effectType  int64
+	effectValue int64
+}
+
+type localizedTitlePart struct {
+	key       string
+	targetKey string
+	parameter string
+	suffix    string
+}
+
+// Costume and weapon enhancement use a 20‰ base Glorious Success rate.
+// Campaign values are stored at ten times the probability-per-mille value.
+const enhanceGreatSuccessBaseValue int64 = 200
+
 type titleResolver struct {
 	texts                localizationIndex
 	webviewTitles        translatedText
@@ -26,7 +42,9 @@ type titleResolver struct {
 	shopRelationsByShop  map[int64][]ShopRelation
 	shopRelationsByTerm  map[int64][]ShopRelation
 	dokanGroupTextIDs    map[int64]int64
-	questEffectTypes     map[int64]int64
+	enhanceTargetTypes   map[int64][]int64
+	questEffects         map[int64]questCampaignEffect
+	questTargetTypes     map[int64][]int64
 }
 
 func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolver {
@@ -44,7 +62,9 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		consumableTermKeys:   make(map[int64][]string),
 		importantEffectTexts: make(map[int64]int64),
 		dokanGroupTextIDs:    make(map[int64]int64),
-		questEffectTypes:     make(map[int64]int64),
+		enhanceTargetTypes:   make(map[int64][]int64),
+		questEffects:         make(map[int64]questCampaignEffect),
+		questTargetTypes:     make(map[int64][]int64),
 	}
 
 	for _, row := range readRows(file, "m_event_quest_chapter") {
@@ -100,8 +120,19 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 	for _, row := range readRows(file, "m_dokan_content_group") {
 		resolver.putPairIfAbsent(resolver.dokanGroupTextIDs, row, 0, 4)
 	}
+	for _, row := range readRows(file, "m_enhance_campaign_target_group") {
+		resolver.appendPair(resolver.enhanceTargetTypes, row, 0, 2)
+	}
 	for _, row := range readRows(file, "m_quest_campaign_effect_group") {
-		resolver.putPair(resolver.questEffectTypes, row, 0, 1)
+		groupID, groupOK := integerAt(row, 0)
+		effectType, typeOK := integerAt(row, 1)
+		effectValue, valueOK := integerAt(row, 2)
+		if groupOK && typeOK && valueOK {
+			resolver.questEffects[groupID] = questCampaignEffect{effectType: effectType, effectValue: effectValue}
+		}
+	}
+	for _, row := range readRows(file, "m_quest_campaign_target_group") {
+		resolver.appendPair(resolver.questTargetTypes, row, 0, 2)
 	}
 	resolver.loadShopRelations(file)
 	return resolver
@@ -121,13 +152,8 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 	case "m_event_quest_chapter":
 		key = integerKey(row, 3, "quest.event.chapter_title.%d")
 	case "m_enhance_campaign":
-		if effectType, ok := integerAt(row, 2); ok {
-			switch effectType {
-			case 1:
-				key = "campaign.name.02.01"
-			case 2:
-				key = "campaign.name.02.02.01"
-			}
+		if titles := r.enhanceCampaignTitles(row); len(titles) != 0 {
+			return titles
 		}
 	case "m_event_quest_daily_group":
 		if groupID, ok := integerAt(row, 3); ok {
@@ -164,19 +190,8 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 			}
 		}
 	case "m_quest_campaign":
-		if effectGroupID, ok := integerAt(row, 2); ok {
-			switch r.questEffectTypes[effectGroupID] {
-			case 1:
-				key = "campaign.name.01.01"
-			case 2:
-				key = "campaign.name.01.02"
-			case 3:
-				key = "campaign.name.01.03.01"
-			case 4:
-				key = "campaign.name.01.04.01"
-			case 5:
-				key = "campaign.name.01.05.01"
-			}
+		if titles := r.questCampaignTitles(row); len(titles) != 0 {
+			return titles
 		}
 	case "m_consumable_item_term":
 		if termID, ok := integerAt(row, 0); ok {
@@ -209,6 +224,92 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 		return nil
 	}
 	return r.byKey(key)
+}
+
+func (r *titleResolver) enhanceCampaignTitles(row []interface{}) map[string]string {
+	targetGroupID, groupOK := integerAt(row, 1)
+	effectType, typeOK := integerAt(row, 2)
+	effectValue, valueOK := integerAt(row, 3)
+	if !groupOK || !typeOK || !valueOK {
+		return nil
+	}
+
+	targetTypes := r.enhanceTargetTypes[targetGroupID]
+	if len(targetTypes) == 0 {
+		return nil
+	}
+	if effectType != 1 && effectType != 2 {
+		return nil
+	}
+
+	parts := make([]localizedTitlePart, 0, len(targetTypes))
+	for _, targetType := range targetTypes {
+		if effectType == 1 {
+			parts = append(parts, localizedTitlePart{
+				key:       "campaign.description.02.01",
+				targetKey: fmt.Sprintf("campaign.target.02.%02d", enhanceTargetCategory(targetType)),
+				suffix:    formatDecimal(effectValue, 100) + "%",
+			})
+			continue
+		}
+		suffix := "×" + formatDecimal(effectValue+enhanceGreatSuccessBaseValue, enhanceGreatSuccessBaseValue)
+		if targetType == 3 || targetType == 31 || targetType == 32 {
+			suffix = "+" + formatDecimal(effectValue, 100) + "%"
+		}
+		parts = append(parts, localizedTitlePart{
+			key:    fmt.Sprintf("campaign.description.02.%02d.%02d", effectType, targetType),
+			suffix: suffix,
+		})
+	}
+	return r.localizedTitles(parts)
+}
+
+func (r *titleResolver) questCampaignTitles(row []interface{}) map[string]string {
+	targetGroupID, groupOK := integerAt(row, 1)
+	effectGroupID, effectOK := integerAt(row, 2)
+	effect, found := r.questEffects[effectGroupID]
+	if !groupOK || !effectOK || !found {
+		return nil
+	}
+
+	parts := make([]localizedTitlePart, 0, len(r.questTargetTypes[targetGroupID]))
+	parameter := formatDecimal(1000+effect.effectValue, 1000)
+	suffix := ""
+	if effect.effectType == 3 {
+		parameter = formatDecimal(effect.effectValue, 1000)
+		suffix = "×" + parameter
+	} else if effect.effectType == 5 {
+		parameter = ""
+	}
+
+	for _, targetType := range r.questTargetTypes[targetGroupID] {
+		parts = append(parts, localizedTitlePart{
+			key:       fmt.Sprintf("campaign.description.01.%02d.%02d", effect.effectType, targetType),
+			parameter: parameter,
+			suffix:    suffix,
+		})
+	}
+	return r.localizedTitles(parts)
+}
+
+func enhanceTargetCategory(targetType int64) int64 {
+	switch targetType {
+	case 1, 11, 12, 13:
+		return 1
+	case 2, 21, 22, 23:
+		return 2
+	case 3, 31, 32:
+		return 3
+	default:
+		return 0
+	}
+}
+
+func formatDecimal(numerator, denominator int64) string {
+	if denominator == 0 {
+		return ""
+	}
+	return strconv.FormatFloat(float64(numerator)/float64(denominator), 'f', -1, 64)
 }
 
 func (r *titleResolver) momBannerTitles(row []interface{}) map[string]string {
@@ -263,22 +364,38 @@ func numberedAssetKey(assetName, prefix, format string) string {
 }
 
 func (r *titleResolver) titlesForKeys(keys []string) map[string]string {
-	parts := make(map[string][]string, len(supportedLanguages))
-	seen := make(map[string]map[string]bool, len(supportedLanguages))
+	parts := make([]localizedTitlePart, 0, len(keys))
 	for _, key := range keys {
-		for language, title := range r.byKey(key) {
-			if seen[language] == nil {
-				seen[language] = make(map[string]bool)
+		parts = append(parts, localizedTitlePart{key: key})
+	}
+	return r.localizedTitles(parts)
+}
+
+func (r *titleResolver) localizedTitles(parts []localizedTitlePart) map[string]string {
+	titles := make(map[string]string)
+	for _, language := range supportedLanguages {
+		var localized []string
+		seen := make(map[string]bool)
+		for _, part := range parts {
+			value := r.texts[language][part.key]
+			if value == "" {
+				continue
 			}
-			if !seen[language][title] {
-				seen[language][title] = true
-				parts[language] = append(parts[language], title)
+			value = strings.ReplaceAll(value, "{0}", part.parameter)
+			if target := r.texts[language][part.targetKey]; target != "" {
+				value += " (" + target + ")"
+			}
+			if part.suffix != "" {
+				value += " · " + part.suffix
+			}
+			if !seen[value] {
+				seen[value] = true
+				localized = append(localized, value)
 			}
 		}
-	}
-	titles := make(map[string]string, len(parts))
-	for language, languageParts := range parts {
-		titles[language] = strings.Join(languageParts, " / ")
+		if len(localized) != 0 {
+			titles[language] = strings.Join(localized, " / ")
+		}
 	}
 	if len(titles) == 0 {
 		return nil

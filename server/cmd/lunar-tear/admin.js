@@ -6,7 +6,8 @@
     loginPanel: $("#login-panel"), loginForm: $("#login-form"), token: $("#token"),
     workspace: $("#workspace"), logout: $("#logout"), version: $("#version"),
     tableCount: $("#table-count"), rowCount: $("#row-count"), dirtyCount: $("#dirty-count"),
-    timezone: $("#timezone"), tableSelect: $("#table-select"), typeFilters: $("#type-filters"), statusFilter: $("#status-filter"),
+    timezone: $("#timezone"), tableSelect: $("#table-select"), typeFilters: $("#type-filters"),
+    statusFilter: $("#status-filter"), statusFilterLabel: $("#status-filter-label"),
     languageSelect: $("#language-select"), search: $("#search"), refresh: $("#refresh"), notice: $("#notice"),
     entityName: $("#entity-name"), tableName: $("#table-name"), visibleCount: $("#visible-count"),
     tableScroll: $("#table-scroll"), head: $("#schedule-head"), body: $("#schedule-body"),
@@ -82,7 +83,7 @@
       renderCatalog();
       renderGachaEditor();
       switchAdminSection(state.section);
-      showNotice(`已读取 ${state.catalog.tableCount} 张限时表、${state.catalog.rowCount} 行内容，以及 ${state.gachaCatalog.weapons.length} 件 Gacha 武器。`);
+      showNotice(`已读取 ${state.catalog.primaryCount} 张限时主表、${state.catalog.relatedCount} 张直接关联表、${state.catalog.rowCount} 行内容，以及 ${state.gachaCatalog.weapons.length} 件 Gacha 武器。`);
     } catch (error) {
       if (error.status === 401) {
         state.token = "";
@@ -114,19 +115,25 @@
   function renderCatalog() {
     const previous = elements.tableSelect.value;
     elements.tableSelect.replaceChildren();
-    state.catalog.tables.forEach((table) => {
-      const option = document.createElement("option");
-      option.value = table.name;
-      option.textContent = `${tableDisplayName(table)} · ${table.rows.length}`;
-      option.title = table.name;
-      elements.tableSelect.append(option);
+    [[true, "限时主表"], [false, "直接关联表"]].forEach(([primary, label]) => {
+      const group = document.createElement("optgroup");
+      group.label = label;
+      state.catalog.tables.filter((table) => table.primary === primary).forEach((table) => {
+        const option = document.createElement("option");
+        option.value = table.name;
+        option.textContent = `${tableDisplayName(table)} · ${table.rows.length}`;
+        option.title = table.name;
+        group.append(option);
+      });
+      elements.tableSelect.append(group);
     });
     if (state.catalog.tables.some((table) => table.name === previous)) elements.tableSelect.value = previous;
     renderLanguages();
     renderTypeFilters(currentTable());
     elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
     elements.version.title = state.catalog.version;
-    elements.tableCount.textContent = state.catalog.tableCount.toLocaleString();
+    elements.tableCount.textContent = `${state.catalog.primaryCount} + ${state.catalog.relatedCount}`;
+    elements.tableCount.title = `${state.catalog.primaryCount} 张限时主表，${state.catalog.relatedCount} 张直接关联表`;
     elements.rowCount.textContent = state.catalog.rowCount.toLocaleString();
     elements.timezone.value = state.timeMode;
     updateDirtyUI();
@@ -153,25 +160,25 @@
   function renderTypeFilters(table) {
     const previous = new Map([...elements.typeFilters.querySelectorAll("select")].map((select) => [select.dataset.field, select.value]));
     elements.typeFilters.replaceChildren();
-    const fields = [...new Set((table?.rows || []).flatMap((row) => row.identity.map((field) => field.name)).filter((name) => name.endsWith("Type")))];
-    fields.forEach((fieldName) => {
+    const fields = (table?.fields || []).filter((field) => field.type.endsWith("Type"));
+    fields.forEach((field) => {
       const label = document.createElement("label");
-      label.textContent = `类型 · ${fieldName}`;
+      label.textContent = `类型 · ${field.name}`;
       const select = document.createElement("select");
-      select.dataset.field = fieldName;
+      select.dataset.field = field.name;
       const all = document.createElement("option");
       all.value = "";
       all.textContent = "全部";
       select.append(all);
-      const values = [...new Set(table.rows.map((row) => row.identity.find((field) => field.name === fieldName)?.value).filter((value) => value !== undefined))];
+      const values = [...new Set(table.rows.map((row) => row.values[field.name]).filter((value) => value !== undefined))];
       values.sort(compareFieldValues);
       values.forEach((value) => {
         const option = document.createElement("option");
         option.value = value;
-        option.textContent = typeOptionLabel(table.name, fieldName, value);
+        option.textContent = typeOptionLabel(table.name, field.name, value);
         select.append(option);
       });
-      if (values.includes(previous.get(fieldName))) select.value = previous.get(fieldName);
+      if (values.includes(previous.get(field.name))) select.value = previous.get(field.name);
       select.addEventListener("change", renderTable);
       label.append(select);
       elements.typeFilters.append(label);
@@ -194,26 +201,29 @@
     const table = currentTable();
     if (!table) return;
     elements.entityName.textContent = table.name;
-    elements.tableName.textContent = tableDisplayName(table);
+    elements.tableName.textContent = `${tableDisplayName(table)} · ${table.primary ? "限时主表" : "直接关联表"}`;
     elements.head.replaceChildren();
     elements.body.replaceChildren();
     elements.grid.replaceChildren();
 
     const query = elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
+    const hasSchedule = table.pairs.length > 0;
+    const hasTitles = table.rows.some((row) => Object.keys(row.titles || {}).length > 0);
+    elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "")
       .map((select) => ({ field: select.dataset.field, value: select.value }));
     const visibleRows = table.rows.filter((row) => {
-      const status = rowStatus(table, row);
-      if (statusFilter !== "all" && status !== statusFilter) return false;
-      if (typeFilters.some((filter) => row.identity.find((field) => field.name === filter.field)?.value !== filter.value)) return false;
+      if (hasSchedule && statusFilter !== "all" && rowStatus(table, row) !== statusFilter) return false;
+      if (typeFilters.some((filter) => effectiveValue(table.name, row, filter.field) !== filter.value)) return false;
       if (!query) return true;
       const relationValues = (row.shopRelations || []).flatMap((relation) => [
         relation.shopId, relation.shopItemCellGroupId, ...relation.shopItemCellIds,
         ...Object.values(relation.shopTitles || {})
       ]);
-      const haystack = [...Object.values(row.titles || {}), ...relationValues, ...row.identity.flatMap((field) => [field.name, field.value])].join(" ").toLocaleLowerCase();
+      const fieldValues = table.fields.flatMap((field) => [field.name, effectiveValue(table.name, row, field.name)]);
+      const haystack = [...Object.values(row.titles || {}), ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
       return haystack.includes(query);
     });
 
@@ -222,90 +232,77 @@
     elements.grid.classList.toggle("hidden", !isGrid);
     syncViewToggle();
     if (isGrid) {
-      visibleRows.forEach((row) => elements.grid.append(renderCard(table, row)));
+      visibleRows.forEach((row) => elements.grid.append(renderCard(table, row, hasTitles, hasSchedule)));
     } else {
       const headerRow = document.createElement("tr");
-      ["ID", "内容", "状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
-      table.timeFields.forEach((field) => headerRow.append(makeCell("th", field)));
+      if (hasTitles) headerRow.append(makeCell("th", "内容"));
+      if (hasSchedule) headerRow.append(makeCell("th", "状态"));
+      table.fields.forEach((field) => {
+        const header = makeCell("th", field.name);
+        header.title = `${field.type}${field.primaryKey ? " · 主键（只读）" : ""}`;
+        headerRow.append(header);
+      });
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderRow(table, row)));
+      visibleRows.forEach((row) => elements.body.append(renderRow(table, row, hasTitles, hasSchedule)));
     }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
-  function renderRow(table, row) {
+  function renderRow(table, row, hasTitles, hasSchedule) {
     const tr = document.createElement("tr");
-    const primary = row.identity[0];
-    const localizedTitle = localizedText(row.titles);
-
-    const idCell = makeCell("td", primary?.value || "-");
-    idCell.className = "id-cell";
-    idCell.title = primary?.name || "ID";
-    tr.append(idCell);
-
-    const contentCell = makeCell("td", localizedTitle || "-");
-    contentCell.className = "content-cell";
-    tr.append(contentCell);
-
-    const statusCell = document.createElement("td");
-    statusCell.className = "status-cell";
-    statusCell.append(renderStatus(rowStatus(table, row)));
-    tr.append(statusCell);
-
-    const notesCell = document.createElement("td");
-    notesCell.className = "notes-cell";
-    notesCell.append(renderNotes(table, row));
-    tr.append(notesCell);
-
-    table.timeFields.forEach((field) => {
+    if (hasTitles) {
+      const contentCell = makeCell("td", localizedText(row.titles) || "-");
+      contentCell.className = "content-cell";
+      tr.append(contentCell);
+    }
+    if (hasSchedule) {
+      const statusCell = document.createElement("td");
+      statusCell.className = "status-cell";
+      statusCell.append(renderStatus(rowStatus(table, row)));
+      tr.append(statusCell);
+    }
+    table.fields.forEach((field) => {
       const td = document.createElement("td");
-      td.className = "time-column";
-      td.append(renderTimeEditor(table, row, field));
+      td.className = field.primaryKey ? "id-cell field-column" : "field-column";
+      td.append(renderFieldEditor(table, row, field));
       tr.append(td);
     });
     return tr;
   }
 
-  function renderCard(table, row) {
+  function renderCard(table, row, hasTitles, hasSchedule) {
     const card = document.createElement("article");
     card.className = "schedule-card";
-    const primary = row.identity[0];
-    const localizedTitle = localizedText(row.titles);
 
     const header = document.createElement("div");
     header.className = "card-header";
     const id = document.createElement("div");
     id.className = "card-id";
     const idLabel = document.createElement("span");
-    idLabel.textContent = "ID";
+    idLabel.textContent = row.identity.map((field) => field.name).join(" / ") || "ROW";
     const idValue = document.createElement("strong");
-    idValue.textContent = primary?.value || "-";
-    idValue.title = primary?.name || "ID";
+    idValue.textContent = row.identity.map((field) => field.value).join(" / ") || String(row.index);
     id.append(idLabel, idValue);
-    header.append(id, renderStatus(rowStatus(table, row)));
+    header.append(id);
+    if (hasSchedule) header.append(renderStatus(rowStatus(table, row)));
+    card.append(header);
+    if (hasTitles) {
+      const title = document.createElement("h3");
+      title.textContent = localizedText(row.titles) || "-";
+      card.append(title);
+    }
 
-    const title = document.createElement("h3");
-    title.textContent = localizedTitle || "-";
-    card.append(header, title);
-
-    const notesSection = document.createElement("section");
-    notesSection.className = "card-section";
-    const notesLabel = document.createElement("span");
-    notesLabel.className = "card-label";
-    notesLabel.textContent = "备注";
-    notesSection.append(notesLabel, renderNotes(table, row));
-    card.append(notesSection);
-
-    const times = document.createElement("div");
-    times.className = "card-times";
-    table.timeFields.forEach((field) => {
+    const fields = document.createElement("div");
+    fields.className = "card-times card-fields";
+    table.fields.forEach((field) => {
       const group = document.createElement("label");
-      group.textContent = field;
-      group.append(renderTimeEditor(table, row, field));
-      times.append(group);
+      group.textContent = `${field.name}${field.primaryKey ? " · 主键" : ""}`;
+      group.title = field.type;
+      group.append(renderFieldEditor(table, row, field));
+      fields.append(group);
     });
-    card.append(times);
+    card.append(fields);
     return card;
   }
 
@@ -316,100 +313,47 @@
     return element;
   }
 
-  function renderNotes(table, row) {
-    const notes = document.createElement("div");
-    notes.className = "identity";
-    row.identity.slice(1).forEach((field) => {
-      if (table.name === "m_shop" && field.name === "ShopItemCellGroupId") return;
-      if (field.name === "QuestScheduleCronExpression") {
-        notes.append(renderCronExpression(field.value));
-        return;
+  function renderFieldEditor(table, row, field) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "field-editor";
+    const current = effectiveValue(table.name, row, field.name);
+    if (field.primaryKey) {
+      const value = document.createElement("code");
+      value.className = "readonly-field";
+      value.textContent = displayText(current);
+      wrapper.append(value);
+      return wrapper;
+    }
+
+    let input;
+    if (field.kind === "bool") {
+      input = document.createElement("select");
+      [["true", "true"], ["false", "false"]].forEach(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        input.append(option);
+      });
+      input.value = current;
+    } else {
+      input = document.createElement("input");
+      input.type = field.datetime ? "datetime-local" : "text";
+      if (field.datetime) {
+        input.step = "1";
+        input.value = timeInputValue(Number(current));
+      } else {
+        input.value = current;
+        if (field.kind === "int32" || field.kind === "int64") input.inputMode = "numeric";
       }
-      const meta = document.createElement("div");
-      meta.className = "identity-meta";
-      meta.textContent = `${field.name}=${displayText(field.value)}`;
-      notes.append(meta);
-    });
-    if (table.name === "m_shop_item_cell_term") {
-      const shopNames = renderShopNames(row.shopRelations);
-      if (shopNames) notes.append(shopNames);
     }
-    if (!notes.childElementCount) {
-      const empty = document.createElement("span");
-      empty.className = "notes-empty";
-      empty.textContent = "-";
-      notes.append(empty);
-    }
-    return notes;
-  }
-
-  function renderCronExpression(expression) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "cron-expression";
-    const readable = document.createElement("span");
-    readable.className = "cron-readable";
-    readable.textContent = humanizeCron(expression) || "自定义计划";
-    const raw = document.createElement("code");
-    raw.className = "cron-raw";
-    raw.textContent = expression;
-    wrapper.append(readable, raw);
-    return wrapper;
-  }
-
-  function humanizeCron(expression) {
-    const parts = expression.trim().split(/\s+/);
-    if (parts.length !== 6) return "";
-    const [seconds, minutes, hours, days, months, weekdays] = parts;
-    if (seconds !== "*" || !["*", "0-59"].includes(minutes) || !["*", "1-31"].includes(days) || months !== "*") return "";
-
-    const weekdayNames = { SUN: "日", MON: "一", TUE: "二", WED: "三", THU: "四", FRI: "五", SAT: "六" };
-    let dayLabel = "每天";
-    if (weekdays !== "*") {
-      const names = weekdays.split(",").map((day) => weekdayNames[day]);
-      if (names.some((name) => !name)) return "";
-      dayLabel = names.length === 1 ? `每周${names[0]}` : `每周${names.join("、")}`;
-    }
-
-    let timeLabel = "全天";
-    if (hours !== "*") {
-      const match = /^(\d{1,2})(?:-(\d{1,2}))?$/.exec(hours);
-      if (!match) return "";
-      const start = Number(match[1]);
-      const end = Number(match[2] ?? match[1]);
-      if (start < 0 || end > 23 || start > end || minutes !== "0-59") return "";
-      timeLabel = `${String(start).padStart(2, "0")}:00–${String(end).padStart(2, "0")}:59`;
-    }
-    return `${dayLabel} · ${timeLabel}（UTC）`;
-  }
-
-  function renderTimeEditor(table, row, field) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "time-cell";
-    const input = document.createElement("input");
-    input.type = "datetime-local";
-    input.step = "1";
-    input.value = timeInputValue(effectiveValue(table.name, row, field));
     input.dataset.table = table.name;
     input.dataset.row = String(row.index);
-    input.dataset.field = field;
-    input.setAttribute("aria-label", `${field} ${timeModeLabel()}`);
-    input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field)));
-    input.addEventListener("change", () => onTimeChange(table, row, field, input));
+    input.dataset.field = field.name;
+    input.setAttribute("aria-label", field.datetime ? `${field.name} ${timeModeLabel()}` : field.name);
+    input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field.name)));
+    const eventName = field.datetime || field.kind === "bool" ? "change" : "input";
+    input.addEventListener(eventName, () => onFieldChange(table, row, field, input));
     wrapper.append(input);
-    return wrapper;
-  }
-
-  function renderShopNames(relations = []) {
-    const names = [...new Set(relations.map((relation) => localizedText(relation.shopTitles)).filter(Boolean))];
-    if (!names.length) return null;
-    const wrapper = document.createElement("div");
-    wrapper.className = "shop-names";
-    names.forEach((name) => {
-      const item = document.createElement("div");
-      item.className = "shop-name";
-      item.textContent = name;
-      wrapper.append(item);
-    });
     return wrapper;
   }
 
@@ -428,17 +372,43 @@
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
   }
 
-  function onTimeChange(table, row, field, input) {
-    const value = parseTimeInput(input.value);
-    if (!Number.isSafeInteger(value) || value < 0) {
+  function onFieldChange(table, row, field, input) {
+    let value = input.value;
+    if (field.datetime) {
+      const milliseconds = parseTimeInput(value);
+      if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
+        input.classList.add("invalid");
+        showNotice("请输入有效的日期时间。", true);
+        return;
+      }
+      value = String(milliseconds);
+    } else if (field.kind === "int32" || field.kind === "int64") {
+      const integer = value.trim();
+      if (!/^-?\d+$/.test(integer)) {
+        input.classList.add("invalid");
+        showNotice(`${field.name} 必须是整数。`, true);
+        return;
+      }
+      const parsed = BigInt(integer);
+      const minimum = field.kind === "int32" ? -2147483648n : -9223372036854775808n;
+      const maximum = field.kind === "int32" ? 2147483647n : 9223372036854775807n;
+      if (parsed < minimum || parsed > maximum) {
+        input.classList.add("invalid");
+        showNotice(`${field.name} 超出 ${field.kind === "int32" ? "32" : "64"} 位整数范围。`, true);
+        return;
+      }
+      value = parsed.toString();
+      input.value = value;
+    }
+    if (field.kind === "bool" && value !== "true" && value !== "false") {
       input.classList.add("invalid");
-      showNotice("请输入有效的日期时间。", true);
+      showNotice(`${field.name} 必须是 true 或 false。`, true);
       return;
     }
     input.classList.remove("invalid");
-    const key = changeKey(table.name, row.index, field);
-    if (value === row.times[field]) state.dirty.delete(key);
-    else state.dirty.set(key, { table: table.name, row: row.index, field, value });
+    const key = changeKey(table.name, row.index, field.name);
+    if (value === row.values[field.name]) state.dirty.delete(key);
+    else state.dirty.set(key, { table: table.name, row: row.index, field: field.name, value });
     input.classList.toggle("changed", state.dirty.has(key));
     updateDirtyUI();
   }
@@ -446,8 +416,8 @@
   function rowStatus(table, row) {
     const pair = table.pairs[0];
     if (!pair) return "expired";
-    const start = effectiveValue(table.name, row, pair.start);
-    const end = effectiveValue(table.name, row, pair.end);
+    const start = Number(effectiveValue(table.name, row, pair.start));
+    const end = Number(effectiveValue(table.name, row, pair.end));
     const now = Date.now();
     if (end === 0) return "disabled";
     if (now < start) return "upcoming";
@@ -456,7 +426,7 @@
   }
 
   function effectiveValue(table, row, field) {
-    return state.dirty.get(changeKey(table, row.index, field))?.value ?? row.times[field];
+    return state.dirty.get(changeKey(table, row.index, field))?.value ?? row.values[field];
   }
 
   function changeKey(table, row, field) { return `${table}\u0000${row}\u0000${field}`; }
@@ -492,7 +462,7 @@
   function updateDirtyUI() {
     const count = state.dirty.size;
     elements.dirtyCount.textContent = count.toLocaleString();
-    elements.saveSummary.textContent = count ? `${count} 个时间值等待应用` : "没有待应用的修改";
+    elements.saveSummary.textContent = count ? `${count} 个字段等待应用` : "没有待应用的修改";
     elements.save.disabled = count === 0;
     elements.discard.disabled = count === 0;
   }
@@ -1103,7 +1073,7 @@
         body: JSON.stringify({ expectedVersion: state.catalog.version, changes })
       });
       await loadCatalog();
-      showNotice(`应用成功：更新 ${result.changedRows} 行、${result.changedCells} 个时间值。`);
+      showNotice(`应用成功：更新 ${result.changedRows} 行、${result.changedCells} 个字段。`);
     } catch (error) {
       showNotice(error.message, true);
       if (error.status === 409) {

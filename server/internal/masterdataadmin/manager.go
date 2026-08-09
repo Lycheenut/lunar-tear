@@ -1,11 +1,12 @@
-// Package masterdataadmin exposes the schedule-shaped subset of master data
-// and produces validated replacement binaries for the live admin service.
+// Package masterdataadmin exposes the operational-activity subset of master
+// data and produces validated replacement binaries for the live admin service.
 package masterdataadmin
 
 import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"lunar-tear/server/internal/masterdata/memorydb"
@@ -23,14 +24,25 @@ type FieldValue struct {
 type Row struct {
 	Index         int               `json:"index"`
 	Identity      []FieldValue      `json:"identity"`
+	Values        map[string]string `json:"values"`
 	Times         map[string]int64  `json:"times"`
 	Titles        map[string]string `json:"titles,omitempty"`
 	ShopRelations []ShopRelation    `json:"shopRelations,omitempty"`
 }
 
+type Field struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Kind       string `json:"kind"`
+	PrimaryKey bool   `json:"primaryKey"`
+	Datetime   bool   `json:"datetime"`
+}
+
 type Table struct {
 	Name       string     `json:"name"`
 	EntityName string     `json:"entityName"`
+	Primary    bool       `json:"primary"`
+	Fields     []Field    `json:"fields"`
 	TimeFields []string   `json:"timeFields"`
 	Pairs      []timePair `json:"pairs"`
 	Rows       []Row      `json:"rows"`
@@ -41,15 +53,17 @@ type Catalog struct {
 	DefaultLanguage string   `json:"defaultLanguage"`
 	Languages       []string `json:"languages"`
 	TableCount      int      `json:"tableCount"`
+	PrimaryCount    int      `json:"primaryCount"`
+	RelatedCount    int      `json:"relatedCount"`
 	RowCount        int      `json:"rowCount"`
 	Tables          []Table  `json:"tables"`
 }
 
 type Change struct {
-	Table string `json:"table"`
-	Row   int    `json:"row"`
-	Field string `json:"field"`
-	Value int64  `json:"value"`
+	Table string      `json:"table"`
+	Row   int         `json:"row"`
+	Field string      `json:"field"`
+	Value interface{} `json:"value"`
 }
 
 type UpdateRequest struct {
@@ -91,27 +105,31 @@ func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, erro
 		return nil, UpdateResult{}, ErrVersionConflict
 	}
 
-	specByName := make(map[string]tableSpec, len(scheduleTableSpecs))
+	specByName := make(map[string]tableSpec, len(activityTableSpecs))
 	rowsByTable := make(map[string][][]interface{})
-	for _, spec := range scheduleTableSpecs {
+	for _, spec := range activityTableSpecs {
 		specByName[spec.Name] = spec
 	}
 	overrides := make(map[string]map[int]map[string]int64)
 	seen := make(map[string]struct{}, len(request.Changes))
-	var edits []memorydb.Int64Edit
+	var edits []memorydb.CellEdit
 	changedRows := make(map[string]struct{})
 
 	for _, change := range request.Changes {
 		spec, ok := specByName[change.Table]
 		if !ok {
-			return nil, UpdateResult{}, fmt.Errorf("table %q is not an editable schedule table", change.Table)
+			return nil, UpdateResult{}, fmt.Errorf("table %q is not an editable activity table", change.Table)
 		}
-		field, ok := findTimeField(spec, change.Field)
+		field, ok := findField(spec, change.Field)
 		if !ok {
-			return nil, UpdateResult{}, fmt.Errorf("field %q is not editable on table %q", change.Field, change.Table)
+			return nil, UpdateResult{}, fmt.Errorf("field %q does not exist on table %q", change.Field, change.Table)
 		}
-		if change.Value < 0 || change.Value > maxDatetimeMillis {
-			return nil, UpdateResult{}, fmt.Errorf("%s row %d field %s is outside the supported datetime range", change.Table, change.Row, change.Field)
+		if field.PrimaryKey {
+			return nil, UpdateResult{}, fmt.Errorf("primary key field %q is read-only on table %q", change.Field, change.Table)
+		}
+		value, err := parseChangeValue(field, change.Value)
+		if err != nil {
+			return nil, UpdateResult{}, fmt.Errorf("%s row %d field %s: %w", change.Table, change.Row, change.Field, err)
 		}
 		editKey := fmt.Sprintf("%s\x00%d\x00%s", change.Table, change.Row, change.Field)
 		if _, duplicate := seen[editKey]; duplicate {
@@ -137,21 +155,23 @@ func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, erro
 		if field.Index >= len(rows[change.Row]) {
 			return nil, UpdateResult{}, fmt.Errorf("field %q is outside row %d in table %q", change.Field, change.Row, change.Table)
 		}
-		current, err := valueAsInt64(rows[change.Row][field.Index])
+		unchanged, err := scalarValuesEqual(field, rows[change.Row][field.Index], value)
 		if err != nil {
 			return nil, UpdateResult{}, fmt.Errorf("%s row %d field %s: %w", change.Table, change.Row, change.Field, err)
 		}
-		if current == change.Value {
+		if unchanged {
 			continue
 		}
-		if overrides[change.Table] == nil {
-			overrides[change.Table] = make(map[int]map[string]int64)
+		if field.Datetime {
+			if overrides[change.Table] == nil {
+				overrides[change.Table] = make(map[int]map[string]int64)
+			}
+			if overrides[change.Table][change.Row] == nil {
+				overrides[change.Table][change.Row] = make(map[string]int64)
+			}
+			overrides[change.Table][change.Row][change.Field] = value.(int64)
 		}
-		if overrides[change.Table][change.Row] == nil {
-			overrides[change.Table][change.Row] = make(map[string]int64)
-		}
-		overrides[change.Table][change.Row][change.Field] = change.Value
-		edits = append(edits, memorydb.Int64Edit{Table: change.Table, Row: change.Row, Column: field.Index, Value: change.Value})
+		edits = append(edits, memorydb.CellEdit{Table: change.Table, Row: change.Row, Column: field.Index, Value: value})
 		changedRows[fmt.Sprintf("%s\x00%d", change.Table, change.Row)] = struct{}{}
 	}
 	if len(edits) == 0 {
@@ -179,7 +199,7 @@ func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, erro
 		}
 	}
 
-	candidate, err := file.Rebuild(edits)
+	candidate, err := file.RebuildCells(edits)
 	if err != nil {
 		return nil, UpdateResult{}, err
 	}
@@ -200,7 +220,7 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 		DefaultLanguage: "en",
 		Languages:       append([]string(nil), supportedLanguages...),
 	}
-	for _, spec := range scheduleTableSpecs {
+	for _, spec := range activityTableSpecs {
 		rows, exists, err := file.TableRows(spec.Name)
 		if err != nil {
 			return nil, err
@@ -211,23 +231,38 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 		table := Table{
 			Name:       spec.Name,
 			EntityName: spec.EntityName,
+			Primary:    spec.Primary,
 			Pairs:      spec.pairs(),
 			Rows:       make([]Row, 0, len(rows)),
 		}
-		for _, field := range spec.Times {
-			table.TimeFields = append(table.TimeFields, field.Name)
+		for _, field := range spec.Fields {
+			table.Fields = append(table.Fields, Field{
+				Name:       field.Name,
+				Type:       field.SchemaType,
+				Kind:       string(field.Kind),
+				PrimaryKey: field.PrimaryKey,
+				Datetime:   field.Datetime,
+			})
+			if field.Datetime {
+				table.TimeFields = append(table.TimeFields, field.Name)
+			}
 		}
 		for rowIndex, values := range rows {
-			row := Row{Index: rowIndex, Times: make(map[string]int64, len(spec.Times))}
-			for _, key := range spec.Keys {
-				if key.Index >= len(values) {
-					return nil, fmt.Errorf("table %q row %d is missing key column %s", spec.Name, rowIndex, key.Name)
-				}
-				row.Identity = append(row.Identity, FieldValue{Name: key.Name, Value: formatValue(values[key.Index])})
+			row := Row{
+				Index:  rowIndex,
+				Values: make(map[string]string, len(spec.Fields)),
+				Times:  make(map[string]int64, len(spec.Times)),
 			}
-			for _, field := range spec.Times {
+			for _, field := range spec.Fields {
 				if field.Index >= len(values) {
-					return nil, fmt.Errorf("table %q row %d is missing time column %s", spec.Name, rowIndex, field.Name)
+					return nil, fmt.Errorf("table %q row %d is missing column %s", spec.Name, rowIndex, field.Name)
+				}
+				row.Values[field.Name] = formatValue(values[field.Index])
+				if field.PrimaryKey {
+					row.Identity = append(row.Identity, FieldValue{Name: field.Name, Value: row.Values[field.Name]})
+				}
+				if !field.Datetime {
+					continue
 				}
 				value, err := valueAsInt64(values[field.Index])
 				if err != nil {
@@ -241,9 +276,123 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 		}
 		catalog.RowCount += len(table.Rows)
 		catalog.Tables = append(catalog.Tables, table)
+		if spec.Primary {
+			catalog.PrimaryCount++
+		} else {
+			catalog.RelatedCount++
+		}
 	}
 	catalog.TableCount = len(catalog.Tables)
 	return catalog, nil
+}
+
+func findField(spec tableSpec, name string) (columnSpec, bool) {
+	for _, field := range spec.Fields {
+		if field.Name == name {
+			return field, true
+		}
+	}
+	return columnSpec{}, false
+}
+
+func parseChangeValue(field columnSpec, raw interface{}) (interface{}, error) {
+	switch field.Kind {
+	case fieldKindInt32:
+		value, err := parseInteger(raw, 32)
+		if err != nil {
+			return nil, err
+		}
+		return int32(value), nil
+	case fieldKindInt64:
+		value, err := parseInteger(raw, 64)
+		if err != nil {
+			return nil, err
+		}
+		if field.Datetime && (value < 0 || value > maxDatetimeMillis) {
+			return nil, fmt.Errorf("value is outside the supported datetime range")
+		}
+		return value, nil
+	case fieldKindBool:
+		switch value := raw.(type) {
+		case bool:
+			return value, nil
+		case string:
+			if value == "true" {
+				return true, nil
+			}
+			if value == "false" {
+				return false, nil
+			}
+		}
+		return nil, fmt.Errorf("expected true or false")
+	case fieldKindString:
+		value, ok := raw.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected string, got %T", raw)
+		}
+		return value, nil
+	default:
+		return nil, fmt.Errorf("unsupported field type %q", field.SchemaType)
+	}
+}
+
+func parseInteger(raw interface{}, bitSize int) (int64, error) {
+	if text, ok := raw.(string); ok {
+		value, err := strconv.ParseInt(text, 10, bitSize)
+		if err != nil {
+			return 0, fmt.Errorf("expected signed %d-bit integer", bitSize)
+		}
+		return value, nil
+	}
+	if number, ok := raw.(float64); ok {
+		if math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number {
+			return 0, fmt.Errorf("expected integer")
+		}
+		if bitSize == 32 && (number < math.MinInt32 || number > math.MaxInt32) {
+			return 0, fmt.Errorf("expected signed 32-bit integer")
+		}
+		if number < math.MinInt64 || number > math.MaxInt64 || math.Abs(number) > 1<<53 {
+			return 0, fmt.Errorf("large 64-bit integers must be submitted as strings")
+		}
+		return int64(number), nil
+	}
+	value, err := valueAsInt64(raw)
+	if err != nil {
+		return 0, err
+	}
+	if bitSize == 32 && (value < math.MinInt32 || value > math.MaxInt32) {
+		return 0, fmt.Errorf("expected signed 32-bit integer")
+	}
+	return value, nil
+}
+
+func scalarValuesEqual(field columnSpec, current, updated interface{}) (bool, error) {
+	switch field.Kind {
+	case fieldKindInt32, fieldKindInt64:
+		currentInteger, err := valueAsInt64(current)
+		if err != nil {
+			return false, err
+		}
+		updatedInteger, err := valueAsInt64(updated)
+		if err != nil {
+			return false, err
+		}
+		return currentInteger == updatedInteger, nil
+	case fieldKindBool:
+		currentBool, ok := current.(bool)
+		if !ok {
+			return false, fmt.Errorf("expected bool, got %T", current)
+		}
+		return currentBool == updated.(bool), nil
+	case fieldKindString:
+		currentString, ok := current.(string)
+		if !ok {
+			return false, fmt.Errorf("expected string, got %T", current)
+		}
+		return currentString == updated.(string), nil
+	default:
+		return false, fmt.Errorf("unsupported field type %q", field.SchemaType)
+	}
 }
 
 func findTimeField(spec tableSpec, name string) (columnSpec, bool) {

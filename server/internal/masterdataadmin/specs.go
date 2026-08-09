@@ -2,15 +2,29 @@ package masterdataadmin
 
 import "strings"
 
+type fieldKind string
+
+const (
+	fieldKindInt32  fieldKind = "int32"
+	fieldKindInt64  fieldKind = "int64"
+	fieldKindBool   fieldKind = "bool"
+	fieldKindString fieldKind = "string"
+)
+
 type columnSpec struct {
-	Name  string
-	Index int
+	Name       string
+	Index      int
+	SchemaType string
+	Kind       fieldKind
+	PrimaryKey bool
+	Datetime   bool
 }
 
 type tableSpec struct {
 	Name       string
 	EntityName string
-	Keys       []columnSpec
+	Primary    bool
+	Fields     []columnSpec
 	Times      []columnSpec
 }
 
@@ -19,8 +33,33 @@ type timePair struct {
 	End   string `json:"end"`
 }
 
-func column(name string, index int) columnSpec {
-	return columnSpec{Name: name, Index: index}
+func field(name string, index int, schemaType string) columnSpec {
+	kind := fieldKindInt32
+	switch schemaType {
+	case "long":
+		kind = fieldKindInt64
+	case "bool":
+		kind = fieldKindBool
+	case "string":
+		kind = fieldKindString
+	}
+	return columnSpec{
+		Name: name, Index: index, SchemaType: schemaType, Kind: kind,
+		Datetime: kind == fieldKindInt64 && strings.HasSuffix(name, "Datetime"),
+	}
+}
+
+func activityTable(name, entityName string, primaryKeyCount int, primary bool, fields ...columnSpec) tableSpec {
+	for index := range fields {
+		fields[index].PrimaryKey = index < primaryKeyCount
+	}
+	spec := tableSpec{Name: name, EntityName: entityName, Primary: primary, Fields: fields}
+	for _, field := range fields {
+		if field.Datetime {
+			spec.Times = append(spec.Times, field)
+		}
+	}
+	return spec
 }
 
 func (s tableSpec) pairs() []timePair {
@@ -41,47 +80,40 @@ func (s tableSpec) pairs() []timePair {
 	return pairs
 }
 
-// scheduleTableSpecs is generated from scripts/schemas.json. A table is in
-// scope when its schema has a matching *StartDatetime/*EndDatetime pair. All
-// datetime columns on an in-scope table are exposed so secondary boundaries
-// such as NoticeStartDatetime and StampReceiveEndDatetime are not hidden.
-var scheduleTableSpecs = []tableSpec{
-	{Name: "m_appeal_dialog", EntityName: "EntityMAppealDialog", Keys: []columnSpec{column("AppealDialogId", 0), column("SortOrder", 1), column("AppealTargetType", 2), column("TitleTextId", 6), column("AssetId", 7)}, Times: []columnSpec{column("StartDatetime", 4), column("EndDatetime", 5)}},
-	{Name: "m_beginner_campaign", EntityName: "EntityMBeginnerCampaign", Keys: []columnSpec{column("BeginnerCampaignId", 0)}, Times: []columnSpec{column("BeginnerJudgeStartDatetime", 1), column("BeginnerJudgeEndDatetime", 2)}},
-	{Name: "m_big_hunt_schedule", EntityName: "EntityMBigHuntSchedule", Keys: []columnSpec{column("BigHuntScheduleId", 0)}, Times: []columnSpec{column("NoticeStartDatetime", 1), column("ChallengeStartDatetime", 2), column("ChallengeEndDatetime", 3)}},
-	{Name: "m_cage_ornament", EntityName: "EntityMCageOrnament", Keys: []columnSpec{column("CageOrnamentId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_comeback_campaign", EntityName: "EntityMComebackCampaign", Keys: []columnSpec{column("ComebackCampaignId", 0)}, Times: []columnSpec{column("ComebackJudgeStartDatetime", 1), column("ComebackJudgeEndDatetime", 2)}},
-	{Name: "m_consumable_item_term", EntityName: "EntityMConsumableItemTerm", Keys: []columnSpec{column("ConsumableItemTermId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_costume_collection_bonus", EntityName: "EntityMCostumeCollectionBonus", Keys: []columnSpec{column("CollectionBonusId", 0), column("CollectionBonusTextId", 1), column("CollectionBonusGroupId", 2)}, Times: []columnSpec{column("StartDatetime", 5), column("EndDatetime", 6)}},
-	{Name: "m_dokan", EntityName: "EntityMDokan", Keys: []columnSpec{column("DokanId", 0), column("SortOrder", 1), column("DokanType", 2)}, Times: []columnSpec{column("StartDatetime", 3), column("EndDatetime", 4)}},
-	{Name: "m_enhance_campaign", EntityName: "EntityMEnhanceCampaign", Keys: []columnSpec{column("EnhanceCampaignId", 0), column("EnhanceCampaignTargetGroupId", 1), column("EnhanceCampaignEffectType", 2)}, Times: []columnSpec{column("StartDatetime", 4), column("EndDatetime", 5)}},
-	{Name: "m_event_quest_chapter", EntityName: "EntityMEventQuestChapter", Keys: []columnSpec{column("EventQuestChapterId", 0), column("EventQuestType", 1), column("SortOrder", 2), column("NameEventQuestTextId", 3), column("BannerAssetId", 4)}, Times: []columnSpec{column("StartDatetime", 8), column("EndDatetime", 9)}},
-	{Name: "m_event_quest_daily_group", EntityName: "EntityMEventQuestDailyGroup", Keys: []columnSpec{column("EventQuestDailyGroupId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_event_quest_guerrilla_free_open", EntityName: "EntityMEventQuestGuerrillaFreeOpen", Keys: []columnSpec{column("EventQuestGuerrillaFreeOpenId", 0), column("OpenMinutes", 1), column("DailyOpenMaxCount", 2)}, Times: []columnSpec{column("StartDatetime", 3), column("EndDatetime", 4)}},
-	{Name: "m_event_quest_labyrinth_season", EntityName: "EntityMEventQuestLabyrinthSeason", Keys: []columnSpec{column("EventQuestChapterId", 0), column("SeasonNumber", 1)}, Times: []columnSpec{column("StartDatetime", 2), column("EndDatetime", 3)}},
-	{Name: "m_event_quest_limit_content", EntityName: "EntityMEventQuestLimitContent", Keys: []columnSpec{column("EventQuestLimitContentId", 0), column("CostumeId", 1), column("UnlockEvaluateConditionId", 2)}, Times: []columnSpec{column("StartDatetime", 5), column("EndDatetime", 6)}},
-	{Name: "m_event_quest_limit_content_deck_restriction", EntityName: "EntityMEventQuestLimitContentDeckRestriction", Keys: []columnSpec{column("EventQuestLimitContentDeckRestrictionId", 0), column("GroupIndex", 1), column("EventQuestLimitContentDeckRestrictionTargetId", 2)}, Times: []columnSpec{column("StartDatetime", 3), column("EndDatetime", 4)}},
-	{Name: "m_gimmick_sequence_schedule", EntityName: "EntityMGimmickSequenceSchedule", Keys: []columnSpec{column("GimmickSequenceScheduleId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_important_item_effect", EntityName: "EntityMImportantItemEffect", Keys: []columnSpec{column("ImportantItemEffectId", 0), column("ImportantItemEffectGroupingId", 1), column("Priority", 2)}, Times: []columnSpec{column("StartDatetime", 5), column("EndDatetime", 6)}},
-	{Name: "m_login_bonus", EntityName: "EntityMLoginBonus", Keys: []columnSpec{column("LoginBonusId", 0), column("SortOrder", 1), column("LoginBonusStartConditionId", 2), column("LoginBonusAssetName", 7)}, Times: []columnSpec{column("StartDatetime", 4), column("EndDatetime", 5), column("StampReceiveEndDatetime", 6)}},
-	{Name: "m_maintenance", EntityName: "EntityMMaintenance", Keys: []columnSpec{column("MaintenanceId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_mission_pass", EntityName: "EntityMMissionPass", Keys: []columnSpec{column("MissionPassId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_mission_term", EntityName: "EntityMMissionTerm", Keys: []columnSpec{column("MissionTermId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_mom_banner", EntityName: "EntityMMomBanner", Keys: []columnSpec{column("MomBannerId", 0), column("SortOrderDesc", 1), column("DestinationDomainType", 2), column("DestinationDomainId", 3), column("BannerAssetName", 4)}, Times: []columnSpec{column("StartDatetime", 6), column("EndDatetime", 7)}},
-	{Name: "m_mom_point_banner", EntityName: "EntityMMomPointBanner", Keys: []columnSpec{column("MomPointBannerId", 0), column("BannerAssetId", 1), column("DestinationInformationId", 2)}, Times: []columnSpec{column("StartDatetime", 3), column("EndDatetime", 4)}},
-	{Name: "m_navi_cut_in", EntityName: "EntityMNaviCutIn", Keys: []columnSpec{column("NaviCutInId", 0), column("RelatedCutInFunctionType", 1), column("SortOrder", 2)}, Times: []columnSpec{column("StartDatetime", 3), column("EndDatetime", 4)}},
-	{Name: "m_omikuji", EntityName: "EntityMOmikuji", Keys: []columnSpec{column("OmikujiId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_portal_cage_access_point_function_group_schedule", EntityName: "EntityMPortalCageAccessPointFunctionGroupSchedule", Keys: []columnSpec{column("PortalCageAccessPointFunctionGroupScheduleId", 0), column("PriorityDesc", 1), column("AccessPointType", 2)}, Times: []columnSpec{column("StartDatetime", 4), column("EndDatetime", 5)}},
-	{Name: "m_possession_acquisition_route", EntityName: "EntityMPossessionAcquisitionRoute", Keys: []columnSpec{column("PossessionType", 0), column("PossessionId", 1), column("SortOrder", 2)}, Times: []columnSpec{column("StartDatetime", 6), column("EndDatetime", 7)}},
-	{Name: "m_premium_item", EntityName: "EntityMPremiumItem", Keys: []columnSpec{column("PremiumItemId", 0), column("PremiumItemType", 1)}, Times: []columnSpec{column("StartDatetime", 2), column("EndDatetime", 3)}},
-	{Name: "m_pvp_season", EntityName: "EntityMPvpSeason", Keys: []columnSpec{column("PvpSeasonId", 0), column("NameAssetPath", 1)}, Times: []columnSpec{column("SeasonStartDatetime", 2), column("SeasonEndDatetime", 3)}},
-	{Name: "m_quest_bonus_term_group", EntityName: "EntityMQuestBonusTermGroup", Keys: []columnSpec{column("QuestBonusTermGroupId", 0), column("SortOrder", 1)}, Times: []columnSpec{column("StartDatetime", 2), column("EndDatetime", 3)}},
-	{Name: "m_quest_campaign", EntityName: "EntityMQuestCampaign", Keys: []columnSpec{column("QuestCampaignId", 0), column("QuestCampaignTargetGroupId", 1), column("QuestCampaignEffectGroupId", 2)}, Times: []columnSpec{column("StartDatetime", 3), column("EndDatetime", 4)}},
-	{Name: "m_quest_schedule", EntityName: "EntityMQuestSchedule", Keys: []columnSpec{column("QuestScheduleId", 0), column("QuestScheduleCronExpression", 1)}, Times: []columnSpec{column("StartDatetime", 2), column("EndDatetime", 3)}},
-	{Name: "m_shop", EntityName: "EntityMShop", Keys: []columnSpec{column("ShopId", 0), column("ShopGroupType", 1), column("SortOrderInShopGroup", 2), column("NameShopTextId", 4), column("ShopItemCellGroupId", 7)}, Times: []columnSpec{column("StartDatetime", 9), column("EndDatetime", 10)}},
-	{Name: "m_shop_item_cell_term", EntityName: "EntityMShopItemCellTerm", Keys: []columnSpec{column("ShopItemCellTermId", 0)}, Times: []columnSpec{column("StartDatetime", 1), column("EndDatetime", 2)}},
-	{Name: "m_tip", EntityName: "EntityMTip", Keys: []columnSpec{column("TipId", 0), column("TitleTipTextId", 1), column("ContentTipTextId", 2)}, Times: []columnSpec{column("StartDatetime", 5), column("EndDatetime", 6)}},
-	{Name: "m_title_flow_movie", EntityName: "EntityMTitleFlowMovie", Keys: []columnSpec{column("TitleFlowMovieId", 0), column("MovieId", 1)}, Times: []columnSpec{column("StartDatetime", 2), column("EndDatetime", 3)}},
-	{Name: "m_webview_mission", EntityName: "EntityMWebviewMission", Keys: []columnSpec{column("WebviewMissionId", 0), column("TitleTextId", 1), column("WebviewMissionType", 2)}, Times: []columnSpec{column("StartDatetime", 4), column("EndDatetime", 5)}},
-	{Name: "m_webview_panel_mission", EntityName: "EntityMWebviewPanelMission", Keys: []columnSpec{column("WebviewPanelMissionId", 0), column("Page", 1), column("WebviewPanelMissionPageId", 2)}, Times: []columnSpec{column("StartDatetime", 3), column("EndDatetime", 4)}},
+// activityTableSpecs contains the selected operational schedules followed by
+// the first-level non-schedule tables directly referenced by their fields.
+// Column names and scalar types are generated from scripts/schemas.json; the
+// primary-key prefixes are kept read-only by the admin API.
+var activityTableSpecs = []tableSpec{
+	activityTable("m_big_hunt_schedule", "EntityMBigHuntSchedule", 1, true, field("BigHuntScheduleId", 0, "int"), field("NoticeStartDatetime", 1, "long"), field("ChallengeStartDatetime", 2, "long"), field("ChallengeEndDatetime", 3, "long"), field("SeasonAssetId", 4, "int")),
+	activityTable("m_consumable_item_term", "EntityMConsumableItemTerm", 1, true, field("ConsumableItemTermId", 0, "int"), field("StartDatetime", 1, "long"), field("EndDatetime", 2, "long")),
+	activityTable("m_enhance_campaign", "EntityMEnhanceCampaign", 1, true, field("EnhanceCampaignId", 0, "int"), field("EnhanceCampaignTargetGroupId", 1, "int"), field("EnhanceCampaignEffectType", 2, "EnhanceCampaignEffectType"), field("EnhanceCampaignEffectValue", 3, "int"), field("StartDatetime", 4, "long"), field("EndDatetime", 5, "long"), field("TargetUserStatusType", 6, "TargetUserStatusType"), field("SortOrder", 7, "int")),
+	activityTable("m_event_quest_chapter", "EntityMEventQuestChapter", 1, true, field("EventQuestChapterId", 0, "int"), field("EventQuestType", 1, "EventQuestType"), field("SortOrder", 2, "int"), field("NameEventQuestTextId", 3, "int"), field("BannerAssetId", 4, "int"), field("EventQuestLinkId", 5, "int"), field("EventQuestDisplayItemGroupId", 6, "int"), field("EventQuestSequenceGroupId", 7, "int"), field("StartDatetime", 8, "long"), field("EndDatetime", 9, "long"), field("DisplaySortOrder", 10, "int")),
+	activityTable("m_event_quest_daily_group", "EntityMEventQuestDailyGroup", 1, true, field("EventQuestDailyGroupId", 0, "int"), field("StartDatetime", 1, "long"), field("EndDatetime", 2, "long"), field("EventQuestDailyGroupTargetChapterId", 3, "int"), field("EventQuestDailyGroupCompleteRewardId", 4, "int"), field("EventQuestDailyGroupMessageId", 5, "int")),
+	activityTable("m_event_quest_labyrinth_season", "EntityMEventQuestLabyrinthSeason", 2, true, field("EventQuestChapterId", 0, "int"), field("SeasonNumber", 1, "int"), field("StartDatetime", 2, "long"), field("EndDatetime", 3, "long"), field("SeasonRewardGroupId", 4, "int")),
+	activityTable("m_login_bonus", "EntityMLoginBonus", 1, true, field("LoginBonusId", 0, "int"), field("SortOrder", 1, "int"), field("LoginBonusStartConditionId", 2, "int"), field("TotalPageCount", 3, "int"), field("StartDatetime", 4, "long"), field("EndDatetime", 5, "long"), field("StampReceiveEndDatetime", 6, "long"), field("LoginBonusAssetName", 7, "string")),
+	activityTable("m_maintenance", "EntityMMaintenance", 1, true, field("MaintenanceId", 0, "int"), field("StartDatetime", 1, "long"), field("EndDatetime", 2, "long"), field("MaintenanceGroupId", 3, "int")),
+	activityTable("m_mom_banner", "EntityMMomBanner", 1, true, field("MomBannerId", 0, "int"), field("SortOrderDesc", 1, "int"), field("DestinationDomainType", 2, "DomainType"), field("DestinationDomainId", 3, "int"), field("BannerAssetName", 4, "string"), field("IsEmphasis", 5, "bool"), field("StartDatetime", 6, "long"), field("EndDatetime", 7, "long"), field("TargetUserStatusType", 8, "TargetUserStatusType")),
+	activityTable("m_omikuji", "EntityMOmikuji", 1, true, field("OmikujiId", 0, "int"), field("StartDatetime", 1, "long"), field("EndDatetime", 2, "long"), field("OmikujiAssetId", 3, "int")),
+	activityTable("m_pvp_season", "EntityMPvpSeason", 1, true, field("PvpSeasonId", 0, "int"), field("NameAssetPath", 1, "string"), field("SeasonStartDatetime", 2, "long"), field("SeasonEndDatetime", 3, "long"), field("PvpSeasonGroupingId", 4, "int"), field("IsInvalid", 5, "bool"), field("PvpWeeklyRankRewardRankGroupId", 6, "int"), field("PvpSeasonRankRewardRankGroupId", 7, "int"), field("PvpGradeGroupId", 8, "int"), field("PvpInitialPointAdditionGroupId", 9, "int"), field("PvpSeasonDeckPowerThresholdGroupingId", 10, "int")),
+	activityTable("m_quest_campaign", "EntityMQuestCampaign", 1, true, field("QuestCampaignId", 0, "int"), field("QuestCampaignTargetGroupId", 1, "int"), field("QuestCampaignEffectGroupId", 2, "int"), field("StartDatetime", 3, "long"), field("EndDatetime", 4, "long"), field("TargetUserStatusType", 5, "TargetUserStatusType"), field("SortOrder", 6, "int")),
+	activityTable("m_shop", "EntityMShop", 1, true, field("ShopId", 0, "int"), field("ShopGroupType", 1, "ShopGroupType"), field("SortOrderInShopGroup", 2, "int"), field("ShopType", 3, "ShopType"), field("NameShopTextId", 4, "int"), field("ShopUpdatableLabelType", 5, "ShopUpdatableLabelType"), field("ShopExchangeType", 6, "ShopExchangeType"), field("ShopItemCellGroupId", 7, "int"), field("RelatedMainFunctionType", 8, "MainFunctionType"), field("StartDatetime", 9, "long"), field("EndDatetime", 10, "long"), field("LimitedOpenId", 11, "int")),
+	activityTable("m_shop_item_cell_term", "EntityMShopItemCellTerm", 1, true, field("ShopItemCellTermId", 0, "int"), field("StartDatetime", 1, "long"), field("EndDatetime", 2, "long")),
+
+	activityTable("m_enhance_campaign_target_group", "EntityMEnhanceCampaignTargetGroup", 2, false, field("EnhanceCampaignTargetGroupId", 0, "int"), field("EnhanceCampaignTargetIndex", 1, "int"), field("EnhanceCampaignTargetType", 2, "EnhanceCampaignTargetType"), field("EnhanceCampaignTargetValue", 3, "int")),
+	activityTable("m_event_quest_link", "EntityMEventQuestLink", 1, false, field("EventQuestLinkId", 0, "int"), field("DestinationDomainType", 1, "DomainType"), field("DestinationDomainId", 2, "int"), field("PossessionType", 3, "PossessionType"), field("PossessionId", 4, "int")),
+	activityTable("m_event_quest_display_item_group", "EntityMEventQuestDisplayItemGroup", 2, false, field("EventQuestDisplayItemGroupId", 0, "int"), field("SortOrder", 1, "int"), field("PossessionType", 2, "PossessionType"), field("PossessionId", 3, "int")),
+	activityTable("m_event_quest_sequence_group", "EntityMEventQuestSequenceGroup", 2, false, field("EventQuestSequenceGroupId", 0, "int"), field("DifficultyType", 1, "DifficultyType"), field("EventQuestSequenceId", 2, "int")),
+	activityTable("m_event_quest_daily_group_target_chapter", "EntityMEventQuestDailyGroupTargetChapter", 2, false, field("EventQuestDailyGroupTargetChapterId", 0, "int"), field("SortOrder", 1, "int"), field("EventQuestChapterId", 2, "int")),
+	activityTable("m_event_quest_daily_group_complete_reward", "EntityMEventQuestDailyGroupCompleteReward", 2, false, field("EventQuestDailyGroupCompleteRewardId", 0, "int"), field("SortOrder", 1, "int"), field("PossessionType", 2, "PossessionType"), field("PossessionId", 3, "int"), field("Count", 4, "int")),
+	activityTable("m_event_quest_daily_group_message", "EntityMEventQuestDailyGroupMessage", 2, false, field("EventQuestDailyGroupMessageId", 0, "int"), field("OddsNumber", 1, "int"), field("Weight", 2, "int"), field("BeforeClearMessageTextId", 3, "int"), field("AfterClearMessageTextId", 4, "int")),
+	activityTable("m_event_quest_labyrinth_season_reward_group", "EntityMEventQuestLabyrinthSeasonRewardGroup", 2, false, field("EventQuestLabyrinthSeasonRewardGroupId", 0, "int"), field("HeadQuestId", 1, "int"), field("EventQuestLabyrinthRewardGroupId", 2, "int")),
+	activityTable("m_maintenance_group", "EntityMMaintenanceGroup", 2, false, field("MaintenanceGroupId", 0, "int"), field("ApiPath", 1, "string"), field("Priority", 2, "int"), field("ScreenTransitionType", 3, "ScreenTransitionType"), field("BlockFunctionType", 4, "MaintenanceBlockFunctionType"), field("BlockFunctionValue", 5, "string")),
+	activityTable("m_pvp_season_grouping", "EntityMPvpSeasonGrouping", 2, false, field("PvpSeasonGroupingId", 0, "int"), field("GroupId", 1, "int"), field("DivideWeight", 2, "int")),
+	activityTable("m_pvp_weekly_rank_reward_rank_group", "EntityMPvpWeeklyRankRewardRankGroup", 2, false, field("PvpWeeklyRankRewardRankGroupId", 0, "int"), field("RankLowerLimit", 1, "int"), field("PvpWeeklyRankRewardGroupId", 2, "int")),
+	activityTable("m_pvp_season_rank_reward_rank_group", "EntityMPvpSeasonRankRewardRankGroup", 2, false, field("PvpSeasonRankRewardRankGroupId", 0, "int"), field("RankLowerLimit", 1, "int"), field("PvpSeasonRankRewardGroupId", 2, "int")),
+	activityTable("m_pvp_grade_group", "EntityMPvpGradeGroup", 2, false, field("PvpGradeGroupId", 0, "int"), field("PvpGradeId", 1, "int"), field("NecessaryPvpPoint", 2, "int"), field("IconAssetId", 3, "int"), field("PvpGradeWeeklyRewardGroupId", 4, "int"), field("PvpGradeOneMatchRewardGroupId", 5, "int")),
+	activityTable("m_quest_campaign_target_group", "EntityMQuestCampaignTargetGroup", 2, false, field("QuestCampaignTargetGroupId", 0, "int"), field("QuestCampaignTargetIndex", 1, "int"), field("QuestCampaignTargetType", 2, "QuestCampaignTargetType"), field("QuestCampaignTargetValue", 3, "int")),
+	activityTable("m_quest_campaign_effect_group", "EntityMQuestCampaignEffectGroup", 1, false, field("QuestCampaignEffectGroupId", 0, "int"), field("QuestCampaignEffectType", 1, "QuestCampaignEffectType"), field("QuestCampaignEffectValue", 2, "int"), field("QuestCampaignTargetItemGroupId", 3, "int")),
+	activityTable("m_shop_item_cell_group", "EntityMShopItemCellGroup", 2, false, field("ShopItemCellGroupId", 0, "int"), field("ShopItemCellId", 1, "int"), field("SortOrder", 2, "int"), field("ShopItemCellTermId", 3, "int")),
 }
