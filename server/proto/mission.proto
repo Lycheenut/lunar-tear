@@ -8,6 +8,7 @@ package apb.api.mission;
 
 service MissionService {
 	rpc ReceiveMissionRewardsById (ReceiveMissionRewardsByIdRequest) returns (ReceiveMissionRewardsResponse);
+	rpc ReceiveMissionRewardsByCategory (ReceiveMissionRewardsByCategoryRequest) returns (ReceiveMissionRewardsResponse);
 	rpc UpdateMissionProgress (UpdateMissionProgressRequest) returns (UpdateMissionProgressResponse);
 	rpc ReceiveMissionPassRewards (ReceiveMissionPassRewardsRequest) returns (ReceiveMissionPassRewardsResponse);
 }
@@ -19,6 +20,10 @@ message CageMeasurableValues {
 
 message ReceiveMissionRewardsByIdRequest {
 	repeated int32 missionId = 1;
+}
+
+message ReceiveMissionRewardsByCategoryRequest {
+	int32 missionCategoryType = 1;
 }
 
 message ReceiveMissionRewardsResponse {
