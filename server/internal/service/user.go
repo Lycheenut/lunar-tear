@@ -83,6 +83,7 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	}
 	user, err := s.users.UpdateUser(session.UserId, func(user *store.UserState) {
 		advanceLoginState(&user.Login, gametime.NowMillis())
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeTitleTransitionByCount), 1, 0, 0)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update login state: %w", err)
@@ -170,8 +171,25 @@ func (s *UserServiceServer) SetUserMessage(ctx context.Context, req *pb.SetUserM
 		nowMillis := gametime.NowMillis()
 		user.Profile.Message = req.Message
 		user.Profile.MessageUpdateDatetime = nowMillis
+		recordUserMessageMissionEvents(user, req.Message)
 	})
 	return &pb.SetUserMessageResponse{}, nil
+}
+
+func recordUserMessageMissionEvents(user *store.UserState, message string) {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return
+	}
+	// Option 420 is used by missions whose localized text only asks the user
+	// to update their profile comment, without prescribing a word.
+	store.AddMissionCount(user, int32(model.MissionClearConditionTypeUserMessageMatchWord), 1, 0, 420)
+	if strings.Contains(message, "あけましておめでとう") || strings.Contains(message, "お年玉") || strings.Contains(normalized, "a happy new year") {
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeUserMessageMatchWord), 1, 0, 392)
+	}
+	if strings.Contains(message, "ママ") || strings.Contains(normalized, "mama") {
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeUserMessageMatchWord), 1, 0, 393)
+	}
 }
 
 func (s *UserServiceServer) SetUserFavoriteCostumeId(ctx context.Context, req *pb.SetUserFavoriteCostumeIdRequest) (*pb.SetUserFavoriteCostumeIdResponse, error) {

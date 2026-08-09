@@ -7,6 +7,7 @@ import (
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/interceptor"
+	"lunar-tear/server/internal/missionprogress"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/service"
 	"lunar-tear/server/internal/store"
@@ -86,6 +87,7 @@ func registerServices(
 ) {
 	pubHost, pubPortStr, _ := net.SplitHostPort(publicAddr)
 	pubPort, _ := strconv.Atoi(pubPortStr)
+	userStore = missionprogress.NewRepository(userStore, holder)
 
 	pb.RegisterBannerServiceServer(srv, service.NewBannerServiceServer(holder))
 	pb.RegisterUserServiceServer(srv, service.NewUserServiceServer(userStore, userStore, holder, authURL, noRegister))
@@ -124,5 +126,6 @@ func registerServices(
 	pb.RegisterSideStoryQuestServiceServer(srv, service.NewSideStoryQuestServiceServer(userStore, userStore, holder))
 	pb.RegisterBigHuntServiceServer(srv, service.NewBigHuntServiceServer(userStore, userStore, holder))
 	pb.RegisterRewardServiceServer(srv, service.NewRewardServiceServer(userStore, userStore, holder))
+	pb.RegisterPvpServiceServer(srv, service.NewPvpServiceServer(userStore, userStore))
 	pb.RegisterLabyrinthServiceServer(srv, service.NewLabyrinthServiceServer(userStore, userStore, holder))
 }

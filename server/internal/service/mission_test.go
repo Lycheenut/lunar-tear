@@ -13,20 +13,20 @@ import (
 
 func TestSyncMissionProgressUsesMeasuredValues(t *testing.T) {
 	catalog := &masterdata.MissionCatalog{
-		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: 37, ClearConditionValue: 100}},
-		MeasurableMissionIdsByType: map[int32][]int32{37: {1}},
+		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeTowerWalkedDistance), ClearConditionValue: 100}},
+		MeasurableMissionIdsByType: map[int32][]int32{int32(model.MissionClearConditionTypeTowerWalkedDistance): {1}},
 		TermById:                   map[int32]masterdata.EntityMMissionTerm{},
 		UnlockById:                 map[int32]masterdata.EntityMMissionUnlockCondition{},
 	}
 	user := &store.UserState{}
 	user.EnsureMaps()
-	if err := syncMissionProgress(catalog, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 99}}, 2); err != nil {
+	if err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 99}}, 2); err != nil {
 		t.Fatal(err)
 	}
 	if user.Missions[1].MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
 		t.Fatal("mission cleared below target")
 	}
-	if err := syncMissionProgress(catalog, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 100}}, 3); err != nil {
+	if err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 100}}, 3); err != nil {
 		t.Fatal(err)
 	}
 	if user.Missions[1].MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
@@ -34,27 +34,30 @@ func TestSyncMissionProgressUsesMeasuredValues(t *testing.T) {
 	}
 }
 
-func TestSyncMissionProgressOnlyCreatesReportedMeasurableMissions(t *testing.T) {
+func TestSyncMissionProgressCreatesAllUnlockedKnownMissions(t *testing.T) {
 	catalog := &masterdata.MissionCatalog{
 		MissionById: map[int32]masterdata.EntityMMission{
-			1: {MissionId: 1, MissionClearConditionType: 37, ClearConditionValue: 10},
-			2: {MissionId: 2, MissionClearConditionType: 39, ClearConditionValue: 10},
+			1: {MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeTowerWalkedDistance), ClearConditionValue: 10},
+			2: {MissionId: 2, MissionClearConditionType: int32(model.MissionClearConditionTypeDefeatWizardCount), ClearConditionValue: 10},
 			3: {MissionId: 3, MissionClearConditionType: 99, ClearConditionValue: 10},
 		},
-		MeasurableMissionIdsByType: map[int32][]int32{37: {1}, 39: {2}},
-		TermById:                   map[int32]masterdata.EntityMMissionTerm{},
-		UnlockById:                 map[int32]masterdata.EntityMMissionUnlockCondition{},
+		MeasurableMissionIdsByType: map[int32][]int32{
+			int32(model.MissionClearConditionTypeTowerWalkedDistance): {1},
+			int32(model.MissionClearConditionTypeDefeatWizardCount):   {2},
+		},
+		TermById:   map[int32]masterdata.EntityMMissionTerm{},
+		UnlockById: map[int32]masterdata.EntityMMissionUnlockCondition{},
 	}
 	user := &store.UserState{}
 	user.EnsureMaps()
-	if err := syncMissionProgress(catalog, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 5}}, 2); err != nil {
+	if err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 5}}, 2); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := user.Missions[1]; !ok {
 		t.Fatal("reported cage mission was not initialized")
 	}
-	if _, ok := user.Missions[2]; ok {
-		t.Fatal("unreported picture-book mission was initialized")
+	if state, ok := user.Missions[2]; !ok || state.ProgressValue != 0 {
+		t.Fatal("unreported unlocked mission was not initialized with zero progress")
 	}
 	if _, ok := user.Missions[3]; ok {
 		t.Fatal("unsupported mission was initialized")
@@ -63,14 +66,14 @@ func TestSyncMissionProgressOnlyCreatesReportedMeasurableMissions(t *testing.T) 
 
 func TestSyncMissionProgressRejectsInvalidRhythmMetricWithoutMutation(t *testing.T) {
 	catalog := &masterdata.MissionCatalog{
-		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: 36, ClearConditionValue: 1}},
-		MeasurableMissionIdsByType: map[int32][]int32{36: {1}},
+		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeRhythmInteractionTapCount), ClearConditionValue: 1}},
+		MeasurableMissionIdsByType: map[int32][]int32{int32(model.MissionClearConditionTypeRhythmInteractionTapCount): {1}},
 		TermById:                   map[int32]masterdata.EntityMMissionTerm{},
 		UnlockById:                 map[int32]masterdata.EntityMMissionUnlockCondition{},
 	}
 	user := &store.UserState{}
 	user.EnsureMaps()
-	err := syncMissionProgress(catalog, user, &pb.UpdateMissionProgressRequest{PictureBookMeasurableValues: &pb.PictureBookMeasurableValues{RhythmInteractionMeasurableValues: &pb.RhythmInteractionMeasurableValues{TapCount: 1}}}, 2)
+	err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{PictureBookMeasurableValues: &pb.PictureBookMeasurableValues{RhythmInteractionMeasurableValues: &pb.RhythmInteractionMeasurableValues{TapCount: 1}}}, 2)
 	if err == nil {
 		t.Fatal("rhythm metric without live type was accepted")
 	}
@@ -79,21 +82,21 @@ func TestSyncMissionProgressRejectsInvalidRhythmMetricWithoutMutation(t *testing
 	}
 }
 
-func TestSyncMissionProgressIgnoresEmptyRhythmMetric(t *testing.T) {
+func TestSyncMissionProgressIgnoresEmptyRhythmMetricValue(t *testing.T) {
 	catalog := &masterdata.MissionCatalog{
-		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: 36, ClearConditionValue: 1}},
-		MeasurableMissionIdsByType: map[int32][]int32{36: {1}},
+		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeRhythmInteractionTapCount), ClearConditionValue: 1}},
+		MeasurableMissionIdsByType: map[int32][]int32{int32(model.MissionClearConditionTypeRhythmInteractionTapCount): {1}},
 		TermById:                   map[int32]masterdata.EntityMMissionTerm{},
 		UnlockById:                 map[int32]masterdata.EntityMMissionUnlockCondition{},
 	}
 	user := &store.UserState{}
 	user.EnsureMaps()
-	err := syncMissionProgress(catalog, user, &pb.UpdateMissionProgressRequest{PictureBookMeasurableValues: &pb.PictureBookMeasurableValues{RhythmInteractionMeasurableValues: &pb.RhythmInteractionMeasurableValues{}}}, 2)
+	err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{PictureBookMeasurableValues: &pb.PictureBookMeasurableValues{RhythmInteractionMeasurableValues: &pb.RhythmInteractionMeasurableValues{}}}, 2)
 	if err != nil {
 		t.Fatalf("empty rhythm metric was rejected: %v", err)
 	}
-	if _, ok := user.Missions[1]; ok {
-		t.Fatal("empty rhythm metric mutated mission state")
+	if state, ok := user.Missions[1]; !ok || state.ProgressValue != 0 {
+		t.Fatal("empty rhythm metric changed mission progress")
 	}
 }
 

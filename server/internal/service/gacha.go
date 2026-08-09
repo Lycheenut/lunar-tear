@@ -190,6 +190,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 		if drawErr != nil {
 			return
 		}
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeGachaExecByCount), execCount, entry.GachaId, entry.GachaId)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
@@ -388,7 +389,10 @@ func (s *GachaServiceServer) RewardDraw(ctx context.Context, req *pb.RewardDrawR
 		items, drawErr = handler.HandleRewardDraw(user, 1)
 		if drawErr != nil {
 			log.Printf("[GachaService] RewardDraw error: %v", drawErr)
+			return
 		}
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeGachaDrawByCount), int32(len(items)), 0, 0)
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeGachaExecByCount), 1, 0, 0)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)

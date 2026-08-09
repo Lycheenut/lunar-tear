@@ -136,6 +136,58 @@ type UserState struct {
 	AutoSaleSettings                 map[int32]AutoSaleSettingState
 	CharacterRebirths                map[int32]CharacterRebirthState
 	QuestAutoOrbit                   QuestAutoOrbitState
+
+	// PendingMissionEvents is transaction-local. Repository decorators consume
+	// it before persistence; SQLite deliberately has no table for this field.
+	PendingMissionEvents []MissionEvent
+}
+
+// MissionEvent describes progress that cannot be reconstructed safely from a
+// user snapshot (for example an enhancement operation or a non-skipped clear).
+// Value events keep the greatest reported value; count events add Count.
+type MissionEvent struct {
+	ConditionType       int32
+	Count               int32
+	Value               int32
+	IsValue             bool
+	Reset               bool
+	TargetId            int32
+	OptionGroupId       int32
+	OptionDetailGroupId int32
+}
+
+func ResetMissionValue(user *UserState, conditionType, targetId, optionGroupId int32) {
+	user.PendingMissionEvents = append(user.PendingMissionEvents, MissionEvent{
+		ConditionType: conditionType,
+		Reset:         true,
+		TargetId:      targetId,
+		OptionGroupId: optionGroupId,
+	})
+}
+
+func AddMissionCount(user *UserState, conditionType, count, targetId, optionGroupId int32) {
+	if count <= 0 {
+		return
+	}
+	user.PendingMissionEvents = append(user.PendingMissionEvents, MissionEvent{
+		ConditionType: conditionType,
+		Count:         count,
+		TargetId:      targetId,
+		OptionGroupId: optionGroupId,
+	})
+}
+
+func SetMissionValue(user *UserState, conditionType, value, targetId, optionGroupId int32) {
+	if value < 0 {
+		return
+	}
+	user.PendingMissionEvents = append(user.PendingMissionEvents, MissionEvent{
+		ConditionType: conditionType,
+		Value:         value,
+		IsValue:       true,
+		TargetId:      targetId,
+		OptionGroupId: optionGroupId,
+	})
 }
 
 func (u *UserState) EnsureMaps() {

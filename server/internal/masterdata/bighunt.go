@@ -52,6 +52,7 @@ type RewardItem struct {
 type BigHuntCatalog struct {
 	BossQuestById               map[int32]BigHuntBossQuestRow
 	QuestById                   map[int32]BigHuntQuestRow
+	BossIdByQuestId             map[int32]int32
 	ScoreCoefficients           map[int32]int32
 	BossByBossId                map[int32]BigHuntBossRow
 	GradeThresholds             map[int32][]GradeThreshold
@@ -143,6 +144,22 @@ func LoadBigHuntCatalog() *BigHuntCatalog {
 			QuestId:                        r.QuestId,
 			BigHuntQuestScoreCoefficientId: r.BigHuntQuestScoreCoefficientId,
 		}
+	}
+	questGroupRows, err := utils.ReadTable[EntityMBigHuntQuestGroup]("m_big_hunt_quest_group")
+	if err != nil {
+		log.Fatalf("load big hunt quest group table: %v", err)
+	}
+	questGroupIdByQuestId := make(map[int32]int32, len(questGroupRows))
+	for _, r := range questGroupRows {
+		questGroupIdByQuestId[r.BigHuntQuestId] = r.BigHuntQuestGroupId
+	}
+	bossIdByQuestGroupId := make(map[int32]int32, len(bossQuestRows))
+	for _, r := range bossQuestRows {
+		bossIdByQuestGroupId[r.BigHuntQuestGroupId] = r.BigHuntBossId
+	}
+	bossIdByQuestId := make(map[int32]int32, len(questRows))
+	for _, r := range questRows {
+		bossIdByQuestId[r.QuestId] = bossIdByQuestGroupId[questGroupIdByQuestId[r.BigHuntQuestId]]
 	}
 
 	coeffRows, err := utils.ReadTable[EntityMBigHuntQuestScoreCoefficient]("m_big_hunt_quest_score_coefficient")
@@ -278,6 +295,7 @@ func LoadBigHuntCatalog() *BigHuntCatalog {
 	return &BigHuntCatalog{
 		BossQuestById:               bossQuestById,
 		QuestById:                   questById,
+		BossIdByQuestId:             bossIdByQuestId,
 		ScoreCoefficients:           scoreCoefficients,
 		BossByBossId:                bossByBossId,
 		GradeThresholds:             gradeThresholds,

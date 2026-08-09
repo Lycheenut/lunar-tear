@@ -210,13 +210,16 @@ func validateDailyClearLimit(state store.UserQuestState, quest masterdata.Entity
 	return nil
 }
 
-func recordQuestClears(state *store.UserQuestState, count int32, nowMillis int64) {
+func recordQuestClears(user *store.UserState, state *store.UserQuestState, questId, count int32, withoutSkip bool, nowMillis int64) {
 	if state.LastClearDatetime < gametime.StartOfBusinessDayAtMillis(nowMillis) {
 		state.DailyClearCount = 0
 	}
 	state.ClearCount += count
 	state.DailyClearCount += count
 	state.LastClearDatetime = nowMillis
+	if withoutSkip {
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeQuestClearByCountWithoutSkip), count, questId, 0)
+	}
 }
 
 func checkedProduct(left, right int32) (int32, error) {

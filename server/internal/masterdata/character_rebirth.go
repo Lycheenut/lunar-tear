@@ -13,6 +13,7 @@ type StepKey struct {
 
 type CharacterRebirthCatalog struct {
 	StepGroupByCharacterId map[int32]int32
+	CharacterIdBySortOrder map[int32]int32
 	StepByGroupAndCount    map[StepKey]EntityMCharacterRebirthStepGroup
 	MaterialsByGroupId     map[int32][]EntityMCharacterRebirthMaterialGroup
 }
@@ -53,8 +54,10 @@ func LoadCharacterRebirthCatalog() (*CharacterRebirthCatalog, error) {
 	}
 
 	stepGroupByCharacterId := make(map[int32]int32, len(rebirthRows))
+	characterIdBySortOrder := make(map[int32]int32, len(rebirthRows))
 	for _, r := range rebirthRows {
 		stepGroupByCharacterId[r.CharacterId] = r.CharacterRebirthStepGroupId
+		characterIdBySortOrder[r.SortOrder] = r.CharacterId
 	}
 
 	stepByGroupAndCount := make(map[StepKey]EntityMCharacterRebirthStepGroup, len(stepRows))
@@ -69,6 +72,7 @@ func LoadCharacterRebirthCatalog() (*CharacterRebirthCatalog, error) {
 
 	return &CharacterRebirthCatalog{
 		StepGroupByCharacterId: stepGroupByCharacterId,
+		CharacterIdBySortOrder: characterIdBySortOrder,
 		StepByGroupAndCount:    stepByGroupAndCount,
 		MaterialsByGroupId:     materialsByGroupId,
 	}, nil

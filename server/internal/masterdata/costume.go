@@ -28,6 +28,8 @@ type CostumeCatalog struct {
 	ActiveSkillEnhanceMats      map[[2]int32][]EntityMCostumeActiveSkillEnhancementMaterial // key: [enhancementMaterialId, skillLevel]
 	ActiveSkillMaxLevelByRarity map[int32]NumericalFunc
 	ActiveSkillCostByRarity     map[int32]NumericalFunc
+	AbilityGroupsByGroupId      map[int32][]EntityMCostumeAbilityGroup
+	AbilityLevelsByGroupId      map[int32][]EntityMCostumeAbilityLevelGroup
 
 	LotteryEffects               map[[2]int32]EntityMCostumeLotteryEffect             // key: [costumeId, slotNumber]
 	LotteryEffectMats            map[int32][]EntityMCostumeLotteryEffectMaterialGroup // key: materialGroupId (both unlock and draw)
@@ -37,6 +39,25 @@ type CostumeCatalog struct {
 	LotteryEffectTargetStatusUps map[int32][]EntityMCostumeLotteryEffectTargetStatusUp
 	LevelBonusLevelsByCostume    map[int32][]int32
 	LimitBreakMaterialsByCostume map[int32][]MaterialOption
+}
+
+func (c *CostumeCatalog) AbilityLevel(costumeId, limitBreakCount int32) int32 {
+	costume, ok := c.Costumes[costumeId]
+	if !ok {
+		return 0
+	}
+	var maximum int32
+	for _, ability := range c.AbilityGroupsByGroupId[costume.CostumeAbilityGroupId] {
+		var level int32
+		for _, threshold := range c.AbilityLevelsByGroupId[ability.CostumeAbilityLevelGroupId] {
+			if limitBreakCount < threshold.CostumeLimitBreakCountLowerLimit {
+				break
+			}
+			level = threshold.AbilityLevel
+		}
+		maximum = max(maximum, level)
+	}
+	return maximum
 }
 
 type MaterialOption struct {
@@ -126,6 +147,14 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load costume active skill enhancement material table: %w", err)
 	}
+	abilityGroupRows, err := utils.ReadTable[EntityMCostumeAbilityGroup]("m_costume_ability_group")
+	if err != nil {
+		return nil, fmt.Errorf("load costume ability group table: %w", err)
+	}
+	abilityLevelRows, err := utils.ReadTable[EntityMCostumeAbilityLevelGroup]("m_costume_ability_level_group")
+	if err != nil {
+		return nil, fmt.Errorf("load costume ability level table: %w", err)
+	}
 
 	lotteryEffectRows, err := utils.ReadTable[EntityMCostumeLotteryEffect]("m_costume_lottery_effect")
 	if err != nil {
@@ -180,6 +209,8 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 		ActiveSkillEnhanceMats:      make(map[[2]int32][]EntityMCostumeActiveSkillEnhancementMaterial),
 		ActiveSkillMaxLevelByRarity: make(map[int32]NumericalFunc, len(rarities)),
 		ActiveSkillCostByRarity:     make(map[int32]NumericalFunc, len(rarities)),
+		AbilityGroupsByGroupId:      make(map[int32][]EntityMCostumeAbilityGroup),
+		AbilityLevelsByGroupId:      make(map[int32][]EntityMCostumeAbilityLevelGroup),
 
 		LotteryEffects:               make(map[[2]int32]EntityMCostumeLotteryEffect, len(lotteryEffectRows)),
 		LotteryEffectMats:            make(map[int32][]EntityMCostumeLotteryEffectMaterialGroup),
@@ -276,6 +307,17 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 			return rows[i].CostumeLimitBreakCountLowerLimit > rows[j].CostumeLimitBreakCountLowerLimit
 		})
 		catalog.ActiveSkillGroupsByGroupId[gid] = rows
+	}
+	for _, row := range abilityGroupRows {
+		catalog.AbilityGroupsByGroupId[row.CostumeAbilityGroupId] = append(catalog.AbilityGroupsByGroupId[row.CostumeAbilityGroupId], row)
+	}
+	for _, row := range abilityLevelRows {
+		catalog.AbilityLevelsByGroupId[row.CostumeAbilityLevelGroupId] = append(catalog.AbilityLevelsByGroupId[row.CostumeAbilityLevelGroupId], row)
+	}
+	for groupId := range catalog.AbilityLevelsByGroupId {
+		sort.Slice(catalog.AbilityLevelsByGroupId[groupId], func(i, j int) bool {
+			return catalog.AbilityLevelsByGroupId[groupId][i].CostumeLimitBreakCountLowerLimit < catalog.AbilityLevelsByGroupId[groupId][j].CostumeLimitBreakCountLowerLimit
+		})
 	}
 
 	for _, row := range activeSkillMatRows {

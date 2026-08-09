@@ -138,8 +138,10 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 			user.BigHuntBattleDetail = store.BigHuntBattleDetail{}
 			return
 		}
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeBigHuntPlayByCount), 1, req.BigHuntBossQuestId, req.BigHuntBossQuestId)
 
 		detail := user.BigHuntBattleDetail
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeBigHuntBossKnockDown), detail.BossKnockDownCount, req.BigHuntBossQuestId, req.BigHuntBossQuestId)
 		totalDamage := detail.TotalDamage
 		baseScore := totalDamage
 

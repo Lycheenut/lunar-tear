@@ -14,13 +14,18 @@ type MissionPassCatalog struct {
 }
 
 type MissionCatalog struct {
-	MissionById                map[int32]EntityMMission
-	MeasurableMissionIdsByType map[int32][]int32
-	RewardsById                map[int32][]EntityMMissionReward
-	TermById                   map[int32]EntityMMissionTerm
-	UnlockById                 map[int32]EntityMMissionUnlockCondition
-	PassById                   map[int32]MissionPassCatalog
-	PassIdByMissionId          map[int32]int32
+	MissionById                    map[int32]EntityMMission
+	OrderedMissions                []EntityMMission
+	MissionIdsByType               map[int32][]int32
+	MeasurableMissionIdsByType     map[int32][]int32
+	RewardsById                    map[int32][]EntityMMissionReward
+	TermById                       map[int32]EntityMMissionTerm
+	UnlockById                     map[int32]EntityMMissionUnlockCondition
+	GroupById                      map[int32]EntityMMissionGroup
+	CompletePossessionsByMissionId map[int32][]EntityMCompleteMissionGroup
+	WebviewPageNumberByPageId      map[int32]int32
+	PassById                       map[int32]MissionPassCatalog
+	PassIdByMissionId              map[int32]int32
 }
 
 func LoadMissionCatalog() (*MissionCatalog, error) {
@@ -56,11 +61,34 @@ func LoadMissionCatalog() (*MissionCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load mission pass groups: %w", err)
 	}
+	groups, err := utils.ReadTable[EntityMMissionGroup]("m_mission_group")
+	if err != nil {
+		return nil, fmt.Errorf("load mission groups: %w", err)
+	}
+	completePossessions, err := utils.ReadTable[EntityMCompleteMissionGroup]("m_complete_mission_group")
+	if err != nil {
+		return nil, fmt.Errorf("load complete mission groups: %w", err)
+	}
+	webviewPages, err := utils.ReadTable[EntityMWebviewPanelMission]("m_webview_panel_mission")
+	if err != nil {
+		return nil, fmt.Errorf("load webview panel mission pages: %w", err)
+	}
 
-	c := &MissionCatalog{MissionById: make(map[int32]EntityMMission), MeasurableMissionIdsByType: make(map[int32][]int32), RewardsById: make(map[int32][]EntityMMissionReward), TermById: make(map[int32]EntityMMissionTerm), UnlockById: make(map[int32]EntityMMissionUnlockCondition), PassById: make(map[int32]MissionPassCatalog), PassIdByMissionId: make(map[int32]int32)}
+	c := &MissionCatalog{
+		MissionById: make(map[int32]EntityMMission), OrderedMissions: append([]EntityMMission(nil), missions...),
+		MissionIdsByType: make(map[int32][]int32), MeasurableMissionIdsByType: make(map[int32][]int32),
+		RewardsById: make(map[int32][]EntityMMissionReward), TermById: make(map[int32]EntityMMissionTerm),
+		UnlockById: make(map[int32]EntityMMissionUnlockCondition), GroupById: make(map[int32]EntityMMissionGroup),
+		CompletePossessionsByMissionId: make(map[int32][]EntityMCompleteMissionGroup),
+		WebviewPageNumberByPageId:      make(map[int32]int32), PassById: make(map[int32]MissionPassCatalog),
+		PassIdByMissionId: make(map[int32]int32),
+	}
+	sort.Slice(c.OrderedMissions, func(i, j int) bool { return c.OrderedMissions[i].MissionId < c.OrderedMissions[j].MissionId })
 	for _, row := range missions {
 		c.MissionById[row.MissionId] = row
-		if row.MissionClearConditionType >= 36 && row.MissionClearConditionType <= 39 {
+		c.MissionIdsByType[row.MissionClearConditionType] = append(c.MissionIdsByType[row.MissionClearConditionType], row.MissionId)
+		if row.MissionClearConditionType == 31 || row.MissionClearConditionType == 32 ||
+			row.MissionClearConditionType == 55 || row.MissionClearConditionType == 61 {
 			c.MeasurableMissionIdsByType[row.MissionClearConditionType] = append(c.MeasurableMissionIdsByType[row.MissionClearConditionType], row.MissionId)
 		}
 	}
@@ -72,6 +100,15 @@ func LoadMissionCatalog() (*MissionCatalog, error) {
 	}
 	for _, row := range unlocks {
 		c.UnlockById[row.MissionUnlockConditionId] = row
+	}
+	for _, row := range groups {
+		c.GroupById[row.MissionGroupId] = row
+	}
+	for _, row := range completePossessions {
+		c.CompletePossessionsByMissionId[row.MissionId] = append(c.CompletePossessionsByMissionId[row.MissionId], row)
+	}
+	for _, row := range webviewPages {
+		c.WebviewPageNumberByPageId[row.WebviewPanelMissionPageId] = row.Page
 	}
 	levelsByGroup := make(map[int32][]EntityMMissionPassLevelGroup)
 	for _, row := range levels {

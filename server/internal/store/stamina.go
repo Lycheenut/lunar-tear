@@ -36,6 +36,7 @@ func ConsumeStamina(user *UserState, costUnits int32, maxStaminaMillis int32, no
 	}
 	user.Status.StaminaMilliValue -= costMillis
 	user.Status.StaminaUpdateDatetime = nowMillis
+	AddMissionCount(user, int32(model.MissionClearConditionTypeConsumeStaminaAmount), costUnits, 0, 0)
 	log.Printf("[ConsumeStamina] cost=%d -> remaining=%d", costUnits, user.Status.StaminaMilliValue)
 	return nil
 }

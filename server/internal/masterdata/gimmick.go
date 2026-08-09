@@ -141,6 +141,16 @@ type GimmickCatalog struct {
 	conditions              *ConditionResolver
 }
 
+func (c *GimmickCatalog) ClearedCountByType(user *store.UserState, target model.GimmickType) int32 {
+	var count int32
+	for key, progress := range user.Gimmick.Progress {
+		if progress.IsGimmickCleared && c.gimmickTypes[key.GimmickId] == target {
+			count++
+		}
+	}
+	return count
+}
+
 func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnamentCatalog) (*GimmickCatalog, error) {
 	rows, err := utils.ReadTable[EntityMGimmickSequenceSchedule]("m_gimmick_sequence_schedule")
 	if err != nil {
