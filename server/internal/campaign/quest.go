@@ -5,19 +5,28 @@ func (c *Catalog) QuestStamina(t QuestTarget, f Filter) StaminaMul {
 }
 
 func (c *Catalog) QuestDropRate(t QuestTarget, f Filter) DropRateMul {
-	var best int32
-	for _, r := range c.quest {
-		if !r.isActive(f) || r.effectType != QuestEffectDropRate {
+	return DropRateMul{bonusPermil: questPermilMax(c.quest, QuestEffectDropRate, t, f)}
+}
+
+func (c *Catalog) QuestDropCount(t QuestTarget, f Filter) DropCountMul {
+	return DropCountMul{bonusPermil: questPermilMax(c.quest, QuestEffectDropCount, t, f)}
+}
+
+func (c *Catalog) QuestGold(t QuestTarget, f Filter) GoldMul {
+	return GoldMul{bonusPermil: questPermilMax(c.quest, QuestEffectClearRewardGold, t, f)}
+}
+
+func questPermilMax(rows []questRow, want QuestCampaignEffectType, t QuestTarget, f Filter) int32 {
+	var max int32
+	for _, r := range rows {
+		if !r.isActive(f) || r.effectType != want || !matchesQuest(r.targets, t) {
 			continue
 		}
-		if !matchesQuest(r.targets, t) {
-			continue
-		}
-		if r.effectValue > best {
-			best = r.effectValue
+		if r.effectValue > max {
+			max = r.effectValue
 		}
 	}
-	return DropRateMul{bonusPermil: best}
+	return max
 }
 
 func (c *Catalog) QuestBonusDrops(t QuestTarget, f Filter) []BonusDrop {

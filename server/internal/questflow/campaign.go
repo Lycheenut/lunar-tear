@@ -41,6 +41,13 @@ func (h *QuestHandler) staminaWithCampaign(baseStamina int32, t campaign.QuestTa
 	return h.Campaigns.QuestStamina(t, h.campaignFilter(nowMillis)).Apply(baseStamina)
 }
 
+func (h *QuestHandler) goldWithCampaign(baseGold int32, t campaign.QuestTarget, nowMillis int64) int32 {
+	if h.Campaigns == nil {
+		return baseGold
+	}
+	return h.Campaigns.QuestGold(t, h.campaignFilter(nowMillis)).Apply(baseGold)
+}
+
 func (h *QuestHandler) appendBonusDrops(drops []RewardGrant, t campaign.QuestTarget, nowMillis int64) []RewardGrant {
 	if h.Campaigns == nil {
 		return drops

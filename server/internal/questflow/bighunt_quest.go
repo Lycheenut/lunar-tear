@@ -46,7 +46,7 @@ func (h *QuestHandler) HandleBigHuntQuestFinish(user *store.UserState, questId i
 	var outcome FinishOutcome
 	if !isRetired && !isAnnihilated {
 		outcome = h.evaluateFinishOutcome(user, questId, target, nowMillis)
-		h.applyQuestVictory(user, questId, &outcome, nowMillis, false)
+		h.applyQuestVictory(user, questId, target, &outcome, nowMillis, false)
 	}
 
 	consumed := h.staminaWithCampaign(quest.Stamina, target, nowMillis)

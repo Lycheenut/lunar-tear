@@ -6,19 +6,17 @@ type RateBonus struct {
 }
 
 func (b RateBonus) Apply(basePermil int32) int32 {
-	base := basePermil
-	if b.override > 0 {
-		base = b.override
+	best := basePermil
+	if b.override > best {
+		best = b.override
 	}
-	return clampPermil(int32(int64(base) + int64(b.bonusPermil)))
-}
-
-type ExpBonus struct {
-	bonusPermil int32
-}
-
-func (b ExpBonus) Apply(base int32) int32 {
-	return int32(int64(base) * int64(1000+b.bonusPermil) / 1000)
+	if additional := int64(basePermil) + int64(b.bonusPermil); additional > int64(best) {
+		if additional > 1000 {
+			return 1000
+		}
+		best = int32(additional)
+	}
+	return clampPermil(best)
 }
 
 type StaminaMul struct {
@@ -38,6 +36,22 @@ type DropRateMul struct {
 
 func (m DropRateMul) Apply(base int32) int32 {
 	return int32((int64(base)*int64(1000+m.bonusPermil) + 999) / 1000)
+}
+
+type DropCountMul struct {
+	bonusPermil int32
+}
+
+func (m DropCountMul) Apply(base int32) int32 {
+	return int32(int64(base) * int64(1000+m.bonusPermil) / 1000)
+}
+
+type GoldMul struct {
+	bonusPermil int32
+}
+
+func (m GoldMul) Apply(base int32) int32 {
+	return int32(int64(base) * int64(1000+m.bonusPermil) / 1000)
 }
 
 type BonusDrop struct {
