@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -103,6 +104,47 @@ func missionPassEnded(pass masterdata.EntityMMissionPass, nowMillis int64) bool 
 	return pass.EndDatetime > 0 && nowMillis >= pass.EndDatetime
 }
 
+func claimMissionRewards(cat *runtime.Catalogs, user *store.UserState, missionIds []int32, nowMillis int64) ([]*pb.MissionReward, []*pb.MissionReward) {
+	var received, expired []*pb.MissionReward
+	for _, id := range missionIds {
+		mission := cat.Mission.MissionById[id]
+		state := user.Missions[id]
+		isExpired := missionExpired(cat.Mission, mission, nowMillis)
+		for _, reward := range cat.Mission.RewardsById[mission.MissionRewardId] {
+			row := &pb.MissionReward{PossessionType: reward.PossessionType, PossessionId: reward.PossessionId, Count: reward.Count}
+			if isExpired {
+				expired = append(expired, row)
+			} else {
+				grantMissionPossession(cat, user, reward.PossessionType, reward.PossessionId, reward.Count, nowMillis)
+				received = append(received, row)
+			}
+		}
+		state.MissionProgressStatusType = int32(model.MissionProgressStatusTypeRewardReceived)
+		state.LatestVersion = nowMillis
+		user.Missions[id] = state
+	}
+	return received, expired
+}
+
+func claimMissionRewardsByCategory(cat *runtime.Catalogs, user *store.UserState, missionCategoryType int32, nowMillis int64) ([]*pb.MissionReward, []*pb.MissionReward) {
+	var missionIds []int32
+	for id, state := range user.Missions {
+		if state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+			continue
+		}
+		mission, ok := cat.Mission.MissionById[id]
+		if !ok {
+			continue
+		}
+		group, ok := cat.Mission.GroupById[mission.MissionGroupId]
+		if ok && group.MissionCategoryType == missionCategoryType {
+			missionIds = append(missionIds, id)
+		}
+	}
+	sort.Slice(missionIds, func(i, j int) bool { return missionIds[i] < missionIds[j] })
+	return claimMissionRewards(cat, user, missionIds, nowMillis)
+}
+
 func (s *MissionServiceServer) ReceiveMissionRewardsById(ctx context.Context, req *pb.ReceiveMissionRewardsByIdRequest) (*pb.ReceiveMissionRewardsResponse, error) {
 	cat := s.holder.Get()
 	userId := CurrentUserId(ctx, s.users, s.sessions)
@@ -117,36 +159,17 @@ func (s *MissionServiceServer) ReceiveMissionRewardsById(ctx context.Context, re
 				return
 			}
 			seen[id] = true
-			_, ok := cat.Mission.MissionById[id]
-			if !ok {
+			if _, ok := cat.Mission.MissionById[id]; !ok {
 				validationErr = status.Errorf(codes.InvalidArgument, "unknown mission %d", id)
 				return
 			}
-			state := user.Missions[id]
-			if state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+			if user.Missions[id].MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
 				validationErr = status.Errorf(codes.FailedPrecondition, "mission %d is not claimable", id)
 				return
 			}
 		}
-		if validationErr != nil {
-			return
-		}
-		for _, id := range req.MissionId {
-			mission := cat.Mission.MissionById[id]
-			state := user.Missions[id]
-			isExpired := missionExpired(cat.Mission, mission, nowMillis)
-			for _, reward := range cat.Mission.RewardsById[mission.MissionRewardId] {
-				row := &pb.MissionReward{PossessionType: reward.PossessionType, PossessionId: reward.PossessionId, Count: reward.Count}
-				if isExpired {
-					expired = append(expired, row)
-				} else {
-					grantMissionPossession(cat, user, reward.PossessionType, reward.PossessionId, reward.Count, nowMillis)
-					received = append(received, row)
-				}
-			}
-			state.MissionProgressStatusType = int32(model.MissionProgressStatusTypeRewardReceived)
-			state.LatestVersion = nowMillis
-			user.Missions[id] = state
+		if validationErr == nil {
+			received, expired = claimMissionRewards(cat, user, req.MissionId, nowMillis)
 		}
 	})
 	if updateErr != nil {
@@ -154,6 +177,20 @@ func (s *MissionServiceServer) ReceiveMissionRewardsById(ctx context.Context, re
 	}
 	if validationErr != nil {
 		return nil, validationErr
+	}
+	return &pb.ReceiveMissionRewardsResponse{ReceivedPossession: received, ExpiredPossession: expired, OverflowPossession: []*pb.MissionReward{}}, nil
+}
+
+func (s *MissionServiceServer) ReceiveMissionRewardsByCategory(ctx context.Context, req *pb.ReceiveMissionRewardsByCategoryRequest) (*pb.ReceiveMissionRewardsResponse, error) {
+	cat := s.holder.Get()
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
+	var received, expired []*pb.MissionReward
+	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		received, expired = claimMissionRewardsByCategory(cat, user, req.MissionCategoryType, nowMillis)
+	})
+	if updateErr != nil {
+		return nil, fmt.Errorf("receive mission rewards by category: %w", updateErr)
 	}
 	return &pb.ReceiveMissionRewardsResponse{ReceivedPossession: received, ExpiredPossession: expired, OverflowPossession: []*pb.MissionReward{}}, nil
 }

@@ -114,6 +114,53 @@ func TestClaimMissionPassRewardsIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestClaimMissionRewardsByCategoryClaimsOnlyClearMissionsInCategory(t *testing.T) {
+	cat := &runtime.Catalogs{
+		Mission: &masterdata.MissionCatalog{
+			MissionById: map[int32]masterdata.EntityMMission{
+				1: {MissionId: 1, MissionGroupId: 11, MissionRewardId: 101},
+				2: {MissionId: 2, MissionGroupId: 22, MissionRewardId: 102},
+				3: {MissionId: 3, MissionGroupId: 11, MissionRewardId: 103},
+			},
+			GroupById: map[int32]masterdata.EntityMMissionGroup{
+				11: {MissionGroupId: 11, MissionCategoryType: 1},
+				22: {MissionGroupId: 22, MissionCategoryType: 2},
+			},
+			RewardsById: map[int32][]masterdata.EntityMMissionReward{
+				101: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 31, Count: 1}},
+				102: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 32, Count: 1}},
+				103: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 33, Count: 1}},
+			},
+			TermById: map[int32]masterdata.EntityMMissionTerm{},
+		},
+		QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}},
+	}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Missions[1] = store.UserMissionState{MissionId: 1, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear)}
+	user.Missions[2] = store.UserMissionState{MissionId: 2, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear)}
+	user.Missions[3] = store.UserMissionState{MissionId: 3, MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress)}
+
+	received, expired := claimMissionRewardsByCategory(cat, user, 1, 100)
+	if len(received) != 1 || len(expired) != 0 || user.Materials[31] != 1 {
+		t.Fatalf("unexpected category rewards: received=%v expired=%v material31=%d", received, expired, user.Materials[31])
+	}
+	if user.Materials[32] != 0 || user.Materials[33] != 0 {
+		t.Fatal("category claim granted a reward outside its clear missions")
+	}
+	if user.Missions[1].MissionProgressStatusType != int32(model.MissionProgressStatusTypeRewardReceived) || user.Missions[2].MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatal("category claim changed the wrong mission state")
+	}
+}
+
+func TestMissionServiceRegistersReceiveMissionRewardsByCategory(t *testing.T) {
+	for _, method := range pb.MissionService_ServiceDesc.Methods {
+		if method.MethodName == "ReceiveMissionRewardsByCategory" {
+			return
+		}
+	}
+	t.Fatal("ReceiveMissionRewardsByCategory RPC is not registered")
+}
+
 func TestOpenEndedMissionPassRemainsActiveAndNeverCountsAsEnded(t *testing.T) {
 	pass := masterdata.EntityMMissionPass{StartDatetime: 10}
 	if !missionPassActive(pass, 20) {
