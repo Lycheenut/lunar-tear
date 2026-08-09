@@ -568,7 +568,7 @@ func toFriendProtoFriendUser(user store.UserState, friend store.FriendState, tod
 		MaxDeckPower:      friendMaxDeckPower(user),
 		FavoriteCostumeId: user.Profile.FavoriteCostumeId,
 		Level:             user.Status.Level,
-		CheerReceived:     friend.CheerReceivedDatetime >= today,
+		CheerReceived:     friend.CheerReceivedDatetime >= today && friend.StaminaReceivedDatetime < today,
 		CheerSent:         friend.CheerSentDatetime >= today,
 		StaminaReceived:   friend.StaminaReceivedDatetime >= today,
 	}
