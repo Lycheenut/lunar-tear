@@ -10,11 +10,15 @@ import (
 
 func TestExploreUnlockUsesServerProgress(t *testing.T) {
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
-	catalog := &masterdata.ExploreCatalog{UnlockConditions: map[int32]masterdata.EntityMExploreUnlockCondition{1: {ExploreUnlockConditionId: 1, ExploreUnlockConditionType: 1}, 2: {ExploreUnlockConditionId: 2, ExploreUnlockConditionType: 2, ConditionValue: 100000}}, UnlockQuestIds: map[int32]int32{1: 500}, LowerDifficulty: map[int32]int32{11: 1}}
+	catalog := &masterdata.ExploreCatalog{UnlockConditions: map[int32]masterdata.EntityMExploreUnlockCondition{1: {ExploreUnlockConditionId: 1, ExploreUnlockConditionType: 1, ConditionValue: 31}, 2: {ExploreUnlockConditionId: 2, ExploreUnlockConditionType: 2, ConditionValue: 100000}}, LowerDifficulty: map[int32]int32{11: 1}}
 	if exploreUnlocked(user, catalog, masterdata.EntityMExplore{ExploreId: 1, ExploreUnlockConditionId: 1}) {
 		t.Fatal("uncleared quest unlocked explore")
 	}
 	user.Quests[500] = store.UserQuestState{QuestStateType: model.UserQuestStateTypeCleared}
+	if exploreUnlocked(user, catalog, masterdata.EntityMExplore{ExploreId: 1, ExploreUnlockConditionId: 1}) {
+		t.Fatal("quest from a main quest sequence id unlocked explore")
+	}
+	user.Quests[31] = store.UserQuestState{QuestStateType: model.UserQuestStateTypeCleared}
 	if !exploreUnlocked(user, catalog, masterdata.EntityMExplore{ExploreId: 1, ExploreUnlockConditionId: 1}) {
 		t.Fatal("cleared quest did not unlock explore")
 	}

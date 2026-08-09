@@ -12,7 +12,6 @@ type ExploreCatalog struct {
 	GradeScores      map[int32][]EntityMExploreGradeScore // keyed by ExploreId, sorted desc by NecessaryScore
 	GradeAssets      map[int32]int32                      // gradeId -> assetGradeIconId
 	UnlockConditions map[int32]EntityMExploreUnlockCondition
-	UnlockQuestIds   map[int32]int32 // unlock condition id -> quest id
 	LowerDifficulty  map[int32]int32 // hard explore id -> normal explore id
 }
 
@@ -39,16 +38,11 @@ func LoadExploreCatalog() (*ExploreCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load explore group table: %w", err)
 	}
-	mainSequences, err := utils.ReadTable[EntityMMainQuestSequence]("m_main_quest_sequence")
-	if err != nil {
-		return nil, fmt.Errorf("load main quest sequence table: %w", err)
-	}
 	catalog := &ExploreCatalog{
 		Explores:         make(map[int32]EntityMExplore, len(explores)),
 		GradeScores:      make(map[int32][]EntityMExploreGradeScore),
 		GradeAssets:      make(map[int32]int32, len(gradeAssets)),
 		UnlockConditions: make(map[int32]EntityMExploreUnlockCondition, len(unlockConditions)),
-		UnlockQuestIds:   make(map[int32]int32),
 		LowerDifficulty:  make(map[int32]int32),
 	}
 
@@ -70,15 +64,8 @@ func LoadExploreCatalog() (*ExploreCatalog, error) {
 	for _, ga := range gradeAssets {
 		catalog.GradeAssets[ga.ExploreGradeId] = ga.AssetGradeIconId
 	}
-	questBySequence := make(map[int32]int32, len(mainSequences))
-	for _, seq := range mainSequences {
-		questBySequence[seq.MainQuestSequenceId] = seq.QuestId
-	}
 	for _, condition := range unlockConditions {
 		catalog.UnlockConditions[condition.ExploreUnlockConditionId] = condition
-		if condition.ExploreUnlockConditionType == 1 {
-			catalog.UnlockQuestIds[condition.ExploreUnlockConditionId] = questBySequence[condition.ConditionValue]
-		}
 	}
 	type groupDifficulties struct{ normal, hard int32 }
 	byGroup := make(map[int32]groupDifficulties)

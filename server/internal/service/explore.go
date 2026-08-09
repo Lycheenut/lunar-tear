@@ -204,7 +204,7 @@ func exploreUnlocked(user *store.UserState, catalog *masterdata.ExploreCatalog, 
 	}
 	switch condition.ExploreUnlockConditionType {
 	case 1:
-		questId := catalog.UnlockQuestIds[condition.ExploreUnlockConditionId]
+		questId := condition.ConditionValue
 		quest, exists := user.Quests[questId]
 		return questId != 0 && exists && quest.QuestStateType == model.UserQuestStateTypeCleared
 	case 2:
