@@ -130,7 +130,7 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 		}
 	}
 
-	outcome.DropRewards = h.computeDropRewards(questDef, target, nowMillis)
+	outcome.DropRewards = h.computeDropRewards(user, questDef, target, nowMillis)
 	return outcome
 }
 
@@ -182,13 +182,13 @@ func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGra
 	}
 }
 
-func (h *QuestHandler) computeDropRewards(questDef masterdata.EntityMQuest, target campaign.QuestTarget, nowMillis int64) []RewardGrant {
+func (h *QuestHandler) computeDropRewards(user *store.UserState, questDef masterdata.EntityMQuest, target campaign.QuestTarget, nowMillis int64) []RewardGrant {
 	var drops []RewardGrant
 	var dropRate campaign.DropRateMul
 	var dropCount campaign.DropCountMul
 	if h.Campaigns != nil {
-		dropRate = h.Campaigns.QuestDropRate(target, h.campaignFilter(nowMillis))
-		dropCount = h.Campaigns.QuestDropCount(target, h.campaignFilter(nowMillis))
+		dropRate = h.Campaigns.QuestDropRate(target, h.campaignFilter(user, nowMillis))
+		dropCount = h.Campaigns.QuestDropCount(target, h.campaignFilter(user, nowMillis))
 	}
 	if questDef.QuestPickupRewardGroupId != 0 {
 		for _, dropId := range h.PickupRewardIdsByGroupId[questDef.QuestPickupRewardGroupId] {
@@ -201,7 +201,7 @@ func (h *QuestHandler) computeDropRewards(questDef masterdata.EntityMQuest, targ
 			}
 		}
 	}
-	return h.appendBonusDrops(drops, target, nowMillis)
+	return h.appendBonusDrops(user, drops, target, nowMillis)
 }
 
 func (h *QuestHandler) applyExpRewards(user *store.UserState, questId int32, nowMillis int64) {
@@ -316,7 +316,7 @@ func (h *QuestHandler) applyExpAndGoldRewards(user *store.UserState, questId int
 	h.applyExpRewards(user, questId, nowMillis)
 
 	if questDef.Gold != 0 {
-		gold := h.goldWithCampaign(questDef.Gold, target, nowMillis)
+		gold := h.goldWithCampaign(user, questDef.Gold, target, nowMillis)
 		user.ConsumableItems[h.Config.ConsumableItemIdForGold] += gold
 		log.Printf("[applyQuestRewards] questId=%d gold: +%d -> total=%d", questId, gold, user.ConsumableItems[h.Config.ConsumableItemIdForGold])
 	}

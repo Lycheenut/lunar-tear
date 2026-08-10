@@ -17,7 +17,7 @@ func (h *QuestHandler) validateQuestStart(user *store.UserState, questId int32, 
 	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
 		return err
 	}
-	cost := h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis)
+	cost := h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
 		return fmt.Errorf("insufficient stamina")
 	}
@@ -32,7 +32,7 @@ func (h *QuestHandler) validateExtraQuestStart(user *store.UserState, questId in
 	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
 		return err
 	}
-	cost := h.staminaWithCampaign(quest.Stamina, h.targetForExtra(questId), nowMillis)
+	cost := h.staminaWithCampaign(user, quest.Stamina, h.targetForExtra(questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
 		return fmt.Errorf("insufficient stamina")
 	}
@@ -47,7 +47,7 @@ func (h *QuestHandler) validateBigHuntQuestStart(user *store.UserState, questId 
 	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
 		return err
 	}
-	cost := h.staminaWithCampaign(quest.Stamina, h.targetForBigHunt(questId), nowMillis)
+	cost := h.staminaWithCampaign(user, quest.Stamina, h.targetForBigHunt(questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
 		return fmt.Errorf("insufficient stamina")
 	}
@@ -82,7 +82,7 @@ func (h *QuestHandler) validateEventQuest(user *store.UserState, chapterId, ques
 	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
 		return err
 	}
-	cost := h.staminaWithCampaign(quest.Stamina, h.targetForEvent(chapterId, questId), nowMillis)
+	cost := h.staminaWithCampaign(user, quest.Stamina, h.targetForEvent(chapterId, questId), nowMillis)
 	if !store.HasEnoughStamina(user, cost, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis) {
 		return fmt.Errorf("insufficient stamina")
 	}
@@ -142,7 +142,7 @@ func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCou
 	if user.ConsumableItems[h.Config.ConsumableItemIdForQuestSkipTicket] < skipCount {
 		return fmt.Errorf("insufficient skip tickets")
 	}
-	cost, err := checkedProduct(h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis), skipCount)
+	cost, err := checkedProduct(h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis), skipCount)
 	if err != nil {
 		return err
 	}
@@ -182,7 +182,7 @@ func (h *QuestHandler) validateQuestSkipBulk(user *store.UserState, questIds, sk
 			return err
 		}
 		totalTickets += totalCount
-		totalStamina += int64(h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis)) * totalCount
+		totalStamina += int64(h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis)) * totalCount
 		if totalTickets > int64(^uint32(0)>>1) || totalStamina > int64(^uint32(0)>>1) {
 			return fmt.Errorf("bulk skip cost is too large")
 		}
