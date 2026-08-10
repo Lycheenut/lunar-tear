@@ -25,6 +25,7 @@ const (
 	gachaOptionChapterSummon                = int32(100001)
 	gachaOptionDailySummon                  = int32(100026)
 	shopOptionItemShop                      = int32(2)
+	mainFunctionTypeExploration             = int32(4)
 )
 
 // Apply reconciles state-derived conditions and applies transaction-local
@@ -35,6 +36,7 @@ func Apply(catalogs *runtime.Catalogs, before *store.UserState, user *store.User
 		return
 	}
 	user.EnsureMaps()
+	removeMissionsForLockedFunctions(catalogs, user)
 	resetDailyMissions(catalogs.Mission, user, nowMillis)
 
 	eligibleForEvent := make(map[int32]bool)
@@ -78,13 +80,6 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 				changed = true
 			}
 			if state.MissionProgressStatusType >= int32(model.MissionProgressStatusTypeClear) {
-				if state.MissionProgressStatusType == int32(model.MissionProgressStatusTypeClear) &&
-					isDailyCompletionMission(mission) && state.ClearDatetime > state.StartDatetime {
-					state.StartDatetime = state.ClearDatetime
-					state.LatestVersion = nowMillis
-					user.Missions[mission.MissionId] = state
-					changed = true
-				}
 				continue
 			}
 			if value, ok := absoluteProgress(catalogs, user, mission, state, nowMillis); ok && absoluteProgressImproved(mission, state.ProgressValue, value) {
@@ -97,9 +92,6 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 			if conditionSatisfied(catalogs, user, mission, state.ProgressValue, nowMillis) {
 				state.MissionProgressStatusType = int32(model.MissionProgressStatusTypeClear)
 				state.ClearDatetime = nowMillis
-				if isDailyCompletionMission(mission) {
-					state.StartDatetime = nowMillis
-				}
 				state.LatestVersion = nowMillis
 				user.Missions[mission.MissionId] = state
 				changed = true
@@ -127,6 +119,9 @@ func missionActive(catalog *masterdata.MissionCatalog, mission masterdata.Entity
 }
 
 func unlocked(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission, nowMillis int64) bool {
+	if !relatedMainFunctionUnlocked(catalogs, user, mission) {
+		return false
+	}
 	if mission.MissionUnlockConditionId == 0 {
 		return true
 	}
@@ -157,6 +152,41 @@ func unlocked(catalogs *runtime.Catalogs, user *store.UserState, mission masterd
 	}
 }
 
+func removeMissionsForLockedFunctions(catalogs *runtime.Catalogs, user *store.UserState) {
+	for missionId := range user.Missions {
+		mission, ok := catalogs.Mission.MissionById[missionId]
+		if ok && !relatedMainFunctionUnlocked(catalogs, user, mission) {
+			delete(user.Missions, missionId)
+		}
+	}
+}
+
+func relatedMainFunctionUnlocked(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission) bool {
+	if mission.RelatedMainFunctionType != mainFunctionTypeExploration {
+		return true
+	}
+	if catalogs.Explore == nil || catalogs.Explore.FirstExploreId == 0 {
+		return false
+	}
+	explore, ok := catalogs.Explore.Explores[catalogs.Explore.FirstExploreId]
+	if !ok || explore.ExploreUnlockConditionId == 0 {
+		return ok
+	}
+	condition, ok := catalogs.Explore.UnlockConditions[explore.ExploreUnlockConditionId]
+	if !ok {
+		return false
+	}
+	switch condition.ExploreUnlockConditionType {
+	case 1:
+		return user.Quests[condition.ConditionValue].QuestStateType == model.UserQuestStateTypeCleared
+	case 2:
+		lowerExploreId := catalogs.Explore.LowerDifficulty[explore.ExploreId]
+		return lowerExploreId != 0 && user.ExploreScores[lowerExploreId].MaxScore >= condition.ConditionValue
+	default:
+		return false
+	}
+}
+
 func resetDailyMissions(catalog *masterdata.MissionCatalog, user *store.UserState, nowMillis int64) {
 	today := gametime.StartOfBusinessDayAtMillis(nowMillis)
 	for id, state := range user.Missions {
@@ -165,7 +195,7 @@ func resetDailyMissions(catalog *masterdata.MissionCatalog, user *store.UserStat
 			continue
 		}
 		user.Missions[id] = store.UserMissionState{
-			MissionId: id, StartDatetime: nowMillis,
+			MissionId: id, StartDatetime: today,
 			MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress), LatestVersion: nowMillis,
 		}
 	}
@@ -178,12 +208,6 @@ func isDaily(catalog *masterdata.MissionCatalog, mission masterdata.EntityMMissi
 
 func isDailyAggregateMember(catalog *masterdata.MissionCatalog, mission masterdata.EntityMMission) bool {
 	return catalog.GroupById[mission.MissionGroupId].MissionCategoryType == missionCategoryDaily
-}
-
-func isDailyCompletionMission(mission masterdata.EntityMMission) bool {
-	t := model.MissionClearConditionType(mission.MissionClearConditionType)
-	return t == model.MissionClearConditionTypeMissionClearForAllDaily ||
-		t == model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId
 }
 
 func absoluteProgress(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission, state store.UserMissionState, nowMillis int64) (int32, bool) {

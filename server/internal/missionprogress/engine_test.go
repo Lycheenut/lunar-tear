@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
@@ -109,8 +110,9 @@ func TestDailyQuestProgressDoesNotCarryAcrossBusinessDays(t *testing.T) {
 	if state := user.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
 		t.Fatalf("old quest clears leaked into the new day: %+v", state)
 	}
-	if state := user.Missions[1]; state.StartDatetime != nowMillis {
-		t.Fatalf("daily mission start time was not refreshed: got %d, want %d", state.StartDatetime, nowMillis)
+	wantStart := gametime.StartOfBusinessDayAtMillis(nowMillis)
+	if state := user.Missions[1]; state.StartDatetime != wantStart {
+		t.Fatalf("daily mission start time = %d, want business-day boundary %d", state.StartDatetime, wantStart)
 	}
 
 	quest := user.Quests[10]
@@ -137,7 +139,59 @@ func TestAllDailyIgnoresMissionPassDaily(t *testing.T) {
 	}
 }
 
-func TestCompletedDailyAggregateUsesClearTimeAsStartTime(t *testing.T) {
+func TestExplorationMissionWaitsForExplorationUnlock(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 65, MissionGroupId: 1,
+		MissionClearConditionType: int32(model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId),
+		ClearConditionValue:       1,
+		RelatedMainFunctionType:   mainFunctionTypeExploration,
+	}
+	daily := masterdata.EntityMMission{
+		MissionId: 64, MissionGroupId: 1,
+		MissionClearConditionType: int32(model.MissionClearConditionTypeShopBuyByCount),
+		ClearConditionValue:       1,
+	}
+	catalogs := testCatalog(mission, daily)
+	dailyGroup := catalogs.Mission.GroupById[1]
+	dailyGroup.MissionSubCategoryId = 1
+	catalogs.Mission.GroupById[1] = dailyGroup
+	catalogs.Explore = explorationUnlockCatalog()
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Missions[64] = clearedMission(64)
+
+	Sync(catalogs, user, 100)
+	if _, exists := user.Missions[65]; exists {
+		t.Fatal("exploration-related mission was created before Exploration unlocked")
+	}
+
+	user.Quests[31] = store.UserQuestState{QuestId: 31, QuestStateType: model.UserQuestStateTypeCleared}
+	Sync(catalogs, user, 200)
+	if state := user.Missions[65]; state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("exploration-related mission did not unlock normally: %+v", state)
+	}
+}
+
+func TestSyncRemovesStaleMissionForLockedExploration(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 65, MissionGroupId: 1,
+		MissionClearConditionType: int32(model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId),
+		ClearConditionValue:       1,
+		RelatedMainFunctionType:   mainFunctionTypeExploration,
+	}
+	catalogs := testCatalog(mission)
+	catalogs.Explore = explorationUnlockCatalog()
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Missions[65] = clearedMission(65)
+
+	Sync(catalogs, user, 100)
+	if _, exists := user.Missions[65]; exists {
+		t.Fatal("stale completed mission survived while Exploration was locked")
+	}
+}
+
+func TestCompletedDailyAggregateDoesNotChangeDuringSync(t *testing.T) {
 	aggregate := masterdata.EntityMMission{
 		MissionId: 1, MissionGroupId: 1,
 		MissionClearConditionType: int32(model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId),
@@ -155,13 +209,10 @@ func TestCompletedDailyAggregateUsesClearTimeAsStartTime(t *testing.T) {
 		LatestVersion:             50,
 	}
 
+	want := user.Missions[1]
 	Sync(catalogs, user, 100)
-	state := user.Missions[1]
-	if state.StartDatetime != state.ClearDatetime {
-		t.Fatalf("completed daily aggregate kept a stale start time: %+v", state)
-	}
-	if state.LatestVersion != 100 {
-		t.Fatalf("corrected daily aggregate was not marked updated: %+v", state)
+	if state := user.Missions[1]; state != want {
+		t.Fatalf("completed daily aggregate changed during sync: got %+v, want %+v", state, want)
 	}
 }
 
@@ -549,6 +600,18 @@ func testCatalog(missions ...masterdata.EntityMMission) *runtime.Catalogs {
 
 func clearedMission(id int32) store.UserMissionState {
 	return store.UserMissionState{MissionId: id, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear), ClearDatetime: 1}
+}
+
+func explorationUnlockCatalog() *masterdata.ExploreCatalog {
+	return &masterdata.ExploreCatalog{
+		FirstExploreId: 1,
+		Explores: map[int32]masterdata.EntityMExplore{
+			1: {ExploreId: 1, ExploreUnlockConditionId: 1},
+		},
+		UnlockConditions: map[int32]masterdata.EntityMExploreUnlockCondition{
+			1: {ExploreUnlockConditionId: 1, ExploreUnlockConditionType: 1, ConditionValue: 31},
+		},
+	}
 }
 
 func loadConditionResolver(t *testing.T) *masterdata.ConditionResolver {

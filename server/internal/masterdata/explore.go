@@ -9,6 +9,7 @@ import (
 
 type ExploreCatalog struct {
 	Explores         map[int32]EntityMExplore
+	FirstExploreId   int32
 	GradeScores      map[int32][]EntityMExploreGradeScore // keyed by ExploreId, sorted desc by NecessaryScore
 	GradeAssets      map[int32]int32                      // gradeId -> assetGradeIconId
 	UnlockConditions map[int32]EntityMExploreUnlockCondition
@@ -44,6 +45,9 @@ func LoadExploreCatalog() (*ExploreCatalog, error) {
 		GradeAssets:      make(map[int32]int32, len(gradeAssets)),
 		UnlockConditions: make(map[int32]EntityMExploreUnlockCondition, len(unlockConditions)),
 		LowerDifficulty:  make(map[int32]int32),
+	}
+	if len(explores) > 0 {
+		catalog.FirstExploreId = explores[0].ExploreId
 	}
 
 	for _, e := range explores {
