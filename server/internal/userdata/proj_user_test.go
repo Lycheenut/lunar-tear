@@ -94,3 +94,12 @@ func TestCampaignAndLoginBonusProjectionUsesClientTables(t *testing.T) {
 		t.Fatalf("login bonus keys = %v", keys)
 	}
 }
+
+func TestEmptyCampaignProjectionsUseJSONArrays(t *testing.T) {
+	user := store.UserState{}
+	for _, table := range []string{"IUserBeginnerCampaign", "IUserComebackCampaign"} {
+		if got := projectTable(table, user); got != "[]" {
+			t.Errorf("%s projection = %s, want []", table, got)
+		}
+	}
+}
