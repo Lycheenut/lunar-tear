@@ -111,6 +111,59 @@ func TestComebackLoginUsesJudgePeriodAndAbsenceDays(t *testing.T) {
 	}
 }
 
+func TestComebackEnrollmentPrefersMostSpecificOverlappingCampaign(t *testing.T) {
+	now := int64(400) * millisecondsPerDay
+	c := &Catalog{comeback: []comebackRow{
+		{campaignId: 2, judgeStartMillis: 1, judgeEndMillis: 500 * millisecondsPerDay, judgeDays: 28, grantDays: 7, unlockQuestId: 1},
+		{campaignId: 7, judgeStartMillis: 300 * millisecondsPerDay, judgeEndMillis: 500 * millisecondsPerDay, judgeDays: 280, grantDays: 7, unlockQuestId: 1, gradeGroupId: 2},
+	}}
+	unlocked := func(questId int32) bool { return questId == 1 }
+
+	longAbsence, ok := c.ComebackEnrollmentForLogin(now, now-300*millisecondsPerDay, unlocked)
+	if !ok || longAbsence.CampaignId != 7 || longAbsence.GradeGroupId != 2 {
+		t.Fatalf("300-day comeback enrollment = %+v, %v; want campaign 7 grade group 2", longAbsence, ok)
+	}
+
+	shortAbsence, ok := c.ComebackEnrollmentForLogin(now, now-30*millisecondsPerDay, unlocked)
+	if !ok || shortAbsence.CampaignId != 2 {
+		t.Fatalf("30-day comeback enrollment = %+v, %v; want campaign 2", shortAbsence, ok)
+	}
+
+	backfilled, ok := c.ComebackEnrollmentForRecordedLogin(now)
+	if !ok || backfilled.CampaignId != 2 {
+		t.Fatalf("backfilled comeback enrollment = %+v, %v; want baseline campaign 2", backfilled, ok)
+	}
+}
+
+func TestPersistedCampaignEnrollmentControlsUserStatus(t *testing.T) {
+	now := int64(100) * millisecondsPerDay
+	c := &Catalog{
+		beginner: []beginnerRow{{campaignId: 1, grantDays: 7, unlockQuestId: 1}},
+		comeback: []comebackRow{{campaignId: 2, grantDays: 7, unlockQuestId: 1}},
+	}
+	unlocked := func(questId int32) bool { return questId == 1 }
+
+	beginner := c.FilterForUser(UserStatusContext{
+		NowMillis:                        now,
+		BeginnerCampaignId:               1,
+		BeginnerCampaignRegisterDatetime: now - millisecondsPerDay,
+		IsCampaignUnlockQuestCleared:     unlocked,
+	})
+	if beginner.UserStatus != TargetUserStatusBeginner {
+		t.Fatalf("persisted beginner status = %d, want %d", beginner.UserStatus, TargetUserStatusBeginner)
+	}
+
+	comeback := c.FilterForUser(UserStatusContext{
+		NowMillis:                    now,
+		ComebackCampaignId:           2,
+		ComebackDatetime:             now - millisecondsPerDay,
+		IsCampaignUnlockQuestCleared: unlocked,
+	})
+	if comeback.UserStatus != TargetUserStatusComeback {
+		t.Fatalf("persisted comeback status = %d, want %d", comeback.UserStatus, TargetUserStatusComeback)
+	}
+}
+
 func TestCurrentMasterDataEnhanceCampaignUserStatus(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
 		t.Fatalf("init master data: %v", err)

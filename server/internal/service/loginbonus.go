@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/runtime"
@@ -26,6 +28,15 @@ type LoginBonusServiceServer struct {
 	holder   *runtime.Holder
 }
 
+const (
+	loginBonusStartConditionAll            = int32(0)
+	loginBonusStartConditionComeback       = int32(4)
+	loginBonusStartConditionBeginner       = int32(5)
+	loginBonusStartConditionComebackGrade1 = int32(6)
+)
+
+var errLoginBonusExhausted = errors.New("login bonus exhausted")
+
 func NewLoginBonusServiceServer(users store.UserRepository, sessions store.SessionRepository, holder *runtime.Holder) *LoginBonusServiceServer {
 	return &LoginBonusServiceServer{users: users, sessions: sessions, holder: holder}
 }
@@ -33,34 +44,31 @@ func NewLoginBonusServiceServer(users store.UserRepository, sessions store.Sessi
 func (s *LoginBonusServiceServer) ReceiveStamp(ctx context.Context, req *emptypb.Empty) (*pb.ReceiveStampResponse, error) {
 	log.Printf("[LoginBonusService] ReceiveStamp")
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	catalog := s.holder.Get().LoginBonus
-	var receipt loginBonusReceipt
-	var applied bool
-	var replayed store.UserLoginBonusState
-	var replayedAt int64
+	catalogs := s.holder.Get()
+	var receipts []loginBonusReceipt
 	_, err := s.users.UpdateUsers([]int64{userId}, func(users map[int64]*store.UserState) error {
 		nowMillis := gametime.NowMillis()
+		user := users[userId]
+		ensureBeginnerCampaign(catalogs.Campaign, user, nowMillis)
+		ensureComebackCampaign(catalogs.Campaign, user, nowMillis)
+		syncLoginBonuses(catalogs.LoginBonus, catalogs.Campaign, user, nowMillis, false)
 		var applyErr error
-		receipt, applied, applyErr = applyLoginBonusStamp(catalog, users[userId], nowMillis)
-		if applyErr == nil && !applied {
-			replayed = users[userId].LoginBonus
-			replayedAt = nowMillis
-		}
+		receipts, applyErr = applyLoginBonusStamps(catalogs.LoginBonus, user, nowMillis)
 		return applyErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
-	if !applied {
-		log.Printf("[LoginBonusService] idempotent replay userId=%d bonusId=%d latest=%d dayStart=%d",
-			userId, replayed.LoginBonusId, replayed.LatestRewardReceiveDatetime,
-			gametime.StartOfBusinessDayAtMillis(replayedAt))
+	if len(receipts) == 0 {
+		log.Printf("[LoginBonusService] no receivable stamps userId=%d", userId)
 		return &pb.ReceiveStampResponse{}, nil
 	}
 
-	log.Printf("[LoginBonusService] bonusId=%d page %d->%d stamp %d->%d possType=%d possId=%d count=%d (-> gift box)",
-		receipt.bonusId, receipt.oldPage, receipt.nextPage, receipt.oldStamp, receipt.nextStamp,
-		receipt.reward.PossessionType, receipt.reward.PossessionId, receipt.reward.Count)
+	for _, receipt := range receipts {
+		log.Printf("[LoginBonusService] bonusId=%d page %d->%d stamp %d->%d possType=%d possId=%d count=%d (-> gift box)",
+			receipt.bonusId, receipt.oldPage, receipt.nextPage, receipt.oldStamp, receipt.nextStamp,
+			receipt.reward.PossessionType, receipt.reward.PossessionId, receipt.reward.Count)
+	}
 
 	return &pb.ReceiveStampResponse{}, nil
 }
@@ -72,54 +80,97 @@ type loginBonusReceipt struct {
 	reward              masterdata.LoginBonusReward
 }
 
-func applyLoginBonusStamp(catalog *masterdata.LoginBonusCatalog, user *store.UserState, nowMillis int64) (loginBonusReceipt, bool, error) {
-	if isLoginBonusStampReceivedToday(user.LoginBonus, nowMillis) {
-		return loginBonusReceipt{}, false, nil
+func applyLoginBonusStamps(catalog *masterdata.LoginBonusCatalog, user *store.UserState, nowMillis int64) ([]loginBonusReceipt, error) {
+	receipts := make([]loginBonusReceipt, 0)
+	for _, definition := range catalog.ActiveDefinitions(nowMillis) {
+		lb, ok := user.LoginBonuses[definition.LoginBonusId]
+		if !ok || isLoginBonusStampReceivedToday(lb, nowMillis) {
+			continue
+		}
+		nextPage, nextStamp, reward, err := resolveNextStamp(catalog, lb)
+		if errors.Is(err, errLoginBonusExhausted) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		receipts = append(receipts, loginBonusReceipt{
+			bonusId:   lb.LoginBonusId,
+			oldPage:   lb.CurrentPageNumber,
+			nextPage:  nextPage,
+			oldStamp:  lb.CurrentStampNumber,
+			nextStamp: nextStamp,
+			reward:    reward,
+		})
+		user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
+			GiftCommon: store.GiftCommonState{
+				PossessionType: reward.PossessionType,
+				PossessionId:   reward.PossessionId,
+				Count:          reward.Count,
+				GrantDatetime:  nowMillis,
+			},
+			ExpirationDatetime: nowMillis + int64(30*24*time.Hour/time.Millisecond),
+			UserGiftUuid:       uuid.New().String(),
+		})
+		lb.CurrentPageNumber = nextPage
+		lb.CurrentStampNumber = nextStamp
+		lb.LatestRewardReceiveDatetime = nowMillis
+		lb.LatestVersion = nowMillis
+		user.LoginBonuses[lb.LoginBonusId] = lb
 	}
-	if err := validateLoginBonusReceive(catalog, user.LoginBonus, nowMillis); err != nil {
-		return loginBonusReceipt{}, false, err
-	}
-	nextPage, nextStamp, reward, err := resolveNextStamp(catalog, user.LoginBonus)
-	if err != nil {
-		return loginBonusReceipt{}, false, err
-	}
-	receipt := loginBonusReceipt{
-		bonusId:   user.LoginBonus.LoginBonusId,
-		oldPage:   user.LoginBonus.CurrentPageNumber,
-		nextPage:  nextPage,
-		oldStamp:  user.LoginBonus.CurrentStampNumber,
-		nextStamp: nextStamp,
-		reward:    reward,
-	}
-	user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
-		GiftCommon: store.GiftCommonState{
-			PossessionType: reward.PossessionType,
-			PossessionId:   reward.PossessionId,
-			Count:          reward.Count,
-			GrantDatetime:  nowMillis,
-		},
-		ExpirationDatetime: nowMillis + int64(30*24*time.Hour/time.Millisecond),
-		UserGiftUuid:       uuid.New().String(),
-	})
 	user.Notifications.GiftNotReceiveCount = int32(len(user.Gifts.NotReceived))
-	user.LoginBonus.CurrentPageNumber = nextPage
-	user.LoginBonus.CurrentStampNumber = nextStamp
-	user.LoginBonus.LatestRewardReceiveDatetime = nowMillis
-	user.LoginBonus.LatestVersion = nowMillis
-	return receipt, true, nil
+	return receipts, nil
+}
+
+func syncLoginBonuses(loginBonuses *masterdata.LoginBonusCatalog, campaigns *campaign.Catalog, user *store.UserState, nowMillis int64, resetComeback bool) {
+	user.EnsureMaps()
+	for _, definition := range loginBonuses.ActiveDefinitions(nowMillis) {
+		if !loginBonusStartConditionEligible(definition.LoginBonusStartConditionId, campaigns, user, nowMillis) {
+			continue
+		}
+		_, exists := user.LoginBonuses[definition.LoginBonusId]
+		reset := resetComeback && (definition.LoginBonusStartConditionId == loginBonusStartConditionComeback ||
+			definition.LoginBonusStartConditionId == loginBonusStartConditionComebackGrade1)
+		if exists && !reset {
+			continue
+		}
+		user.LoginBonuses[definition.LoginBonusId] = store.UserLoginBonusState{
+			LoginBonusId:      definition.LoginBonusId,
+			CurrentPageNumber: 1,
+			LatestVersion:     nowMillis,
+		}
+	}
+}
+
+func loginBonusStartConditionEligible(conditionId int32, campaigns *campaign.Catalog, user *store.UserState, nowMillis int64) bool {
+	if conditionId == loginBonusStartConditionAll {
+		return true
+	}
+	if campaigns == nil {
+		return false
+	}
+	cleared := campaignQuestCleared(user)
+	switch conditionId {
+	case loginBonusStartConditionComeback:
+		return campaigns.IsComebackEnrollmentActive(
+			user.ComebackCampaign.ComebackCampaignId, user.ComebackCampaign.ComebackDatetime, nowMillis, cleared,
+		)
+	case loginBonusStartConditionBeginner:
+		return campaigns.IsBeginnerEnrollmentActive(
+			user.BeginnerCampaign.BeginnerCampaignId, user.BeginnerCampaign.CampaignRegisterDatetime, nowMillis, cleared,
+		)
+	case loginBonusStartConditionComebackGrade1:
+		return campaigns.IsComebackGradeGroupActive(
+			user.ComebackCampaign.ComebackCampaignId, user.ComebackCampaign.ComebackDatetime, nowMillis, 1, cleared,
+		)
+	default:
+		return false
+	}
 }
 
 func isLoginBonusStampReceivedToday(lb store.UserLoginBonusState, nowMillis int64) bool {
 	return lb.LatestRewardReceiveDatetime >= gametime.StartOfBusinessDayAtMillis(nowMillis) &&
 		lb.LatestRewardReceiveDatetime <= nowMillis
-}
-
-func validateLoginBonusReceive(catalog *masterdata.LoginBonusCatalog, lb store.UserLoginBonusState, nowMillis int64) error {
-	term, ok := catalog.LookupTerm(lb.LoginBonusId)
-	if !ok {
-		return status.Errorf(codes.FailedPrecondition, "login bonus %d is not configured", lb.LoginBonusId)
-	}
-	return validateLoginBonusTerm(term, lb, nowMillis)
 }
 
 func validateLoginBonusTerm(term masterdata.LoginBonusTerm, lb store.UserLoginBonusState, nowMillis int64) error {
@@ -152,9 +203,8 @@ func resolveNextStamp(catalog *masterdata.LoginBonusCatalog, lb store.UserLoginB
 		nextStamp = 1
 		total := catalog.TotalPageCount(bonusId)
 		if total > 0 && nextPage > total {
-			err = status.Errorf(codes.FailedPrecondition,
-				"login bonus %d exhausted (page %d stamp %d is the last)",
-				bonusId, curPage, curStamp)
+			err = fmt.Errorf("%w: login bonus %d page %d stamp %d is the last",
+				errLoginBonusExhausted, bonusId, curPage, curStamp)
 			return
 		}
 		reward, ok = catalog.LookupStampReward(bonusId, nextPage, nextStamp)

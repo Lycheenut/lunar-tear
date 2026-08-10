@@ -62,10 +62,26 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 		u.Login.LastLoginDatetime, u.Login.LastComebackLoginDatetime, u.Login.LatestVersion); err != nil {
 		return err
 	}
-	if err := exec(`INSERT INTO user_login_bonus (user_id, login_bonus_id, current_page_number, current_stamp_number, latest_reward_receive_datetime, latest_version) VALUES (?,?,?,?,?,?)`,
-		uid, u.LoginBonus.LoginBonusId, u.LoginBonus.CurrentPageNumber, u.LoginBonus.CurrentStampNumber,
-		u.LoginBonus.LatestRewardReceiveDatetime, u.LoginBonus.LatestVersion); err != nil {
-		return err
+	if u.BeginnerCampaign.BeginnerCampaignId != 0 {
+		if err := exec(`INSERT INTO user_beginner_campaign (user_id, beginner_campaign_id, campaign_register_datetime, latest_version) VALUES (?,?,?,?)`,
+			uid, u.BeginnerCampaign.BeginnerCampaignId, u.BeginnerCampaign.CampaignRegisterDatetime,
+			u.BeginnerCampaign.LatestVersion); err != nil {
+			return err
+		}
+	}
+	if u.ComebackCampaign.ComebackCampaignId != 0 {
+		if err := exec(`INSERT INTO user_comeback_campaign (user_id, comeback_campaign_id, comeback_datetime, latest_version) VALUES (?,?,?,?)`,
+			uid, u.ComebackCampaign.ComebackCampaignId, u.ComebackCampaign.ComebackDatetime,
+			u.ComebackCampaign.LatestVersion); err != nil {
+			return err
+		}
+	}
+	for _, lb := range u.LoginBonuses {
+		if err := exec(`INSERT INTO user_login_bonus (user_id, login_bonus_id, current_page_number, current_stamp_number, latest_reward_receive_datetime, latest_version) VALUES (?,?,?,?,?,?)`,
+			uid, lb.LoginBonusId, lb.CurrentPageNumber, lb.CurrentStampNumber,
+			lb.LatestRewardReceiveDatetime, lb.LatestVersion); err != nil {
+			return err
+		}
 	}
 	if err := exec(`INSERT INTO user_main_quest (user_id, current_quest_flow_type, current_main_quest_route_id, current_quest_scene_id, head_quest_scene_id, is_reached_last_quest_scene, progress_quest_scene_id, progress_head_quest_scene_id, progress_quest_flow_type, main_quest_season_id, latest_version, saved_ctx_active, saved_ctx_current_quest_scene_id, saved_ctx_head_quest_scene_id, saved_ctx_current_main_quest_route_id, saved_ctx_main_quest_season_id, saved_ctx_is_reached_last_quest_scene, saved_ctx_portal_cage_in_progress, saved_ctx_current_quest_flow_type, replay_flow_current_quest_scene_id, replay_flow_head_quest_scene_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		uid, u.MainQuest.CurrentQuestFlowType, u.MainQuest.CurrentMainQuestRouteId, u.MainQuest.CurrentQuestSceneId,
@@ -671,10 +687,25 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 			return err
 		}
 	}
-	if before.LoginBonus != after.LoginBonus {
-		if err := exec(`UPDATE user_login_bonus SET login_bonus_id=?, current_page_number=?, current_stamp_number=?, latest_reward_receive_datetime=?, latest_version=? WHERE user_id=?`,
-			after.LoginBonus.LoginBonusId, after.LoginBonus.CurrentPageNumber, after.LoginBonus.CurrentStampNumber,
-			after.LoginBonus.LatestRewardReceiveDatetime, after.LoginBonus.LatestVersion, uid); err != nil {
+	if before.BeginnerCampaign != after.BeginnerCampaign {
+		if after.BeginnerCampaign.BeginnerCampaignId == 0 {
+			if err := exec(`DELETE FROM user_beginner_campaign WHERE user_id=?`, uid); err != nil {
+				return err
+			}
+		} else if err := exec(`INSERT OR REPLACE INTO user_beginner_campaign (user_id, beginner_campaign_id, campaign_register_datetime, latest_version) VALUES (?,?,?,?)`,
+			uid, after.BeginnerCampaign.BeginnerCampaignId, after.BeginnerCampaign.CampaignRegisterDatetime,
+			after.BeginnerCampaign.LatestVersion); err != nil {
+			return err
+		}
+	}
+	if before.ComebackCampaign != after.ComebackCampaign {
+		if after.ComebackCampaign.ComebackCampaignId == 0 {
+			if err := exec(`DELETE FROM user_comeback_campaign WHERE user_id=?`, uid); err != nil {
+				return err
+			}
+		} else if err := exec(`INSERT OR REPLACE INTO user_comeback_campaign (user_id, comeback_campaign_id, comeback_datetime, latest_version) VALUES (?,?,?,?)`,
+			uid, after.ComebackCampaign.ComebackCampaignId, after.ComebackCampaign.ComebackDatetime,
+			after.ComebackCampaign.LatestVersion); err != nil {
 			return err
 		}
 	}
@@ -823,6 +854,13 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 				return err
 			}
 		}
+	}
+
+	if err := diffMapInt32(tx, uid, before.LoginBonuses, after.LoginBonuses, "user_login_bonus", "login_bonus_id",
+		func(v store.UserLoginBonusState) []any {
+			return []any{v.LoginBonusId, v.CurrentPageNumber, v.CurrentStampNumber, v.LatestRewardReceiveDatetime, v.LatestVersion}
+		}, "login_bonus_id, current_page_number, current_stamp_number, latest_reward_receive_datetime, latest_version"); err != nil {
+		return err
 	}
 
 	if err := diffMapInt32(tx, uid, before.Characters, after.Characters, "user_characters", "character_id",

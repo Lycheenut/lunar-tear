@@ -7,6 +7,7 @@ func CloneUserState(u UserState) UserState {
 	out.PendingMissionEvents = append([]MissionEvent(nil), u.PendingMissionEvents...)
 	out.Friends = maps.Clone(u.Friends)
 	out.FriendRequests = maps.Clone(u.FriendRequests)
+	out.LoginBonuses = maps.Clone(u.LoginBonuses)
 	out.Tutorials = maps.Clone(u.Tutorials)
 	out.Characters = maps.Clone(u.Characters)
 	out.Costumes = maps.Clone(u.Costumes)

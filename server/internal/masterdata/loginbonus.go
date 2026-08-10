@@ -25,11 +25,18 @@ type LoginBonusTerm struct {
 	StampReceiveEndDatetime int64
 }
 
+type LoginBonusDefinition struct {
+	LoginBonusId               int32
+	SortOrder                  int32
+	LoginBonusStartConditionId int32
+	Term                       LoginBonusTerm
+}
+
 type LoginBonusCatalog struct {
-	stamps     map[loginBonusStampKey]LoginBonusReward
-	bonusPages map[int32][]int32
-	totalPages map[int32]int32
-	terms      map[int32]LoginBonusTerm
+	stamps      map[loginBonusStampKey]LoginBonusReward
+	bonusPages  map[int32][]int32
+	totalPages  map[int32]int32
+	definitions []LoginBonusDefinition
 }
 
 func (c *LoginBonusCatalog) LookupStampReward(loginBonusId, pageNumber, stampNumber int32) (LoginBonusReward, bool) {
@@ -53,9 +60,26 @@ func (c *LoginBonusCatalog) TotalPageCount(loginBonusId int32) int32 {
 	return c.totalPages[loginBonusId]
 }
 
-func (c *LoginBonusCatalog) LookupTerm(loginBonusId int32) (LoginBonusTerm, bool) {
-	term, ok := c.terms[loginBonusId]
-	return term, ok
+func (c *LoginBonusCatalog) ActiveDefinitions(nowMillis int64) []LoginBonusDefinition {
+	active := make([]LoginBonusDefinition, 0, len(c.definitions))
+	for _, definition := range c.definitions {
+		term := definition.Term
+		if term.StartDatetime != 0 && nowMillis < term.StartDatetime {
+			continue
+		}
+		if term.EndDatetime != 0 && nowMillis >= term.EndDatetime {
+			continue
+		}
+		if term.StampReceiveEndDatetime != 0 && nowMillis >= term.StampReceiveEndDatetime {
+			continue
+		}
+		active = append(active, definition)
+	}
+	return active
+}
+
+func (c *LoginBonusCatalog) Definitions() []LoginBonusDefinition {
+	return append([]LoginBonusDefinition(nil), c.definitions...)
 }
 
 func LoadLoginBonusCatalog() *LoginBonusCatalog {
@@ -70,20 +94,32 @@ func LoadLoginBonusCatalog() *LoginBonusCatalog {
 	}
 
 	cat := &LoginBonusCatalog{
-		stamps:     make(map[loginBonusStampKey]LoginBonusReward, len(stamps)),
-		bonusPages: make(map[int32][]int32),
-		totalPages: make(map[int32]int32, len(bonuses)),
-		terms:      make(map[int32]LoginBonusTerm, len(bonuses)),
+		stamps:      make(map[loginBonusStampKey]LoginBonusReward, len(stamps)),
+		bonusPages:  make(map[int32][]int32),
+		totalPages:  make(map[int32]int32, len(bonuses)),
+		definitions: make([]LoginBonusDefinition, 0, len(bonuses)),
 	}
 
 	for _, b := range bonuses {
 		cat.totalPages[b.LoginBonusId] = b.TotalPageCount
-		cat.terms[b.LoginBonusId] = LoginBonusTerm{
+		term := LoginBonusTerm{
 			StartDatetime:           b.StartDatetime,
 			EndDatetime:             b.EndDatetime,
 			StampReceiveEndDatetime: b.StampReceiveEndDatetime,
 		}
+		cat.definitions = append(cat.definitions, LoginBonusDefinition{
+			LoginBonusId:               b.LoginBonusId,
+			SortOrder:                  b.SortOrder,
+			LoginBonusStartConditionId: b.LoginBonusStartConditionId,
+			Term:                       term,
+		})
 	}
+	sort.Slice(cat.definitions, func(i, j int) bool {
+		if cat.definitions[i].SortOrder == cat.definitions[j].SortOrder {
+			return cat.definitions[i].LoginBonusId < cat.definitions[j].LoginBonusId
+		}
+		return cat.definitions[i].SortOrder < cat.definitions[j].SortOrder
+	})
 
 	seenPages := make(map[loginBonusStampKey]struct{})
 	for _, s := range stamps {
