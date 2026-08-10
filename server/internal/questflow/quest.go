@@ -66,7 +66,7 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 
 	h.initQuestState(user, questId)
 	if quest.Stamina > 0 {
-		stamina := h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis)
+		stamina := h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis)
 		if err := store.ConsumeStamina(user, stamina, h.MaxStaminaByLevel[user.Status.Level]*1000, nowMillis); err != nil {
 			return err
 		}
@@ -309,7 +309,7 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 		}
 	}
 
-	consumed := h.staminaWithCampaign(quest.Stamina, h.targetForMain(questId), nowMillis)
+	consumed := h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis)
 	if isRetired && !isAnnihilated && consumed > 1 {
 		refund := consumed - 1
 		maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
@@ -378,7 +378,7 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 
 	target := h.targetForMain(questId)
 	maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
-	perSkipStamina := h.staminaWithCampaign(questDef.Stamina, target, nowMillis)
+	perSkipStamina := h.staminaWithCampaign(user, questDef.Stamina, target, nowMillis)
 	totalStamina, err := checkedProduct(perSkipStamina, skipCount)
 	if err != nil {
 		return FinishOutcome{}, err
@@ -391,9 +391,9 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 	user.ConsumableItems[skipTicketId] -= skipCount
 	raritySet, rankSet := parseAutoSaleRules(user.AutoSaleSettings)
 	var allDrops []RewardGrant
-	goldPerSkip := h.goldWithCampaign(questDef.Gold, target, nowMillis)
+	goldPerSkip := h.goldWithCampaign(user, questDef.Gold, target, nowMillis)
 	for range skipCount {
-		drops := h.computeDropRewards(questDef, target, nowMillis)
+		drops := h.computeDropRewards(user, questDef, target, nowMillis)
 		h.grantDropRewards(user, drops, raritySet, rankSet, nowMillis)
 		allDrops = append(allDrops, drops...)
 

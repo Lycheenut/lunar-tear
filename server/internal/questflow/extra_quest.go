@@ -21,7 +21,7 @@ func (h *QuestHandler) HandleExtraQuestStart(user *store.UserState, questId, use
 
 	if quest.Stamina > 0 {
 		maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
-		stamina := h.staminaWithCampaign(quest.Stamina, h.targetForExtra(questId), nowMillis)
+		stamina := h.staminaWithCampaign(user, quest.Stamina, h.targetForExtra(questId), nowMillis)
 		if err := store.ConsumeStamina(user, stamina, maxMillis, nowMillis); err != nil {
 			return err
 		}
@@ -56,7 +56,7 @@ func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int
 		h.applyQuestVictory(user, questId, target, &outcome, nowMillis, false)
 	}
 
-	consumed := h.staminaWithCampaign(quest.Stamina, target, nowMillis)
+	consumed := h.staminaWithCampaign(user, quest.Stamina, target, nowMillis)
 	if isRetired && !isAnnihilated && consumed > 1 {
 		refund := consumed - 1
 		maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
