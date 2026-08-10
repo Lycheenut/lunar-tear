@@ -173,11 +173,21 @@ func (r *titleResolver) resolveContentFootnotes(table string, row []interface{},
 				footnotes = append(footnotes, targets)
 			}
 		}
+		if userStatus, ok := integerAt(row, 6); ok {
+			if titles := targetUserStatusTitles(userStatus); len(titles) != 0 {
+				footnotes = append(footnotes, titles)
+			}
+		}
 	case "m_quest_campaign":
 		footnotes = append(footnotes, r.questEffectFootnotes(row)...)
 		if groupID, ok := integerAt(row, 1); ok {
 			if targets := r.questTargetTitles(r.questTargets[groupID], row); len(targets) != 0 {
 				footnotes = append(footnotes, targets)
+			}
+		}
+		if userStatus, ok := integerAt(row, 5); ok {
+			if titles := targetUserStatusTitles(userStatus); len(titles) != 0 {
+				footnotes = append(footnotes, titles)
 			}
 		}
 	case "m_shop_item_cell_term":
@@ -190,6 +200,15 @@ func (r *titleResolver) resolveContentFootnotes(table string, row []interface{},
 		}
 	}
 	return footnotes
+}
+
+func targetUserStatusTitles(userStatus int64) map[string]string {
+	values := map[int64]map[string]string{
+		1: {"en": "All Users", "ja": "全ユーザー", "ko": "전체 사용자"},
+		2: {"en": "Returning Users", "ja": "カムバックユーザー", "ko": "복귀 사용자"},
+		3: {"en": "New Users", "ja": "新規ユーザー", "ko": "신규 사용자"},
+	}
+	return cloneTitles(values[userStatus])
 }
 
 func (r *titleResolver) enhanceEffectFootnotes(row []interface{}) []map[string]string {

@@ -130,9 +130,12 @@ func TestContentFootnotes(t *testing.T) {
 		maintenanceAPIs:      map[int64][]string{50: {"apb.api.gacha.GachaService/Draw", "apb.api.pvp.PvpService/GetRanking"}},
 	}
 
-	enhance := resolver.resolveContentFootnotes("m_enhance_campaign", []interface{}{1, 10, 2, 400}, nil)
-	if got, want := footnoteTexts(enhance, "en"), []string{"×3", "Black Sunflower"}; !equalStrings(got, want) {
+	enhance := resolver.resolveContentFootnotes("m_enhance_campaign", []interface{}{1, 10, 2, 400, int64(100), int64(200), 2}, nil)
+	if got, want := footnoteTexts(enhance, "en"), []string{"×3", "Black Sunflower", "Returning Users"}; !equalStrings(got, want) {
 		t.Fatalf("enhance footnotes = %q, want %q", got, want)
+	}
+	if got, want := footnoteTexts(enhance, "ja"), []string{"×3", "Black Sunflower", "カムバックユーザー"}; !equalStrings(got, want) {
+		t.Fatalf("Japanese enhance footnotes = %q, want %q", got, want)
 	}
 	character := resolver.resolveContentFootnotes("m_enhance_campaign", []interface{}{2, 11, 1, 400}, nil)
 	if got, want := footnoteTexts(character, "en"), []string{"4%", "2B"}; !equalStrings(got, want) {
@@ -142,8 +145,8 @@ func TestContentFootnotes(t *testing.T) {
 	if got, want := footnoteTexts(memoir, "en"), []string{"+5%", "All Memoirs"}; !equalStrings(got, want) {
 		t.Fatalf("memoir footnotes = %q, want %q", got, want)
 	}
-	quest := resolver.resolveContentFootnotes("m_quest_campaign", []interface{}{4, 30, 20, int64(100), int64(200)}, nil)
-	if got, want := footnoteTexts(quest, "en"), []string{"×0.5", "Record: The Festival"}; !equalStrings(got, want) {
+	quest := resolver.resolveContentFootnotes("m_quest_campaign", []interface{}{4, 30, 20, int64(100), int64(200), 3}, nil)
+	if got, want := footnoteTexts(quest, "en"), []string{"×0.5", "Record: The Festival", "New Users"}; !equalStrings(got, want) {
 		t.Fatalf("quest footnotes = %q, want %q", got, want)
 	}
 	maintenanceRow := []interface{}{5, int64(100), int64(200), 50}

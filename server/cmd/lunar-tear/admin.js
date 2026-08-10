@@ -48,7 +48,6 @@
     gachaDirty: false
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
-  const targetUserStatusLabels = { "1": "全部用户", "2": "回归用户", "3": "新手用户" };
   const languageLabels = { en: "English", ja: "日本語", ko: "한국어" };
   const simpleFieldNames = {
     m_beginner_campaign: ["BeginnerCampaignId", "GrantCampaignTermDayCount", "CampaignUnlockQuestId"],
@@ -64,7 +63,7 @@
     m_mom_banner: ["MomBannerId", "SortOrderDesc", "DestinationDomainType", "DestinationDomainId", "BannerAssetName"],
     m_omikuji: ["OmikujiId"],
     m_pvp_season: ["PvpSeasonId", "NameAssetPath"],
-    m_quest_campaign: ["QuestCampaignId", "QuestCampaignTargetGroupId", "QuestCampaignEffectGroupId"],
+    m_quest_campaign: ["QuestCampaignId", "QuestCampaignTargetGroupId", "QuestCampaignEffectGroupId", "TargetUserStatusType"],
     m_shop: ["ShopId", "ShopGroupType", "SortOrderInShopGroup", "NameShopTextId", "ShopItemCellGroupId"],
     m_shop_item_cell_term: ["ShopItemCellTermId"]
   };
@@ -219,9 +218,6 @@
   }
 
   function typeOptionLabel(tableName, fieldName, value) {
-    if (fieldName === "TargetUserStatusType" && targetUserStatusLabels[value]) {
-      return `${targetUserStatusLabels[value]}（${value}）`;
-    }
     return value;
   }
 
@@ -342,8 +338,7 @@
       if (table.name === "m_shop" && fieldName === "ShopItemCellGroupId") return;
       const meta = document.createElement("div");
       meta.className = "identity-meta";
-      const value = effectiveValue(table.name, row, fieldName);
-      meta.textContent = `${fieldName}=${typeOptionLabel(table.name, fieldName, displayText(value))}`;
+      meta.textContent = `${fieldName}=${displayText(effectiveValue(table.name, row, fieldName))}`;
       notes.append(meta);
     });
     if (!notes.childElementCount) {
