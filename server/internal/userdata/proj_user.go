@@ -75,15 +75,51 @@ func init() {
 		})
 		return s
 	})
-	register("IUserLoginBonus", func(user store.UserState) string {
+	register("IUserBeginnerCampaign", func(user store.UserState) string {
+		if user.BeginnerCampaign.BeginnerCampaignId == 0 {
+			s, _ := utils.EncodeJSONMaps()
+			return s
+		}
 		s, _ := utils.EncodeJSONMaps(map[string]any{
-			"userId":                      user.UserId,
-			"loginBonusId":                user.LoginBonus.LoginBonusId,
-			"currentPageNumber":           user.LoginBonus.CurrentPageNumber,
-			"currentStampNumber":          user.LoginBonus.CurrentStampNumber,
-			"latestRewardReceiveDatetime": user.LoginBonus.LatestRewardReceiveDatetime,
-			"latestVersion":               user.LoginBonus.LatestVersion,
+			"userId":                   user.UserId,
+			"beginnerCampaignId":       user.BeginnerCampaign.BeginnerCampaignId,
+			"campaignRegisterDatetime": user.BeginnerCampaign.CampaignRegisterDatetime,
+			"latestVersion":            user.BeginnerCampaign.LatestVersion,
 		})
+		return s
+	})
+	register("IUserComebackCampaign", func(user store.UserState) string {
+		if user.ComebackCampaign.ComebackCampaignId == 0 {
+			s, _ := utils.EncodeJSONMaps()
+			return s
+		}
+		s, _ := utils.EncodeJSONMaps(map[string]any{
+			"userId":             user.UserId,
+			"comebackCampaignId": user.ComebackCampaign.ComebackCampaignId,
+			"comebackDatetime":   user.ComebackCampaign.ComebackDatetime,
+			"latestVersion":      user.ComebackCampaign.LatestVersion,
+		})
+		return s
+	})
+	register("IUserLoginBonus", func(user store.UserState) string {
+		ids := make([]int, 0, len(user.LoginBonuses))
+		for id := range user.LoginBonuses {
+			ids = append(ids, int(id))
+		}
+		sort.Ints(ids)
+		rows := make([]map[string]any, 0, len(ids))
+		for _, id := range ids {
+			lb := user.LoginBonuses[int32(id)]
+			rows = append(rows, map[string]any{
+				"userId":                      user.UserId,
+				"loginBonusId":                lb.LoginBonusId,
+				"currentPageNumber":           lb.CurrentPageNumber,
+				"currentStampNumber":          lb.CurrentStampNumber,
+				"latestRewardReceiveDatetime": lb.LatestRewardReceiveDatetime,
+				"latestVersion":               lb.LatestVersion,
+			})
+		}
+		s, _ := utils.EncodeJSONMaps(rows...)
 		return s
 	})
 	register("IUserTutorialProgress", func(user store.UserState) string {

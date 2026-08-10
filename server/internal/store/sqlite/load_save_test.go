@@ -27,6 +27,10 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = repo.UpdateUser(userId, func(user *store.UserState) {
+		user.BeginnerCampaign = store.UserBeginnerCampaignState{BeginnerCampaignId: 1, CampaignRegisterDatetime: 100, LatestVersion: 101}
+		user.ComebackCampaign = store.UserComebackCampaignState{ComebackCampaignId: 2, ComebackDatetime: 200, LatestVersion: 201}
+		user.LoginBonuses[1] = store.UserLoginBonusState{LoginBonusId: 1, CurrentPageNumber: 2, CurrentStampNumber: 3, LatestVersion: 301}
+		user.LoginBonuses[91] = store.UserLoginBonusState{LoginBonusId: 91, CurrentPageNumber: 1, CurrentStampNumber: 1, LatestVersion: 302}
 		user.CostumeLevelBonusReleaseStatuses[10] = store.CostumeLevelBonusReleaseStatusState{CostumeId: 10, LastReleasedBonusLevel: 60, ConfirmedBonusLevel: 60, LatestVersion: 1}
 		user.CostumeLotteryEffectAbilities[store.CostumeLotteryEffectKey{UserCostumeUuid: "costume", SlotNumber: 1}] = store.CostumeLotteryEffectAbilityState{UserCostumeUuid: "costume", SlotNumber: 1, AbilityId: 20, AbilityLevel: 2, LatestVersion: 2}
 		user.CostumeLotteryEffectStatusUps[store.CostumeLotteryEffectStatusKey{UserCostumeUuid: "costume", StatusCalculationType: model.StatusCalculationTypeAdd}] = store.CostumeLotteryEffectStatusUpState{UserCostumeUuid: "costume", StatusCalculationType: model.StatusCalculationTypeAdd, Attack: 30, LatestVersion: 3}
@@ -54,6 +58,10 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 	}
 	if user.CostumeLevelBonusReleaseStatuses[10].ConfirmedBonusLevel != 60 {
 		t.Fatal("costume level bonus was not persisted")
+	}
+	if user.BeginnerCampaign.BeginnerCampaignId != 1 || user.ComebackCampaign.ComebackCampaignId != 2 ||
+		len(user.LoginBonuses) != 2 || user.LoginBonuses[1].CurrentStampNumber != 3 || user.LoginBonuses[91].CurrentStampNumber != 1 {
+		t.Fatal("campaign or multi-login-bonus state was not persisted")
 	}
 	if user.CostumeLotteryEffectAbilities[store.CostumeLotteryEffectKey{UserCostumeUuid: "costume", SlotNumber: 1}].AbilityId != 20 {
 		t.Fatal("costume lottery ability was not persisted")

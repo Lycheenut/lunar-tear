@@ -62,13 +62,7 @@ func SeedUserState(userId int64, uuid string, nowMillis int64, platform model.Cl
 			LastComebackLoginDatetime: 0,
 			LatestVersion:             0,
 		},
-		LoginBonus: UserLoginBonusState{
-			LoginBonusId:                1,
-			CurrentPageNumber:           1,
-			CurrentStampNumber:          0,
-			LatestRewardReceiveDatetime: 0,
-			LatestVersion:               0,
-		},
+		LoginBonuses: map[int32]UserLoginBonusState{},
 		Tutorials: map[int32]TutorialProgressState{
 			1: {TutorialType: 1},
 		},

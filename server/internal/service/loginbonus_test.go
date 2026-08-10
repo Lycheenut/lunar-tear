@@ -1,6 +1,8 @@
 package service
 
 import (
+	"maps"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -8,36 +10,167 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/masterdata"
+	"lunar-tear/server/internal/masterdata/memorydb"
+	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
 
-func TestApplyLoginBonusStampTreatsSameBusinessDayAsIdempotentReplay(t *testing.T) {
+func TestApplyLoginBonusStampsTreatsSameBusinessDayAsIdempotentReplay(t *testing.T) {
 	now := time.Date(2026, 8, 4, 8, 1, 0, 0, time.UTC).UnixMilli()
+	catalog, _ := loadCampaignAndLoginBonusCatalogs(t)
 	user := store.UserState{
-		LoginBonus: store.UserLoginBonusState{
+		LoginBonuses: map[int32]store.UserLoginBonusState{1: {
 			LoginBonusId:                1,
 			CurrentPageNumber:           2,
 			CurrentStampNumber:          3,
 			LatestRewardReceiveDatetime: now - int64(time.Minute/time.Millisecond),
 			LatestVersion:               now - int64(time.Minute/time.Millisecond),
-		},
+		}},
 	}
 	before := user
+	before.LoginBonuses = maps.Clone(user.LoginBonuses)
 
-	receipt, applied, err := applyLoginBonusStamp(nil, &user, now)
+	receipts, err := applyLoginBonusStamps(catalog, &user, now)
 	if err != nil {
 		t.Fatalf("idempotent replay returned error: %v", err)
 	}
-	if applied {
-		t.Fatal("idempotent replay applied another login bonus stamp")
-	}
-	if receipt != (loginBonusReceipt{}) {
-		t.Fatalf("idempotent replay receipt = %+v, want empty", receipt)
+	if len(receipts) != 0 {
+		t.Fatalf("idempotent replay receipts = %+v, want empty", receipts)
 	}
 	if !reflect.DeepEqual(user, before) {
 		t.Fatalf("idempotent replay changed user state\nbefore: %+v\nafter:  %+v", before, user)
 	}
+}
+
+func TestLoginBonusStartConditionsCoverCurrentMasterData(t *testing.T) {
+	loginBonuses, campaigns := loadCampaignAndLoginBonusCatalogs(t)
+	seen := make(map[int32]bool)
+	for _, definition := range loginBonuses.Definitions() {
+		seen[definition.LoginBonusStartConditionId] = true
+		switch definition.LoginBonusStartConditionId {
+		case loginBonusStartConditionAll, loginBonusStartConditionComeback,
+			loginBonusStartConditionBeginner, loginBonusStartConditionComebackGrade1:
+		default:
+			t.Fatalf("login bonus %d references unsupported start condition %d",
+				definition.LoginBonusId, definition.LoginBonusStartConditionId)
+		}
+	}
+	for _, conditionId := range []int32{0, 4, 5, 6} {
+		if !seen[conditionId] {
+			t.Fatalf("current master data no longer references expected start condition %d", conditionId)
+		}
+	}
+
+	cleared := map[int32]store.UserQuestState{1: {QuestStateType: model.UserQuestStateTypeCleared}}
+	beginnerNow := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC).UnixMilli()
+	beginner := store.UserState{
+		BeginnerCampaign: store.UserBeginnerCampaignState{
+			BeginnerCampaignId:       1,
+			CampaignRegisterDatetime: beginnerNow - int64(24*time.Hour/time.Millisecond),
+		},
+		Quests: cleared,
+	}
+	if !loginBonusStartConditionEligible(loginBonusStartConditionAll, campaigns, &beginner, beginnerNow) {
+		t.Fatal("condition 0 did not accept an ordinary active user")
+	}
+	if !loginBonusStartConditionEligible(loginBonusStartConditionBeginner, campaigns, &beginner, beginnerNow) {
+		t.Fatal("condition 5 did not accept a beginner campaign user")
+	}
+	if loginBonusStartConditionEligible(loginBonusStartConditionComeback, campaigns, &beginner, beginnerNow) {
+		t.Fatal("condition 4 accepted a non-comeback user")
+	}
+
+	comeback := store.UserState{
+		ComebackCampaign: store.UserComebackCampaignState{
+			ComebackCampaignId: 2,
+			ComebackDatetime:   beginnerNow - int64(24*time.Hour/time.Millisecond),
+		},
+		Quests: cleared,
+	}
+	if !loginBonusStartConditionEligible(loginBonusStartConditionComeback, campaigns, &comeback, beginnerNow) {
+		t.Fatal("condition 4 did not accept a comeback campaign user")
+	}
+	if loginBonusStartConditionEligible(loginBonusStartConditionComebackGrade1, campaigns, &comeback, beginnerNow) {
+		t.Fatal("condition 6 accepted comeback grade group 0")
+	}
+
+	grade1Now := int64(1659924000000) + int64(24*time.Hour/time.Millisecond)
+	grade1 := store.UserState{
+		ComebackCampaign: store.UserComebackCampaignState{
+			ComebackCampaignId: 3,
+			ComebackDatetime:   grade1Now - int64(time.Hour/time.Millisecond),
+		},
+		Quests: cleared,
+	}
+	if !loginBonusStartConditionEligible(loginBonusStartConditionComebackGrade1, campaigns, &grade1, grade1Now) {
+		t.Fatal("condition 6 did not accept comeback grade group 1")
+	}
+}
+
+func TestSyncLoginBonusesCreatesEveryEligibleActiveBonus(t *testing.T) {
+	loginBonuses, campaigns := loadCampaignAndLoginBonusCatalogs(t)
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC).UnixMilli()
+	user := store.UserState{
+		BeginnerCampaign: store.UserBeginnerCampaignState{
+			BeginnerCampaignId:       1,
+			CampaignRegisterDatetime: now - int64(24*time.Hour/time.Millisecond),
+		},
+		Quests: map[int32]store.UserQuestState{1: {QuestStateType: model.UserQuestStateTypeCleared}},
+	}
+
+	syncLoginBonuses(loginBonuses, campaigns, &user, now, false)
+	for _, id := range []int32{1, 91, 97} {
+		if _, ok := user.LoginBonuses[id]; !ok {
+			t.Fatalf("eligible active login bonus %d was not created", id)
+		}
+	}
+	if _, ok := user.LoginBonuses[24]; ok {
+		t.Fatal("comeback login bonus 24 was created for a beginner")
+	}
+}
+
+func TestApplyLoginBonusStampsReceivesAllActiveBonuses(t *testing.T) {
+	loginBonuses, _ := loadCampaignAndLoginBonusCatalogs(t)
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC).UnixMilli()
+	user := store.UserState{
+		LoginBonuses: map[int32]store.UserLoginBonusState{
+			1:  {LoginBonusId: 1, CurrentPageNumber: 1},
+			91: {LoginBonusId: 91, CurrentPageNumber: 1},
+		},
+	}
+
+	receipts, err := applyLoginBonusStamps(loginBonuses, &user, now)
+	if err != nil {
+		t.Fatalf("receive all active login bonuses: %v", err)
+	}
+	if len(receipts) != 2 || len(user.Gifts.NotReceived) != 2 {
+		t.Fatalf("received %d stamps and %d gifts, want 2 each", len(receipts), len(user.Gifts.NotReceived))
+	}
+	if user.LoginBonuses[1].CurrentStampNumber != 1 || user.LoginBonuses[91].CurrentStampNumber != 1 {
+		t.Fatalf("login bonus stamps were not advanced: %+v", user.LoginBonuses)
+	}
+
+	replayed, err := applyLoginBonusStamps(loginBonuses, &user, now)
+	if err != nil {
+		t.Fatalf("idempotent replay: %v", err)
+	}
+	if len(replayed) != 0 || len(user.Gifts.NotReceived) != 2 {
+		t.Fatalf("idempotent replay added rewards: receipts=%d gifts=%d", len(replayed), len(user.Gifts.NotReceived))
+	}
+}
+
+func loadCampaignAndLoginBonusCatalogs(t *testing.T) (*masterdata.LoginBonusCatalog, *campaign.Catalog) {
+	t.Helper()
+	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
+		t.Fatalf("init master data: %v", err)
+	}
+	campaigns, err := campaign.Load()
+	if err != nil {
+		t.Fatalf("load campaigns: %v", err)
+	}
+	return masterdata.LoadLoginBonusCatalog(), campaigns
 }
 
 func TestIsLoginBonusStampReceivedTodayUsesUTC0800Boundary(t *testing.T) {

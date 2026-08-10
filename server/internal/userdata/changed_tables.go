@@ -74,7 +74,13 @@ func ChangedTables(before, after *store.UserState) []string {
 	if before.Login != after.Login {
 		add("IUserLogin")
 	}
-	if before.LoginBonus != after.LoginBonus {
+	if before.BeginnerCampaign != after.BeginnerCampaign {
+		add("IUserBeginnerCampaign")
+	}
+	if before.ComebackCampaign != after.ComebackCampaign {
+		add("IUserComebackCampaign")
+	}
+	if !mapsEqualStruct(before.LoginBonuses, after.LoginBonuses) {
 		add("IUserLoginBonus")
 	}
 	if before.PortalCageStatus != after.PortalCageStatus {
@@ -389,6 +395,10 @@ func parseJSONRecords(jsonStr string) []map[string]any {
 
 func keyFieldsForTable(table string) []string {
 	switch table {
+	case "IUserBeginnerCampaign", "IUserComebackCampaign":
+		return []string{"userId"}
+	case "IUserLoginBonus":
+		return []string{"userId", "loginBonusId"}
 	case "IUserWeapon":
 		return []string{"userId", "userWeaponUuid"}
 	case "IUserWeaponSkill":

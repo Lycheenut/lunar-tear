@@ -41,3 +41,56 @@ func TestMissionChangesRefreshBothClientMissionTables(t *testing.T) {
 		t.Fatalf("mission completion progress keys = %v", keys)
 	}
 }
+
+func TestCampaignAndLoginBonusProjectionUsesClientTables(t *testing.T) {
+	user := store.UserState{
+		UserId: 7,
+		BeginnerCampaign: store.UserBeginnerCampaignState{
+			BeginnerCampaignId:       1,
+			CampaignRegisterDatetime: 100,
+			LatestVersion:            101,
+		},
+		ComebackCampaign: store.UserComebackCampaignState{
+			ComebackCampaignId: 2,
+			ComebackDatetime:   200,
+			LatestVersion:      201,
+		},
+		LoginBonuses: map[int32]store.UserLoginBonusState{
+			91: {LoginBonusId: 91, CurrentPageNumber: 1, CurrentStampNumber: 1},
+			1:  {LoginBonusId: 1, CurrentPageNumber: 2, CurrentStampNumber: 3},
+		},
+	}
+
+	var beginner []map[string]any
+	if err := json.Unmarshal([]byte(projectTable("IUserBeginnerCampaign", user)), &beginner); err != nil {
+		t.Fatal(err)
+	}
+	var comeback []map[string]any
+	if err := json.Unmarshal([]byte(projectTable("IUserComebackCampaign", user)), &comeback); err != nil {
+		t.Fatal(err)
+	}
+	var bonuses []struct {
+		LoginBonusId int32 `json:"loginBonusId"`
+	}
+	if err := json.Unmarshal([]byte(projectTable("IUserLoginBonus", user)), &bonuses); err != nil {
+		t.Fatal(err)
+	}
+	if len(beginner) != 1 || len(comeback) != 1 || len(bonuses) != 2 || bonuses[0].LoginBonusId != 1 || bonuses[1].LoginBonusId != 91 {
+		t.Fatalf("campaign projections: beginner=%v comeback=%v bonuses=%v", beginner, comeback, bonuses)
+	}
+
+	before := &store.UserState{LoginBonuses: map[int32]store.UserLoginBonusState{}}
+	after := store.CloneUserState(*before)
+	after.BeginnerCampaign = user.BeginnerCampaign
+	after.ComebackCampaign = user.ComebackCampaign
+	after.LoginBonuses[1] = user.LoginBonuses[1]
+	changed := ChangedTables(before, &after)
+	for _, table := range []string{"IUserBeginnerCampaign", "IUserComebackCampaign", "IUserLoginBonus"} {
+		if !slices.Contains(changed, table) {
+			t.Fatalf("changed campaign tables = %v, missing %s", changed, table)
+		}
+	}
+	if keys := keyFieldsForTable("IUserLoginBonus"); !slices.Equal(keys, []string{"userId", "loginBonusId"}) {
+		t.Fatalf("login bonus keys = %v", keys)
+	}
+}

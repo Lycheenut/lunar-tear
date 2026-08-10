@@ -38,7 +38,9 @@ type UserState struct {
 	Gem                     UserGemState
 	Profile                 UserProfileState
 	Login                   UserLoginState
-	LoginBonus              UserLoginBonusState
+	BeginnerCampaign        UserBeginnerCampaignState
+	ComebackCampaign        UserComebackCampaignState
+	LoginBonuses            map[int32]UserLoginBonusState
 	Tutorials               map[int32]TutorialProgressState
 	MainQuest               MainQuestState
 	EventQuest              EventQuestState
@@ -191,6 +193,9 @@ func SetMissionValue(user *UserState, conditionType, value, targetId, optionGrou
 }
 
 func (u *UserState) EnsureMaps() {
+	if u.LoginBonuses == nil {
+		u.LoginBonuses = make(map[int32]UserLoginBonusState)
+	}
 	if u.Friends == nil {
 		u.Friends = make(map[int64]FriendState)
 	}
@@ -529,6 +534,18 @@ type UserLoginState struct {
 	LastLoginDatetime         int64
 	LastComebackLoginDatetime int64
 	LatestVersion             int64
+}
+
+type UserBeginnerCampaignState struct {
+	BeginnerCampaignId       int32
+	CampaignRegisterDatetime int64
+	LatestVersion            int64
+}
+
+type UserComebackCampaignState struct {
+	ComebackCampaignId int32
+	ComebackDatetime   int64
+	LatestVersion      int64
 }
 
 type UserLoginBonusState struct {

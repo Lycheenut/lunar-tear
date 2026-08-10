@@ -33,9 +33,13 @@ func (h *QuestHandler) targetForBigHunt(questId int32) campaign.QuestTarget {
 
 func (h *QuestHandler) campaignFilter(user *store.UserState, nowMillis int64) campaign.Filter {
 	return h.Campaigns.FilterForUser(campaign.UserStatusContext{
-		NowMillis:                 nowMillis,
-		RegisterDatetime:          user.RegisterDatetime,
-		LastComebackLoginDatetime: user.Login.LastComebackLoginDatetime,
+		NowMillis:                        nowMillis,
+		RegisterDatetime:                 user.RegisterDatetime,
+		LastComebackLoginDatetime:        user.Login.LastComebackLoginDatetime,
+		BeginnerCampaignId:               user.BeginnerCampaign.BeginnerCampaignId,
+		BeginnerCampaignRegisterDatetime: user.BeginnerCampaign.CampaignRegisterDatetime,
+		ComebackCampaignId:               user.ComebackCampaign.ComebackCampaignId,
+		ComebackDatetime:                 user.ComebackCampaign.ComebackDatetime,
 		IsCampaignUnlockQuestCleared: func(questId int32) bool {
 			return user.Quests[questId].QuestStateType == model.UserQuestStateTypeCleared
 		},

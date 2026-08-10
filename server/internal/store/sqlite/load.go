@@ -37,6 +37,7 @@ func (s *SQLiteStore) LoadUser(userId int64) (store.UserState, error) {
 }
 
 func initMaps(u *store.UserState) {
+	u.LoginBonuses = make(map[int32]store.UserLoginBonusState)
 	u.Friends = make(map[int64]store.FriendState)
 	u.FriendRequests = make(map[int64]int64)
 	u.Tutorials = make(map[int32]store.TutorialProgressState)
@@ -137,10 +138,15 @@ func load1to1(db *sql.DB, uid int64, u *store.UserState) {
 		Scan(&u.Login.TotalLoginCount, &u.Login.ContinualLoginCount, &u.Login.MaxContinualLoginCount,
 			&u.Login.LastLoginDatetime, &u.Login.LastComebackLoginDatetime, &u.Login.LatestVersion)
 
-	_ = db.QueryRow(`SELECT login_bonus_id, current_page_number, current_stamp_number,
-		latest_reward_receive_datetime, latest_version FROM user_login_bonus WHERE user_id=?`, uid).
-		Scan(&u.LoginBonus.LoginBonusId, &u.LoginBonus.CurrentPageNumber, &u.LoginBonus.CurrentStampNumber,
-			&u.LoginBonus.LatestRewardReceiveDatetime, &u.LoginBonus.LatestVersion)
+	_ = db.QueryRow(`SELECT beginner_campaign_id, campaign_register_datetime, latest_version
+		FROM user_beginner_campaign WHERE user_id=?`, uid).
+		Scan(&u.BeginnerCampaign.BeginnerCampaignId, &u.BeginnerCampaign.CampaignRegisterDatetime,
+			&u.BeginnerCampaign.LatestVersion)
+
+	_ = db.QueryRow(`SELECT comeback_campaign_id, comeback_datetime, latest_version
+		FROM user_comeback_campaign WHERE user_id=?`, uid).
+		Scan(&u.ComebackCampaign.ComebackCampaignId, &u.ComebackCampaign.ComebackDatetime,
+			&u.ComebackCampaign.LatestVersion)
 
 	var ctxActive, ctxIsLast, ctxCage int
 	_ = db.QueryRow(`SELECT current_quest_flow_type, current_main_quest_route_id, current_quest_scene_id,
@@ -263,6 +269,15 @@ func load1to1(db *sql.DB, uid int64, u *store.UserState) {
 }
 
 func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
+	queryRows(db, `SELECT login_bonus_id, current_page_number, current_stamp_number,
+		latest_reward_receive_datetime, latest_version FROM user_login_bonus WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var v store.UserLoginBonusState
+			rows.Scan(&v.LoginBonusId, &v.CurrentPageNumber, &v.CurrentStampNumber,
+				&v.LatestRewardReceiveDatetime, &v.LatestVersion)
+			u.LoginBonuses[v.LoginBonusId] = v
+		})
+
 	queryRows(db, `SELECT friend_user_id, is_friend, cheer_sent_datetime, cheer_received_datetime,
 		stamina_received_datetime FROM user_friends WHERE user_id=?`, uid,
 		func(rows *sql.Rows) {

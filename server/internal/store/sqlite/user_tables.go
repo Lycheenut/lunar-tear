@@ -102,6 +102,8 @@ var userOwnedTables = []string{
 	"user_event_quest",
 	"user_main_quest",
 	"user_login_bonus",
+	"user_comeback_campaign",
+	"user_beginner_campaign",
 	"user_login",
 	"user_profile",
 	"user_gem",

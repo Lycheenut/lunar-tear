@@ -74,6 +74,7 @@ func loadBeginnerRows() ([]beginnerRow, error) {
 	out := make([]beginnerRow, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, beginnerRow{
+			campaignId:       r.BeginnerCampaignId,
 			judgeStartMillis: r.BeginnerJudgeStartDatetime,
 			judgeEndMillis:   r.BeginnerJudgeEndDatetime,
 			grantDays:        r.GrantCampaignTermDayCount,
@@ -91,11 +92,13 @@ func loadComebackRows() ([]comebackRow, error) {
 	out := make([]comebackRow, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, comebackRow{
+			campaignId:       r.ComebackCampaignId,
 			judgeStartMillis: r.ComebackJudgeStartDatetime,
 			judgeEndMillis:   r.ComebackJudgeEndDatetime,
 			judgeDays:        r.ComebackJudgeDayCount,
 			grantDays:        r.GrantCampaignTermDayCount,
 			unlockQuestId:    r.CampaignUnlockQuestId,
+			gradeGroupId:     r.ComebackCampaignGradeGroupId,
 		})
 	}
 	return out, nil

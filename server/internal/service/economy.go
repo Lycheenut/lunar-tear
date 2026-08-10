@@ -15,7 +15,7 @@ const (
 	// The normal Glorious Success chance is 2%; campaign rates are normalized to permil.
 	standardGreatSuccessRatePermil = int32(20)
 	// A Glorious Success doubles the effective enhancement material experience.
-	greatSuccessExpMultiplier      = int64(2)
+	greatSuccessExpMultiplier = int64(2)
 )
 
 func finalizeEnhancementExp(baseExp int64, ratePermil int32, roll int) (int32, bool, error) {
@@ -30,14 +30,7 @@ func finalizeEnhancementExp(baseExp int64, ratePermil int32, roll int) (int32, b
 }
 
 func enhancementCampaignFilter(catalog *campaign.Catalog, user *store.UserState, nowMillis int64) campaign.Filter {
-	return catalog.FilterForUser(campaign.UserStatusContext{
-		NowMillis:                 nowMillis,
-		RegisterDatetime:          user.RegisterDatetime,
-		LastComebackLoginDatetime: user.Login.LastComebackLoginDatetime,
-		IsCampaignUnlockQuestCleared: func(questId int32) bool {
-			return user.Quests[questId].QuestStateType == model.UserQuestStateTypeCleared
-		},
-	})
+	return catalog.FilterForUser(userCampaignStatusContext(user, nowMillis))
 }
 
 func materialCost(materialId, count int32) store.PossessionCost {
