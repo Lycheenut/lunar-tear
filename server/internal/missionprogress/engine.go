@@ -69,6 +69,13 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 				changed = true
 			}
 			if state.MissionProgressStatusType >= int32(model.MissionProgressStatusTypeClear) {
+				if state.MissionProgressStatusType == int32(model.MissionProgressStatusTypeClear) &&
+					isDailyCompletionMission(mission) && state.ClearDatetime > state.StartDatetime {
+					state.StartDatetime = state.ClearDatetime
+					state.LatestVersion = nowMillis
+					user.Missions[mission.MissionId] = state
+					changed = true
+				}
 				continue
 			}
 			if value, ok := absoluteProgress(catalogs, user, mission, state, nowMillis); ok && absoluteProgressImproved(mission, state.ProgressValue, value) {
@@ -81,6 +88,9 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 			if conditionSatisfied(catalogs, user, mission, state.ProgressValue, nowMillis) {
 				state.MissionProgressStatusType = int32(model.MissionProgressStatusTypeClear)
 				state.ClearDatetime = nowMillis
+				if isDailyCompletionMission(mission) {
+					state.StartDatetime = nowMillis
+				}
 				state.LatestVersion = nowMillis
 				user.Missions[mission.MissionId] = state
 				changed = true
@@ -146,7 +156,7 @@ func resetDailyMissions(catalog *masterdata.MissionCatalog, user *store.UserStat
 			continue
 		}
 		user.Missions[id] = store.UserMissionState{
-			MissionId: id, StartDatetime: today,
+			MissionId: id, StartDatetime: nowMillis,
 			MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress), LatestVersion: nowMillis,
 		}
 	}
@@ -159,6 +169,12 @@ func isDaily(catalog *masterdata.MissionCatalog, mission masterdata.EntityMMissi
 
 func isDailyAggregateMember(catalog *masterdata.MissionCatalog, mission masterdata.EntityMMission) bool {
 	return catalog.GroupById[mission.MissionGroupId].MissionCategoryType == missionCategoryDaily
+}
+
+func isDailyCompletionMission(mission masterdata.EntityMMission) bool {
+	t := model.MissionClearConditionType(mission.MissionClearConditionType)
+	return t == model.MissionClearConditionTypeMissionClearForAllDaily ||
+		t == model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId
 }
 
 func absoluteProgress(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission, state store.UserMissionState, nowMillis int64) (int32, bool) {

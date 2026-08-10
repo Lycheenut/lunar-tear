@@ -104,10 +104,13 @@ func TestDailyQuestProgressDoesNotCarryAcrossBusinessDays(t *testing.T) {
 	user.Missions[1] = store.UserMissionState{MissionId: 1, StartDatetime: 1, ProgressValue: 1, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear)}
 	user.Quests[10] = store.UserQuestState{QuestId: 10, QuestStateType: model.UserQuestStateTypeCleared, ClearCount: 3, DailyClearCount: 1, LastClearDatetime: 1}
 
-	const nowMillis = int64(10 * 24 * 60 * 60 * 1000)
+	const nowMillis = int64(10*24*60*60*1000 + 12345)
 	Sync(catalogs, user, nowMillis)
 	if state := user.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
 		t.Fatalf("old quest clears leaked into the new day: %+v", state)
+	}
+	if state := user.Missions[1]; state.StartDatetime != nowMillis {
+		t.Fatalf("daily mission start time was not refreshed: got %d, want %d", state.StartDatetime, nowMillis)
 	}
 
 	quest := user.Quests[10]
@@ -131,6 +134,34 @@ func TestAllDailyIgnoresMissionPassDaily(t *testing.T) {
 	Sync(catalogs, user, 100)
 	if state := user.Missions[1]; state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
 		t.Fatalf("mission-pass daily task blocked standard daily aggregate: %+v", state)
+	}
+}
+
+func TestCompletedDailyAggregateUsesClearTimeAsStartTime(t *testing.T) {
+	aggregate := masterdata.EntityMMission{
+		MissionId: 1, MissionGroupId: 1,
+		MissionClearConditionType: int32(model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId),
+		ClearConditionValue:       1,
+	}
+	catalogs := testCatalog(aggregate)
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Missions[1] = store.UserMissionState{
+		MissionId:                 1,
+		StartDatetime:             1,
+		ProgressValue:             1,
+		MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear),
+		ClearDatetime:             50,
+		LatestVersion:             50,
+	}
+
+	Sync(catalogs, user, 100)
+	state := user.Missions[1]
+	if state.StartDatetime != state.ClearDatetime {
+		t.Fatalf("completed daily aggregate kept a stale start time: %+v", state)
+	}
+	if state.LatestVersion != 100 {
+		t.Fatalf("corrected daily aggregate was not marked updated: %+v", state)
 	}
 }
 
