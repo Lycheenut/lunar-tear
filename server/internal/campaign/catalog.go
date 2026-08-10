@@ -8,8 +8,10 @@ import (
 )
 
 type Catalog struct {
-	enhance []enhanceRow
-	quest   []questRow
+	enhance  []enhanceRow
+	quest    []questRow
+	beginner []beginnerRow
+	comeback []comebackRow
 }
 
 type enhanceRow struct {
@@ -50,11 +52,54 @@ func Load() (*Catalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load quest campaigns: %w", err)
 	}
-	return &Catalog{enhance: enhance, quest: quest}, nil
+	beginner, err := loadBeginnerRows()
+	if err != nil {
+		return nil, fmt.Errorf("load beginner campaigns: %w", err)
+	}
+	comeback, err := loadComebackRows()
+	if err != nil {
+		return nil, fmt.Errorf("load comeback campaigns: %w", err)
+	}
+	return &Catalog{enhance: enhance, quest: quest, beginner: beginner, comeback: comeback}, nil
 }
 
 func (c *Catalog) EnhanceCount() int { return len(c.enhance) }
 func (c *Catalog) QuestCount() int   { return len(c.quest) }
+
+func loadBeginnerRows() ([]beginnerRow, error) {
+	rows, err := utils.ReadTable[masterdata.EntityMBeginnerCampaign]("m_beginner_campaign")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]beginnerRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, beginnerRow{
+			judgeStartMillis: r.BeginnerJudgeStartDatetime,
+			judgeEndMillis:   r.BeginnerJudgeEndDatetime,
+			grantDays:        r.GrantCampaignTermDayCount,
+			unlockQuestId:    r.CampaignUnlockQuestId,
+		})
+	}
+	return out, nil
+}
+
+func loadComebackRows() ([]comebackRow, error) {
+	rows, err := utils.ReadTable[masterdata.EntityMComebackCampaign]("m_comeback_campaign")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]comebackRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, comebackRow{
+			judgeStartMillis: r.ComebackJudgeStartDatetime,
+			judgeEndMillis:   r.ComebackJudgeEndDatetime,
+			judgeDays:        r.ComebackJudgeDayCount,
+			grantDays:        r.GrantCampaignTermDayCount,
+			unlockQuestId:    r.CampaignUnlockQuestId,
+		})
+	}
+	return out, nil
+}
 
 func loadEnhanceRows() ([]enhanceRow, error) {
 	campaigns, err := utils.ReadTable[masterdata.EntityMEnhanceCampaign]("m_enhance_campaign")
