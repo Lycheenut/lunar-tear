@@ -149,6 +149,27 @@ func TestContentFootnotes(t *testing.T) {
 	if got, want := footnoteTexts(quest, "en"), []string{"×0.5", "Record: The Festival", "New Users"}; !equalStrings(got, want) {
 		t.Fatalf("quest footnotes = %q, want %q", got, want)
 	}
+	beginner := resolver.resolveContentFootnotes("m_beginner_campaign", []interface{}{1}, nil)
+	if got, want := footnoteTexts(beginner, "en"), []string{"New Users"}; !equalStrings(got, want) {
+		t.Fatalf("beginner footnotes = %q, want %q", got, want)
+	}
+	comeback := resolver.resolveContentFootnotes("m_comeback_campaign", []interface{}{2}, nil)
+	if got, want := footnoteTexts(comeback, "en"), []string{"Returning Users"}; !equalStrings(got, want) {
+		t.Fatalf("comeback footnotes = %q, want %q", got, want)
+	}
+	loginBonus := resolver.resolveContentFootnotes("m_login_bonus", []interface{}{24, 3, 6}, nil)
+	if got, want := footnoteTexts(loginBonus, "en"), []string{"Returning Users (Grade Group 1)"}; !equalStrings(got, want) {
+		t.Fatalf("login bonus footnotes = %q, want %q", got, want)
+	}
+	if got, want := footnoteTexts(loginBonus, "ja"), []string{"カムバックユーザー（グレードグループ1）"}; !equalStrings(got, want) {
+		t.Fatalf("Japanese login bonus footnotes = %q, want %q", got, want)
+	}
+	for condition, want := range map[int64]string{0: "All Users", 4: "Returning Users", 5: "New Users"} {
+		footnotes := resolver.resolveContentFootnotes("m_login_bonus", []interface{}{1, 1, condition}, nil)
+		if got := footnoteTexts(footnotes, "en"); !equalStrings(got, []string{want}) {
+			t.Fatalf("login bonus condition %d footnotes = %q, want %q", condition, got, want)
+		}
+	}
 	maintenanceRow := []interface{}{5, int64(100), int64(200), 50}
 	if got, want := resolver.resolve("m_maintenance", maintenanceRow)["en"], "apb.api.gacha.GachaService/Draw / apb.api.pvp.PvpService/GetRanking"; got != want {
 		t.Fatalf("maintenance title = %q, want %q", got, want)

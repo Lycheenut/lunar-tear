@@ -166,6 +166,10 @@ func (r *titleResolver) firstTitles(keys ...string) map[string]string {
 func (r *titleResolver) resolveContentFootnotes(table string, row []interface{}, relations []ShopRelation) []map[string]string {
 	var footnotes []map[string]string
 	switch table {
+	case "m_beginner_campaign":
+		footnotes = append(footnotes, targetUserStatusTitles(3))
+	case "m_comeback_campaign":
+		footnotes = append(footnotes, targetUserStatusTitles(2))
 	case "m_enhance_campaign":
 		footnotes = append(footnotes, r.enhanceEffectFootnotes(row)...)
 		if groupID, ok := integerAt(row, 1); ok {
@@ -190,6 +194,12 @@ func (r *titleResolver) resolveContentFootnotes(table string, row []interface{},
 				footnotes = append(footnotes, titles)
 			}
 		}
+	case "m_login_bonus":
+		if startCondition, ok := integerAt(row, 2); ok {
+			if titles := loginBonusStartConditionTitles(startCondition); len(titles) != 0 {
+				footnotes = append(footnotes, titles)
+			}
+		}
 	case "m_shop_item_cell_term":
 		var shops []map[string]string
 		for _, relation := range relations {
@@ -200,6 +210,16 @@ func (r *titleResolver) resolveContentFootnotes(table string, row []interface{},
 		}
 	}
 	return footnotes
+}
+
+func loginBonusStartConditionTitles(startCondition int64) map[string]string {
+	values := map[int64]map[string]string{
+		0: {"en": "All Users", "ja": "全ユーザー", "ko": "전체 사용자"},
+		4: {"en": "Returning Users", "ja": "カムバックユーザー", "ko": "복귀 사용자"},
+		5: {"en": "New Users", "ja": "新規ユーザー", "ko": "신규 사용자"},
+		6: {"en": "Returning Users (Grade Group 1)", "ja": "カムバックユーザー（グレードグループ1）", "ko": "복귀 사용자 (등급 그룹 1)"},
+	}
+	return cloneTitles(values[startCondition])
 }
 
 func targetUserStatusTitles(userStatus int64) map[string]string {
