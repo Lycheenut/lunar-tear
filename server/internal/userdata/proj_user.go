@@ -77,8 +77,7 @@ func init() {
 	})
 	register("IUserBeginnerCampaign", func(user store.UserState) string {
 		if user.BeginnerCampaign.BeginnerCampaignId == 0 {
-			s, _ := utils.EncodeJSONMaps()
-			return s
+			return "[]"
 		}
 		s, _ := utils.EncodeJSONMaps(map[string]any{
 			"userId":                   user.UserId,
@@ -90,8 +89,7 @@ func init() {
 	})
 	register("IUserComebackCampaign", func(user store.UserState) string {
 		if user.ComebackCampaign.ComebackCampaignId == 0 {
-			s, _ := utils.EncodeJSONMaps()
-			return s
+			return "[]"
 		}
 		s, _ := utils.EncodeJSONMaps(map[string]any{
 			"userId":             user.UserId,
