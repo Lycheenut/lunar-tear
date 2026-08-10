@@ -25,6 +25,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const missionOptionTitleScreen int32 = 395
+
 type UserServiceServer struct {
 	pb.UnimplementedUserServiceServer
 	users      store.UserRepository
@@ -83,7 +85,7 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	}
 	user, err := s.users.UpdateUser(session.UserId, func(user *store.UserState) {
 		advanceLoginState(&user.Login, gametime.NowMillis())
-		store.AddMissionCount(user, int32(model.MissionClearConditionTypeTitleTransitionByCount), 1, 0, 0)
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeTitleTransitionByCount), 1, 0, missionOptionTitleScreen)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update login state: %w", err)

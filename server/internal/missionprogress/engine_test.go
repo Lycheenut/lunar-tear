@@ -104,10 +104,13 @@ func TestDailyQuestProgressDoesNotCarryAcrossBusinessDays(t *testing.T) {
 	user.Missions[1] = store.UserMissionState{MissionId: 1, StartDatetime: 1, ProgressValue: 1, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear)}
 	user.Quests[10] = store.UserQuestState{QuestId: 10, QuestStateType: model.UserQuestStateTypeCleared, ClearCount: 3, DailyClearCount: 1, LastClearDatetime: 1}
 
-	const nowMillis = int64(10 * 24 * 60 * 60 * 1000)
+	const nowMillis = int64(10*24*60*60*1000 + 12345)
 	Sync(catalogs, user, nowMillis)
 	if state := user.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
 		t.Fatalf("old quest clears leaked into the new day: %+v", state)
+	}
+	if state := user.Missions[1]; state.StartDatetime != nowMillis {
+		t.Fatalf("daily mission start time was not refreshed: got %d, want %d", state.StartDatetime, nowMillis)
 	}
 
 	quest := user.Quests[10]
@@ -131,6 +134,34 @@ func TestAllDailyIgnoresMissionPassDaily(t *testing.T) {
 	Sync(catalogs, user, 100)
 	if state := user.Missions[1]; state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
 		t.Fatalf("mission-pass daily task blocked standard daily aggregate: %+v", state)
+	}
+}
+
+func TestCompletedDailyAggregateUsesClearTimeAsStartTime(t *testing.T) {
+	aggregate := masterdata.EntityMMission{
+		MissionId: 1, MissionGroupId: 1,
+		MissionClearConditionType: int32(model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId),
+		ClearConditionValue:       1,
+	}
+	catalogs := testCatalog(aggregate)
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Missions[1] = store.UserMissionState{
+		MissionId:                 1,
+		StartDatetime:             1,
+		ProgressValue:             1,
+		MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear),
+		ClearDatetime:             50,
+		LatestVersion:             50,
+	}
+
+	Sync(catalogs, user, 100)
+	state := user.Missions[1]
+	if state.StartDatetime != state.ClearDatetime {
+		t.Fatalf("completed daily aggregate kept a stale start time: %+v", state)
+	}
+	if state.LatestVersion != 100 {
+		t.Fatalf("corrected daily aggregate was not marked updated: %+v", state)
 	}
 }
 
@@ -228,12 +259,44 @@ func TestNewCostumeSkillDoesNotCountAsSkillEnhancement(t *testing.T) {
 	}
 }
 
-func TestDailyGachaMissionOnlyCountsDailyGacha(t *testing.T) {
+func TestQuestClearByCountHonorsQuestTypeOptions(t *testing.T) {
+	missions := []masterdata.EntityMMission{
+		{MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount), MissionClearConditionOptionGroupId: questClearOptionMainQuest, ClearConditionValue: 100},
+		{MissionId: 2, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount), MissionClearConditionOptionGroupId: questClearOptionSubquest, ClearConditionValue: 100},
+		{MissionId: 3, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount), MissionClearConditionOptionGroupId: questClearOptionMainQuestHard, ClearConditionValue: 100},
+		{MissionId: 4, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount), MissionClearConditionOptionGroupId: questClearOptionMainQuestHardOrVeryHard, ClearConditionValue: 100},
+	}
+	catalogs := testCatalog(missions...)
+	catalogs.Quest = &masterdata.QuestCatalog{
+		RouteIdByQuestId:                 map[int32]int32{8: 1, 100: 1, 200: 1},
+		MainQuestDifficultyTypeByQuestId: map[int32]int32{8: 1, 100: 2, 200: 3},
+		EventQuestIdsByChapterId:         map[int32][]int32{300: {400}},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Quests[8] = store.UserQuestState{QuestId: 8, ClearCount: 11}
+	user.Quests[100] = store.UserQuestState{QuestId: 100, ClearCount: 2}
+	user.Quests[200] = store.UserQuestState{QuestId: 200, ClearCount: 3}
+	user.Quests[400] = store.UserQuestState{QuestId: 400, ClearCount: 20}
+
+	Sync(catalogs, user, 100)
+	for missionId, want := range map[int32]int32{1: 16, 2: 20, 3: 2, 4: 5} {
+		if got := user.Missions[missionId].ProgressValue; got != want {
+			t.Errorf("mission %d progress = %d, want %d", missionId, got, want)
+		}
+	}
+}
+
+func TestChapterGachaMissionOnlyCountsChapterGacha(t *testing.T) {
 	mission := masterdata.EntityMMission{
 		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeGachaDrawByCount),
-		MissionClearConditionOptionGroupId: 100001, ClearConditionValue: 1,
+		MissionClearConditionOptionGroupId: gachaOptionChapterSummon, ClearConditionValue: 1,
 	}
 	catalogs := testCatalog(mission)
+	catalogs.GachaEntries = []store.GachaCatalogEntry{
+		{GachaId: 45, GachaLabelType: model.GachaLabelPremium},
+		{GachaId: 200001, GachaLabelType: model.GachaLabelChapter},
+	}
 	before := &store.UserState{}
 	before.EnsureMaps()
 	after := store.CloneUserState(*before)
@@ -241,14 +304,80 @@ func TestDailyGachaMissionOnlyCountsDailyGacha(t *testing.T) {
 
 	Apply(catalogs, before, &after, nil, 100)
 	if state := after.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
-		t.Fatalf("ordinary Gacha advanced Daily Gacha mission: %+v", state)
+		t.Fatalf("ordinary Gacha advanced chapter Gacha mission: %+v", state)
 	}
 
 	nextBefore := store.CloneUserState(after)
-	after.Gacha.BannerStates[201] = store.GachaBannerState{GachaId: 201, DrawCount: 5}
+	after.Gacha.BannerStates[200001] = store.GachaBannerState{GachaId: 200001, DrawCount: 5}
 	Apply(catalogs, &nextBefore, &after, nil, 200)
 	if state := after.Missions[1]; state.ProgressValue != 5 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
-		t.Fatalf("Daily Gacha did not advance its mission: %+v", state)
+		t.Fatalf("chapter Gacha did not advance its mission: %+v", state)
+	}
+}
+
+func TestDailyGachaMissionRequiresDailyOption(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeGachaDrawByCount),
+		MissionClearConditionOptionGroupId: gachaOptionDailySummon, ClearConditionValue: 1,
+	}
+	catalogs := testCatalog(mission)
+	user := &store.UserState{}
+	user.EnsureMaps()
+	before := store.CloneUserState(*user)
+
+	Apply(catalogs, &before, user, []store.MissionEvent{{ConditionType: int32(model.MissionClearConditionTypeGachaDrawByCount), Count: 1}}, 100)
+	if state := user.Missions[1]; state.ProgressValue != 0 {
+		t.Fatalf("uncategorized Gacha advanced Daily Gacha mission: %+v", state)
+	}
+	Apply(catalogs, &before, user, []store.MissionEvent{{ConditionType: int32(model.MissionClearConditionTypeGachaDrawByCount), Count: 1, OptionGroupId: gachaOptionDailySummon}}, 200)
+	if state := user.Missions[1]; state.ProgressValue != 1 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("Daily Gacha option did not advance its mission: %+v", state)
+	}
+}
+
+func TestItemShopMissionOnlyCountsItemShopPurchases(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeShopBuyByCount),
+		MissionClearConditionOptionGroupId: shopOptionItemShop, ClearConditionValue: 1,
+	}
+	catalogs := testCatalog(mission)
+	catalogs.Shop = &masterdata.ShopCatalog{ItemShopPool: []int32{10}}
+	before := &store.UserState{}
+	before.EnsureMaps()
+	after := store.CloneUserState(*before)
+	after.ShopItems[20] = store.UserShopItemState{ShopItemId: 20, BoughtCount: 1}
+	Apply(catalogs, before, &after, nil, 100)
+	if state := after.Missions[1]; state.ProgressValue != 0 {
+		t.Fatalf("non-item-shop purchase advanced item-shop mission: %+v", state)
+	}
+
+	nextBefore := store.CloneUserState(after)
+	after.ShopItems[10] = store.UserShopItemState{ShopItemId: 10, BoughtCount: 1}
+	Apply(catalogs, &nextBefore, &after, nil, 200)
+	if state := after.Missions[1]; state.ProgressValue != 1 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("item-shop purchase did not advance its mission: %+v", state)
+	}
+}
+
+func TestUnknownOptionDoesNotAcceptUncategorizedEvent(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeTitleTransitionByCount),
+		MissionClearConditionOptionGroupId: 999, ClearConditionValue: 1,
+	}
+	catalogs := testCatalog(mission)
+	user := &store.UserState{}
+	user.EnsureMaps()
+	before := store.CloneUserState(*user)
+	event := store.MissionEvent{ConditionType: int32(model.MissionClearConditionTypeTitleTransitionByCount), Count: 1}
+
+	Apply(catalogs, &before, user, []store.MissionEvent{event}, 100)
+	if state := user.Missions[1]; state.ProgressValue != 0 {
+		t.Fatalf("uncategorized event advanced parameterized mission: %+v", state)
+	}
+	event.OptionGroupId = 999
+	Apply(catalogs, &before, user, []store.MissionEvent{event}, 200)
+	if state := user.Missions[1]; state.ProgressValue != 1 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("matching option did not advance parameterized mission: %+v", state)
 	}
 }
 
@@ -369,6 +498,22 @@ func TestCurrentMasterUsesOnlyImplementedEnums(t *testing.T) {
 			}
 		}
 		switch conditionType {
+		case model.MissionClearConditionTypeGachaDrawByCount:
+			knownOptions := map[int32]bool{
+				0: true, gachaOptionChapterSummon: true, gachaOptionDailySummon: true,
+				600: true, 900002: true, 101120601: true,
+			}
+			if !knownOptions[option] {
+				t.Fatalf("mission %d has an unmapped Gacha option %d", mission.MissionId, option)
+			}
+		case model.MissionClearConditionTypeShopBuyByCount:
+			if option != 0 && option != shopOptionItemShop {
+				t.Fatalf("mission %d has an unmapped shop option %d", mission.MissionId, option)
+			}
+		case model.MissionClearConditionTypeTitleTransitionByCount:
+			if option != 0 && option != 395 {
+				t.Fatalf("mission %d has an unmapped title-transition option %d", mission.MissionId, option)
+			}
 		case model.MissionClearConditionTypeCharacterBoardPanelReleaseByCount:
 			if option != 0 && !boardOptions[option] {
 				t.Fatalf("mission %d has an unmapped character-board option %d", mission.MissionId, option)

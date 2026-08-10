@@ -50,6 +50,14 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for questId, wantDifficulty := range map[int32]int32{2: 1, 10001: 2, 20001: 3} {
+		if got := catalog.MainQuestDifficultyTypeByQuestId[questId]; got != wantDifficulty {
+			t.Fatalf("main quest %d difficulty = %d, want %d", questId, got, wantDifficulty)
+		}
+		if catalog.RouteIdByQuestId[questId] == 0 || catalog.MainQuestChapterIdByQuestId[questId] == 0 {
+			t.Fatalf("main quest %d is missing its route or chapter", questId)
+		}
+	}
 	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockConditions) == 0 {
 		t.Fatal("event chapters or normalized unlock quests were not loaded")
 	}

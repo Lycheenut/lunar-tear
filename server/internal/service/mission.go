@@ -17,6 +17,7 @@ import (
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
+	"lunar-tear/server/internal/userdata"
 )
 
 type MissionServiceServer struct {
@@ -64,7 +65,7 @@ func (s *MissionServiceServer) UpdateMissionProgress(ctx context.Context, req *p
 	log.Printf("[MissionService] UpdateMissionProgress: cage=%v pictureBook=%v", req.CageMeasurableValues, req.PictureBookMeasurableValues)
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	var validationErr error
-	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+	updatedUser, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		validationErr = syncMissionProgress(s.holder.Get(), user, req, gametime.NowMillis())
 	})
 	if err != nil {
@@ -73,7 +74,9 @@ func (s *MissionServiceServer) UpdateMissionProgress(ctx context.Context, req *p
 	if validationErr != nil {
 		return nil, validationErr
 	}
-	return &pb.UpdateMissionProgressResponse{}, nil
+	return &pb.UpdateMissionProgressResponse{DiffUserData: userdata.BuildDiffFromTables(
+		userdata.ProjectTables(updatedUser, []string{"IUserMission"}),
+	)}, nil
 }
 
 func grantMissionPossession(cat *runtime.Catalogs, user *store.UserState, possessionType, possessionId, count int32, nowMillis int64) {

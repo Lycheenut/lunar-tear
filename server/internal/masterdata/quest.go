@@ -37,6 +37,7 @@ type QuestCatalog struct {
 	QuestById                          map[int32]EntityMQuest
 	MissionIdsByQuestId                map[int32][]int32
 	RouteIdByQuestId                   map[int32]int32
+	MainQuestDifficultyTypeByQuestId   map[int32]int32
 	SceneIdsByQuestId                  map[int32][]int32
 	OrderedQuestIds                    []int32
 	FirstClearRewardsByGroupId         map[int32][]EntityMQuestFirstClearRewardGroup
@@ -233,6 +234,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		}
 		return sequences[i].QuestId < sequences[j].QuestId
 	})
+	sequenceGroups, err := utils.ReadTable[EntityMMainQuestSequenceGroup]("m_main_quest_sequence_group")
+	if err != nil {
+		return nil, fmt.Errorf("load main quest sequence group table: %w", err)
+	}
 
 	chapters, err := utils.ReadTable[EntityMMainQuestChapter]("m_main_quest_chapter")
 	if err != nil {
@@ -514,16 +519,26 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		missionIdsByQuestId[questId] = append([]int32(nil), missionIds...)
 	}
 
-	chapterBySequenceId := make(map[int32]EntityMMainQuestChapter, len(chapters))
+	chapterBySequenceGroupId := make(map[int32]EntityMMainQuestChapter, len(chapters))
 	for _, chapter := range chapters {
-		chapterBySequenceId[chapter.MainQuestSequenceGroupId] = chapter
+		chapterBySequenceGroupId[chapter.MainQuestSequenceGroupId] = chapter
+	}
+	chapterBySequenceId := make(map[int32]EntityMMainQuestChapter, len(sequenceGroups))
+	difficultyTypeBySequenceId := make(map[int32]int32, len(sequenceGroups))
+	for _, group := range sequenceGroups {
+		if chapter, ok := chapterBySequenceGroupId[group.MainQuestSequenceGroupId]; ok {
+			chapterBySequenceId[group.MainQuestSequenceId] = chapter
+			difficultyTypeBySequenceId[group.MainQuestSequenceId] = group.DifficultyType
+		}
 	}
 	routeIdByQuestId := make(map[int32]int32)
 	mainQuestChapterIdByQuestId := make(map[int32]int32)
+	mainQuestDifficultyTypeByQuestId := make(map[int32]int32)
 	for _, sequence := range sequences {
 		if chapter, ok := chapterBySequenceId[sequence.MainQuestSequenceId]; ok {
 			routeIdByQuestId[sequence.QuestId] = chapter.MainQuestRouteId
 			mainQuestChapterIdByQuestId[sequence.QuestId] = chapter.MainQuestChapterId
+			mainQuestDifficultyTypeByQuestId[sequence.QuestId] = difficultyTypeBySequenceId[sequence.MainQuestSequenceId]
 		}
 	}
 
@@ -797,6 +812,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		QuestById:                          questById,
 		MissionIdsByQuestId:                missionIdsByQuestId,
 		RouteIdByQuestId:                   routeIdByQuestId,
+		MainQuestDifficultyTypeByQuestId:   mainQuestDifficultyTypeByQuestId,
 		SceneIdsByQuestId:                  sceneIdsByQuestId,
 		OrderedQuestIds:                    orderedQuestIds,
 		FirstClearRewardsByGroupId:         firstClearRewardsByGroupId,

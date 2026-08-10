@@ -13,9 +13,18 @@ import (
 )
 
 const (
-	missionCategoryDaily            = int32(1)
-	missionCategoryMissionPassDaily = int32(9)
-	maxCascadePasses                = 16
+	missionCategoryDaily                    = int32(1)
+	missionCategoryMissionPassDaily         = int32(9)
+	maxCascadePasses                        = 16
+	questClearOptionMainQuest               = int32(4)
+	questClearOptionSubquest                = int32(5)
+	questClearOptionMainQuestHard           = int32(8)
+	questClearOptionMainQuestHardOrVeryHard = int32(9)
+	mainQuestDifficultyHard                 = int32(2)
+	mainQuestDifficultyVeryHard             = int32(3)
+	gachaOptionChapterSummon                = int32(100001)
+	gachaOptionDailySummon                  = int32(100026)
+	shopOptionItemShop                      = int32(2)
 )
 
 // Apply reconciles state-derived conditions and applies transaction-local
@@ -69,6 +78,13 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 				changed = true
 			}
 			if state.MissionProgressStatusType >= int32(model.MissionProgressStatusTypeClear) {
+				if state.MissionProgressStatusType == int32(model.MissionProgressStatusTypeClear) &&
+					isDailyCompletionMission(mission) && state.ClearDatetime > state.StartDatetime {
+					state.StartDatetime = state.ClearDatetime
+					state.LatestVersion = nowMillis
+					user.Missions[mission.MissionId] = state
+					changed = true
+				}
 				continue
 			}
 			if value, ok := absoluteProgress(catalogs, user, mission, state, nowMillis); ok && absoluteProgressImproved(mission, state.ProgressValue, value) {
@@ -81,6 +97,9 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 			if conditionSatisfied(catalogs, user, mission, state.ProgressValue, nowMillis) {
 				state.MissionProgressStatusType = int32(model.MissionProgressStatusTypeClear)
 				state.ClearDatetime = nowMillis
+				if isDailyCompletionMission(mission) {
+					state.StartDatetime = nowMillis
+				}
 				state.LatestVersion = nowMillis
 				user.Missions[mission.MissionId] = state
 				changed = true
@@ -146,7 +165,7 @@ func resetDailyMissions(catalog *masterdata.MissionCatalog, user *store.UserStat
 			continue
 		}
 		user.Missions[id] = store.UserMissionState{
-			MissionId: id, StartDatetime: today,
+			MissionId: id, StartDatetime: nowMillis,
 			MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress), LatestVersion: nowMillis,
 		}
 	}
@@ -159,6 +178,12 @@ func isDaily(catalog *masterdata.MissionCatalog, mission masterdata.EntityMMissi
 
 func isDailyAggregateMember(catalog *masterdata.MissionCatalog, mission masterdata.EntityMMission) bool {
 	return catalog.GroupById[mission.MissionGroupId].MissionCategoryType == missionCategoryDaily
+}
+
+func isDailyCompletionMission(mission masterdata.EntityMMission) bool {
+	t := model.MissionClearConditionType(mission.MissionClearConditionType)
+	return t == model.MissionClearConditionTypeMissionClearForAllDaily ||
+		t == model.MissionClearConditionTypeMissionClearForAllDailyBySubCategoryId
 }
 
 func absoluteProgress(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission, state store.UserMissionState, nowMillis int64) (int32, bool) {
@@ -315,23 +340,28 @@ func eventMatches(catalogs *runtime.Catalogs, mission masterdata.EntityMMission,
 	if option == 0 {
 		return true
 	}
+	conditionType := model.MissionClearConditionType(mission.MissionClearConditionType)
+	if conditionType == model.MissionClearConditionTypeQuestClearByCount ||
+		conditionType == model.MissionClearConditionTypeQuestClearByCountWithoutSkip {
+		return questOptionMatches(catalogs, option, event.TargetId)
+	}
+	if conditionType == model.MissionClearConditionTypeGachaDrawByCount && option == gachaOptionChapterSummon {
+		entry := gachaEntry(catalogs, event.TargetId)
+		return entry != nil && entry.GachaLabelType == model.GachaLabelChapter
+	}
+	if conditionType == model.MissionClearConditionTypeShopBuyByCount && option == shopOptionItemShop {
+		return catalogs.Shop != nil && containsTarget(catalogs.Shop.ItemShopPool, event.TargetId)
+	}
 	if option == event.OptionGroupId || option == event.TargetId {
 		return true
 	}
-	if targetIds, ok := knownOptionTargets(model.MissionClearConditionType(mission.MissionClearConditionType), option); ok {
+	if targetIds, ok := knownOptionTargets(conditionType, option); ok {
 		return containsTarget(targetIds, event.TargetId)
 	}
-	if model.MissionClearConditionType(mission.MissionClearConditionType) == model.MissionClearConditionTypeExploreScore && option == 391 {
+	if conditionType == model.MissionClearConditionTypeExploreScore && option == 391 {
 		return true
 	}
-	if model.MissionClearConditionType(mission.MissionClearConditionType) == model.MissionClearConditionTypeQuestClearByCount ||
-		model.MissionClearConditionType(mission.MissionClearConditionType) == model.MissionClearConditionTypeQuestClearByCountWithoutSkip {
-		return questOptionMatches(catalogs, option, event.TargetId)
-	}
-	// Some category option groups have no mapping table in the shipped master
-	// data. Call sites may supply the option explicitly; otherwise retain the
-	// condition-type event instead of silently losing valid progress.
-	return event.OptionGroupId == 0
+	return false
 }
 
 func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *store.UserState) []store.MissionEvent {
@@ -511,17 +541,17 @@ func questMissionMatches(catalogs *runtime.Catalogs, mission masterdata.EntityMM
 		return mission.MissionClearConditionOptionDetailGroupId == questId
 	}
 	option := mission.MissionClearConditionOptionGroupId
-	return option == 0 || option == questId || questOptionMatches(catalogs, option, questId)
+	return option == 0 || questOptionMatches(catalogs, option, questId)
 }
 
 func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool {
 	if catalogs.Quest == nil {
 		return false
 	}
-	if option == 4 && catalogs.Quest.RouteIdByQuestId[questId] != 0 {
-		return true
-	}
-	if option == 5 {
+	switch option {
+	case questClearOptionMainQuest:
+		return catalogs.Quest.RouteIdByQuestId[questId] != 0
+	case questClearOptionSubquest:
 		for _, ids := range catalogs.Quest.EventQuestIdsByChapterId {
 			for _, id := range ids {
 				if id == questId {
@@ -529,6 +559,12 @@ func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool 
 				}
 			}
 		}
+		return false
+	case questClearOptionMainQuestHard:
+		return catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId] == mainQuestDifficultyHard
+	case questClearOptionMainQuestHardOrVeryHard:
+		difficultyType := catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId]
+		return difficultyType == mainQuestDifficultyHard || difficultyType == mainQuestDifficultyVeryHard
 	}
 	for chapterId, ids := range catalogs.Quest.EventQuestIdsByChapterId {
 		if chapterId != option {
@@ -540,7 +576,7 @@ func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool 
 			}
 		}
 	}
-	return false
+	return option == questId
 }
 
 func exploreHighScore(user *store.UserState, mission masterdata.EntityMMission) int32 {
