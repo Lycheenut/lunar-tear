@@ -5,6 +5,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -26,6 +27,17 @@ func finalizeEnhancementExp(baseExp int64, ratePermil int32, roll int) (int32, b
 		return 0, false, status.Error(codes.InvalidArgument, "enhancement experience is too large")
 	}
 	return int32(baseExp), isGreatSuccess, nil
+}
+
+func enhancementCampaignFilter(catalog *campaign.Catalog, user *store.UserState, nowMillis int64) campaign.Filter {
+	return catalog.FilterForUser(campaign.UserStatusContext{
+		NowMillis:                 nowMillis,
+		RegisterDatetime:          user.RegisterDatetime,
+		LastComebackLoginDatetime: user.Login.LastComebackLoginDatetime,
+		IsCampaignUnlockQuestCleared: func(questId int32) bool {
+			return user.Quests[questId].QuestStateType == model.UserQuestStateTypeCleared
+		},
+	})
 }
 
 func materialCost(materialId, count int32) store.PossessionCost {

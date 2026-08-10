@@ -183,7 +183,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 			CostumeId:          costume.CostumeId,
 			CharacterId:        cm.CharacterId,
 			SkillfulWeaponType: cm.SkillfulWeaponType,
-		}, campaign.Filter{NowMillis: nowMillis, UserStatus: campaign.TargetUserStatusAll})
+		}, enhancementCampaignFilter(cat.Campaign, user, nowMillis))
 
 		totalExp := int64(0)
 		totalMaterialCount := int32(0)

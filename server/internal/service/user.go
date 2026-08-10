@@ -75,8 +75,15 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
+	nowMillis := gametime.NowMillis()
+	campaignCatalog := s.holder.Get().Campaign
 	user, err := s.users.UpdateUser(session.UserId, func(user *store.UserState) {
-		advanceLoginState(&user.Login, gametime.NowMillis())
+		if campaignCatalog.IsComebackLogin(nowMillis, user.Login.LastLoginDatetime, func(questId int32) bool {
+			return user.Quests[questId].QuestStateType == model.UserQuestStateTypeCleared
+		}) {
+			user.Login.LastComebackLoginDatetime = nowMillis
+		}
+		advanceLoginState(&user.Login, nowMillis)
 		store.AddMissionCount(user, int32(model.MissionClearConditionTypeTitleTransitionByCount), 1, 0, missionOptionTitleScreen)
 	})
 	if err != nil {

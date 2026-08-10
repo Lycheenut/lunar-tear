@@ -102,7 +102,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 			WeaponId:      weapon.WeaponId,
 			WeaponType:    wm.WeaponType,
 			AttributeType: wm.AttributeType,
-		}, campaign.Filter{NowMillis: nowMillis, UserStatus: campaign.TargetUserStatusAll})
+		}, enhancementCampaignFilter(cat.Campaign, user, nowMillis))
 
 		totalExp := int64(0)
 		totalMaterialCount := int32(0)
@@ -756,7 +756,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 			WeaponId:      weapon.WeaponId,
 			WeaponType:    wm.WeaponType,
 			AttributeType: wm.AttributeType,
-		}, campaign.Filter{NowMillis: nowMillis, UserStatus: campaign.TargetUserStatusAll})
+		}, enhancementCampaignFilter(cat.Campaign, user, nowMillis))
 
 		totalExp := int64(0)
 		materialUUIDs, materialErr := validateMaterialWeapons(user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, false, 0)
