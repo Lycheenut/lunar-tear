@@ -48,11 +48,14 @@
     gachaDirty: false
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
+  const targetUserStatusLabels = { "1": "全部用户", "2": "回归用户", "3": "新手用户" };
   const languageLabels = { en: "English", ja: "日本語", ko: "한국어" };
   const simpleFieldNames = {
+    m_beginner_campaign: ["BeginnerCampaignId", "GrantCampaignTermDayCount", "CampaignUnlockQuestId"],
     m_big_hunt_schedule: ["BigHuntScheduleId"],
+    m_comeback_campaign: ["ComebackCampaignId", "ComebackJudgeDayCount", "GrantCampaignTermDayCount", "CampaignUnlockQuestId", "ComebackCampaignGradeGroupId"],
     m_consumable_item_term: ["ConsumableItemTermId"],
-    m_enhance_campaign: ["EnhanceCampaignId", "EnhanceCampaignTargetGroupId", "EnhanceCampaignEffectType"],
+    m_enhance_campaign: ["EnhanceCampaignId", "EnhanceCampaignTargetGroupId", "EnhanceCampaignEffectType", "EnhanceCampaignEffectValue", "TargetUserStatusType"],
     m_event_quest_chapter: ["EventQuestChapterId", "EventQuestType", "SortOrder", "NameEventQuestTextId", "BannerAssetId"],
     m_event_quest_daily_group: ["EventQuestDailyGroupId"],
     m_event_quest_labyrinth_season: ["EventQuestChapterId", "SeasonNumber"],
@@ -216,6 +219,9 @@
   }
 
   function typeOptionLabel(tableName, fieldName, value) {
+    if (fieldName === "TargetUserStatusType" && targetUserStatusLabels[value]) {
+      return `${targetUserStatusLabels[value]}（${value}）`;
+    }
     return value;
   }
 
@@ -336,7 +342,8 @@
       if (table.name === "m_shop" && fieldName === "ShopItemCellGroupId") return;
       const meta = document.createElement("div");
       meta.className = "identity-meta";
-      meta.textContent = `${fieldName}=${displayText(effectiveValue(table.name, row, fieldName))}`;
+      const value = effectiveValue(table.name, row, fieldName);
+      meta.textContent = `${fieldName}=${typeOptionLabel(table.name, fieldName, displayText(value))}`;
       notes.append(meta);
     });
     if (!notes.childElementCount) {
