@@ -18,4 +18,7 @@ func TestExploreDifficultyMappingsLoadFromMasterData(t *testing.T) {
 	if catalog.LowerDifficulty[11] != 1 {
 		t.Fatalf("explore difficulty mappings = %#v", catalog.LowerDifficulty)
 	}
+	if catalog.FirstExploreId != 1 {
+		t.Fatalf("first explore ID = %d, want 1", catalog.FirstExploreId)
+	}
 }
