@@ -7,12 +7,6 @@ type optionTargetSet struct {
 	targetIds      []int32
 }
 
-// The Daily Gacha missions use option group 100001. Their mission link points
-// to Gacha 201, so ordinary banners must not satisfy this option group.
-var gachaOptionTargetSets = []optionTargetSet{
-	{[]int32{100001}, []int32{201}},
-}
-
 // optionTargetSets is recovered from the localized mission descriptions and
 // possession-name resources. Weapon entries include both the base and evolved
 // master IDs because both IDs represent the same named weapon family.
@@ -90,9 +84,6 @@ var optionTargetSets = []optionTargetSet{
 }
 
 func knownOptionTargets(conditionType model.MissionClearConditionType, optionGroupId int32) ([]int32, bool) {
-	if conditionType == model.MissionClearConditionTypeGachaDrawByCount {
-		return findOptionTargets(gachaOptionTargetSets, optionGroupId)
-	}
 	if !isEquipmentTargetCondition(conditionType) || optionGroupId == 0 {
 		return nil, false
 	}

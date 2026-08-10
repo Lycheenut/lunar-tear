@@ -19,6 +19,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const missionOptionDailySummon int32 = 100026
+
 type GachaServiceServer struct {
 	pb.UnimplementedGachaServiceServer
 	users    store.UserRepository
@@ -391,7 +393,7 @@ func (s *GachaServiceServer) RewardDraw(ctx context.Context, req *pb.RewardDrawR
 			log.Printf("[GachaService] RewardDraw error: %v", drawErr)
 			return
 		}
-		store.AddMissionCount(user, int32(model.MissionClearConditionTypeGachaDrawByCount), int32(len(items)), 0, 0)
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeGachaDrawByCount), int32(len(items)), 0, missionOptionDailySummon)
 		store.AddMissionCount(user, int32(model.MissionClearConditionTypeGachaExecByCount), 1, 0, 0)
 	})
 	if err != nil {
