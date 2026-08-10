@@ -36,7 +36,10 @@ type GachaHandler struct {
 const (
 	maxDrawCountPerRequest int64 = 1000
 	maxInt32Value          int64 = 1<<31 - 1
+	baseDupExchangeCount   int32 = 10
 )
+
+var dupExchangeCountByGrade = [...]int32{20, 16, 14, 12, 10}
 
 func NewGachaHandler(
 	pool *masterdata.GachaCatalog,
@@ -352,7 +355,7 @@ func (h *GachaHandler) tryCostumeDupExchange(user *store.UserState, item DrawnIt
 	for _, c := range user.Costumes {
 		if c.CostumeId == item.PossessionId {
 			grade := int32(rand.Intn(model.DupGradeRange) + int(model.DupGradeMin))
-			exchanges := h.DupExchange[item.PossessionId]
+			exchanges := dupExchangesForGrade(h.DupExchange[item.PossessionId], grade)
 			for _, ex := range exchanges {
 				store.GrantPossession(user, model.PossessionType(ex.PossessionType), ex.PossessionId, ex.Count)
 			}
@@ -360,6 +363,17 @@ func (h *GachaHandler) tryCostumeDupExchange(user *store.UserState, item DrawnIt
 		}
 	}
 	return DuplicateInfo{}, false
+}
+
+func dupExchangesForGrade(exchanges []model.DupExchangeEntry, grade int32) []model.DupExchangeEntry {
+	graded := append([]model.DupExchangeEntry(nil), exchanges...)
+	count := dupExchangeCountByGrade[grade-model.DupGradeMin]
+	for i := range graded {
+		if graded[i].Count == baseDupExchangeCount {
+			graded[i].Count = count
+		}
+	}
+	return graded
 }
 
 func (h *GachaHandler) generateBonusItems(entry store.GachaCatalogEntry, mainItems []DrawnItem) map[int]DrawnItem {

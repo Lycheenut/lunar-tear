@@ -93,8 +93,8 @@ const (
 )
 
 const (
-	DupGradeMin   int32 = 2
-	DupGradeRange int   = 4
+	DupGradeMin   int32 = 1
+	DupGradeRange int   = 5
 )
 
 type DupExchangeEntry struct {

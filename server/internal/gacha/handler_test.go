@@ -110,6 +110,36 @@ func TestHandleResetBoxInitializesPersistentBannerIdentity(t *testing.T) {
 	}
 }
 
+func TestDupExchangesForGradeUsesTierCount(t *testing.T) {
+	exchanges := []model.DupExchangeEntry{
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 501, Count: 10},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 502, Count: 1},
+	}
+	tests := []struct {
+		grade int32
+		count int32
+	}{
+		{grade: 1, count: 20},
+		{grade: 2, count: 16},
+		{grade: 3, count: 14},
+		{grade: 4, count: 12},
+		{grade: 5, count: 10},
+	}
+
+	for _, tt := range tests {
+		got := dupExchangesForGrade(exchanges, tt.grade)
+		if got[0].Count != tt.count {
+			t.Errorf("grade %d exchange count = %d, want %d", tt.grade, got[0].Count, tt.count)
+		}
+		if got[1].Count != 1 {
+			t.Errorf("grade %d fixed bonus count = %d, want 1", tt.grade, got[1].Count)
+		}
+	}
+	if exchanges[0].Count != 10 {
+		t.Fatalf("source exchange count changed to %d", exchanges[0].Count)
+	}
+}
+
 func eventBoxEntry() store.GachaCatalogEntry {
 	return store.GachaCatalogEntry{
 		GachaId:        1,
