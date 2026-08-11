@@ -2,6 +2,7 @@ package masterdataadmin
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,11 @@ type questCampaignEffect struct {
 type campaignTarget struct {
 	targetType  int64
 	targetValue int64
+}
+
+type dokanContentText struct {
+	contentIndex int64
+	textID       int64
 }
 
 type localizedTitlePart struct {
@@ -46,7 +52,7 @@ type titleResolver struct {
 	maintenanceAPIs      map[int64][]string
 	shopRelationsByShop  map[int64][]ShopRelation
 	shopRelationsByTerm  map[int64][]ShopRelation
-	dokanGroupTextIDs    map[int64]int64
+	dokanGroupTexts      map[int64][]dokanContentText
 	enhanceTargets       map[int64][]campaignTarget
 	questEffects         map[int64][]questCampaignEffect
 	questTargets         map[int64][]campaignTarget
@@ -77,7 +83,7 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		consumableTermKeys:   make(map[int64][]string),
 		importantEffectTexts: make(map[int64]int64),
 		maintenanceAPIs:      make(map[int64][]string),
-		dokanGroupTextIDs:    make(map[int64]int64),
+		dokanGroupTexts:      make(map[int64][]dokanContentText),
 		enhanceTargets:       make(map[int64][]campaignTarget),
 		questEffects:         make(map[int64][]questCampaignEffect),
 		questTargets:         make(map[int64][]campaignTarget),
@@ -151,7 +157,20 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		}
 	}
 	for _, row := range readRows(file, "m_dokan_content_group") {
-		resolver.putPairIfAbsent(resolver.dokanGroupTextIDs, row, 0, 4)
+		groupID, groupOK := integerAt(row, 0)
+		contentIndex, indexOK := integerAt(row, 1)
+		textID, textOK := integerAt(row, 4)
+		if groupOK && indexOK && textOK {
+			resolver.dokanGroupTexts[groupID] = append(resolver.dokanGroupTexts[groupID], dokanContentText{
+				contentIndex: contentIndex,
+				textID:       textID,
+			})
+		}
+	}
+	for groupID := range resolver.dokanGroupTexts {
+		sort.SliceStable(resolver.dokanGroupTexts[groupID], func(left, right int) bool {
+			return resolver.dokanGroupTexts[groupID][left].contentIndex < resolver.dokanGroupTexts[groupID][right].contentIndex
+		})
 	}
 	resolver.loadCampaignReferences(file)
 	resolver.loadShopRelations(file)
@@ -241,13 +260,32 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 		}
 	case "m_dokan":
 		if groupID, ok := integerAt(row, 5); ok {
-			return cloneTitles(r.dokanTitles[r.dokanGroupTextIDs[groupID]])
+			return r.dokanContentTitles(groupID)
 		}
 	}
 	if key == "" {
 		return nil
 	}
 	return r.byKey(key)
+}
+
+func (r *titleResolver) dokanContentTitles(groupID int64) map[string]string {
+	titles := make(map[string]string)
+	for _, language := range supportedLanguages {
+		var lines []string
+		for _, content := range r.dokanGroupTexts[groupID] {
+			if text := r.dokanTitles[content.textID][language]; text != "" {
+				lines = append(lines, text)
+			}
+		}
+		if len(lines) != 0 {
+			titles[language] = strings.Join(lines, "\n")
+		}
+	}
+	if len(titles) == 0 {
+		return nil
+	}
+	return titles
 }
 
 func (r *titleResolver) enhanceCampaignTitles(row []interface{}) map[string]string {

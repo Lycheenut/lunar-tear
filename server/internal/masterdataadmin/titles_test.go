@@ -60,6 +60,31 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 	}
 }
 
+func TestDokanTitleIncludesEveryContentTextInOrder(t *testing.T) {
+	resolver := &titleResolver{
+		dokanTitles: translatedText{
+			10: {"en": "First line", "ja": "一行目"},
+			20: {"en": "Second line\nwith detail", "ja": "二行目\n詳細"},
+			30: {"en": "Third line", "ja": "三行目"},
+		},
+		dokanGroupTexts: map[int64][]dokanContentText{
+			100: {
+				{contentIndex: 1, textID: 10},
+				{contentIndex: 2, textID: 20},
+				{contentIndex: 3, textID: 30},
+			},
+		},
+	}
+
+	row := []interface{}{1, 1, 1, int64(100), int64(200), 100}
+	if got, want := resolver.resolve("m_dokan", row)["en"], "First line\nSecond line\nwith detail\nThird line"; got != want {
+		t.Fatalf("English Dokan title = %q, want %q", got, want)
+	}
+	if got, want := resolver.resolve("m_dokan", row)["ja"], "一行目\n二行目\n詳細\n三行目"; got != want {
+		t.Fatalf("Japanese Dokan title = %q, want %q", got, want)
+	}
+}
+
 func TestCampaignTitlesIncludeConcreteEffect(t *testing.T) {
 	resolver := &titleResolver{
 		texts: localizationIndex{

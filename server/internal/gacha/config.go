@@ -38,7 +38,7 @@ const (
 )
 
 type RarityWeights struct {
-	TwoStar   int `json:"2"`
+	TwoStar   int `json:"2,omitempty"`
 	ThreeStar int `json:"3"`
 	FourStar  int `json:"4"`
 }
@@ -97,7 +97,6 @@ func (i PoolItem) DrawnItem() DrawnItem {
 type GroupId string
 
 const (
-	GroupCharacterWeapon2 GroupId = "character_weapon_2"
 	GroupCharacterWeapon3 GroupId = "character_weapon_3"
 	GroupCharacterWeapon4 GroupId = "character_weapon_4"
 	GroupWeaponOnly2      GroupId = "weapon_only_2"
@@ -147,7 +146,6 @@ var groupDefinitions = []groupDefinition{
 	{GroupWeaponOnly4, GrantWeaponOnly, 4, model.RaritySSRare},
 	{GroupCharacterWeapon3, GrantCharacterWeapon, 3, model.RaritySRare},
 	{GroupWeaponOnly3, GrantWeaponOnly, 3, model.RaritySRare},
-	{GroupCharacterWeapon2, GrantCharacterWeapon, 2, model.RarityRare},
 	{GroupWeaponOnly2, GrantWeaponOnly, 2, model.RarityRare},
 }
 
@@ -155,7 +153,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Version: ConfigVersion,
 		GroupWeights: GroupWeights{
-			CharacterWeapon: RarityWeights{TwoStar: 0, ThreeStar: 500, FourStar: 200},
+			CharacterWeapon: RarityWeights{ThreeStar: 500, FourStar: 200},
 			WeaponOnly:      RarityWeights{TwoStar: 8000, ThreeStar: 1000, FourStar: 300},
 		},
 		LimitedSets: make(map[string]LimitedSetConfig),
@@ -491,6 +489,7 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 }
 
 func normalizeConfig(config *Config) {
+	config.GroupWeights.CharacterWeapon.TwoStar = 0
 	config.GroupWeights.calculateWeaponOnlyTwoStar()
 	if config.LimitedSets == nil {
 		config.LimitedSets = make(map[string]LimitedSetConfig)
@@ -511,7 +510,6 @@ func normalizeConfig(config *Config) {
 func (weights GroupWeights) weaponOnlyTwoStarRemainder() (int, bool) {
 	remaining := GroupWeightTotal
 	for _, weight := range []int{
-		weights.CharacterWeapon.TwoStar,
 		weights.CharacterWeapon.ThreeStar,
 		weights.CharacterWeapon.FourStar,
 		weights.WeaponOnly.ThreeStar,

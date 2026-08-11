@@ -1,6 +1,7 @@
 package gacha
 
 import (
+	"bytes"
 	"encoding/json"
 	"math/rand"
 	"strings"
@@ -113,9 +114,15 @@ func TestEncodeConfigCalculatesTwoStarWeaponProbability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = 7300
+	const want = 7425
+	if got := config.GroupWeights.CharacterWeapon.TwoStar; got != 0 {
+		t.Fatalf("removed 2-star character weapon weight = %d, want 0", got)
+	}
 	if got := config.GroupWeights.WeaponOnly.TwoStar; got != want {
 		t.Fatalf("calculated 2-star weapon weight = %d, want %d", got, want)
+	}
+	if bytes.Contains(raw, []byte(`"2": 0`)) {
+		t.Fatalf("encoded config contains removed 2-star character weapon weight: %s", raw)
 	}
 	var encoded Config
 	if err := json.Unmarshal(raw, &encoded); err != nil {
@@ -258,13 +265,12 @@ func TestTenthDrawWeightsPreserveFourStarAndTransferByGrantType(t *testing.T) {
 	groups := []PremiumGroup{
 		{GrantType: GrantCharacterWeapon, Star: 4},
 		{GrantType: GrantCharacterWeapon, Star: 3},
-		{GrantType: GrantCharacterWeapon, Star: 2},
 		{GrantType: GrantWeaponOnly, Star: 4},
 		{GrantType: GrantWeaponOnly, Star: 3},
 		{GrantType: GrantWeaponOnly, Star: 2},
 	}
-	got := transferTwoStarWeightsToThreeStar(groups, []int{200, 500, 100, 300, 1000, 7900})
-	want := []int{200, 600, 0, 300, 8900, 0}
+	got := transferTwoStarWeightsToThreeStar(groups, []int{200, 500, 300, 1000, 8000})
+	want := []int{200, 500, 300, 9000, 0}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("tenth-draw weight %d = %d, want %d", i, got[i], want[i])

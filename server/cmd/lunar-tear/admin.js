@@ -56,6 +56,7 @@
     m_big_hunt_schedule: ["BigHuntScheduleId"],
     m_comeback_campaign: ["ComebackCampaignId", "ComebackJudgeDayCount", "GrantCampaignTermDayCount", "CampaignUnlockQuestId", "ComebackCampaignGradeGroupId"],
     m_consumable_item_term: ["ConsumableItemTermId"],
+    m_dokan: ["DokanId", "SortOrder", "DokanType"],
     m_enhance_campaign: ["EnhanceCampaignId", "EnhanceCampaignTargetGroupId", "EnhanceCampaignEffectType", "EnhanceCampaignEffectValue", "TargetUserStatusType"],
     m_event_quest_chapter: ["EventQuestChapterId", "EventQuestType", "SortOrder", "NameEventQuestTextId", "BannerAssetId"],
     m_event_quest_daily_group: ["EventQuestDailyGroupId"],
@@ -67,7 +68,8 @@
     m_pvp_season: ["PvpSeasonId", "NameAssetPath"],
     m_quest_campaign: ["QuestCampaignId", "QuestCampaignTargetGroupId", "QuestCampaignEffectGroupId", "TargetUserStatusType"],
     m_shop: ["ShopId", "ShopGroupType", "SortOrderInShopGroup", "NameShopTextId", "ShopItemCellGroupId"],
-    m_shop_item_cell_term: ["ShopItemCellTermId"]
+    m_shop_item_cell_term: ["ShopItemCellTermId"],
+    m_tip: ["TipId", "TitleTipTextId", "ContentTipTextId"]
   };
 
   async function api(path, options = {}) {
@@ -658,7 +660,6 @@
     { id: "weapon_only_4", grantType: "weapon_only", star: 4, label: "4星武器" },
     { id: "character_weapon_3", grantType: "character_weapon", star: 3, label: "3星角色武器" },
     { id: "weapon_only_3", grantType: "weapon_only", star: 3, label: "3星武器" },
-    { id: "character_weapon_2", grantType: "character_weapon", star: 2, label: "2星角色武器" },
     { id: "weapon_only_2", grantType: "weapon_only", star: 2, label: "2星武器", calculated: true }
   ];
 
@@ -684,10 +685,10 @@
     state.gachaDraft.weapons ||= {};
     state.gachaDraft.banners ||= {};
     state.gachaDraft.groupWeights ||= {
-      characterWeapon: { "2": 0, "3": 500, "4": 200 },
+      characterWeapon: { "3": 500, "4": 200 },
       weaponOnly: { "2": 8000, "3": 1000, "4": 300 }
     };
-    state.gachaDraft.groupWeights.characterWeapon ||= { "2": 0, "3": 500, "4": 200 };
+    state.gachaDraft.groupWeights.characterWeapon ||= { "3": 500, "4": 200 };
     state.gachaDraft.groupWeights.weaponOnly ||= { "2": 8000, "3": 1000, "4": 300 };
     recalculateTwoStarWeaponProbability();
     state.gachaDraft.sourceMasterDataHash = state.gachaCatalog?.masterDataHash || "";
@@ -1202,9 +1203,9 @@
     const errors = [];
     const weights = gachaGroupDefinitions.map((definition) => ({ definition, weight: groupWeight(definition) }));
     const editableWeights = weights.filter(({ definition }) => !definition.calculated);
-    if (editableWeights.some(({ weight }) => !Number.isInteger(weight) || weight < 0)) errors.push("五个可配置概率组必须是非负的 0.01% 倍数");
-    if (groupWeight(gachaGroupDefinitions.find((definition) => definition.calculated)) < 0) errors.push("其他五个概率组合计不能超过 100%");
-    if (weights.reduce((sum, { weight }) => sum + weight, 0) !== 10000) errors.push("六组概率合计必须为 100%");
+    if (editableWeights.some(({ weight }) => !Number.isInteger(weight) || weight < 0)) errors.push("四个可配置概率组必须是非负的 0.01% 倍数");
+    if (groupWeight(gachaGroupDefinitions.find((definition) => definition.calculated)) < 0) errors.push("其他四个概率组合计不能超过 100%");
+    if (weights.reduce((sum, { weight }) => sum + weight, 0) !== 10000) errors.push("五组概率合计必须为 100%");
     state.gachaCatalog.weapons.forEach((weapon) => {
       const definition = state.gachaDraft.weapons[String(weapon.weaponId)];
       if (!definition) return;
