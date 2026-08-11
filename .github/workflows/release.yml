@@ -67,7 +67,7 @@ jobs:
           build wizard         "$stage"
 
           # Sub-services and admin tools go in bin/ to match the runtime layout.
-          for name in dev lunar-tear octo-cdn auth-server import-snapshot claim-account register-account wizard-restore; do
+          for name in dev lunar-tear octo-cdn auth-server import-snapshot claim-account register-account account-admin wizard-restore; do
             build "$name" "$stage/bin"
           done
 

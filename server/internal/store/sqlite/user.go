@@ -99,6 +99,29 @@ func (s *SQLiteStore) DefaultUserId() (int64, error) {
 	return userId, nil
 }
 
+func (s *SQLiteStore) DeleteUser(userId int64) error {
+	_, unlock := s.userLocks.lock([]int64{userId})
+	defer unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	deleted, err := deleteUserRows(tx, userId)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return store.ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 // ImportUser replaces all data for u.UserId in the database with the
 // contents of u.  Any pre-existing rows for that user are deleted first.
 func (s *SQLiteStore) ImportUser(u *store.UserState) error {
@@ -120,20 +143,8 @@ func (s *SQLiteStore) ImportUser(u *store.UserState) error {
 	defer tx.Rollback()
 
 	uid := u.UserId
-	if _, err := tx.Exec(`DELETE FROM user_friend_requests WHERE requester_user_id = ?`, uid); err != nil {
-		return fmt.Errorf("delete outgoing friend requests: %w", err)
-	}
-	if _, err := tx.Exec(`DELETE FROM user_friends WHERE friend_user_id = ?`, uid); err != nil {
-		return fmt.Errorf("delete inbound friend relationships: %w", err)
-	}
-
-	for _, t := range userOwnedTables {
-		if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id = ?`, t), uid); err != nil {
-			return fmt.Errorf("delete from %s: %w", t, err)
-		}
-	}
-	if _, err := tx.Exec(`DELETE FROM users WHERE user_id = ?`, uid); err != nil {
-		return fmt.Errorf("delete user: %w", err)
+	if _, err := deleteUserRows(tx, uid); err != nil {
+		return err
 	}
 
 	if _, err := tx.Exec(`INSERT INTO users (user_id, uuid, player_id, os_type, platform_type,
@@ -155,6 +166,30 @@ func (s *SQLiteStore) ImportUser(u *store.UserState) error {
 	}
 
 	return nil
+}
+
+func deleteUserRows(tx *sql.Tx, uid int64) (bool, error) {
+	if _, err := tx.Exec(`DELETE FROM user_friend_requests WHERE requester_user_id = ?`, uid); err != nil {
+		return false, fmt.Errorf("delete outgoing friend requests: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM user_friends WHERE friend_user_id = ?`, uid); err != nil {
+		return false, fmt.Errorf("delete inbound friend relationships: %w", err)
+	}
+
+	for _, t := range userOwnedTables {
+		if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE user_id = ?`, t), uid); err != nil {
+			return false, fmt.Errorf("delete from %s: %w", t, err)
+		}
+	}
+	result, err := tx.Exec(`DELETE FROM users WHERE user_id = ?`, uid)
+	if err != nil {
+		return false, fmt.Errorf("delete user: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read deleted row count: %w", err)
+	}
+	return deleted > 0, nil
 }
 
 func (s *SQLiteStore) SetFacebookId(userId int64, facebookId int64) error {

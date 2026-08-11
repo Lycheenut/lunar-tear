@@ -356,6 +356,8 @@ All targets run from the `server/` directory.
 | `make build-export`           | Build the export-snapshot tool                         |
 | `make build-claim-account`    | Build the claim-account tool                           |
 | `make build-register-account` | Build the register-account tool                        |
+| `make build-account-admin`    | Build the account administration tool                  |
+| `make prod-account`           | Run account-admin against the production DB volume     |
 | `make clean`                  | Remove the `bin/` directory                            |
 | `make dev`                    | Run all three services with one command                |
 | `make migrate`                | Run goose migrations on `db/game.db`                   |
@@ -452,24 +454,47 @@ when an external secret manager supplies at least 32 bytes directly.
 | `--allowed-redirect-uris` | _(compatible Facebook schemes)_ | Comma-separated exact OAuth callbacks; required by the production template |
 | `--no-register` | `false`        | Disable new user registrations (only already registered users can log in). |
 
-## Create account
+## Account administration
 
-This tool creates a fresh account in main db and new account in Auth Server store with given name & password and automatically binds them together.
-A primary mean of registering new accounts when `--no-register` flag is passed to lunar-tear for controlled server access.
+`account-admin` creates and deletes accounts and resets passwords. Passwords
+are read from the terminal without echo and confirmed, so they are not stored
+in shell history. Use this tool when `--no-register` limits server access.
 
 ```bash
-go run ./cmd/register-account --name "AccountName" --password "AccountPassword" --platform "android"
+cd server
+go run ./cmd/account-admin create --name "AccountName" --platform android
+go run ./cmd/account-admin password --name "AccountName"
+go run ./cmd/account-admin delete --name "AccountName"
 ```
 
-| Flag         | Default      | Description                                       |
-| ------------ | ------------ | ------------------------------------------------- |
-| `--name`     | _(required)_ | Auth Server account nickname to be registered     |
-| `--password` | _(required)_ | Auth Server account password to be registered     |
-| `--platform` | `android`    | Platform of new user account (`android` or `ios`) |
-| `--db`       | `db/game.db` | SQLite main database path                         |
-| `--auth-db`  | `db/auth.db` | SQLite Auth Server database path                  |
+The auth Docker image includes the tool. Its existing volume contains both
+databases, so no Go installation is needed on the Docker host:
 
-This only sets the nickname of Auth Server account, a player can choose their in-game nickname upon first login!
+```bash
+docker compose build auth
+docker compose run --rm --no-deps --entrypoint ./account-admin auth create --name "AccountName" --platform android
+docker compose run --rm --no-deps --entrypoint ./account-admin auth password --name "AccountName"
+docker compose run --rm --no-deps --entrypoint ./account-admin auth delete --name "AccountName"
+```
+
+For the production Compose file, build the updated image once and use the
+wrapper target (for example, `make prod-account ARGS='create --name AccountName'`).
+
+| Flag               | Default      | Description                                      |
+| ------------------ | ------------ | ------------------------------------------------ |
+| `--name`           | _(required)_ | Auth Server login name                           |
+| `--platform`       | `android`    | New account platform (`android` or `ios`)        |
+| `--db`             | `db/game.db` | SQLite main database path                        |
+| `--auth-db`        | `db/auth.db` | SQLite Auth Server database path                 |
+| `--password-stdin` | `false`      | Read one password line for non-interactive use   |
+| `--yes`            | `false`      | Skip the delete confirmation (delete only)       |
+
+The account name is only the Auth Server login name. The player chooses their
+in-game name on first login. Stop the game and auth services and back up both
+databases before deleting an account. Deletion removes the login, sessions,
+social links, and all game data for the linked player.
+
+The older `register-account` tool remains available for compatibility.
 
 ## ⚠️ Legal Disclaimer
 

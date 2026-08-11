@@ -11,6 +11,7 @@ import (
 
 var (
 	ErrUserExists   = errors.New("username already taken")
+	ErrUserNotFound = errors.New("user not found")
 	ErrInvalidCreds = errors.New("invalid username or password")
 )
 
@@ -39,9 +40,9 @@ func NewAuthStore(db *sql.DB) (*AuthStore, error) {
 }
 
 func (s *AuthStore) CreateUser(username, password string) (AuthUser, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := hashPassword(password)
 	if err != nil {
-		return AuthUser{}, fmt.Errorf("hash password: %w", err)
+		return AuthUser{}, err
 	}
 
 	res, err := s.db.Exec(
@@ -57,6 +58,55 @@ func (s *AuthStore) CreateUser(username, password string) (AuthUser, error) {
 
 	id, _ := res.LastInsertId()
 	return AuthUser{ID: id, Username: username}, nil
+}
+
+func (s *AuthStore) GetUser(username string) (AuthUser, error) {
+	var user AuthUser
+	err := s.db.QueryRow(
+		`SELECT id, username FROM auth_users WHERE username = ?`, username,
+	).Scan(&user.ID, &user.Username)
+	if err == sql.ErrNoRows {
+		return AuthUser{}, ErrUserNotFound
+	}
+	if err != nil {
+		return AuthUser{}, fmt.Errorf("query user: %w", err)
+	}
+	return user, nil
+}
+
+func (s *AuthStore) UpdatePassword(username, password string) error {
+	hash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	result, err := s.db.Exec(`UPDATE auth_users SET password = ? WHERE username = ?`, hash, username)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated row count: %w", err)
+	}
+	if updated == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+func (s *AuthStore) DeleteUser(id int64) error {
+	result, err := s.db.Exec(`DELETE FROM auth_users WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted row count: %w", err)
+	}
+	if deleted == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (s *AuthStore) VerifyUser(username, password string) (AuthUser, error) {
@@ -80,6 +130,14 @@ func (s *AuthStore) UserExists(username string) bool {
 	var n int
 	err := s.db.QueryRow(`SELECT 1 FROM auth_users WHERE username = ?`, username).Scan(&n)
 	return err == nil
+}
+
+func hashPassword(password string) ([]byte, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+	return hash, nil
 }
 
 func isUniqueViolation(err error) bool {

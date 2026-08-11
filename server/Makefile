@@ -131,6 +131,9 @@ build-claim-account:
 build-register-account:
 	go build -o register-account$(EXE) ./cmd/register-account
 
+build-account-admin:
+	go build -o account-admin$(EXE) ./cmd/account-admin
+
 build-dev:
 	$(GO) build -o bin/dev$(EXE) ./cmd/dev
 
@@ -234,6 +237,9 @@ prod-start:
 prod-stop:
 	@LUNAR_ADMIN_TOKEN=unused-during-stop $(PROD_COMPOSE) stop
 
+prod-account:
+	@LUNAR_ADMIN_TOKEN=unused-during-account $(PROD_COMPOSE) run --rm --no-deps --entrypoint ./account-admin auth $(ARGS)
+
 prod-restart:
 	@LUNAR_ADMIN_TOKEN="$$($(PROD_ADMIN_TOKEN_COMMAND))" || exit $$?; \
 		test -n "$$LUNAR_ADMIN_TOKEN" || { echo "Secret $(PROD_ADMIN_TOKEN_SECRET) version $(PROD_ADMIN_TOKEN_VERSION) is empty" >&2; exit 1; }; \
@@ -267,4 +273,4 @@ ifndef PLAYER_ID
 endif
 	@$(GO) run ./cmd/export-snapshot --player-id "$(PLAYER_ID)" --db "$(SNAPSHOT_DB)"
 
-.PHONY: proto build build-cdn build-auth build-import build-export build-claim-account build-register-account build-dev build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-restart prod-deploy clean dev migrate restore import export
+.PHONY: proto build build-cdn build-auth build-import build-export build-claim-account build-register-account build-account-admin build-dev build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-account prod-restart prod-deploy clean dev migrate restore import export
