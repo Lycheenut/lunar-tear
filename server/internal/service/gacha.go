@@ -176,7 +176,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 	var drawResult *gacha.DrawResult
 	var drawErr error
 	ownedCostumes := map[int32]bool{}
-	ownedWeapons := map[int32]bool{}
+	acquiredWeapons := map[int32]bool{}
 	updatedUser, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if !gachaUnlocked(cat, user, *entry, nowMillis) {
 			drawErr = status.Error(codes.FailedPrecondition, "gacha is locked")
@@ -185,9 +185,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 		for _, c := range user.Costumes {
 			ownedCostumes[c.CostumeId] = true
 		}
-		for _, w := range user.Weapons {
-			ownedWeapons[w.WeaponId] = true
-		}
+		acquiredWeapons = acquiredWeaponIds(user)
 		drawResult, drawErr = handler.HandleDraw(user, *entry, req.GachaPricePhaseId, execCount)
 		if drawErr != nil {
 			return
@@ -227,7 +225,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 	isMaterialDraw := model.IsMaterialBanner(entry.GachaLabelType)
 
 	for i, item := range drawResult.Items {
-		isNew := !isOwnedByType(item, ownedCostumes, ownedWeapons, updatedUser)
+		isNew := !isOwnedByType(item, ownedCostumes, acquiredWeapons, updatedUser)
 
 		var oddsItem *pb.DrawGachaOddsItem
 
@@ -253,7 +251,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 					PossessionType: weaponPT,
 					PossessionId:   bonus.PossessionId,
 					Count:          1,
-					IsNew:          !ownedWeapons[bonus.PossessionId],
+					IsNew:          !acquiredWeapons[bonus.PossessionId],
 				},
 			}
 		} else {
@@ -379,14 +377,12 @@ func (s *GachaServiceServer) RewardDraw(ctx context.Context, req *pb.RewardDrawR
 
 	var items []gacha.DrawnItem
 	ownedCostumes := map[int32]bool{}
-	ownedWeapons := map[int32]bool{}
+	acquiredWeapons := map[int32]bool{}
 	updatedUser, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		for _, c := range user.Costumes {
 			ownedCostumes[c.CostumeId] = true
 		}
-		for _, w := range user.Weapons {
-			ownedWeapons[w.WeaponId] = true
-		}
+		acquiredWeapons = acquiredWeaponIds(user)
 		var drawErr error
 		items, drawErr = handler.HandleRewardDraw(user, 1)
 		if drawErr != nil {
@@ -406,7 +402,7 @@ func (s *GachaServiceServer) RewardDraw(ctx context.Context, req *pb.RewardDrawR
 			PossessionType: item.PossessionType,
 			PossessionId:   item.PossessionId,
 			Count:          1,
-			IsNew:          !isOwnedByType(item, ownedCostumes, ownedWeapons, updatedUser),
+			IsNew:          !isOwnedByType(item, ownedCostumes, acquiredWeapons, updatedUser),
 		})
 	}
 
@@ -707,6 +703,14 @@ func applyDuplicationBonus(oddsItem *pb.DrawGachaOddsItem, dup gacha.DuplicateIn
 			Count:          b.Count,
 		})
 	}
+}
+
+func acquiredWeaponIds(user *store.UserState) map[int32]bool {
+	weaponIds := make(map[int32]bool, len(user.WeaponNotes))
+	for weaponId := range user.WeaponNotes {
+		weaponIds[weaponId] = true
+	}
+	return weaponIds
 }
 
 func isOwnedByType(item gacha.DrawnItem, costumes, weapons map[int32]bool, user store.UserState) bool {

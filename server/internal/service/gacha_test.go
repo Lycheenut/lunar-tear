@@ -25,3 +25,16 @@ func TestGachaForUserPreservesCalculatedLockState(t *testing.T) {
 		t.Fatal("cleared quest did not unlock gacha")
 	}
 }
+
+func TestAcquiredWeaponIdsIncludesSoldWeapons(t *testing.T) {
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.WeaponNotes[100] = store.WeaponNoteState{
+		WeaponId:                 100,
+		FirstAcquisitionDatetime: 1,
+	}
+
+	weaponIds := acquiredWeaponIds(user)
+	if !weaponIds[100] {
+		t.Fatal("weapon acquisition history was ignored when inventory was empty")
+	}
+}
