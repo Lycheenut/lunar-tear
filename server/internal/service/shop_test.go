@@ -23,33 +23,22 @@ func TestPlatformPurchaseEndpointsAreDisabled(t *testing.T) {
 	}
 }
 
-func TestRollReplaceableLineupChangesLineupWithoutChangingPool(t *testing.T) {
+func TestBuildReplaceableLineupPreservesCatalogOrder(t *testing.T) {
 	pool := []int32{10, 20, 30}
-	previous := map[int32]store.UserShopReplaceableLineupState{
-		1: {SlotNumber: 1, ShopItemId: 10},
-		2: {SlotNumber: 2, ShopItemId: 20},
-		3: {SlotNumber: 3, ShopItemId: 30},
-	}
 
-	lineup := rollReplaceableLineup(pool, previous, 1234)
-	seen := make(map[int32]bool, len(lineup))
-	unchanged := true
-	for slot, row := range lineup {
-		seen[row.ShopItemId] = true
+	lineup := buildReplaceableLineup(pool, 1234)
+	for i, itemId := range pool {
+		slot := int32(i + 1)
+		row := lineup[slot]
 		if row.SlotNumber != slot || row.LatestVersion != 1234 {
 			t.Fatalf("invalid lineup row for slot %d: %+v", slot, row)
 		}
-		if previous[slot].ShopItemId != row.ShopItemId {
-			unchanged = false
+		if row.ShopItemId != itemId {
+			t.Fatalf("lineup item for slot %d = %d, want %d", slot, row.ShopItemId, itemId)
 		}
 	}
-	if unchanged {
-		t.Fatal("refresh left the complete lineup unchanged")
-	}
-	for _, itemId := range pool {
-		if !seen[itemId] {
-			t.Fatalf("refreshed lineup omitted item %d", itemId)
-		}
+	if len(lineup) != len(pool) {
+		t.Fatalf("lineup length = %d, want %d", len(lineup), len(pool))
 	}
 }
 

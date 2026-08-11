@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/rand"
 	"time"
 
 	pb "lunar-tear/server/gen/proto"
@@ -192,7 +191,7 @@ func (s *ShopServiceServer) RefreshUserData(ctx context.Context, req *pb.Refresh
 			validationErr = status.Error(codes.FailedPrecondition, "replaceable shop has no available items")
 			return
 		}
-		candidate.ShopReplaceableLineup = rollReplaceableLineup(pool, candidate.ShopReplaceableLineup, nowMillis)
+		candidate.ShopReplaceableLineup = buildReplaceableLineup(pool, nowMillis)
 		candidate.ShopReplaceable.LatestLineupUpdateDatetime = nowMillis
 		candidate.ShopReplaceable.LatestVersion = nowMillis
 		for _, itemId := range catalog.ItemShopPool {
@@ -240,24 +239,9 @@ func nextReplaceableRefreshCount(currentCount int32, isNewDay bool) int32 {
 	return currentCount + 1
 }
 
-func rollReplaceableLineup(pool []int32, previous map[int32]store.UserShopReplaceableLineupState, nowMillis int64) map[int32]store.UserShopReplaceableLineupState {
-	items := append([]int32(nil), pool...)
-	rand.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
-	if len(items) > 1 {
-		same := len(previous) == len(items)
-		for i, itemId := range items {
-			if previous[int32(i+1)].ShopItemId != itemId {
-				same = false
-				break
-			}
-		}
-		if same {
-			items[0], items[1] = items[1], items[0]
-		}
-	}
-
-	lineup := make(map[int32]store.UserShopReplaceableLineupState, len(items))
-	for i, itemId := range items {
+func buildReplaceableLineup(pool []int32, nowMillis int64) map[int32]store.UserShopReplaceableLineupState {
+	lineup := make(map[int32]store.UserShopReplaceableLineupState, len(pool))
+	for i, itemId := range pool {
 		slot := int32(i + 1)
 		lineup[slot] = store.UserShopReplaceableLineupState{
 			SlotNumber:    slot,
