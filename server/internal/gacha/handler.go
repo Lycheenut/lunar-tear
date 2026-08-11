@@ -41,6 +41,7 @@ const (
 )
 
 var dupExchangeCountByGrade = [...]int32{20, 16, 14, 12, 10}
+var dupGradePercentByGrade = [...]int{3, 8, 14, 30, 45}
 
 func NewGachaHandler(
 	pool *masterdata.GachaCatalog,
@@ -118,7 +119,7 @@ func (h *GachaHandler) HandleDraw(
 
 	switch entry.GachaLabelType {
 	case model.GachaLabelPremium:
-		items, err = h.drawPremium(entry, phase, drawCount)
+		items, err = h.drawPremium(entry, phase, int(execCount))
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +128,7 @@ func (h *GachaHandler) HandleDraw(
 	case model.GachaLabelEvent:
 		items = h.drawBox(entry, &bs, drawCount)
 	default:
-		items, err = h.drawPremium(entry, phase, drawCount)
+		items, err = h.drawPremium(entry, phase, int(execCount))
 		if err != nil {
 			return nil, err
 		}
@@ -252,7 +253,7 @@ func (h *GachaHandler) HandleRewardDraw(
 	return items, nil
 }
 
-func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.GachaPricePhaseEntry, count int) ([]DrawnItem, error) {
+func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.GachaPricePhaseEntry, execCount int) ([]DrawnItem, error) {
 	fixedMin := phase.FixedRarityMin
 	fixedCount := int(phase.FixedCount)
 
@@ -268,7 +269,16 @@ func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.Ga
 		}
 	}
 
-	return DrawPremium(bp, count, fixedMin, fixedCount, rateMultiplier)
+	drawCountPerExecution := int(phase.DrawCount)
+	result := make([]DrawnItem, 0, drawCountPerExecution*execCount)
+	for range execCount {
+		execResult, err := DrawPremium(bp, drawCountPerExecution, fixedMin, fixedCount, rateMultiplier)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, execResult...)
+	}
+	return result, nil
 }
 
 func (h *GachaHandler) drawMaterial(count int) []DrawnItem {
@@ -362,7 +372,7 @@ func (h *GachaHandler) grantItems(user *store.UserState, items []DrawnItem, nowM
 func (h *GachaHandler) tryCostumeDupExchange(user *store.UserState, item DrawnItem, index int) (DuplicateInfo, bool) {
 	for _, c := range user.Costumes {
 		if c.CostumeId == item.PossessionId {
-			grade := int32(rand.Intn(model.DupGradeRange) + int(model.DupGradeMin))
+			grade := dupGradeForRoll(rand.Intn(100))
 			exchanges := dupExchangesForGrade(h.DupExchange[item.PossessionId], grade)
 			for _, ex := range exchanges {
 				store.GrantPossession(user, model.PossessionType(ex.PossessionType), ex.PossessionId, ex.Count)
@@ -371,6 +381,17 @@ func (h *GachaHandler) tryCostumeDupExchange(user *store.UserState, item DrawnIt
 		}
 	}
 	return DuplicateInfo{}, false
+}
+
+func dupGradeForRoll(roll int) int32 {
+	cumulative := 0
+	for i, percent := range dupGradePercentByGrade {
+		cumulative += percent
+		if roll < cumulative {
+			return model.DupGradeMin + int32(i)
+		}
+	}
+	return model.DupGradeMin + int32(len(dupGradePercentByGrade)-1)
 }
 
 func dupExchangesForGrade(exchanges []model.DupExchangeEntry, grade int32) []model.DupExchangeEntry {

@@ -375,6 +375,28 @@ func (g *PossessionGranter) rollPartsVariant(requestedPartsId int32) (int32, Par
 	return chosenPartsId, chosenRef, true
 }
 
+// PickUniquePartsSubStatus selects an unused lottery entry for a part. Exact
+// lottery ids are unique; flat and percentage variants have different ids and
+// therefore remain independently eligible.
+func PickUniquePartsSubStatus(pool []int32, user *UserState, partsUuid string) (int32, bool) {
+	used := make(map[int32]bool)
+	for key, status := range user.PartsStatusSubs {
+		if key.UserPartsUuid == partsUuid {
+			used[status.PartsStatusSubLotteryId] = true
+		}
+	}
+	available := make([]int32, 0, len(pool))
+	for _, id := range pool {
+		if !used[id] {
+			available = append(available, id)
+		}
+	}
+	if len(available) == 0 {
+		return 0, false
+	}
+	return available[rand.Intn(len(available))], true
+}
+
 func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, chosenRef PartsRef, nowMillis int64) {
 	mainStatId := g.DefaultPartsStatusMainByLotteryGroup[chosenRef.PartsStatusMainLotteryGroupId]
 	if _, exists := user.PartsGroupNotes[chosenRef.PartsGroupId]; !exists {
@@ -397,7 +419,10 @@ func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, ch
 	pool := g.PartsSubStatusPool[chosenRef.PartsStatusSubLotteryGroupId]
 	if initialCount > 1 && len(pool) > 0 {
 		for i := int32(0); i < initialCount-1; i++ {
-			pickId := pool[rand.Intn(len(pool))]
+			pickId, picked := PickUniquePartsSubStatus(pool, user, key)
+			if !picked {
+				break
+			}
 			def, ok := g.PartsSubStatusDefs[pickId]
 			if !ok {
 				continue

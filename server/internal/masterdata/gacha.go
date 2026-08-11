@@ -220,7 +220,6 @@ func EnrichGachaUnlockConditions(entries []store.GachaCatalogEntry, quests *Ques
 }
 
 const chapterPromoMaxItems = 4
-const maxSlideFeatured = 13
 
 func EnrichCatalogPromotions(entries []store.GachaCatalogEntry, pool *GachaCatalog) {
 	for i := range entries {
@@ -234,49 +233,12 @@ func EnrichCatalogPromotions(entries []store.GachaCatalogEntry, pool *GachaCatal
 		}
 
 		featured := pool.FeaturedByGacha[entries[i].GachaId]
-
-		maxRarity := int32(0)
+		items := make([]store.GachaPromotionItem, 0, len(featured.Costumes)+len(featured.Weapons))
 		for _, c := range featured.Costumes {
-			if c.RarityType > maxRarity {
-				maxRarity = c.RarityType
-			}
+			items = append(items, toPromoItemWithBonus(c, pool))
 		}
 		for _, w := range featured.Weapons {
-			if w.RarityType > maxRarity {
-				maxRarity = w.RarityType
-			}
-		}
-
-		var topCostumes []GachaPoolItem
-		for _, c := range featured.Costumes {
-			if c.RarityType == maxRarity {
-				topCostumes = append(topCostumes, c)
-			}
-		}
-		var topWeapons []GachaPoolItem
-		for _, w := range featured.Weapons {
-			if w.RarityType == maxRarity {
-				topWeapons = append(topWeapons, w)
-			}
-		}
-
-		if len(topCostumes)+len(topWeapons) > maxSlideFeatured {
-			topCostumes = topCostumes[:min(3, len(topCostumes))]
-			topWeapons = topWeapons[:min(2, len(topWeapons))]
-		}
-
-		var items []store.GachaPromotionItem
-		if entries[i].GachaModeType == model.GachaModeStepup && len(topCostumes) > 0 {
-			items = append(items, toPromoItemWithBonus(topCostumes[0], pool))
-			wid := pool.CostumeWeaponMap[topCostumes[0].PossessionId]
-			items = append(items, toPromoItem(pool.WeaponById[wid]))
-		} else {
-			for _, c := range topCostumes {
-				items = append(items, toPromoItemWithBonus(c, pool))
-			}
-			for _, w := range topWeapons {
-				items = append(items, toPromoItemWithBonus(w, pool))
-			}
+			items = append(items, toPromoItemWithBonus(w, pool))
 		}
 
 		entries[i].PromotionItems = items

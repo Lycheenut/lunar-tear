@@ -153,6 +153,48 @@ func TestDupExchangesForGradeUsesTierCount(t *testing.T) {
 	}
 }
 
+func TestDupGradeDistributionUsesConfiguredPercentages(t *testing.T) {
+	counts := [5]int{}
+	for roll := 0; roll < 100; roll++ {
+		grade := dupGradeForRoll(roll)
+		if grade < 1 || grade > 5 {
+			t.Fatalf("roll %d produced invalid grade %d", roll, grade)
+		}
+		counts[grade-1]++
+	}
+	want := [5]int{3, 8, 14, 30, 45}
+	if counts != want {
+		t.Fatalf("grade counts = %v, want %v", counts, want)
+	}
+}
+
+func TestDrawPremiumAppliesGuaranteePerExecution(t *testing.T) {
+	previousRates := premiumRates
+	premiumRates = []RateTier{{Weight: 10000, PossessionType: int32(model.PossessionTypeWeapon), RarityType: model.RarityRare}}
+	defer func() { premiumRates = previousRates }()
+
+	banner := &masterdata.BannerPool{
+		CostumesByRarity: map[int32][]masterdata.GachaPoolItem{},
+		WeaponsByRarity: map[int32][]masterdata.GachaPoolItem{
+			model.RarityRare:   {{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: 1, RarityType: model.RarityRare}},
+			model.RaritySSRare: {{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: 2, RarityType: model.RaritySSRare}},
+		},
+	}
+	h := &GachaHandler{Pool: &masterdata.GachaCatalog{BannerPools: map[int32]*masterdata.BannerPool{1: banner}}}
+	entry := store.GachaCatalogEntry{GachaId: 1}
+	phase := store.GachaPricePhaseEntry{DrawCount: 10, FixedRarityMin: model.RaritySSRare, FixedCount: 1}
+
+	items := h.drawPremium(entry, phase, 2)
+	if len(items) != 20 {
+		t.Fatalf("draw count = %d, want 20", len(items))
+	}
+	for _, index := range []int{9, 19} {
+		if items[index].RarityType < model.RaritySSRare {
+			t.Fatalf("execution ending at index %d was not guaranteed: %+v", index, items[index])
+		}
+	}
+}
+
 func eventBoxEntry() store.GachaCatalogEntry {
 	return store.GachaCatalogEntry{
 		GachaId:        1,

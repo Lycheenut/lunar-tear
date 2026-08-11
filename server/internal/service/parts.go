@@ -230,7 +230,10 @@ func grantPartsSubStatuses(catalog *masterdata.PartsCatalog, user *store.UserSta
 			continue
 		}
 
-		pick := pool[rand.Intn(len(pool))]
+		pick, picked := store.PickUniquePartsSubStatus(pool, user, uuid)
+		if !picked {
+			continue
+		}
 		def, ok := catalog.PartsStatusMainById[pick]
 		if !ok {
 			continue
