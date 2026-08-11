@@ -102,6 +102,43 @@ func TestEncodeConfigOmitsExplicitStandardWeapons(t *testing.T) {
 	}
 }
 
+func TestEncodeConfigCalculatesTwoStarWeaponProbability(t *testing.T) {
+	config := DefaultConfig()
+	config.GroupWeights = GroupWeights{
+		CharacterWeapon: RarityWeights{TwoStar: 125, ThreeStar: 750, FourStar: 225},
+		WeaponOnly:      RarityWeights{TwoStar: 1, ThreeStar: 1200, FourStar: 400},
+	}
+
+	raw, _, err := EncodeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = 7300
+	if got := config.GroupWeights.WeaponOnly.TwoStar; got != want {
+		t.Fatalf("calculated 2-star weapon weight = %d, want %d", got, want)
+	}
+	var encoded Config
+	if err := json.Unmarshal(raw, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	if got := encoded.GroupWeights.WeaponOnly.TwoStar; got != want {
+		t.Fatalf("encoded 2-star weapon weight = %d, want %d", got, want)
+	}
+}
+
+func TestBuildPremiumCatalogRejectsOtherProbabilitiesOverOneHundredPercent(t *testing.T) {
+	source, entries, config := testPremiumSource()
+	config.GroupWeights = GroupWeights{
+		CharacterWeapon: RarityWeights{FourStar: 6000},
+		WeaponOnly:      RarityWeights{FourStar: 4001},
+	}
+
+	_, err := BuildPremiumCatalog(config, source, entries, BuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "100%") {
+		t.Fatalf("over-100%% group probability error = %v", err)
+	}
+}
+
 func TestConfigWithoutAutomaticEventWeaponsRemovesOverridesAndPickups(t *testing.T) {
 	source, _, config := testPremiumSource()
 	config.Weapons[12] = WeaponConfig{Availability: AvailabilityEvent}
