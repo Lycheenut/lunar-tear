@@ -92,10 +92,7 @@ const (
 	StepUpRateMaxBoost float64 = 2.0
 )
 
-const (
-	DupGradeMin   int32 = 1
-	DupGradeRange int   = 5
-)
+const DupGradeMin int32 = 1
 
 type DupExchangeEntry struct {
 	PossessionType int32

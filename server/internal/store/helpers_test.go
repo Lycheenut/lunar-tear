@@ -82,3 +82,23 @@ func TestDeductPriceRejectsPlatformPayment(t *testing.T) {
 		t.Fatal("platform payment was accepted")
 	}
 }
+
+func TestPickUniquePartsSubStatusExcludesExactDuplicates(t *testing.T) {
+	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
+	const partsUUID = "parts"
+	pool := []int32{101, 102}
+	user.PartsStatusSubs[PartsStatusSubKey{UserPartsUuid: partsUUID, StatusIndex: 1}] = PartsStatusSubState{
+		UserPartsUuid: partsUUID, StatusIndex: 1, PartsStatusSubLotteryId: 101,
+	}
+
+	pick, ok := PickUniquePartsSubStatus(pool, user, partsUUID)
+	if !ok || pick != 102 {
+		t.Fatalf("pick = %d, ok=%v, want distinct lottery id 102", pick, ok)
+	}
+	user.PartsStatusSubs[PartsStatusSubKey{UserPartsUuid: partsUUID, StatusIndex: 2}] = PartsStatusSubState{
+		UserPartsUuid: partsUUID, StatusIndex: 2, PartsStatusSubLotteryId: pick,
+	}
+	if pick, ok := PickUniquePartsSubStatus(pool, user, partsUUID); ok {
+		t.Fatalf("exhausted unique pool returned %d", pick)
+	}
+}
