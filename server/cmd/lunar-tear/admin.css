@@ -461,6 +461,16 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .banner-controls { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); align-items: start; gap: 16px; padding: 16px; border-bottom: 1px solid var(--line); }
 .banner-control-column { display: grid; gap: 14px; min-width: 0; }
 .banner-controls input, .banner-controls select { width: 100%; min-width: 0; }
+.gacha-probability-editor { display: grid; gap: 10px; }
+.gacha-probability-editor > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.gacha-probability-list { display: grid; gap: 8px; }
+.gacha-probability-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; align-items: center; gap: 10px; }
+.gacha-probability-row > span:first-child { color: var(--text); font-size: 12px; font-weight: 650; }
+.gacha-probability-input { position: relative; }
+.gacha-probability-input input { min-height: 34px; padding-right: 25px; text-align: right; font-variant-numeric: tabular-nums; }
+.gacha-probability-input span { position: absolute; top: 50%; right: 9px; color: var(--muted); font-size: 11px; transform: translateY(-50%); pointer-events: none; }
+.gacha-probability-row.calculated input { color: var(--accent-strong); border-style: dashed; background: rgba(32, 55, 62, .45); cursor: not-allowed; }
+.gacha-probability-row.invalid input { color: #ff9d91; border-color: rgba(255, 111, 97, .7); }
 .pickup-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 fieldset { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700; }

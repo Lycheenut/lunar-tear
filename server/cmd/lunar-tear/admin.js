@@ -26,6 +26,7 @@
     gachaWeaponTypeFilter: $("#gacha-weapon-type-filter"), gachaGrantFilter: $("#gacha-grant-filter"),
     gachaWeaponBody: $("#gacha-weapon-body"), gachaWeaponEmpty: $("#gacha-weapon-empty"),
     gachaBannerSelect: $("#gacha-banner-select"), gachaBannerState: $("#gacha-banner-state"),
+    gachaGroupProbabilities: $("#gacha-group-probabilities"),
     gachaBannerLimitedSets: $("#gacha-banner-limited-sets"), gachaPickupSearch: $("#gacha-pickup-search"),
     gachaPickupStarFilter: $("#gacha-pickup-star-filter"), gachaPickupAttributeFilter: $("#gacha-pickup-attribute-filter"),
     gachaPickupWeaponTypeFilter: $("#gacha-pickup-weapon-type-filter"), gachaPickupGrantFilter: $("#gacha-pickup-grant-filter"),
@@ -653,12 +654,12 @@
   const weaponAttributeLabels = { 1: "暗", 2: "火", 3: "光", 5: "水", 6: "风" };
   const weaponTypeLabels = { 1: "小剑", 2: "枪", 3: "大剑", 4: "拳", 5: "杖", 6: "铳" };
   const gachaGroupDefinitions = [
-    { id: "character_weapon_4", grantType: "character_weapon", star: 4, label: "赠送角色 · 4星" },
-    { id: "weapon_only_4", grantType: "weapon_only", star: 4, label: "仅武器 · 4星" },
-    { id: "character_weapon_3", grantType: "character_weapon", star: 3, label: "赠送角色 · 3星" },
-    { id: "weapon_only_3", grantType: "weapon_only", star: 3, label: "仅武器 · 3星" },
-    { id: "character_weapon_2", grantType: "character_weapon", star: 2, label: "赠送角色 · 2星" },
-    { id: "weapon_only_2", grantType: "weapon_only", star: 2, label: "仅武器 · 2星" }
+    { id: "character_weapon_4", grantType: "character_weapon", star: 4, label: "4星角色武器" },
+    { id: "weapon_only_4", grantType: "weapon_only", star: 4, label: "4星武器" },
+    { id: "character_weapon_3", grantType: "character_weapon", star: 3, label: "3星角色武器" },
+    { id: "weapon_only_3", grantType: "weapon_only", star: 3, label: "3星武器" },
+    { id: "character_weapon_2", grantType: "character_weapon", star: 2, label: "2星角色武器" },
+    { id: "weapon_only_2", grantType: "weapon_only", star: 2, label: "2星武器", calculated: true }
   ];
 
   function switchAdminSection(section) {
@@ -686,6 +687,9 @@
       characterWeapon: { "2": 0, "3": 500, "4": 200 },
       weaponOnly: { "2": 8000, "3": 1000, "4": 300 }
     };
+    state.gachaDraft.groupWeights.characterWeapon ||= { "2": 0, "3": 500, "4": 200 };
+    state.gachaDraft.groupWeights.weaponOnly ||= { "2": 8000, "3": 1000, "4": 300 };
+    recalculateTwoStarWeaponProbability();
     state.gachaDraft.sourceMasterDataHash = state.gachaCatalog?.masterDataHash || "";
     state.gachaDirty = false;
   }
@@ -696,6 +700,7 @@
     renderGachaLimitedSets();
     renderGachaWeapons();
     renderGachaBanners();
+    renderGachaGroupProbabilities();
     renderGachaBannerEditor();
     renderGachaWarnings();
     updateGachaDirtyUI();
@@ -1110,6 +1115,69 @@
     return Number(weights?.[String(definition.star)] || 0);
   }
 
+  function setGroupWeight(definition, weight) {
+    const weights = definition.grantType === "character_weapon" ? state.gachaDraft.groupWeights.characterWeapon : state.gachaDraft.groupWeights.weaponOnly;
+    weights[String(definition.star)] = weight;
+  }
+
+  function recalculateTwoStarWeaponProbability() {
+    const allocated = gachaGroupDefinitions
+      .filter((definition) => !definition.calculated)
+      .reduce((sum, definition) => sum + groupWeight(definition), 0);
+    state.gachaDraft.groupWeights.weaponOnly["2"] = 10000 - allocated;
+  }
+
+  function formatGroupProbability(weight) {
+    return (weight / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+  }
+
+  function syncCalculatedGroupProbability() {
+    const calculated = gachaGroupDefinitions.find((definition) => definition.calculated);
+    const input = elements.gachaGroupProbabilities.querySelector(`[data-group-id="${calculated.id}"]`);
+    if (!input) return;
+    const weight = groupWeight(calculated);
+    input.value = formatGroupProbability(weight);
+    input.closest(".gacha-probability-row").classList.toggle("invalid", weight < 0);
+  }
+
+  function renderGachaGroupProbabilities() {
+    elements.gachaGroupProbabilities.replaceChildren();
+    gachaGroupDefinitions.forEach((definition) => {
+      const row = document.createElement("label");
+      row.className = `gacha-probability-row${definition.calculated ? " calculated" : ""}`;
+      const name = document.createElement("span");
+      name.textContent = definition.label;
+      const inputWrapper = document.createElement("span");
+      inputWrapper.className = "gacha-probability-input";
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "0";
+      input.max = "100";
+      input.step = "0.01";
+      input.value = formatGroupProbability(groupWeight(definition));
+      input.dataset.groupId = definition.id;
+      input.readOnly = Boolean(definition.calculated);
+      input.setAttribute("aria-label", `${definition.label}概率`);
+      if (!definition.calculated) {
+        input.addEventListener("input", () => {
+          const percentage = Number(input.value || 0);
+          if (!Number.isFinite(percentage)) return;
+          setGroupWeight(definition, Math.round(percentage * 100));
+          recalculateTwoStarWeaponProbability();
+          syncCalculatedGroupProbability();
+          state.gachaDirty = true;
+          updateGachaDirtyUI();
+        });
+      }
+      const suffix = document.createElement("span");
+      suffix.textContent = "%";
+      inputWrapper.append(input, suffix);
+      row.append(name, inputWrapper);
+      elements.gachaGroupProbabilities.append(row);
+    });
+    syncCalculatedGroupProbability();
+  }
+
   function groupStatsForBanner(banner) {
     const definition = bannerConfig(banner.gachaId);
     const pickupSet = new Set(definition.pickupWeaponIds || []);
@@ -1133,8 +1201,10 @@
   function gachaValidationErrors() {
     const errors = [];
     const weights = gachaGroupDefinitions.map((definition) => ({ definition, weight: groupWeight(definition) }));
-    if (weights.some(({ weight }) => !Number.isInteger(weight) || weight < 0)) errors.push("六组权重必须是非负整数");
-    if (weights.reduce((sum, { weight }) => sum + weight, 0) <= 0) errors.push("六组权重合计必须大于 0");
+    const editableWeights = weights.filter(({ definition }) => !definition.calculated);
+    if (editableWeights.some(({ weight }) => !Number.isInteger(weight) || weight < 0)) errors.push("五个可配置概率组必须是非负的 0.01% 倍数");
+    if (groupWeight(gachaGroupDefinitions.find((definition) => definition.calculated)) < 0) errors.push("其他五个概率组合计不能超过 100%");
+    if (weights.reduce((sum, { weight }) => sum + weight, 0) !== 10000) errors.push("六组概率合计必须为 100%");
     state.gachaCatalog.weapons.forEach((weapon) => {
       const definition = state.gachaDraft.weapons[String(weapon.weaponId)];
       if (!definition) return;
