@@ -2,6 +2,7 @@
   "use strict";
 
   const $ = (selector) => document.querySelector(selector);
+  const momBannerPreviewBaseURL = "https://assets.lycheenut.cc/assets/ui";
   const elements = {
     loginPanel: $("#login-panel"), loginForm: $("#login-form"), token: $("#token"),
     workspace: $("#workspace"), logout: $("#logout"), version: $("#version"),
@@ -236,7 +237,8 @@
     const query = elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
     const hasSchedule = (table.pairs || []).length > 0;
-    const hasContent = table.rows.some((row) => Object.keys(row.titles || {}).length > 0 || (row.contentFootnotes || []).length > 0);
+    const hasContent = table.name === "m_mom_banner"
+      || table.rows.some((row) => Object.keys(row.titles || {}).length > 0 || (row.contentFootnotes || []).length > 0);
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "")
@@ -280,7 +282,7 @@
   function renderDetailedRow(table, row, hasContent, hasSchedule) {
     const tr = document.createElement("tr");
     if (hasContent) {
-      const contentCell = renderContentCell(row);
+      const contentCell = renderContentCell(table, row);
       contentCell.className = "content-cell detailed-content-cell";
       tr.append(contentCell);
     }
@@ -308,7 +310,7 @@
     idCell.title = primary?.name || "ID";
     tr.append(idCell);
 
-    const contentCell = renderContentCell(row);
+    const contentCell = renderContentCell(table, row);
     contentCell.className = "content-cell";
     tr.append(contentCell);
 
@@ -360,7 +362,9 @@
     return editor;
   }
 
-  function renderContentCell(row) {
+  function renderContentCell(table, row) {
+    if (table.name === "m_mom_banner") return renderMomBannerContentCell(row);
+
     const cell = document.createElement("td");
     const title = document.createElement("div");
     title.className = "content-title";
@@ -374,6 +378,88 @@
       cell.append(note);
     }
     return cell;
+  }
+
+  function renderMomBannerContentCell(row) {
+    const cell = document.createElement("td");
+    const tooltip = [...new Set([
+      localizedText(row.titles),
+      ...(row.contentFootnotes || []).map(localizedInlineText)
+    ].filter(Boolean))].join("\n") || "无文本说明";
+    const previewURLs = momBannerPreviewURLs(row);
+    if (!previewURLs.length) {
+      cell.append(renderMomBannerPreviewMissing(tooltip));
+      return cell;
+    }
+
+    const image = document.createElement("img");
+    image.className = "mom-banner-preview";
+    image.alt = tooltip;
+    image.title = tooltip;
+    image.loading = "lazy";
+    image.decoding = "async";
+    let previewIndex = 0;
+    image.addEventListener("error", () => {
+      previewIndex += 1;
+      if (previewIndex < previewURLs.length) {
+        image.src = previewURLs[previewIndex];
+        return;
+      }
+      image.replaceWith(renderMomBannerPreviewMissing(tooltip));
+    });
+    image.src = previewURLs[previewIndex];
+    cell.append(image);
+    return cell;
+  }
+
+  function momBannerPreviewURLs(row) {
+    const languages = [...new Set([state.language, state.catalog.defaultLanguage, "en"].filter(Boolean))];
+    return [...new Set(languages.map((language) => {
+      const segments = momBannerPreviewPath(row, language);
+      if (!segments) return "";
+      return `${momBannerPreviewBaseURL}/${segments.map(encodeURIComponent).join("/")}`;
+    }).filter(Boolean))];
+  }
+
+  function momBannerPreviewPath(row, language) {
+    const domainType = Number(effectiveValue("m_mom_banner", row, "DestinationDomainType"));
+    const domainId = effectiveValue("m_mom_banner", row, "DestinationDomainId");
+    const assetName = effectiveValue("m_mom_banner", row, "BannerAssetName");
+    if (domainType === 1 && assetName) {
+      return ["gacha", language, assetName, "mom_banner.png"];
+    }
+    if (domainType === 21) {
+      const loginBonusAssetName = relatedTableValue(
+        "m_login_bonus", "LoginBonusId", domainId, "LoginBonusAssetName"
+      );
+      return loginBonusAssetName
+        ? ["login_bonus", language, "banner", `${loginBonusAssetName}.png`]
+        : null;
+    }
+    if (domainType === 25) {
+      const bannerAssetId = relatedTableValue(
+        "m_event_quest_chapter", "EventQuestChapterId", domainId, "BannerAssetId"
+      );
+      return /^\d+$/.test(bannerAssetId)
+        ? ["quest", language, "mom_banner", `event_mom_banner_${bannerAssetId.padStart(3, "0")}.png`]
+        : null;
+    }
+    return assetName ? ["mom_banner", language, `mom_banner_${assetName}.png`] : null;
+  }
+
+  function relatedTableValue(tableName, idField, idValue, valueField) {
+    const table = state.catalog.tables.find((candidate) => candidate.name === tableName);
+    const expectedId = String(idValue ?? "");
+    const row = table?.rows.find((candidate) => String(effectiveValue(tableName, candidate, idField) ?? "") === expectedId);
+    return row ? String(effectiveValue(tableName, row, valueField) ?? "") : "";
+  }
+
+  function renderMomBannerPreviewMissing(tooltip) {
+    const missing = document.createElement("span");
+    missing.className = "mom-banner-preview-missing";
+    missing.textContent = "预览不可用";
+    missing.title = tooltip;
+    return missing;
   }
 
   function renderStatus(status) {

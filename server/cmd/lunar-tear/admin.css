@@ -345,6 +345,29 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   line-height: 1.45;
   white-space: normal;
 }
+.mom-banner-preview,
+.mom-banner-preview-missing {
+  display: block;
+  width: 360px;
+  max-width: 100%;
+  aspect-ratio: 2 / 1;
+  border: 1px solid rgba(75, 105, 118, .7);
+  border-radius: 7px;
+  background: #080d10;
+  cursor: help;
+}
+.mom-banner-preview {
+  object-fit: cover;
+  object-position: center;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .22);
+}
+.mom-banner-preview-missing {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
 .status-cell { min-width: 104px; }
 .notes-cell { min-width: 270px; max-width: 430px; }
 .time-column { min-width: 215px; }
