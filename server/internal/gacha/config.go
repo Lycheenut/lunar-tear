@@ -17,7 +17,10 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-const ConfigVersion = 1
+const (
+	ConfigVersion    = 1
+	GroupWeightTotal = 10000
+)
 
 type Availability string
 
@@ -396,6 +399,9 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 	if options.RequireComplete && options.CurrentMasterDataHash != "" && config.SourceMasterDataHash != options.CurrentMasterDataHash {
 		return fmt.Errorf("sourceMasterDataHash does not match the current master data")
 	}
+	if _, ok := config.GroupWeights.weaponOnlyTwoStarRemainder(); !ok {
+		return fmt.Errorf("Gacha group probabilities other than 2-star weapon must be non-negative and total at most 100%%")
+	}
 	totalWeight := 0
 	for _, definition := range groupDefinitions {
 		weight := config.GroupWeights.weight(definition.grantType, definition.star)
@@ -404,8 +410,8 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 		}
 		totalWeight += weight
 	}
-	if totalWeight <= 0 {
-		return fmt.Errorf("Gacha group weights must have a positive total")
+	if totalWeight != GroupWeightTotal {
+		return fmt.Errorf("Gacha group weights must total %d", GroupWeightTotal)
 	}
 
 	for id, limitedSet := range config.LimitedSets {
@@ -485,6 +491,7 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 }
 
 func normalizeConfig(config *Config) {
+	config.GroupWeights.calculateWeaponOnlyTwoStar()
 	if config.LimitedSets == nil {
 		config.LimitedSets = make(map[string]LimitedSetConfig)
 	}
@@ -499,6 +506,28 @@ func normalizeConfig(config *Config) {
 	if config.Banners == nil {
 		config.Banners = make(map[int32]BannerConfig)
 	}
+}
+
+func (weights GroupWeights) weaponOnlyTwoStarRemainder() (int, bool) {
+	remaining := GroupWeightTotal
+	for _, weight := range []int{
+		weights.CharacterWeapon.TwoStar,
+		weights.CharacterWeapon.ThreeStar,
+		weights.CharacterWeapon.FourStar,
+		weights.WeaponOnly.ThreeStar,
+		weights.WeaponOnly.FourStar,
+	} {
+		if weight < 0 || weight > remaining {
+			return -1, false
+		}
+		remaining -= weight
+	}
+	return remaining, true
+}
+
+func (weights *GroupWeights) calculateWeaponOnlyTwoStar() {
+	remaining, _ := weights.weaponOnlyTwoStarRemainder()
+	weights.WeaponOnly.TwoStar = remaining
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {
