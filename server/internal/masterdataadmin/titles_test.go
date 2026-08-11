@@ -19,6 +19,8 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 				"important_item.name.401":       "Mystic Slab",
 				"campaign.description.02.02.02": "Glorious success weapon-enhance rate up",
 				"campaign.description.01.05.01": "Bonuses added to drops for certain quests.",
+				"tip.1000":                      "Enhancing Weapons",
+				"tip.11000":                     "Weapons gain strength when enhanced.",
 			},
 			"ja": {"gacha.title.limited_45": "記念ガチャ"},
 			"ko": {},
@@ -47,6 +49,7 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 		{name: "important item effect", table: "m_important_item_effect", row: []interface{}{9}, want: "Mystic Slab"},
 		{name: "enhance campaign", table: "m_enhance_campaign", row: []interface{}{1, 2, 2, 400}, want: "Glorious success weapon-enhance rate up"},
 		{name: "quest drop bonus", table: "m_quest_campaign", row: []interface{}{1, 2, 20}, want: "Bonuses added to drops for certain quests."},
+		{name: "tip title and body", table: "m_tip", row: []interface{}{1000, 1000, 11000}, want: "Enhancing Weapons\nWeapons gain strength when enhanced."},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -69,9 +72,9 @@ func TestDokanTitleIncludesEveryContentTextInOrder(t *testing.T) {
 		},
 		dokanGroupTexts: map[int64][]dokanContentText{
 			100: {
-				{contentIndex: 1, textID: 10},
+				{contentIndex: 1, textID: 10, imageID: 101},
 				{contentIndex: 2, textID: 20},
-				{contentIndex: 3, textID: 30},
+				{contentIndex: 3, textID: 30, imageID: 103},
 			},
 		},
 	}
@@ -83,6 +86,22 @@ func TestDokanTitleIncludesEveryContentTextInOrder(t *testing.T) {
 	if got, want := resolver.resolve("m_dokan", row)["ja"], "一行目\n二行目\n詳細\n三行目"; got != want {
 		t.Fatalf("Japanese Dokan title = %q, want %q", got, want)
 	}
+	images := resolver.resolveDokanImages("m_dokan", row)
+	if got, want := images, []DokanImage{{ContentIndex: 1, ImageID: 101}, {ContentIndex: 3, ImageID: 103}}; !equalDokanImages(got, want) {
+		t.Fatalf("Dokan images = %+v, want %+v", got, want)
+	}
+}
+
+func equalDokanImages(left, right []DokanImage) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestCampaignTitlesIncludeConcreteEffect(t *testing.T) {

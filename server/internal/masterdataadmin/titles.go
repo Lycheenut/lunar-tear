@@ -24,6 +24,7 @@ type campaignTarget struct {
 type dokanContentText struct {
 	contentIndex int64
 	textID       int64
+	imageID      int64
 }
 
 type localizedTitlePart struct {
@@ -159,11 +160,13 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 	for _, row := range readRows(file, "m_dokan_content_group") {
 		groupID, groupOK := integerAt(row, 0)
 		contentIndex, indexOK := integerAt(row, 1)
+		imageID, imageOK := integerAt(row, 2)
 		textID, textOK := integerAt(row, 4)
-		if groupOK && indexOK && textOK {
+		if groupOK && indexOK && imageOK && textOK {
 			resolver.dokanGroupTexts[groupID] = append(resolver.dokanGroupTexts[groupID], dokanContentText{
 				contentIndex: contentIndex,
 				textID:       textID,
+				imageID:      imageID,
 			})
 		}
 	}
@@ -253,7 +256,7 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 			key = fmt.Sprintf("shop.item.name.%d", r.shopTermTextIDs[termID])
 		}
 	case "m_tip":
-		key = integerKey(row, 1, "tip.%d")
+		return r.tipContentTitles(row)
 	case "m_webview_mission":
 		if textID, ok := integerAt(row, 1); ok {
 			return cloneTitles(r.webviewTitles[textID])
@@ -267,6 +270,31 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 		return nil
 	}
 	return r.byKey(key)
+}
+
+func (r *titleResolver) tipContentTitles(row []interface{}) map[string]string {
+	titleID, titleOK := integerAt(row, 1)
+	contentID, contentOK := integerAt(row, 2)
+	if !titleOK || !contentOK {
+		return nil
+	}
+
+	titles := make(map[string]string)
+	for _, language := range supportedLanguages {
+		var parts []string
+		for _, id := range []int64{titleID, contentID} {
+			if text := r.texts[language][fmt.Sprintf("tip.%d", id)]; text != "" {
+				parts = append(parts, text)
+			}
+		}
+		if len(parts) != 0 {
+			titles[language] = strings.Join(parts, "\n")
+		}
+	}
+	if len(titles) == 0 {
+		return nil
+	}
+	return titles
 }
 
 func (r *titleResolver) dokanContentTitles(groupID int64) map[string]string {
@@ -286,6 +314,23 @@ func (r *titleResolver) dokanContentTitles(groupID int64) map[string]string {
 		return nil
 	}
 	return titles
+}
+
+func (r *titleResolver) resolveDokanImages(table string, row []interface{}) []DokanImage {
+	if table != "m_dokan" {
+		return nil
+	}
+	groupID, ok := integerAt(row, 5)
+	if !ok {
+		return nil
+	}
+	var images []DokanImage
+	for _, content := range r.dokanGroupTexts[groupID] {
+		if content.imageID != 0 {
+			images = append(images, DokanImage{ContentIndex: content.contentIndex, ImageID: content.imageID})
+		}
+	}
+	return images
 }
 
 func (r *titleResolver) enhanceCampaignTitles(row []interface{}) map[string]string {

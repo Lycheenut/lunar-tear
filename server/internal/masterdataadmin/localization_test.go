@@ -70,6 +70,37 @@ func TestLoadAddsInstalledLocalizedTitles(t *testing.T) {
 	t.Fatal("event quest catalog has no English title")
 }
 
+func TestLoadAddsTipBodiesAndDokanImages(t *testing.T) {
+	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master data is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(masterDataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var tipWithBody, dokanWithImages bool
+	for _, table := range catalog.Tables {
+		for _, row := range table.Rows {
+			switch table.Name {
+			case "m_tip":
+				tipWithBody = tipWithBody || strings.Contains(row.Titles["en"], "\n")
+			case "m_dokan":
+				dokanWithImages = dokanWithImages || len(row.DokanImages) != 0
+			}
+		}
+	}
+	if !tipWithBody {
+		t.Fatal("Tip catalog has no English title/body pair")
+	}
+	if !dokanWithImages {
+		t.Fatal("Dokan catalog has no image references")
+	}
+}
+
 func TestLoadAddsContentFootnotes(t *testing.T) {
 	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {

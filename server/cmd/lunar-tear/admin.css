@@ -368,6 +368,69 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   font-size: 11px;
   font-weight: 500;
 }
+.dokan-images-cell { width: 280px; min-width: 280px; max-width: 340px; }
+.dokan-carousel { display: grid; gap: 7px; outline: none; }
+.dokan-carousel:focus-visible {
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px rgba(119, 222, 199, .35);
+}
+.dokan-carousel-viewport { min-height: 100px; }
+.dokan-image {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+.dokan-image[hidden] { display: none; }
+.dokan-image-preview,
+.dokan-image-upload {
+  width: 250px;
+  max-width: 100%;
+  min-height: 72px;
+  border: 1px solid rgba(75, 105, 118, .7);
+  border-radius: 7px;
+  background: #080d10;
+}
+.dokan-image-preview {
+  display: block;
+  max-height: 180px;
+  object-fit: contain;
+}
+.dokan-image-upload {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 9px;
+  color: var(--muted);
+}
+.dokan-image-upload strong { color: var(--warning); font-size: 11px; }
+.dokan-image-upload code { overflow-wrap: anywhere; font-size: 10px; }
+.dokan-image figcaption { color: var(--muted); font-size: 10px; font-weight: 600; }
+.dokan-carousel-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dokan-carousel-button {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  color: var(--accent-strong);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dokan-carousel-button:hover { border-color: #49616d; }
+.dokan-carousel-position { color: var(--muted); font-size: 10px; font-weight: 700; }
+.dokan-carousel-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+.dokan-carousel-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #49616d;
+  cursor: pointer;
+}
+.dokan-carousel-dot[aria-current="true"] { background: var(--accent-strong); box-shadow: 0 0 0 2px rgba(119, 222, 199, .15); }
 .status-cell { min-width: 104px; }
 .notes-cell { min-width: 270px; max-width: 430px; }
 .time-column { min-width: 215px; }

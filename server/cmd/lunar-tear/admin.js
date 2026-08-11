@@ -2,7 +2,7 @@
   "use strict";
 
   const $ = (selector) => document.querySelector(selector);
-  const momBannerPreviewBaseURL = "https://assets.lycheenut.cc/assets/ui";
+  const imagePreviewBaseURL = "https://assets.lycheenut.cc/assets/ui";
   const elements = {
     loginPanel: $("#login-panel"), loginForm: $("#login-form"), token: $("#token"),
     workspace: $("#workspace"), logout: $("#logout"), version: $("#version"),
@@ -240,6 +240,7 @@
     const query = elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
     const hasSchedule = (table.pairs || []).length > 0;
+    const hasArtwork = table.name === "m_dokan";
     const hasContent = table.name === "m_mom_banner"
       || table.rows.some((row) => Object.keys(row.titles || {}).length > 0 || (row.contentFootnotes || []).length > 0);
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
@@ -256,19 +257,23 @@
       ]);
       const fieldValues = table.fields.flatMap((field) => [field.name, effectiveValue(table.name, row, field.name)]);
       const footnoteValues = (row.contentFootnotes || []).flatMap((footnote) => Object.values(footnote || {}));
-      const haystack = [...Object.values(row.titles || {}), ...footnoteValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
+      const artworkValues = (row.dokanImages || []).flatMap((image) => [image.contentIndex, image.imageId]);
+      const haystack = [...Object.values(row.titles || {}), ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
       return haystack.includes(query);
     });
 
     if (!detailed) {
       const headerRow = document.createElement("tr");
-      ["ID", "内容", "状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
+      ["ID", "内容"].forEach((label) => headerRow.append(makeCell("th", label)));
+      if (hasArtwork) headerRow.append(makeCell("th", "配图"));
+      ["状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
       simpleTimeFields(table).forEach((field) => headerRow.append(makeCell("th", field.name)));
       elements.head.append(headerRow);
       visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row)));
     } else {
       const headerRow = document.createElement("tr");
       if (hasContent) headerRow.append(makeCell("th", "内容"));
+      if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       if (hasSchedule) headerRow.append(makeCell("th", "状态"));
       table.fields.forEach((field) => {
         const header = makeCell("th", field.name);
@@ -276,19 +281,20 @@
         headerRow.append(header);
       });
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, hasContent, hasSchedule)));
+      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, hasContent, hasArtwork, hasSchedule)));
     }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
-  function renderDetailedRow(table, row, hasContent, hasSchedule) {
+  function renderDetailedRow(table, row, hasContent, hasArtwork, hasSchedule) {
     const tr = document.createElement("tr");
     if (hasContent) {
       const contentCell = renderContentCell(table, row);
       contentCell.className = "content-cell detailed-content-cell";
       tr.append(contentCell);
     }
+    if (hasArtwork) tr.append(renderDokanImagesCell(row));
     if (hasSchedule) {
       const statusCell = document.createElement("td");
       statusCell.className = "status-cell";
@@ -316,6 +322,8 @@
     const contentCell = renderContentCell(table, row);
     contentCell.className = "content-cell";
     tr.append(contentCell);
+
+    if (table.name === "m_dokan") tr.append(renderDokanImagesCell(row));
 
     const statusCell = document.createElement("td");
     statusCell.className = "status-cell";
@@ -420,7 +428,7 @@
     return [...new Set(languages.map((language) => {
       const segments = momBannerPreviewPath(row, language);
       if (!segments) return "";
-      return `${momBannerPreviewBaseURL}/${segments.map(encodeURIComponent).join("/")}`;
+      return `${imagePreviewBaseURL}/${segments.map(encodeURIComponent).join("/")}`;
     }).filter(Boolean))];
   }
 
@@ -462,6 +470,147 @@
     missing.className = "mom-banner-preview-missing";
     missing.textContent = "预览不可用";
     missing.title = tooltip;
+    return missing;
+  }
+
+  function renderDokanImagesCell(row) {
+    const cell = document.createElement("td");
+    cell.className = "dokan-images-cell";
+    const images = [...(row.dokanImages || [])].sort((left, right) => (
+      Number(left.contentIndex) - Number(right.contentIndex)
+    ));
+    if (!images.length) {
+      const empty = document.createElement("span");
+      empty.className = "notes-empty";
+      empty.textContent = "无配图";
+      cell.append(empty);
+      return cell;
+    }
+    if (images.length === 1) {
+      cell.append(renderDokanImage(images[0]));
+      return cell;
+    }
+    cell.append(renderDokanCarousel(images));
+    return cell;
+  }
+
+  function renderDokanCarousel(images) {
+    const carousel = document.createElement("div");
+    carousel.className = "dokan-carousel";
+    carousel.tabIndex = 0;
+    carousel.setAttribute("role", "region");
+    carousel.setAttribute("aria-label", `Dokan 配图，共 ${images.length} 张`);
+
+    const viewport = document.createElement("div");
+    viewport.className = "dokan-carousel-viewport";
+    const slides = images.map((entry) => renderDokanImage(entry));
+    slides.forEach((slide) => viewport.append(slide));
+
+    const controls = document.createElement("div");
+    controls.className = "dokan-carousel-controls";
+    const previous = document.createElement("button");
+    previous.type = "button";
+    previous.className = "dokan-carousel-button";
+    previous.textContent = "‹";
+    previous.setAttribute("aria-label", "上一张配图");
+    const position = document.createElement("span");
+    position.className = "dokan-carousel-position";
+    position.setAttribute("aria-live", "polite");
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "dokan-carousel-button";
+    next.textContent = "›";
+    next.setAttribute("aria-label", "下一张配图");
+    controls.append(previous, position, next);
+
+    const dots = document.createElement("div");
+    dots.className = "dokan-carousel-dots";
+    const dotButtons = images.map((entry, index) => {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "dokan-carousel-dot";
+      dot.setAttribute("aria-label", `查看第 ${index + 1} 张配图，播放序号 ${entry.contentIndex}`);
+      dots.append(dot);
+      return dot;
+    });
+
+    let current = 0;
+    const show = (index) => {
+      current = (index + slides.length) % slides.length;
+      slides.forEach((slide, slideIndex) => {
+        slide.hidden = slideIndex !== current;
+        slide.setAttribute("aria-hidden", String(slideIndex !== current));
+      });
+      dotButtons.forEach((dot, dotIndex) => {
+        if (dotIndex === current) dot.setAttribute("aria-current", "true");
+        else dot.removeAttribute("aria-current");
+      });
+      position.textContent = `${current + 1} / ${slides.length}`;
+    };
+    previous.addEventListener("click", () => show(current - 1));
+    next.addEventListener("click", () => show(current + 1));
+    dotButtons.forEach((dot, index) => dot.addEventListener("click", () => show(index)));
+    carousel.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      show(current + (event.key === "ArrowLeft" ? -1 : 1));
+    });
+
+    carousel.append(viewport, controls, dots);
+    show(0);
+    return carousel;
+  }
+
+  function renderDokanImage(entry) {
+    const figure = document.createElement("figure");
+    figure.className = "dokan-image";
+    const urls = dokanImagePreviewURLs(entry.imageId);
+    const image = document.createElement("img");
+    image.className = "dokan-image-preview";
+    image.alt = `Dokan ImageId ${entry.imageId}`;
+    image.loading = "lazy";
+    image.decoding = "async";
+    let previewIndex = 0;
+    image.addEventListener("error", () => {
+      previewIndex += 1;
+      if (previewIndex < urls.length) {
+        image.src = urls[previewIndex];
+        return;
+      }
+      image.replaceWith(renderDokanImageUpload(entry));
+    });
+    image.src = urls[previewIndex];
+
+    const caption = document.createElement("figcaption");
+    caption.textContent = `#${entry.contentIndex} · ImageId ${entry.imageId}`;
+    figure.append(image, caption);
+    return figure;
+  }
+
+  function dokanImagePreviewURLs(imageId) {
+    const languages = [...new Set([
+      state.language, state.catalog.defaultLanguage, "en", "ja", "ko"
+    ].filter(Boolean))];
+    return languages.map((language) => {
+      const segments = dokanImagePreviewPath(imageId, language);
+      return `${imagePreviewBaseURL}/${segments.map(encodeURIComponent).join("/")}`;
+    });
+  }
+
+  function dokanImagePreviewPath(imageId, language) {
+    const assetName = `prm${String(imageId).padStart(3, "0")}.png`;
+    return ["mom_promotion", language, "banner", assetName];
+  }
+
+  function renderDokanImageUpload(entry) {
+    const missing = document.createElement("div");
+    missing.className = "dokan-image-upload";
+    const label = document.createElement("strong");
+    label.textContent = "待上传";
+    const path = document.createElement("code");
+    path.textContent = `/assets/ui/${dokanImagePreviewPath(entry.imageId, state.language).join("/")}`;
+    path.title = `源资源包：assets/revisions/0/assetbundle/ui/mom_promotion/${state.language}/banner/prm${String(entry.imageId).padStart(3, "0")}.assetbundle`;
+    missing.append(label, path);
     return missing;
   }
 
