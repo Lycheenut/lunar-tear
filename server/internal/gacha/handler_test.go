@@ -10,8 +10,18 @@ import (
 )
 
 func TestHandleDrawRejectsMissingPhaseAndInsufficientPrice(t *testing.T) {
-	h := &GachaHandler{}
-	entry := store.GachaCatalogEntry{GachaId: 1, PricePhases: []store.GachaPricePhaseEntry{{PhaseId: 10, PriceType: model.PriceTypeGem, Price: 100, DrawCount: 1}}}
+	banner := &PremiumBannerPool{
+		GachaId: 1,
+		Groups: []PremiumGroup{{
+			Id:        GroupWeaponOnly4,
+			GrantType: GrantWeaponOnly,
+			Rarity:    model.RaritySSRare,
+			Weight:    1,
+			NonPickup: []PoolItem{{WeaponId: 1, RarityType: model.RaritySSRare}},
+		}},
+	}
+	h := &GachaHandler{Premium: &PremiumCatalog{Banners: map[int32]*PremiumBannerPool{1: banner}}}
+	entry := store.GachaCatalogEntry{GachaId: 1, GachaLabelType: model.GachaLabelPremium, PricePhases: []store.GachaPricePhaseEntry{{PhaseId: 10, PriceType: model.PriceTypeGem, Price: 100, DrawCount: 1}}}
 	user := &store.UserState{}
 	user.EnsureMaps()
 	if _, err := h.HandleDraw(user, entry, 999, 1); err == nil {
@@ -22,6 +32,9 @@ func TestHandleDrawRejectsMissingPhaseAndInsufficientPrice(t *testing.T) {
 	}
 	if user.Gacha.BannerStates[1].DrawCount != 0 {
 		t.Fatal("failed draw changed banner state")
+	}
+	if user.Gem != (store.UserGemState{}) {
+		t.Fatal("failed draw changed gem balance")
 	}
 }
 
@@ -156,22 +169,21 @@ func TestDupGradeDistributionUsesConfiguredPercentages(t *testing.T) {
 }
 
 func TestDrawPremiumAppliesGuaranteePerExecution(t *testing.T) {
-	previousRates := premiumRates
-	premiumRates = []RateTier{{Weight: 10000, PossessionType: int32(model.PossessionTypeWeapon), RarityType: model.RarityRare}}
-	defer func() { premiumRates = previousRates }()
-
-	banner := &masterdata.BannerPool{
-		CostumesByRarity: map[int32][]masterdata.GachaPoolItem{},
-		WeaponsByRarity: map[int32][]masterdata.GachaPoolItem{
-			model.RarityRare:   {{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: 1, RarityType: model.RarityRare}},
-			model.RaritySSRare: {{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: 2, RarityType: model.RaritySSRare}},
+	banner := &PremiumBannerPool{
+		GachaId: 1,
+		Groups: []PremiumGroup{
+			{Id: GroupWeaponOnly2, GrantType: GrantWeaponOnly, Star: 2, Rarity: model.RarityRare, Weight: 10000, NonPickup: []PoolItem{{WeaponId: 1, RarityType: model.RarityRare}}},
+			{Id: GroupWeaponOnly4, GrantType: GrantWeaponOnly, Star: 4, Rarity: model.RaritySSRare, Weight: 1, NonPickup: []PoolItem{{WeaponId: 2, RarityType: model.RaritySSRare}}},
 		},
 	}
-	h := &GachaHandler{Pool: &masterdata.GachaCatalog{BannerPools: map[int32]*masterdata.BannerPool{1: banner}}}
+	h := &GachaHandler{Premium: &PremiumCatalog{Banners: map[int32]*PremiumBannerPool{1: banner}}}
 	entry := store.GachaCatalogEntry{GachaId: 1}
 	phase := store.GachaPricePhaseEntry{DrawCount: 10, FixedRarityMin: model.RaritySSRare, FixedCount: 1}
 
-	items := h.drawPremium(entry, phase, 2)
+	items, err := h.drawPremium(entry, phase, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(items) != 20 {
 		t.Fatalf("draw count = %d, want 20", len(items))
 	}

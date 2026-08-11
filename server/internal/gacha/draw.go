@@ -1,18 +1,12 @@
 package gacha
 
 import (
-	"log"
+	"fmt"
 	"math/rand"
 
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 )
-
-type RateTier struct {
-	Weight         int
-	PossessionType int32
-	RarityType     model.RarityType
-}
 
 type DrawnItem struct {
 	PossessionType int32
@@ -21,32 +15,55 @@ type DrawnItem struct {
 	CharacterId    int32
 }
 
-var premiumRates = []RateTier{
-	{200, int32(model.PossessionTypeCostume), model.RaritySSRare},
-	{300, int32(model.PossessionTypeWeapon), model.RaritySSRare},
-	{500, int32(model.PossessionTypeCostume), model.RaritySRare},
-	{1000, int32(model.PossessionTypeWeapon), model.RaritySRare},
-	{8000, int32(model.PossessionTypeWeapon), model.RarityRare},
+func DrawPremium(bp *PremiumBannerPool, count int, fixedRarityMin int32, fixedCount int, rateMultiplier float64) ([]DrawnItem, error) {
+	return drawPremiumWithIntn(bp, count, fixedRarityMin, fixedCount, rateMultiplier, rand.Intn)
 }
 
-func DrawPremium(bp *masterdata.BannerPool, count int, fixedRarityMin int32, fixedCount int, rateMultiplier float64) []DrawnItem {
-	result := make([]DrawnItem, 0, count)
-	rates := adjustRates(premiumRates, rateMultiplier)
-	totalWeight := 0
-	for _, r := range rates {
-		totalWeight += r.Weight
+func drawPremiumWithIntn(bp *PremiumBannerPool, count int, fixedRarityMin int32, fixedCount int, rateMultiplier float64, intn func(int) int) ([]DrawnItem, error) {
+	if bp == nil {
+		return nil, fmt.Errorf("premium Gacha pool is not configured")
 	}
+	result := make([]DrawnItem, 0, count)
+	weights := adjustedGroupWeights(bp.Groups, rateMultiplier)
 
 	for i := range count {
 		isGuaranteeSlot := fixedCount > 0 && i >= count-fixedCount
-		item := rollOne(bp, rates, totalWeight)
-
-		if isGuaranteeSlot && item.RarityType < fixedRarityMin {
-			item = rollAtMinRarity(bp, rates, fixedRarityMin)
+		slotWeights := weights
+		if (i+1)%int(model.PremiumMultiPullCount) == 0 {
+			slotWeights = transferTwoStarWeightsToThreeStar(bp.Groups, weights)
+		}
+		minimumRarity := int32(0)
+		if isGuaranteeSlot && fixedRarityMin > minimumRarity {
+			minimumRarity = fixedRarityMin
+		}
+		item, err := rollConfiguredItem(bp.Groups, slotWeights, minimumRarity, intn)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, item)
 	}
-	return result
+	return result, nil
+}
+
+func transferTwoStarWeightsToThreeStar(groups []PremiumGroup, weights []int) []int {
+	transferred := append([]int(nil), weights...)
+	threeStarByGrantType := make(map[GrantType]int)
+	for i, group := range groups {
+		if group.Star == 3 {
+			threeStarByGrantType[group.GrantType] = i
+		}
+	}
+	for i, group := range groups {
+		if group.Star != 2 || i >= len(transferred) {
+			continue
+		}
+		weight := transferred[i]
+		transferred[i] = 0
+		if target, ok := threeStarByGrantType[group.GrantType]; ok && target < len(transferred) {
+			transferred[target] += weight
+		}
+	}
+	return transferred
 }
 
 func DrawBox(items []BoxItem, count int) []DrawnItem {
@@ -100,31 +117,33 @@ type BoxItem struct {
 	IsTarget       bool
 }
 
-func adjustRates(base []RateTier, multiplier float64) []RateTier {
-	if multiplier == 1.0 || multiplier == 0 {
-		return base
+func adjustedGroupWeights(groups []PremiumGroup, multiplier float64) []int {
+	adjusted := make([]int, len(groups))
+	for i, group := range groups {
+		adjusted[i] = group.Weight
 	}
-	adjusted := make([]RateTier, len(base))
-	copy(adjusted, base)
+	if multiplier == 1.0 || multiplier == 0 {
+		return adjusted
+	}
 
 	var fourStarExtra int
 	var nonFourStar int
-	for i, r := range adjusted {
-		if r.RarityType >= model.RaritySSRare {
-			extra := int(float64(r.Weight) * (multiplier - 1.0))
-			adjusted[i].Weight += extra
+	for i, group := range groups {
+		if group.Rarity >= model.RaritySSRare {
+			extra := int(float64(adjusted[i]) * (multiplier - 1.0))
+			adjusted[i] += extra
 			fourStarExtra += extra
 		} else {
-			nonFourStar += r.Weight
+			nonFourStar += adjusted[i]
 		}
 	}
 	if nonFourStar > 0 && fourStarExtra > 0 {
-		for i, r := range adjusted {
-			if r.RarityType < model.RaritySSRare {
-				reduction := fourStarExtra * r.Weight / nonFourStar
-				adjusted[i].Weight -= reduction
-				if adjusted[i].Weight < 1 {
-					adjusted[i].Weight = 1
+		for i, group := range groups {
+			if group.Rarity < model.RaritySSRare && adjusted[i] > 0 {
+				reduction := fourStarExtra * adjusted[i] / nonFourStar
+				adjusted[i] -= reduction
+				if adjusted[i] < 1 {
+					adjusted[i] = 1
 				}
 			}
 		}
@@ -132,92 +151,34 @@ func adjustRates(base []RateTier, multiplier float64) []RateTier {
 	return adjusted
 }
 
-func rollOne(bp *masterdata.BannerPool, rates []RateTier, totalWeight int) DrawnItem {
-	roll := rand.Intn(totalWeight)
-	cumulative := 0
-	var tier RateTier
-	for _, r := range rates {
-		cumulative += r.Weight
-		if roll < cumulative {
-			tier = r
-			break
+func rollConfiguredItem(groups []PremiumGroup, weights []int, minimumRarity model.RarityType, intn func(int) int) (DrawnItem, error) {
+	totalWeight := 0
+	for i, group := range groups {
+		if group.Rarity >= minimumRarity && group.ItemCount() > 0 && weights[i] > 0 {
+			totalWeight += weights[i]
 		}
 	}
-
-	if item, ok := tryFeaturedRateUp(bp, tier); ok {
-		return item
+	if totalWeight <= 0 {
+		return DrawnItem{}, fmt.Errorf("configured Gacha has no group available for minimum rarity %d", minimumRarity)
 	}
-	return pickFromPool(bp, tier.PossessionType, tier.RarityType)
-}
 
-func tryFeaturedRateUp(bp *masterdata.BannerPool, tier RateTier) (DrawnItem, bool) {
-	var matches []masterdata.GachaPoolItem
-	for _, f := range bp.Featured {
-		if f.PossessionType == tier.PossessionType && f.RarityType == tier.RarityType {
-			matches = append(matches, f)
+	roll := intn(totalWeight)
+	for i, group := range groups {
+		if group.Rarity < minimumRarity || group.ItemCount() == 0 || weights[i] <= 0 {
+			continue
 		}
-	}
-	if len(matches) == 0 {
-		return DrawnItem{}, false
-	}
-	if rand.Intn(model.FeaturedRateUpDenom) >= model.FeaturedRateUpPercent {
-		return DrawnItem{}, false
-	}
-	f := matches[rand.Intn(len(matches))]
-	return DrawnItem{
-		PossessionType: f.PossessionType,
-		PossessionId:   f.PossessionId,
-		RarityType:     f.RarityType,
-		CharacterId:    f.CharacterId,
-	}, true
-}
-
-func rollAtMinRarity(bp *masterdata.BannerPool, rates []RateTier, minRarity model.RarityType) DrawnItem {
-	var filtered []RateTier
-	filteredTotal := 0
-	for _, r := range rates {
-		if r.RarityType >= minRarity {
-			filtered = append(filtered, r)
-			filteredTotal += r.Weight
+		if roll >= weights[i] {
+			roll -= weights[i]
+			continue
 		}
-	}
-	if filteredTotal == 0 {
-		return pickFromPool(bp, int32(model.PossessionTypeWeapon), minRarity)
-	}
-	return rollOne(bp, filtered, filteredTotal)
-}
-
-func pickFromPool(bp *masterdata.BannerPool, possessionType int32, rarityType model.RarityType) DrawnItem {
-	if possessionType == int32(model.PossessionTypeCostume) {
-		items := bp.CostumesByRarity[rarityType]
-		if len(items) == 0 {
-			items = bp.CostumesByRarity[model.RaritySSRare]
+		items := group.NonPickup
+		if len(group.Pickup) > 0 && intn(2) == 0 {
+			items = group.Pickup
 		}
 		if len(items) == 0 {
-			log.Printf("[pickFromPool] empty costume pool for rarity=%d, returning phantom item", rarityType)
-			return DrawnItem{PossessionType: int32(model.PossessionTypeWeapon), RarityType: rarityType}
+			return DrawnItem{}, fmt.Errorf("configured Gacha group %s selected an empty item subset", group.Id)
 		}
-		pick := items[rand.Intn(len(items))]
-		return DrawnItem{
-			PossessionType: pick.PossessionType,
-			PossessionId:   pick.PossessionId,
-			RarityType:     pick.RarityType,
-			CharacterId:    pick.CharacterId,
-		}
+		return items[intn(len(items))].DrawnItem(), nil
 	}
-
-	items := bp.WeaponsByRarity[rarityType]
-	if len(items) == 0 {
-		items = bp.WeaponsByRarity[model.RarityRare]
-	}
-	if len(items) == 0 {
-		log.Printf("[pickFromPool] empty weapon pool for rarity=%d, returning phantom item", rarityType)
-		return DrawnItem{PossessionType: int32(model.PossessionTypeWeapon), RarityType: rarityType}
-	}
-	pick := items[rand.Intn(len(items))]
-	return DrawnItem{
-		PossessionType: pick.PossessionType,
-		PossessionId:   pick.PossessionId,
-		RarityType:     pick.RarityType,
-	}
+	return DrawnItem{}, fmt.Errorf("configured Gacha group selection failed")
 }

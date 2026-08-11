@@ -62,12 +62,17 @@ type Catalogs struct {
 }
 
 type Holder struct {
-	binPath string
-	cur     atomic.Pointer[Catalogs]
+	binPath         string
+	gachaConfigPath string
+	cur             atomic.Pointer[Catalogs]
 }
 
 func NewHolder(binPath string) (*Holder, error) {
-	h := &Holder{binPath: binPath}
+	return NewHolderWithGachaConfig(binPath, "")
+}
+
+func NewHolderWithGachaConfig(binPath, gachaConfigPath string) (*Holder, error) {
+	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath}
 	if err := h.Reload(); err != nil {
 		return nil, err
 	}
@@ -78,7 +83,15 @@ func (h *Holder) Reload() error {
 	if err := memorydb.Init(h.binPath); err != nil {
 		return fmt.Errorf("memorydb.Init: %w", err)
 	}
-	c, err := buildCatalogs()
+	config := gacha.DefaultConfig()
+	if h.gachaConfigPath != "" {
+		var err error
+		config, _, _, err = gacha.ReadConfig(h.gachaConfigPath)
+		if err != nil {
+			return err
+		}
+	}
+	c, err := buildCatalogs(config)
 	if err != nil {
 		return fmt.Errorf("buildCatalogs: %w", err)
 	}
