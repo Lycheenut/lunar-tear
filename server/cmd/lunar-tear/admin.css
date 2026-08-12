@@ -345,6 +345,42 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   line-height: 1.45;
   white-space: normal;
 }
+.tip-content { min-width: 300px; max-width: 460px; }
+.tip-content-section {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+}
+.tip-content-section + .tip-content-section {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(75, 105, 118, .45);
+}
+.tip-content-label {
+  margin-top: 1px;
+  padding: 2px 4px;
+  border: 1px solid rgba(119, 222, 199, .28);
+  border-radius: 4px;
+  color: var(--accent-strong);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+}
+.tip-content-title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+.tip-content-body {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.6;
+  white-space: pre-line;
+}
 .mom-banner-preview,
 .mom-banner-preview-missing {
   display: block;
@@ -381,8 +417,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   margin: 0;
 }
 .dokan-image[hidden] { display: none; }
-.dokan-image-preview,
-.dokan-image-upload {
+.dokan-image-preview {
   width: 250px;
   max-width: 100%;
   min-height: 72px;
@@ -394,17 +429,8 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   display: block;
   max-height: 180px;
   object-fit: contain;
+  cursor: help;
 }
-.dokan-image-upload {
-  display: grid;
-  align-content: center;
-  gap: 5px;
-  padding: 9px;
-  color: var(--muted);
-}
-.dokan-image-upload strong { color: var(--warning); font-size: 11px; }
-.dokan-image-upload code { overflow-wrap: anywhere; font-size: 10px; }
-.dokan-image figcaption { color: var(--muted); font-size: 10px; font-weight: 600; }
 .dokan-carousel-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dokan-carousel-button {
   width: 30px;

@@ -44,12 +44,12 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 		{name: "gacha typo fallback", table: "m_mom_banner", row: []interface{}{1, 0, 1, 442, "limited_442"}, want: "Merry Summons"},
 		{name: "shop mom banner", table: "m_mom_banner", row: []interface{}{2, 0, 2, 55, "shop_mom_banner_55"}, want: "Medal Exchange"},
 		{name: "mission mom banner", table: "m_mom_banner", row: []interface{}{3, 0, 22, 77, "mission_mom_banner_201"}, want: "Anniversary Missions"},
+		{name: "mission term", table: "m_mission_term", row: []interface{}{77}, want: "Anniversary Missions"},
 		{name: "event mom banner", table: "m_mom_banner", row: []interface{}{4, 0, 23, 88, "event_mom_banner_301"}, want: "Record: The Festival"},
 		{name: "consumable item term", table: "m_consumable_item_term", row: []interface{}{5}, want: "Gold Automata Medal"},
 		{name: "important item effect", table: "m_important_item_effect", row: []interface{}{9}, want: "Mystic Slab"},
 		{name: "enhance campaign", table: "m_enhance_campaign", row: []interface{}{1, 2, 2, 400}, want: "Glorious success weapon-enhance rate up"},
 		{name: "quest drop bonus", table: "m_quest_campaign", row: []interface{}{1, 2, 20}, want: "Bonuses added to drops for certain quests."},
-		{name: "tip title and body", table: "m_tip", row: []interface{}{1000, 1000, 11000}, want: "Enhancing Weapons\nWeapons gain strength when enhanced."},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -60,6 +60,29 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 	}
 	if got := resolver.resolve("m_mom_banner", tests[0].row)["ja"]; got != "記念ガチャ" {
 		t.Fatalf("Japanese gacha title = %q", got)
+	}
+	tipRow := []interface{}{1000, 1000, 11000}
+	if got, want := resolver.resolve("m_tip", tipRow)["en"], "Enhancing Weapons"; got != want {
+		t.Fatalf("Tip title = %q, want %q", got, want)
+	}
+	if got, want := resolver.resolveContentBody("m_tip", tipRow)["en"], "Weapons gain strength when enhanced."; got != want {
+		t.Fatalf("Tip body = %q, want %q", got, want)
+	}
+}
+
+func TestBigHuntScheduleTitleUsesSeasonAssetID(t *testing.T) {
+	resolver := &titleResolver{}
+	for language, want := range map[string]string{
+		"en": "Season 8",
+		"ja": "シーズン 8",
+		"ko": "시즌 8",
+	} {
+		if got := resolver.resolve("m_big_hunt_schedule", []interface{}{18, 0, 0, 0, 8})[language]; got != want {
+			t.Fatalf("%s title = %q, want %q", language, got, want)
+		}
+	}
+	if titles := resolver.resolve("m_big_hunt_schedule", []interface{}{1, 0, 0, 0, 0}); len(titles) != 0 {
+		t.Fatalf("zero season asset title = %v, want empty", titles)
 	}
 }
 
@@ -89,6 +112,29 @@ func TestDokanTitleIncludesEveryContentTextInOrder(t *testing.T) {
 	images := resolver.resolveDokanImages("m_dokan", row)
 	if got, want := images, []DokanImage{{ContentIndex: 1, ImageID: 101}, {ContentIndex: 3, ImageID: 103}}; !equalDokanImages(got, want) {
 		t.Fatalf("Dokan images = %+v, want %+v", got, want)
+	}
+}
+
+func TestNaviCutInTitleIncludesEveryContentTextInOrder(t *testing.T) {
+	resolver := &titleResolver{
+		naviCutInTitles: translatedText{
+			10: {"en": "First line", "ja": "一行目"},
+			20: {"en": "Second line", "ja": "二行目"},
+		},
+		naviCutInGroupTexts: map[int64][]naviCutInContentText{
+			100: {
+				{contentIndex: 1, textID: 10},
+				{contentIndex: 2, textID: 20},
+			},
+		},
+	}
+
+	row := []interface{}{1, 1, 1, int64(100), int64(200), 100, 0}
+	if got, want := resolver.resolve("m_navi_cut_in", row)["en"], "First line\nSecond line"; got != want {
+		t.Fatalf("English title = %q, want %q", got, want)
+	}
+	if got, want := resolver.resolve("m_navi_cut_in", row)["ja"], "一行目\n二行目"; got != want {
+		t.Fatalf("Japanese title = %q, want %q", got, want)
 	}
 }
 

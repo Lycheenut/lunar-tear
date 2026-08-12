@@ -63,7 +63,9 @@
     m_event_quest_labyrinth_season: ["EventQuestChapterId", "SeasonNumber"],
     m_login_bonus: ["LoginBonusId", "SortOrder", "LoginBonusStartConditionId", "LoginBonusAssetName"],
     m_maintenance: ["MaintenanceId"],
+    m_mission_term: ["MissionTermId"],
     m_mom_banner: ["MomBannerId", "SortOrderDesc", "DestinationDomainType", "DestinationDomainId", "BannerAssetName"],
+    m_navi_cut_in: ["NaviCutInId", "RelatedCutInFunctionType", "SortOrder", "NaviCutInContentGroupId", "RelatedCutInFunctionValue"],
     m_omikuji: ["OmikujiId"],
     m_pvp_season: ["PvpSeasonId", "NameAssetPath"],
     m_quest_campaign: ["QuestCampaignId", "QuestCampaignTargetGroupId", "QuestCampaignEffectGroupId", "TargetUserStatusType"],
@@ -242,7 +244,9 @@
     const hasSchedule = (table.pairs || []).length > 0;
     const hasArtwork = table.name === "m_dokan";
     const hasContent = table.name === "m_mom_banner"
-      || table.rows.some((row) => Object.keys(row.titles || {}).length > 0 || (row.contentFootnotes || []).length > 0);
+      || table.rows.some((row) => Object.keys(row.titles || {}).length > 0
+        || Object.keys(row.contentBody || {}).length > 0
+        || (row.contentFootnotes || []).length > 0);
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "")
@@ -258,7 +262,8 @@
       const fieldValues = table.fields.flatMap((field) => [field.name, effectiveValue(table.name, row, field.name)]);
       const footnoteValues = (row.contentFootnotes || []).flatMap((footnote) => Object.values(footnote || {}));
       const artworkValues = (row.dokanImages || []).flatMap((image) => [image.contentIndex, image.imageId]);
-      const haystack = [...Object.values(row.titles || {}), ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
+      const haystack = [...Object.values(row.titles || {}), ...Object.values(row.contentBody || {}),
+        ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
       return haystack.includes(query);
     });
 
@@ -291,7 +296,7 @@
     const tr = document.createElement("tr");
     if (hasContent) {
       const contentCell = renderContentCell(table, row);
-      contentCell.className = "content-cell detailed-content-cell";
+      contentCell.classList.add("content-cell", "detailed-content-cell");
       tr.append(contentCell);
     }
     if (hasArtwork) tr.append(renderDokanImagesCell(row));
@@ -320,7 +325,7 @@
     tr.append(idCell);
 
     const contentCell = renderContentCell(table, row);
-    contentCell.className = "content-cell";
+    contentCell.classList.add("content-cell");
     tr.append(contentCell);
 
     if (table.name === "m_dokan") tr.append(renderDokanImagesCell(row));
@@ -375,6 +380,7 @@
 
   function renderContentCell(table, row) {
     if (table.name === "m_mom_banner") return renderMomBannerContentCell(row);
+    if (table.name === "m_tip") return renderTipContentCell(row);
 
     const cell = document.createElement("td");
     const title = document.createElement("div");
@@ -389,6 +395,29 @@
       cell.append(note);
     }
     return cell;
+  }
+
+  function renderTipContentCell(row) {
+    const cell = document.createElement("td");
+    cell.className = "tip-content";
+    cell.append(
+      renderTipContentSection("标题", localizedText(row.titles) || "-", "tip-content-title"),
+      renderTipContentSection("正文", localizedText(row.contentBody) || "-", "tip-content-body")
+    );
+    return cell;
+  }
+
+  function renderTipContentSection(labelText, text, textClass) {
+    const section = document.createElement("div");
+    section.className = "tip-content-section";
+    const label = document.createElement("span");
+    label.className = "tip-content-label";
+    label.textContent = labelText;
+    const value = document.createElement("div");
+    value.className = textClass;
+    value.textContent = text;
+    section.append(label, value);
+    return section;
   }
 
   function renderMomBannerContentCell(row) {
@@ -568,6 +597,7 @@
     const image = document.createElement("img");
     image.className = "dokan-image-preview";
     image.alt = `Dokan ImageId ${entry.imageId}`;
+    image.title = dokanImageTooltip(entry);
     image.loading = "lazy";
     image.decoding = "async";
     let previewIndex = 0;
@@ -577,14 +607,16 @@
         image.src = urls[previewIndex];
         return;
       }
-      image.replaceWith(renderDokanImageUpload(entry));
+      image.replaceWith(renderMomBannerPreviewMissing(dokanImageTooltip(entry)));
     });
     image.src = urls[previewIndex];
-
-    const caption = document.createElement("figcaption");
-    caption.textContent = `#${entry.contentIndex} · ImageId ${entry.imageId}`;
-    figure.append(image, caption);
+    figure.append(image);
     return figure;
+  }
+
+  function dokanImageTooltip(entry) {
+    const filename = dokanImagePreviewPath(entry.imageId, state.language).at(-1);
+    return `#${entry.contentIndex} · ImageId ${entry.imageId}\n${filename}`;
   }
 
   function dokanImagePreviewURLs(imageId) {
@@ -600,18 +632,6 @@
   function dokanImagePreviewPath(imageId, language) {
     const assetName = `prm${String(imageId).padStart(3, "0")}.png`;
     return ["mom_promotion", language, "banner", assetName];
-  }
-
-  function renderDokanImageUpload(entry) {
-    const missing = document.createElement("div");
-    missing.className = "dokan-image-upload";
-    const label = document.createElement("strong");
-    label.textContent = "待上传";
-    const path = document.createElement("code");
-    path.textContent = `/assets/ui/${dokanImagePreviewPath(entry.imageId, state.language).join("/")}`;
-    path.title = `源资源包：assets/revisions/0/assetbundle/ui/mom_promotion/${state.language}/banner/prm${String(entry.imageId).padStart(3, "0")}.assetbundle`;
-    missing.append(label, path);
-    return missing;
   }
 
   function renderStatus(status) {

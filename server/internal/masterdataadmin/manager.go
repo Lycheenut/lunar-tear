@@ -27,6 +27,7 @@ type Row struct {
 	Values           map[string]string   `json:"values"`
 	Times            map[string]int64    `json:"times"`
 	Titles           map[string]string   `json:"titles,omitempty"`
+	ContentBody      map[string]string   `json:"contentBody,omitempty"`
 	DokanImages      []DokanImage        `json:"dokanImages,omitempty"`
 	ContentFootnotes []map[string]string `json:"contentFootnotes,omitempty"`
 	ShopRelations    []ShopRelation      `json:"shopRelations,omitempty"`
@@ -278,6 +279,7 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 				row.Times[field.Name] = value
 			}
 			row.Titles = resolver.resolve(spec.Name, values)
+			row.ContentBody = resolver.resolveContentBody(spec.Name, values)
 			row.DokanImages = resolver.resolveDokanImages(spec.Name, values)
 			row.ShopRelations = resolver.resolveShopRelations(spec.Name, values)
 			row.ContentFootnotes = resolver.resolveContentFootnotes(spec.Name, values, row.ShopRelations)

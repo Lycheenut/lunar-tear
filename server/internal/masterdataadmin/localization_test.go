@@ -70,6 +70,36 @@ func TestLoadAddsInstalledLocalizedTitles(t *testing.T) {
 	t.Fatal("event quest catalog has no English title")
 }
 
+func TestLoadAddsNaviCutInContent(t *testing.T) {
+	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master data is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(masterDataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range catalog.Tables {
+		if table.Name != "m_navi_cut_in" {
+			continue
+		}
+		if len(table.Rows) == 0 {
+			t.Fatal("NaviCutIn catalog has no rows")
+		}
+		for _, row := range table.Rows {
+			for _, language := range supportedLanguages {
+				if row.Titles[language] == "" {
+					t.Fatalf("NaviCutIn row %d has no %s content: %v", row.Index, language, row.Values)
+				}
+			}
+		}
+		return
+	}
+	t.Fatal("NaviCutIn table is not in the activity catalog")
+}
+
 func TestLoadAddsTipBodiesAndDokanImages(t *testing.T) {
 	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {
@@ -87,7 +117,7 @@ func TestLoadAddsTipBodiesAndDokanImages(t *testing.T) {
 		for _, row := range table.Rows {
 			switch table.Name {
 			case "m_tip":
-				tipWithBody = tipWithBody || strings.Contains(row.Titles["en"], "\n")
+				tipWithBody = tipWithBody || row.Titles["en"] != "" && row.ContentBody["en"] != ""
 			case "m_dokan":
 				dokanWithImages = dokanWithImages || len(row.DokanImages) != 0
 			}

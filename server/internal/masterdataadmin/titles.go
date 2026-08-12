@@ -27,6 +27,11 @@ type dokanContentText struct {
 	imageID      int64
 }
 
+type naviCutInContentText struct {
+	contentIndex int64
+	textID       int64
+}
+
 type localizedTitlePart struct {
 	key       string
 	targetKey string
@@ -41,6 +46,7 @@ type titleResolver struct {
 	texts                localizationIndex
 	webviewTitles        translatedText
 	dokanTitles          translatedText
+	naviCutInTitles      translatedText
 	chapterTextIDs       map[int64]int64
 	dailyGroupChapters   map[int64][]int64
 	limitContentChapters map[int64][]int64
@@ -54,6 +60,7 @@ type titleResolver struct {
 	shopRelationsByShop  map[int64][]ShopRelation
 	shopRelationsByTerm  map[int64][]ShopRelation
 	dokanGroupTexts      map[int64][]dokanContentText
+	naviCutInGroupTexts  map[int64][]naviCutInContentText
 	enhanceTargets       map[int64][]campaignTarget
 	questEffects         map[int64][]questCampaignEffect
 	questTargets         map[int64][]campaignTarget
@@ -74,6 +81,7 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		texts:                texts,
 		webviewTitles:        readTranslatedText(file, "m_webview_mission_title_text", 0, 1, 2),
 		dokanTitles:          readTranslatedText(file, "m_dokan_text", 0, 1, 2),
+		naviCutInTitles:      readTranslatedText(file, "m_navi_cut_in_text", 0, 1, 2),
 		chapterTextIDs:       make(map[int64]int64),
 		dailyGroupChapters:   make(map[int64][]int64),
 		limitContentChapters: make(map[int64][]int64),
@@ -85,6 +93,7 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		importantEffectTexts: make(map[int64]int64),
 		maintenanceAPIs:      make(map[int64][]string),
 		dokanGroupTexts:      make(map[int64][]dokanContentText),
+		naviCutInGroupTexts:  make(map[int64][]naviCutInContentText),
 		enhanceTargets:       make(map[int64][]campaignTarget),
 		questEffects:         make(map[int64][]questCampaignEffect),
 		questTargets:         make(map[int64][]campaignTarget),
@@ -175,6 +184,22 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 			return resolver.dokanGroupTexts[groupID][left].contentIndex < resolver.dokanGroupTexts[groupID][right].contentIndex
 		})
 	}
+	for _, row := range readRows(file, "m_navi_cut_in_content_group") {
+		groupID, groupOK := integerAt(row, 0)
+		contentIndex, indexOK := integerAt(row, 1)
+		textID, textOK := integerAt(row, 2)
+		if groupOK && indexOK && textOK {
+			resolver.naviCutInGroupTexts[groupID] = append(resolver.naviCutInGroupTexts[groupID], naviCutInContentText{
+				contentIndex: contentIndex,
+				textID:       textID,
+			})
+		}
+	}
+	for groupID := range resolver.naviCutInGroupTexts {
+		sort.SliceStable(resolver.naviCutInGroupTexts[groupID], func(left, right int) bool {
+			return resolver.naviCutInGroupTexts[groupID][left].contentIndex < resolver.naviCutInGroupTexts[groupID][right].contentIndex
+		})
+	}
 	resolver.loadCampaignReferences(file)
 	resolver.loadShopRelations(file)
 	return resolver
@@ -190,6 +215,14 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 	case "m_costume_collection_bonus":
 		if id, ok := integerAt(row, 1); ok {
 			key = fmt.Sprintf("CollectionBonus.Effect.%d", id)
+		}
+	case "m_big_hunt_schedule":
+		if seasonAssetID, ok := integerAt(row, 4); ok && seasonAssetID != 0 {
+			return map[string]string{
+				"en": fmt.Sprintf("Season %d", seasonAssetID),
+				"ja": fmt.Sprintf("シーズン %d", seasonAssetID),
+				"ko": fmt.Sprintf("시즌 %d", seasonAssetID),
+			}
 		}
 	case "m_event_quest_chapter":
 		key = integerKey(row, 3, "quest.event.chapter_title.%d")
@@ -229,6 +262,10 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 		if termID, ok := integerAt(row, 0); ok {
 			key = fmt.Sprintf("mission.name.%d", r.missionTermTextIDs[termID])
 		}
+	case "m_navi_cut_in":
+		if groupID, ok := integerAt(row, 5); ok {
+			return r.naviCutInContentTitles(groupID)
+		}
 	case "m_pvp_season":
 		if assetName, ok := stringAt(row, 1); ok {
 			if number, err := strconv.Atoi(assetName); err == nil {
@@ -256,7 +293,7 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 			key = fmt.Sprintf("shop.item.name.%d", r.shopTermTextIDs[termID])
 		}
 	case "m_tip":
-		return r.tipContentTitles(row)
+		key = integerKey(row, 1, "tip.%d")
 	case "m_webview_mission":
 		if textID, ok := integerAt(row, 1); ok {
 			return cloneTitles(r.webviewTitles[textID])
@@ -272,29 +309,11 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 	return r.byKey(key)
 }
 
-func (r *titleResolver) tipContentTitles(row []interface{}) map[string]string {
-	titleID, titleOK := integerAt(row, 1)
-	contentID, contentOK := integerAt(row, 2)
-	if !titleOK || !contentOK {
+func (r *titleResolver) resolveContentBody(table string, row []interface{}) map[string]string {
+	if table != "m_tip" {
 		return nil
 	}
-
-	titles := make(map[string]string)
-	for _, language := range supportedLanguages {
-		var parts []string
-		for _, id := range []int64{titleID, contentID} {
-			if text := r.texts[language][fmt.Sprintf("tip.%d", id)]; text != "" {
-				parts = append(parts, text)
-			}
-		}
-		if len(parts) != 0 {
-			titles[language] = strings.Join(parts, "\n")
-		}
-	}
-	if len(titles) == 0 {
-		return nil
-	}
-	return titles
+	return r.byKey(integerKey(row, 2, "tip.%d"))
 }
 
 func (r *titleResolver) dokanContentTitles(groupID int64) map[string]string {
@@ -303,6 +322,25 @@ func (r *titleResolver) dokanContentTitles(groupID int64) map[string]string {
 		var lines []string
 		for _, content := range r.dokanGroupTexts[groupID] {
 			if text := r.dokanTitles[content.textID][language]; text != "" {
+				lines = append(lines, text)
+			}
+		}
+		if len(lines) != 0 {
+			titles[language] = strings.Join(lines, "\n")
+		}
+	}
+	if len(titles) == 0 {
+		return nil
+	}
+	return titles
+}
+
+func (r *titleResolver) naviCutInContentTitles(groupID int64) map[string]string {
+	titles := make(map[string]string)
+	for _, language := range supportedLanguages {
+		var lines []string
+		for _, content := range r.naviCutInGroupTexts[groupID] {
+			if text := r.naviCutInTitles[content.textID][language]; text != "" {
 				lines = append(lines, text)
 			}
 		}

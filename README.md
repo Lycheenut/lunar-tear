@@ -369,7 +369,10 @@ All targets run from the `server/` directory.
 before decoding the APK. Set `GRPC_TLS=true` when `GRPC_ADDR` terminates TLS,
 set `AUTH_HOST=` to omit the Facebook login redirect patch, and use
 `DEFAULT_TEXT_LANGUAGE` / `DEFAULT_VOICE_LANGUAGE` to select initial language
-defaults.
+defaults. When Japanese text is active, the patched client preserves serialized
+prefab fonts and skips every game-level runtime font assignment. The worldwide
+client's non-Korean font replacement rules apply only to English; Korean behavior
+is unchanged.
 
 The production start, restart, and deploy targets read `LUNAR_ADMIN_TOKEN`
 directly from Google Cloud Secret Manager without writing it to disk. They use
