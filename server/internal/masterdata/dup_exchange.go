@@ -60,21 +60,61 @@ func EnrichDupExchange(dupMap map[int32][]model.DupExchangeEntry, pool *GachaCat
 	for _, r := range costumeRows {
 		costumeLBGroup[r.CostumeId] = r.CostumeLimitBreakMaterialGroupId
 	}
+	awakenRows, err := utils.ReadTable[EntityMCostumeAwaken]("m_costume_awaken")
+	if err != nil {
+		return 0, err
+	}
+	awakenStepRows, err := utils.ReadTable[EntityMCostumeAwakenStepMaterialGroup]("m_costume_awaken_step_material_group")
+	if err != nil {
+		return 0, err
+	}
+	awakenMaterialRows, err := utils.ReadTable[EntityMCostumeAwakenMaterialGroup]("m_costume_awaken_material_group")
+	if err != nil {
+		return 0, err
+	}
+	stepMaterialGroup := make(map[int32]int32, len(awakenStepRows))
+	for _, row := range awakenStepRows {
+		stepMaterialGroup[row.CostumeAwakenStepMaterialGroupId] = row.CostumeAwakenMaterialGroupId
+	}
+	firstMaterialByGroup := make(map[int32]EntityMCostumeAwakenMaterialGroup, len(awakenMaterialRows))
+	for _, row := range awakenMaterialRows {
+		current, exists := firstMaterialByGroup[row.CostumeAwakenMaterialGroupId]
+		if !exists || row.SortOrder < current.SortOrder {
+			firstMaterialByGroup[row.CostumeAwakenMaterialGroupId] = row
+		}
+	}
+	awakenMaterialByCostume := make(map[int32]EntityMCostumeAwakenMaterialGroup, len(awakenRows))
+	for _, row := range awakenRows {
+		materialGroupId := stepMaterialGroup[row.CostumeAwakenStepMaterialGroupId]
+		if material := firstMaterialByGroup[materialGroupId]; material.MaterialId != 0 {
+			awakenMaterialByCostume[row.CostumeId] = material
+		}
+	}
 
 	added := 0
 	for costumeId := range pool.CostumeById {
 		if _, exists := dupMap[costumeId]; exists {
 			continue
 		}
-		matId := groupToMaterial[costumeLBGroup[costumeId]]
-		if matId == 0 {
+		entries := make([]model.DupExchangeEntry, 0, 2)
+		if matId := groupToMaterial[costumeLBGroup[costumeId]]; matId != 0 {
+			entries = append(entries, model.DupExchangeEntry{
+				PossessionType: int32(model.PossessionTypeMaterial),
+				PossessionId:   matId,
+				Count:          dupExchangeFallbackCount,
+			})
+		}
+		if material := awakenMaterialByCostume[costumeId]; material.MaterialId != 0 && material.Count > 0 {
+			entries = append(entries, model.DupExchangeEntry{
+				PossessionType: int32(model.PossessionTypeMaterial),
+				PossessionId:   material.MaterialId,
+				Count:          material.Count,
+			})
+		}
+		if len(entries) == 0 {
 			continue
 		}
-		dupMap[costumeId] = []model.DupExchangeEntry{{
-			PossessionType: int32(model.PossessionTypeMaterial),
-			PossessionId:   matId,
-			Count:          dupExchangeFallbackCount,
-		}}
+		dupMap[costumeId] = entries
 		added++
 	}
 	return added, nil

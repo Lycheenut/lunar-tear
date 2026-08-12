@@ -81,14 +81,7 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 
 func autoConvertExpiredMedals(user *store.UserState, catalog []store.GachaCatalogEntry, handler *gacha.GachaHandler, nowMillis int64) {
 	for _, entry := range catalog {
-		if entry.GachaMedalId == 0 || entry.EndDatetime == 0 {
-			continue
-		}
-		if nowMillis < entry.EndDatetime {
-			continue
-		}
-		bs, exists := user.Gacha.BannerStates[entry.GachaId]
-		if !exists || bs.MedalCount <= 0 {
+		if entry.GachaMedalId == 0 || gachaActiveAt(entry, nowMillis) {
 			continue
 		}
 
@@ -96,29 +89,58 @@ func autoConvertExpiredMedals(user *store.UserState, catalog []store.GachaCatalo
 		if !ok {
 			continue
 		}
+		convertDatetime := medalInfo.AutoConvertDatetime
+		if convertDatetime == 0 {
+			convertDatetime = entry.EndDatetime
+		}
+		if convertDatetime == 0 || nowMillis < convertDatetime {
+			continue
+		}
+		obtainItemId := int32(0)
+		if handler.Config != nil {
+			obtainItemId = handler.Config.ConsumableItemIdForMedal
+		}
+		if obtainItemId == 0 || obtainItemId == medalInfo.ConsumableItemId {
+			continue
+		}
+
+		originalCount := user.ConsumableItems[medalInfo.ConsumableItemId]
+		bs, exists := user.Gacha.BannerStates[entry.GachaId]
+		if exists {
+			bs.MedalCount = 0
+			user.Gacha.BannerStates[entry.GachaId] = bs
+		}
+		if originalCount <= 0 {
+			continue
+		}
 
 		conversionRate := medalInfo.ConversionRate
 		if conversionRate <= 0 {
 			conversionRate = 1
 		}
-		bookmarkCount := bs.MedalCount * conversionRate
-
-		user.ConsumableItems[medalInfo.ConsumableItemId] += bookmarkCount
+		bookmarkCount := int32(min(int64(originalCount)*int64(conversionRate), int64(1<<31-1)))
+		delete(user.ConsumableItems, medalInfo.ConsumableItemId)
+		user.ConsumableItems[obtainItemId] = int32(min(
+			int64(user.ConsumableItems[obtainItemId])+int64(bookmarkCount),
+			int64(1<<31-1),
+		))
 
 		user.Gacha.ConvertedGachaMedal.ConvertedMedalPossession = append(
 			user.Gacha.ConvertedGachaMedal.ConvertedMedalPossession,
 			store.ConsumableItemState{
 				ConsumableItemId: medalInfo.ConsumableItemId,
-				Count:            bookmarkCount,
+				Count:            originalCount,
 			},
 		)
-
-		originalCount := bs.MedalCount
-		bs.MedalCount = 0
-		user.Gacha.BannerStates[entry.GachaId] = bs
+		obtain := user.Gacha.ConvertedGachaMedal.ObtainPossession
+		if obtain == nil || obtain.ConsumableItemId != obtainItemId {
+			user.Gacha.ConvertedGachaMedal.ObtainPossession = &store.ConsumableItemState{ConsumableItemId: obtainItemId, Count: bookmarkCount}
+		} else {
+			obtain.Count = int32(min(int64(obtain.Count)+int64(bookmarkCount), int64(1<<31-1)))
+		}
 
 		log.Printf("[GachaService] auto-converted %d medals for gacha %d -> %d bookmarks (item %d)",
-			originalCount, entry.GachaId, bookmarkCount, medalInfo.ConsumableItemId)
+			originalCount, entry.GachaId, bookmarkCount, obtainItemId)
 	}
 }
 

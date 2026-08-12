@@ -85,8 +85,16 @@ func TestFriendServiceLifecycleAndCheer(t *testing.T) {
 	if len(friendList.FriendUser) != 1 || friendList.FriendUser[0].PlayerId != userB.PlayerId {
 		t.Fatalf("friend list = %+v", friendList.FriendUser)
 	}
+	setFriendTestStamina(t, repo, userA.UserId, 50000)
 	if _, err := server.CheerFriend(ctxA, &pb.CheerFriendRequest{PlayerId: userB.PlayerId}); err != nil {
 		t.Fatal(err)
+	}
+	updatedA, err := repo.LoadUser(userA.UserId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedA.Status.StaminaMilliValue != 51000 {
+		t.Fatalf("cheer sender stamina = %d, want 51000", updatedA.Status.StaminaMilliValue)
 	}
 	friendList, err = server.GetFriendList(ctxB, &pb.GetFriendListRequest{})
 	if err != nil {
@@ -144,6 +152,13 @@ func TestFriendServiceLifecycleAndCheer(t *testing.T) {
 	}
 	if len(bulkCheer.PlayerId) != 1 || bulkCheer.PlayerId[0] != userC.PlayerId {
 		t.Fatalf("bulk cheered players = %v, want [%d] (deleted/re-added friend must stay limited)", bulkCheer.PlayerId, userC.PlayerId)
+	}
+	updatedA, err = repo.LoadUser(userA.UserId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedA.Status.StaminaMilliValue != 52000 {
+		t.Fatalf("bulk cheer sender stamina = %d, want 52000", updatedA.Status.StaminaMilliValue)
 	}
 	setFriendTestStamina(t, repo, userC.UserId, 50000)
 	bulkReceive, err := server.BulkReceiveCheer(ctxC, &emptypb.Empty{})

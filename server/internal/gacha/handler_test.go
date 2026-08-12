@@ -123,6 +123,48 @@ func TestHandleResetBoxInitializesPersistentBannerIdentity(t *testing.T) {
 	}
 }
 
+func TestGrantItemsSendsWeaponsBeyondInventoryLimitToGiftBox(t *testing.T) {
+	const nowMillis = int64(1234)
+	granter := &store.PossessionGranter{}
+	h := &GachaHandler{
+		Config:  &masterdata.GameConfig{PossessionCountLimitWeapon: 2},
+		Granter: granter,
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	granter.GrantWeapon(user, 100, nowMillis-1)
+
+	h.grantItems(user, []DrawnItem{
+		{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: 101},
+		{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: 102},
+	}, nowMillis)
+
+	if len(user.Weapons) != 2 {
+		t.Fatalf("weapon inventory count = %d, want 2", len(user.Weapons))
+	}
+	ownedWeaponIds := map[int32]bool{}
+	for _, weapon := range user.Weapons {
+		ownedWeaponIds[weapon.WeaponId] = true
+	}
+	if !ownedWeaponIds[100] || !ownedWeaponIds[101] || ownedWeaponIds[102] {
+		t.Fatalf("unexpected inventory weapons: %v", ownedWeaponIds)
+	}
+	if len(user.Gifts.NotReceived) != 1 {
+		t.Fatalf("gift count = %d, want 1", len(user.Gifts.NotReceived))
+	}
+	gift := user.Gifts.NotReceived[0]
+	if gift.UserGiftUuid == "" ||
+		gift.GiftCommon.PossessionType != int32(model.PossessionTypeWeapon) ||
+		gift.GiftCommon.PossessionId != 102 ||
+		gift.GiftCommon.Count != 1 ||
+		gift.GiftCommon.GrantDatetime != nowMillis {
+		t.Fatalf("unexpected overflow gift: %+v", gift)
+	}
+	if user.Notifications.GiftNotReceiveCount != 1 {
+		t.Fatalf("gift notification count = %d, want 1", user.Notifications.GiftNotReceiveCount)
+	}
+}
+
 func TestDupExchangesForGradeUsesTierCount(t *testing.T) {
 	exchanges := []model.DupExchangeEntry{
 		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 501, Count: 10},

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 
+	"github.com/google/uuid"
+
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
@@ -358,8 +360,8 @@ func (h *GachaHandler) grantItems(user *store.UserState, items []DrawnItem, nowM
 				continue
 			}
 			h.Granter.GrantCostume(user, item.PossessionId, nowMillis)
-		case model.PossessionTypeWeapon:
-			h.Granter.GrantWeapon(user, item.PossessionId, nowMillis)
+		case model.PossessionTypeWeapon, model.PossessionTypeWeaponEnhanced:
+			h.grantWeaponOrGift(user, item, nowMillis)
 		default:
 			if item.PossessionType != 0 {
 				h.Granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, 1, nowMillis)
@@ -367,6 +369,28 @@ func (h *GachaHandler) grantItems(user *store.UserState, items []DrawnItem, nowM
 		}
 	}
 	return dupInfos
+}
+
+func (h *GachaHandler) grantWeaponOrGift(user *store.UserState, item DrawnItem, nowMillis int64) {
+	limit := int32(0)
+	if h.Config != nil {
+		limit = h.Config.PossessionCountLimitWeapon
+	}
+	if limit <= 0 || int64(len(user.Weapons)) < int64(limit) {
+		h.Granter.GrantWeapon(user, item.PossessionId, nowMillis)
+		return
+	}
+
+	user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
+		GiftCommon: store.GiftCommonState{
+			PossessionType: item.PossessionType,
+			PossessionId:   item.PossessionId,
+			Count:          1,
+			GrantDatetime:  nowMillis,
+		},
+		UserGiftUuid: uuid.New().String(),
+	})
+	user.Notifications.GiftNotReceiveCount = int32(len(user.Gifts.NotReceived))
 }
 
 func (h *GachaHandler) tryCostumeDupExchange(user *store.UserState, item DrawnItem, index int) (DuplicateInfo, bool) {
