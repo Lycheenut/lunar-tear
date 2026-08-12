@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/google/uuid"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
@@ -54,6 +55,7 @@ func (s *ShopServiceServer) Buy(ctx context.Context, req *pb.BuyRequest) (*pb.Bu
 	}
 
 	var validationErr error
+	var overflowPossessions []*pb.Possession
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		candidate := store.CloneUserState(*user)
 		for shopItemId, qty := range req.ShopItems {
@@ -110,15 +112,23 @@ func (s *ShopServiceServer) Buy(ctx context.Context, req *pb.BuyRequest) (*pb.Bu
 			}
 
 			for _, content := range catalog.Contents[shopItemId] {
-				if err := grantShopPossession(granter, &candidate, content.PossessionType, content.PossessionId, content.Count, qty, nowMillis); err != nil {
+				overflow, err := grantShopPossession(granter, &candidate, content.PossessionType, content.PossessionId, content.Count, qty, cat.GameConfig, nowMillis)
+				if err != nil {
 					validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d has invalid content", shopItemId)
 					return
 				}
+				if overflow != nil {
+					overflowPossessions = append(overflowPossessions, overflow)
+				}
 			}
 			for _, content := range additionalContents {
-				if err := grantShopPossession(granter, &candidate, content.PossessionType, content.PossessionId, content.Count, qty, nowMillis); err != nil {
+				overflow, err := grantShopPossession(granter, &candidate, content.PossessionType, content.PossessionId, content.Count, qty, cat.GameConfig, nowMillis)
+				if err != nil {
 					validationErr = status.Errorf(codes.FailedPrecondition, "shop item %d has invalid additional content", shopItemId)
 					return
+				}
+				if overflow != nil {
+					overflowPossessions = append(overflowPossessions, overflow)
 				}
 			}
 
@@ -142,7 +152,7 @@ func (s *ShopServiceServer) Buy(ctx context.Context, req *pb.BuyRequest) (*pb.Bu
 		return nil, validationErr
 	}
 	return &pb.BuyResponse{
-		OverflowPossession: []*pb.Possession{},
+		OverflowPossession: overflowPossessions,
 	}, nil
 }
 
@@ -261,16 +271,36 @@ func replaceableLineupContains(lineup map[int32]store.UserShopReplaceableLineupS
 	return false
 }
 
-func grantShopPossession(granter *store.PossessionGranter, user *store.UserState, possessionType, possessionId, count, quantity int32, nowMillis int64) error {
+func grantShopPossession(granter *store.PossessionGranter, user *store.UserState, possessionType, possessionId, count, quantity int32, config *masterdata.GameConfig, nowMillis int64) (*pb.Possession, error) {
 	totalCount := int64(count) * int64(quantity)
 	if totalCount <= 0 || totalCount > math.MaxInt32 {
-		return fmt.Errorf("invalid content count")
+		return nil, fmt.Errorf("invalid content count")
 	}
+	beforeGrant := store.CloneUserState(*user)
 	result := granter.GrantFull(user, model.PossessionType(possessionType), possessionId, int32(totalCount), nowMillis)
 	if result.Status != store.GrantStatusGranted {
-		return fmt.Errorf("grant status %d", result.Status)
+		return nil, fmt.Errorf("grant status %d", result.Status)
 	}
-	return nil
+	if !exceedsPossessionLimits(beforeGrant, *user, config) {
+		return nil, nil
+	}
+
+	*user = beforeGrant
+	user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
+		GiftCommon: store.GiftCommonState{
+			PossessionType: possessionType,
+			PossessionId:   possessionId,
+			Count:          int32(totalCount),
+			GrantDatetime:  nowMillis,
+		},
+		UserGiftUuid: uuid.New().String(),
+	})
+	user.Notifications.GiftNotReceiveCount = int32(len(user.Gifts.NotReceived))
+	return &pb.Possession{
+		PossessionType: possessionType,
+		PossessionId:   possessionId,
+		Count:          int32(totalCount),
+	}, nil
 }
 
 func resetShopItemStockIfDue(item store.UserShopItemState, rule masterdata.ShopLimitedStockRule, nowMillis int64) (store.UserShopItemState, error) {

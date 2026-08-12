@@ -86,3 +86,49 @@ func TestResetShopItemStockRejectsInvalidRule(t *testing.T) {
 		t.Fatal("invalid weekly reset rule was accepted")
 	}
 }
+
+func TestGrantShopPossessionSendsCapacityOverflowToGiftBox(t *testing.T) {
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Weapons["existing"] = store.WeaponState{UserWeaponUuid: "existing", WeaponId: 1}
+	config := &masterdata.GameConfig{PossessionCountLimitWeapon: 1}
+	granter := &store.PossessionGranter{}
+
+	overflow, err := grantShopPossession(granter, user, int32(model.PossessionTypeWeapon), 2, 1, 1, config, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(user.Weapons) != 1 {
+		t.Fatalf("weapon inventory count = %d, want 1", len(user.Weapons))
+	}
+	if overflow == nil || overflow.PossessionType != int32(model.PossessionTypeWeapon) || overflow.PossessionId != 2 || overflow.Count != 1 {
+		t.Fatalf("overflow possession = %+v", overflow)
+	}
+	if len(user.Gifts.NotReceived) != 1 {
+		t.Fatalf("not-received gifts = %d, want 1", len(user.Gifts.NotReceived))
+	}
+	gift := user.Gifts.NotReceived[0]
+	if gift.UserGiftUuid == "" || gift.GiftCommon.PossessionType != int32(model.PossessionTypeWeapon) || gift.GiftCommon.PossessionId != 2 || gift.GiftCommon.Count != 1 {
+		t.Fatalf("overflow gift = %+v", gift)
+	}
+	if user.Notifications.GiftNotReceiveCount != 1 {
+		t.Fatalf("gift notification count = %d, want 1", user.Notifications.GiftNotReceiveCount)
+	}
+}
+
+func TestGrantShopPossessionKeepsWeaponWhenCapacityAllows(t *testing.T) {
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Weapons["existing"] = store.WeaponState{UserWeaponUuid: "existing", WeaponId: 1}
+	config := &masterdata.GameConfig{PossessionCountLimitWeapon: 2}
+	granter := &store.PossessionGranter{}
+
+	overflow, err := grantShopPossession(granter, user, int32(model.PossessionTypeWeapon), 2, 1, 1, config, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overflow != nil {
+		t.Fatalf("unexpected overflow possession = %+v", overflow)
+	}
+	if len(user.Weapons) != 2 || len(user.Gifts.NotReceived) != 0 {
+		t.Fatalf("weapons=%d gifts=%d, want 2 and 0", len(user.Weapons), len(user.Gifts.NotReceived))
+	}
+}

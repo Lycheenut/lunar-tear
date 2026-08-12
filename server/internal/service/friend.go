@@ -302,7 +302,14 @@ func (s *FriendServiceServer) CheerFriend(ctx context.Context, req *pb.CheerFrie
 	}
 	limit := s.limits().sendCheerMax
 	_, err = s.users.UpdateUsers([]int64{currentUserId, friendUserId}, func(users map[int64]*store.UserState) error {
-		return sendCheer(users[currentUserId], users[friendUserId], gametime.NowMillis(), limit)
+		sender := users[currentUserId]
+		nowMillis := gametime.NowMillis()
+		if err := sendCheer(sender, users[friendUserId], nowMillis, limit); err != nil {
+			return err
+		}
+		store.RecoverStamina(sender, friendCheerStaminaMillis, s.maxStaminaMillis(*sender), nowMillis)
+		sender.Status.LatestVersion = nowMillis
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -332,9 +339,12 @@ func (s *FriendServiceServer) BulkCheerFriend(ctx context.Context, _ *emptypb.Em
 			if friend == nil {
 				continue
 			}
-			if err := sendCheer(current, friend, nowMillis, limit); err == nil {
-				cheeredPlayerIds = append(cheeredPlayerIds, friend.PlayerId)
+			if err := sendCheer(current, friend, nowMillis, limit); err != nil {
+				continue
 			}
+			store.RecoverStamina(current, friendCheerStaminaMillis, s.maxStaminaMillis(*current), nowMillis)
+			current.Status.LatestVersion = nowMillis
+			cheeredPlayerIds = append(cheeredPlayerIds, friend.PlayerId)
 		}
 		return nil
 	})

@@ -95,7 +95,7 @@ func buildCatalogs(gachaConfig *gacha.Config) (*Catalogs, error) {
 	if err != nil {
 		return nil, fmt.Errorf("enrich dup exchange: %w", err)
 	}
-	log.Printf("dup exchange loaded: %d entries (%d derived from limit-break materials)", len(dupExchange), dupAdded)
+	log.Printf("dup exchange loaded: %d entries (%d derived from fallback materials)", len(dupExchange), dupAdded)
 	companionDupExchange, err := masterdata.LoadCompanionDupExchange()
 	if err != nil {
 		return nil, fmt.Errorf("load companion duplicate exchange: %w", err)
