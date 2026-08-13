@@ -18,9 +18,12 @@ type CharacterViewerCatalog struct {
 	fields []characterViewerFieldEntry
 }
 
-func (c *CharacterViewerCatalog) ReleasedFieldIds(user store.UserState) []int32 {
+func (c *CharacterViewerCatalog) NewlyReleasedFieldIds(user store.UserState) []int32 {
 	var released []int32
 	for _, f := range c.fields {
+		if _, alreadyReleased := user.CharacterViewerFields[f.FieldId]; alreadyReleased {
+			continue
+		}
 		if f.RequiredQuestId == 0 {
 			released = append(released, f.FieldId)
 			continue

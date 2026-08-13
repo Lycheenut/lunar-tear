@@ -191,6 +191,12 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 			return err
 		}
 	}
+	for _, v := range u.CharacterViewerFields {
+		if err := exec(`INSERT INTO user_character_viewer_fields (user_id, character_viewer_field_id, release_datetime, latest_version) VALUES (?,?,?,?)`,
+			uid, v.CharacterViewerFieldId, v.ReleaseDatetime, v.LatestVersion); err != nil {
+			return err
+		}
+	}
 	for _, v := range u.Costumes {
 		if err := exec(`INSERT INTO user_costumes (user_id, user_costume_uuid, costume_id, limit_break_count, level, exp, headup_display_view_id, acquisition_datetime, awaken_count, costume_lottery_effect_unlocked_slot_count, latest_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 			uid, v.UserCostumeUuid, v.CostumeId, v.LimitBreakCount, v.Level, v.Exp, v.HeadupDisplayViewId, v.AcquisitionDatetime, v.AwakenCount, v.CostumeLotteryEffectUnlockedSlotCount, v.LatestVersion); err != nil {
@@ -866,6 +872,12 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 	if err := diffMapInt32(tx, uid, before.Characters, after.Characters, "user_characters", "character_id",
 		func(v store.CharacterState) []any { return []any{v.CharacterId, v.Level, v.Exp, v.LatestVersion} },
 		"character_id, level, exp, latest_version"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.CharacterViewerFields, after.CharacterViewerFields, "user_character_viewer_fields", "character_viewer_field_id",
+		func(v store.CharacterViewerFieldState) []any {
+			return []any{v.CharacterViewerFieldId, v.ReleaseDatetime, v.LatestVersion}
+		}, "character_viewer_field_id, release_datetime, latest_version"); err != nil {
 		return err
 	}
 	if err := diffMapStr(tx, uid, before.Costumes, after.Costumes, "user_costumes", "user_costume_uuid",

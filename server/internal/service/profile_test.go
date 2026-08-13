@@ -31,6 +31,18 @@ func TestBuildUserProfileUsesLatestFullDeckAndRealHistory(t *testing.T) {
 			MainUserWeaponUuid:    weaponUuid,
 		}
 	}
+	user.Costumes["costume-duplicate"] = store.CostumeState{UserCostumeUuid: "costume-duplicate", CostumeId: 100}
+	user.Weapons["weapon-duplicate"] = store.WeaponState{UserWeaponUuid: "weapon-duplicate", WeaponId: 200}
+	user.Companions["companion-a"] = store.CompanionState{UserCompanionUuid: "companion-a", CompanionId: 300}
+	user.Companions["companion-duplicate"] = store.CompanionState{UserCompanionUuid: "companion-duplicate", CompanionId: 300}
+	user.Parts["parts-a"] = store.PartsState{UserPartsUuid: "parts-a", PartsId: 400}
+	user.Parts["parts-b"] = store.PartsState{UserPartsUuid: "parts-b", PartsId: 401}
+	user.Missions[1] = store.UserMissionState{MissionId: 1, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear)}
+	user.Missions[2] = store.UserMissionState{MissionId: 2, MissionProgressStatusType: int32(model.MissionProgressStatusTypeRewardReceived)}
+	user.Missions[3] = store.UserMissionState{MissionId: 3, MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress)}
+	user.Gacha.BannerStates[1000] = store.GachaBannerState{GachaId: 1000, DrawCount: 7}
+	user.Gacha.BannerStates[2000] = store.GachaBannerState{GachaId: 2000, DrawCount: 11}
+	user.Gacha.BannerStates[3000] = store.GachaBannerState{GachaId: 3000, DrawCount: 13}
 	user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 2}] = store.DeckState{
 		DeckType: model.DeckTypeQuest, UserDeckNumber: 2, Power: 4321,
 		UserDeckCharacterUuid01: deckCharacterIds[0],
@@ -45,6 +57,11 @@ func TestBuildUserProfileUsesLatestFullDeckAndRealHistory(t *testing.T) {
 		Costume:   &masterdata.CostumeCatalog{Costumes: map[int32]masterdata.EntityMCostume{100: {}, 101: {}, 102: {}}},
 		Weapon:    &masterdata.WeaponCatalog{Weapons: map[int32]masterdata.EntityMWeapon{200: {}, 201: {}, 202: {}}},
 		Companion: &masterdata.CompanionCatalog{CompanionById: map[int32]masterdata.EntityMCompanion{}},
+		GachaEntries: []store.GachaCatalogEntry{
+			{GachaId: 1000, GachaLabelType: model.GachaLabelChapter},
+			{GachaId: 2000, GachaLabelType: model.GachaLabelEvent},
+			{GachaId: 3000, GachaLabelType: model.GachaLabelPremium},
+		},
 	}
 
 	user.Profile.CurrentPvpRank = 7
@@ -63,14 +80,35 @@ func TestBuildUserProfileUsesLatestFullDeckAndRealHistory(t *testing.T) {
 	if profile.PvpInfo.CurrentRank != 7 || profile.PvpInfo.CurrentGradeId != 8 || profile.PvpInfo.MaxSeasonRank != 9 {
 		t.Fatalf("pvp info = %+v", profile.PvpInfo)
 	}
-	if got := gamePlayHistoryValue(*user, playHistoryQuestClear); got != 5 {
-		t.Fatalf("quest clear history = %d, want 5", got)
+	wantHistory := []struct {
+		id    int32
+		count int64
+	}{
+		{id: 1, count: 7},
+		{id: 2, count: 11},
+		{id: 12, count: 2},
+		{id: 14, count: 3},
+		{id: 15, count: 3},
+		{id: 16, count: 1},
+		{id: 17, count: 2},
+		{id: 18, count: 6},
 	}
-	if got := len(profile.GamePlayHistory.HistoryItem); got == 0 {
-		t.Fatal("game play history is empty")
+	if got := len(profile.GamePlayHistory.HistoryItem); got != len(wantHistory) {
+		t.Fatalf("game play history item count = %d, want %d", got, len(wantHistory))
 	}
-	if got := profile.GamePlayHistory.HistoryCategoryGraphItem[0].ProgressPermil; got != 500 {
-		t.Fatalf("quest graph progress = %d, want 500", got)
+	for i, want := range wantHistory {
+		got := profile.GamePlayHistory.HistoryItem[i]
+		if got.HistoryItemId != want.id || got.Count != want.count {
+			t.Fatalf("game play history item %d = (id %d, count %d), want (id %d, count %d)", i, got.HistoryItemId, got.Count, want.id, want.count)
+		}
+	}
+	if got := len(profile.GamePlayHistory.HistoryCategoryGraphItem); got != 5 {
+		t.Fatalf("history graph item count = %d, want 5", got)
+	}
+	for i, got := range profile.GamePlayHistory.HistoryCategoryGraphItem {
+		if got.CategoryTypeId != int32(i+1) || got.ProgressPermil != 0 {
+			t.Fatalf("history graph item %d = (id %d, progress %d), want (id %d, progress 0)", i, got.CategoryTypeId, got.ProgressPermil, i+1)
+		}
 	}
 }
 

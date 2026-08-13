@@ -14,6 +14,10 @@ func init() {
 		s, _ := utils.EncodeJSONMaps(sortedCharacterRecords(user)...)
 		return s
 	})
+	register("IUserCharacterViewerField", func(user store.UserState) string {
+		s, _ := utils.EncodeJSONMaps(sortedCharacterViewerFieldRecords(user)...)
+		return s
+	})
 	register("IUserCostume", func(user store.UserState) string {
 		s, _ := utils.EncodeJSONMaps(sortedCostumeRecords(user)...)
 		return s
@@ -207,6 +211,42 @@ func sortedCharacterRecords(user store.UserState) []map[string]any {
 		})
 	}
 	return records
+}
+
+func sortedCharacterViewerFieldRecords(user store.UserState) []map[string]any {
+	ids := make([]int, 0, len(user.CharacterViewerFields))
+	for id := range user.CharacterViewerFields {
+		ids = append(ids, int(id))
+	}
+	sort.Ints(ids)
+
+	records := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		records = append(records, characterViewerFieldRecord(user.UserId, user.CharacterViewerFields[int32(id)]))
+	}
+	return records
+}
+
+func CharacterViewerFieldRecordsForIds(user store.UserState, fieldIds []int32) string {
+	records := make([]map[string]any, 0, len(fieldIds))
+	for _, fieldId := range fieldIds {
+		row, ok := user.CharacterViewerFields[fieldId]
+		if !ok {
+			continue
+		}
+		records = append(records, characterViewerFieldRecord(user.UserId, row))
+	}
+	s, _ := utils.EncodeJSONMaps(records...)
+	return s
+}
+
+func characterViewerFieldRecord(userId int64, row store.CharacterViewerFieldState) map[string]any {
+	return map[string]any{
+		"userId":                 userId,
+		"characterViewerFieldId": row.CharacterViewerFieldId,
+		"releaseDatetime":        row.ReleaseDatetime,
+		"latestVersion":          row.LatestVersion,
+	}
 }
 
 func sortedCostumeRecords(user store.UserState) []map[string]any {

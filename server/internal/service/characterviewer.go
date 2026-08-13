@@ -6,8 +6,10 @@ import (
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
+	"lunar-tear/server/internal/userdata"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -27,15 +29,34 @@ func (s *CharacterViewerServiceServer) CharacterViewerTop(ctx context.Context, _
 	log.Printf("[CharacterViewerService] CharacterViewerTop")
 
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	user, err := s.users.LoadUser(userId)
+	catalog := s.holder.Get().CharacterViewer
+	nowMillis := gametime.NowMillis()
+	var released []int32
+	user, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		released = catalog.NewlyReleasedFieldIds(*user)
+		for _, fieldId := range released {
+			user.CharacterViewerFields[fieldId] = store.CharacterViewerFieldState{
+				CharacterViewerFieldId: fieldId,
+				ReleaseDatetime:        nowMillis,
+				LatestVersion:          nowMillis,
+			}
+		}
+	})
 	if err != nil {
-		return nil, fmt.Errorf("load character viewer user %d: %w", userId, err)
+		return nil, fmt.Errorf("update character viewer user %d: %w", userId, err)
 	}
 
-	released := s.holder.Get().CharacterViewer.ReleasedFieldIds(user)
-	log.Printf("[CharacterViewerService] released %d fields for user %d", len(released), userId)
+	log.Printf("[CharacterViewerService] newly released %d fields for user %d", len(released), userId)
+
+	diff := userdata.EmptyDiff()
+	if len(released) > 0 {
+		diff = userdata.BuildDiffFromTables(map[string]string{
+			"IUserCharacterViewerField": userdata.CharacterViewerFieldRecordsForIds(user, released),
+		})
+	}
 
 	return &pb.CharacterViewerTopResponse{
 		ReleaseCharacterViewerFieldId: released,
+		DiffUserData:                  diff,
 	}, nil
 }

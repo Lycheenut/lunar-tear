@@ -68,6 +68,7 @@ type UserState struct {
 	FriendRequests map[int64]int64
 
 	Characters                 map[int32]CharacterState
+	CharacterViewerFields      map[int32]CharacterViewerFieldState
 	Costumes                   map[string]CostumeState
 	Weapons                    map[string]WeaponState
 	Companions                 map[string]CompanionState
@@ -207,6 +208,9 @@ func (u *UserState) EnsureMaps() {
 	}
 	if u.Characters == nil {
 		u.Characters = make(map[int32]CharacterState)
+	}
+	if u.CharacterViewerFields == nil {
+		u.CharacterViewerFields = make(map[int32]CharacterViewerFieldState)
 	}
 	if u.Costumes == nil {
 		u.Costumes = make(map[string]CostumeState)
@@ -561,6 +565,12 @@ type CharacterState struct {
 	Level         int32
 	Exp           int32
 	LatestVersion int64
+}
+
+type CharacterViewerFieldState struct {
+	CharacterViewerFieldId int32
+	ReleaseDatetime        int64
+	LatestVersion          int64
 }
 
 type CostumeState struct {

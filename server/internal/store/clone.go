@@ -10,6 +10,7 @@ func CloneUserState(u UserState) UserState {
 	out.LoginBonuses = maps.Clone(u.LoginBonuses)
 	out.Tutorials = maps.Clone(u.Tutorials)
 	out.Characters = maps.Clone(u.Characters)
+	out.CharacterViewerFields = maps.Clone(u.CharacterViewerFields)
 	out.Costumes = maps.Clone(u.Costumes)
 	out.Weapons = maps.Clone(u.Weapons)
 	out.Companions = maps.Clone(u.Companions)

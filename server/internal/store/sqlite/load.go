@@ -42,6 +42,7 @@ func initMaps(u *store.UserState) {
 	u.FriendRequests = make(map[int64]int64)
 	u.Tutorials = make(map[int32]store.TutorialProgressState)
 	u.Characters = make(map[int32]store.CharacterState)
+	u.CharacterViewerFields = make(map[int32]store.CharacterViewerFieldState)
 	u.Costumes = make(map[string]store.CostumeState)
 	u.Weapons = make(map[string]store.WeaponState)
 	u.Companions = make(map[string]store.CompanionState)
@@ -302,6 +303,13 @@ func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
 			rows.Scan(&v.CharacterId, &v.Level, &v.Exp, &v.LatestVersion)
 			u.Characters[v.CharacterId] = v
 		})
+
+	queryRows(db, `SELECT character_viewer_field_id, release_datetime, latest_version
+		FROM user_character_viewer_fields WHERE user_id=?`, uid, func(rows *sql.Rows) {
+		var v store.CharacterViewerFieldState
+		rows.Scan(&v.CharacterViewerFieldId, &v.ReleaseDatetime, &v.LatestVersion)
+		u.CharacterViewerFields[v.CharacterViewerFieldId] = v
+	})
 
 	queryRows(db, `SELECT user_costume_uuid, costume_id, limit_break_count, level, exp,
 		headup_display_view_id, acquisition_datetime, awaken_count,
