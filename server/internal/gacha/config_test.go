@@ -88,6 +88,57 @@ func TestBuildPremiumCatalogDefaultsMissingWeaponToStandard(t *testing.T) {
 	}
 }
 
+func TestGuaranteedFourStarWeaponGachaUsesOnlyStandardFourStarWeapons(t *testing.T) {
+	source, entries, config := testPremiumSource()
+	config.LimitedSets["limited_a"] = LimitedSetConfig{DisplayName: "Limited A"}
+	config.Weapons[1] = WeaponConfig{Availability: AvailabilityLimited, LimitedSet: "limited_a"}
+	config.Banners[model.GachaIdGuaranteedFourStarWeapon] = BannerConfig{
+		LimitedSets:     []string{"limited_a"},
+		PickupWeaponIds: []int32{1},
+	}
+	entries = append(entries, store.GachaCatalogEntry{
+		GachaId:        model.GachaIdGuaranteedFourStarWeapon,
+		GachaLabelType: model.GachaLabelPremium,
+		PricePhases: []store.GachaPricePhaseEntry{{
+			PhaseId:        600031,
+			FixedRarityMin: model.RaritySSRare,
+			FixedCount:     1,
+		}},
+	})
+
+	catalog, err := BuildPremiumCatalog(config, source, entries, BuildOptions{
+		RequireComplete:       true,
+		CurrentMasterDataHash: "sha256:test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	banner := catalog.Banners[model.GachaIdGuaranteedFourStarWeapon]
+	if banner == nil {
+		t.Fatal("guaranteed weapon pool was not built")
+	}
+	if _, exists := banner.ItemsByWeaponId[1]; exists {
+		t.Fatal("limited weapon entered the guaranteed standard pool")
+	}
+	ApplyConfiguredPromotions(entries, catalog)
+	if len(entries[1].PromotionItems) != 0 {
+		t.Fatalf("configured pickups leaked into guaranteed weapon promotions: %+v", entries[1].PromotionItems)
+	}
+	for _, weaponId := range []int32{2, 3, 4} {
+		if _, exists := banner.ItemsByWeaponId[weaponId]; !exists {
+			t.Fatalf("standard four-star weapon %d is missing", weaponId)
+		}
+	}
+
+	items, err := drawPremiumWithIntn(banner, 1, model.RaritySSRare, 1, 1, sequenceIntn(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].RarityType != model.RaritySSRare {
+		t.Fatalf("guaranteed draw = %+v, want one four-star item", items)
+	}
+}
+
 func TestEncodeConfigOmitsExplicitStandardWeapons(t *testing.T) {
 	config := DefaultConfig()
 	config.Weapons[1] = WeaponConfig{Availability: AvailabilityStandard}

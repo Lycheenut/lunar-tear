@@ -42,6 +42,25 @@ func (h *QuestHandler) firstClearRewardGroupId(user *store.UserState, questDef m
 	return rewardGroupId
 }
 
+func (h *QuestHandler) questMissionPowerBonusApplies(user *store.UserState, questId int32, questDef masterdata.EntityMQuest) bool {
+	if !questDef.IsBigWinTarget || h.Config == nil || h.Config.QuestMissionBigWinBonusPower <= 0 {
+		return false
+	}
+
+	deckType := model.DeckTypeQuest
+	if questDef.QuestDeckRestrictionGroupId != 0 {
+		deckType = model.DeckTypeRestrictedQuest
+	}
+	deckNumber := user.Quests[questId].UserDeckNumber
+	deck, ok := user.Decks[store.DeckKey{DeckType: deckType, UserDeckNumber: deckNumber}]
+	if !ok {
+		return false
+	}
+
+	requiredPower := int64(questDef.RecommendedDeckPower) + int64(h.Config.QuestMissionBigWinBonusPower)
+	return int64(deck.Power) >= requiredPower
+}
+
 func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int32, target campaign.QuestTarget, nowMillis int64) FinishOutcome {
 	outcome := FinishOutcome{}
 	questState, ok := user.Quests[questId]
@@ -86,6 +105,7 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 	// IUserQuestMissionTable has no rows for replay-variant ids (30000+):
 	// the popup is empty on replay in the original game.
 	if !isReplay {
+		powerBonusApplies := h.questMissionPowerBonusApplies(user, questId, questDef)
 		regularMissionCount := 0
 		clearedOrSatisfied := 0
 		for _, questMissionId := range h.MissionIdsByQuestId[questId] {
@@ -99,7 +119,7 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 			mission := user.QuestMissions[key]
 			if mission.IsClear {
 				clearedOrSatisfied++
-			} else if h.questMissionSatisfied(user, questId, missionDef) {
+			} else if powerBonusApplies || h.questMissionSatisfied(user, questId, missionDef) {
 				clearedOrSatisfied++
 				outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
 				outcome.MissionClearRewards = appendMissionRewards(

@@ -113,6 +113,9 @@ const (
 const PhaseIdMultiplier int32 = 10
 
 const (
-	ConsumableIdPremiumTicket int32 = 1
-	ConsumableIdChapterTicket int32 = 2
+	ConsumableIdPremiumTicket                  int32 = 1
+	ConsumableIdChapterTicket                  int32 = 2
+	ConsumableIdGuaranteedFourStarWeaponTicket int32 = 1003
 )
+
+const GachaIdGuaranteedFourStarWeapon int32 = 60003
