@@ -1,11 +1,32 @@
 package userdata
 
 import (
+	"encoding/json"
 	"testing"
 
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
+
+func TestCharacterViewerFieldProjectionUsesClientSchema(t *testing.T) {
+	user := store.SeedUserState(7, "test", 1, model.ClientPlatform{})
+	user.CharacterViewerFields[2] = store.CharacterViewerFieldState{CharacterViewerFieldId: 2, ReleaseDatetime: 20, LatestVersion: 21}
+	user.CharacterViewerFields[1] = store.CharacterViewerFieldState{CharacterViewerFieldId: 1, ReleaseDatetime: 10, LatestVersion: 11}
+
+	var records []struct {
+		UserId                 int64 `json:"userId"`
+		CharacterViewerFieldId int32 `json:"characterViewerFieldId"`
+		ReleaseDatetime        int64 `json:"releaseDatetime"`
+		LatestVersion          int64 `json:"latestVersion"`
+	}
+	if err := json.Unmarshal([]byte(projectTable("IUserCharacterViewerField", *user)), &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].UserId != 7 || records[0].CharacterViewerFieldId != 1 ||
+		records[0].ReleaseDatetime != 10 || records[0].LatestVersion != 11 || records[1].CharacterViewerFieldId != 2 {
+		t.Fatalf("character viewer field projection = %+v", records)
+	}
+}
 
 func TestCostumeLotteryEffectProjectionsUsePersistedResults(t *testing.T) {
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})

@@ -316,92 +316,73 @@ func latestUsedQuestDeck(user store.UserState) (store.DeckState, bool) {
 }
 
 const (
-	playHistoryTotalLogin int32 = iota + 1
-	playHistoryQuestClear
-	playHistoryBattleFinish
-	playHistoryCostumeOwned
-	playHistoryWeaponOwned
-	playHistoryCompanionOwned
-	playHistoryPartsOwned
-	playHistoryGachaDraw
-	playHistoryMissionClear
+	playHistoryChapterGachaDraw int32 = 1
+	playHistoryEventGachaDraw   int32 = 2
+	playHistoryMissionClear     int32 = 12
+	playHistoryCostumeOwned     int32 = 14
+	playHistoryWeaponOwned      int32 = 15
+	playHistoryCompanionOwned   int32 = 16
+	playHistoryPartsOwned       int32 = 17
+	playHistoryTotalLogin       int32 = 18
 )
 
 func buildGamePlayHistory(user store.UserState, catalogs *runtime.Catalogs) *pb.GamePlayHistory {
-	items := make([]*pb.PlayHistoryItem, 0, 9)
-	for id := playHistoryTotalLogin; id <= playHistoryMissionClear; id++ {
-		items = append(items, &pb.PlayHistoryItem{HistoryItemId: id, Count: gamePlayHistoryValue(user, id)})
+	historyTypeIds := [...]int32{
+		playHistoryChapterGachaDraw,
+		playHistoryEventGachaDraw,
+		playHistoryMissionClear,
+		playHistoryCostumeOwned,
+		playHistoryWeaponOwned,
+		playHistoryCompanionOwned,
+		playHistoryPartsOwned,
+		playHistoryTotalLogin,
+	}
+	items := make([]*pb.PlayHistoryItem, 0, len(historyTypeIds))
+	for _, id := range historyTypeIds {
+		items = append(items, &pb.PlayHistoryItem{HistoryItemId: id, Count: gamePlayHistoryValue(user, catalogs, id)})
 	}
 
-	questTotal, questMissionTotal, costumeTotal, weaponTotal, companionTotal := 0, 0, 0, 0, 0
-	if catalogs != nil {
-		if catalogs.Quest != nil {
-			questTotal = len(catalogs.Quest.QuestById)
-			questMissionTotal = len(catalogs.Quest.MissionById)
-		}
-		if catalogs.Costume != nil {
-			costumeTotal = len(catalogs.Costume.Costumes)
-		}
-		if catalogs.Weapon != nil {
-			weaponTotal = len(catalogs.Weapon.Weapons)
-		}
-		if catalogs.Companion != nil {
-			companionTotal = len(catalogs.Companion.CompanionById)
-		}
-	}
-
-	clearedQuests := 0
-	for _, quest := range user.Quests {
-		if quest.QuestStateType == model.UserQuestStateTypeCleared {
-			clearedQuests++
-		}
-	}
-	clearedQuestMissions := 0
-	for _, mission := range user.QuestMissions {
-		if mission.IsClear {
-			clearedQuestMissions++
-		}
-	}
-	ownedWeaponIds := make(map[int32]struct{}, len(user.Weapons))
-	for _, weapon := range user.Weapons {
-		ownedWeaponIds[weapon.WeaponId] = struct{}{}
-	}
+	// TODO: Replace these zeroed values once the official five-axis calculation is known.
 	graph := []*pb.PlayHistoryCategoryGraphItem{
-		{CategoryTypeId: 1, ProgressPermil: progressPermil(clearedQuests, questTotal)},
-		{CategoryTypeId: 2, ProgressPermil: progressPermil(clearedQuestMissions, questMissionTotal)},
-		{CategoryTypeId: 3, ProgressPermil: progressPermil(len(user.Costumes), costumeTotal)},
-		{CategoryTypeId: 4, ProgressPermil: progressPermil(len(ownedWeaponIds), weaponTotal)},
-		{CategoryTypeId: 5, ProgressPermil: progressPermil(len(user.Companions), companionTotal)},
+		{CategoryTypeId: 1, ProgressPermil: 0},
+		{CategoryTypeId: 2, ProgressPermil: 0},
+		{CategoryTypeId: 3, ProgressPermil: 0},
+		{CategoryTypeId: 4, ProgressPermil: 0},
+		{CategoryTypeId: 5, ProgressPermil: 0},
 	}
 	return &pb.GamePlayHistory{HistoryItem: items, HistoryCategoryGraphItem: graph}
 }
 
-func gamePlayHistoryValue(user store.UserState, historyTypeId int32) int64 {
+func gamePlayHistoryValue(user store.UserState, catalogs *runtime.Catalogs, historyTypeId int32) int64 {
 	switch historyTypeId {
-	case playHistoryTotalLogin:
-		return int64(user.Login.TotalLoginCount)
-	case playHistoryQuestClear:
-		var count int64
-		for _, quest := range user.Quests {
-			count += int64(quest.ClearCount)
-		}
-		return count
-	case playHistoryBattleFinish:
-		return int64(user.Battle.FinishCount)
+	case playHistoryChapterGachaDraw:
+		return gachaDrawCount(user, catalogs, model.GachaLabelChapter)
+	case playHistoryEventGachaDraw:
+		return gachaDrawCount(user, catalogs, model.GachaLabelEvent)
 	case playHistoryCostumeOwned:
-		return int64(len(user.Costumes))
-	case playHistoryWeaponOwned:
-		return int64(len(user.Weapons))
-	case playHistoryCompanionOwned:
-		return int64(len(user.Companions))
-	case playHistoryPartsOwned:
-		return int64(len(user.Parts))
-	case playHistoryGachaDraw:
-		var count int64
-		for _, banner := range user.Gacha.BannerStates {
-			count += int64(banner.DrawCount)
+		ids := make(map[int32]struct{}, len(user.Costumes))
+		for _, costume := range user.Costumes {
+			ids[costume.CostumeId] = struct{}{}
 		}
-		return count
+		return int64(len(ids))
+	case playHistoryWeaponOwned:
+		ids := make(map[int32]struct{}, len(user.Weapons))
+		for _, weapon := range user.Weapons {
+			ids[weapon.WeaponId] = struct{}{}
+		}
+		return int64(len(ids))
+	case playHistoryCompanionOwned:
+		ids := make(map[int32]struct{}, len(user.Companions))
+		for _, companion := range user.Companions {
+			ids[companion.CompanionId] = struct{}{}
+		}
+		return int64(len(ids))
+	case playHistoryPartsOwned:
+		ids := make(map[int32]struct{}, len(user.Parts))
+		for _, parts := range user.Parts {
+			ids[parts.PartsId] = struct{}{}
+		}
+		return int64(len(ids))
 	case playHistoryMissionClear:
 		var count int64
 		for _, mission := range user.Missions {
@@ -410,16 +391,28 @@ func gamePlayHistoryValue(user store.UserState, historyTypeId int32) int64 {
 			}
 		}
 		return count
+	case playHistoryTotalLogin:
+		return int64(user.Login.TotalLoginCount)
 	default:
 		return 0
 	}
 }
 
-func progressPermil(current, total int) int32 {
-	if current <= 0 || total <= 0 {
+func gachaDrawCount(user store.UserState, catalogs *runtime.Catalogs, labelType int32) int64 {
+	if catalogs == nil {
 		return 0
 	}
-	return int32(min(1000, current*1000/total))
+	labelByGachaId := make(map[int32]int32, len(catalogs.GachaEntries))
+	for _, entry := range catalogs.GachaEntries {
+		labelByGachaId[entry.GachaId] = entry.GachaLabelType
+	}
+	var count int64
+	for gachaId, banner := range user.Gacha.BannerStates {
+		if labelByGachaId[gachaId] == labelType {
+			count += int64(banner.DrawCount)
+		}
+	}
+	return count
 }
 
 func (s *UserServiceServer) SetBirthYearMonth(ctx context.Context, req *pb.SetBirthYearMonthRequest) (*pb.SetBirthYearMonthResponse, error) {
@@ -482,7 +475,7 @@ func (s *UserServiceServer) GetUserGamePlayNote(ctx context.Context, req *pb.Get
 	if err != nil {
 		return nil, fmt.Errorf("load user: %w", err)
 	}
-	value := gamePlayHistoryValue(user, req.GamePlayHistoryTypeId)
+	value := gamePlayHistoryValue(user, s.holder.Get(), req.GamePlayHistoryTypeId)
 	if value > int64(^uint32(0)>>1) {
 		value = int64(^uint32(0) >> 1)
 	}

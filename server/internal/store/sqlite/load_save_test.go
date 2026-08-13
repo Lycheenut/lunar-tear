@@ -27,6 +27,7 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = repo.UpdateUser(userId, func(user *store.UserState) {
+		user.CharacterViewerFields[1] = store.CharacterViewerFieldState{CharacterViewerFieldId: 1, ReleaseDatetime: 11, LatestVersion: 12}
 		user.BeginnerCampaign = store.UserBeginnerCampaignState{BeginnerCampaignId: 1, CampaignRegisterDatetime: 100, LatestVersion: 101}
 		user.ComebackCampaign = store.UserComebackCampaignState{ComebackCampaignId: 2, ComebackDatetime: 200, LatestVersion: 201}
 		user.LoginBonuses[1] = store.UserLoginBonusState{LoginBonusId: 1, CurrentPageNumber: 2, CurrentStampNumber: 3, LatestVersion: 301}
@@ -58,6 +59,9 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 	}
 	if user.CostumeLevelBonusReleaseStatuses[10].ConfirmedBonusLevel != 60 {
 		t.Fatal("costume level bonus was not persisted")
+	}
+	if user.CharacterViewerFields[1].ReleaseDatetime != 11 || user.CharacterViewerFields[1].LatestVersion != 12 {
+		t.Fatal("character viewer field was not persisted")
 	}
 	if user.BeginnerCampaign.BeginnerCampaignId != 1 || user.ComebackCampaign.ComebackCampaignId != 2 ||
 		len(user.LoginBonuses) != 2 || user.LoginBonuses[1].CurrentStampNumber != 3 || user.LoginBonuses[91].CurrentStampNumber != 1 {

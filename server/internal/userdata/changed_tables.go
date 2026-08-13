@@ -150,6 +150,9 @@ func ChangedTables(before, after *store.UserState) []string {
 	if !mapsEqualStruct(before.Characters, after.Characters) {
 		add("IUserCharacter")
 	}
+	if !mapsEqualStruct(before.CharacterViewerFields, after.CharacterViewerFields) {
+		add("IUserCharacterViewerField")
+	}
 	if !mapsEqualStruct(before.Costumes, after.Costumes) {
 		add("IUserCostume")
 	}
@@ -433,6 +436,8 @@ func keyFieldsForTable(table string) []string {
 		return []string{"userId", "deckRestrictedUuid"}
 	case "IUserCharacter":
 		return []string{"userId", "characterId"}
+	case "IUserCharacterViewerField":
+		return []string{"userId", "characterViewerFieldId"}
 	case "IUserConsumableItem":
 		return []string{"userId", "consumableItemId"}
 	case "IUserMaterial":

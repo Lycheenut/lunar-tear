@@ -85,6 +85,7 @@ var userOwnedTables = []string{
 	"user_costume_active_skills",
 	"user_costumes",
 	"user_character_rebirths",
+	"user_character_viewer_fields",
 	"user_character_board_status_ups",
 	"user_character_board_abilities",
 	"user_character_boards",

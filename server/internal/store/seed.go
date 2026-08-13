@@ -87,6 +87,7 @@ func SeedUserState(userId int64, uuid string, nowMillis int64, platform model.Cl
 		Friends:                  make(map[int64]FriendState),
 		FriendRequests:           make(map[int64]int64),
 		Characters:               make(map[int32]CharacterState),
+		CharacterViewerFields:    make(map[int32]CharacterViewerFieldState),
 		Costumes:                 make(map[string]CostumeState),
 		Weapons:                  make(map[string]WeaponState),
 		Companions:               make(map[string]CompanionState),
