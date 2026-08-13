@@ -20,8 +20,25 @@ const (
 	questClearOptionSubquest                = int32(5)
 	questClearOptionMainQuestHard           = int32(8)
 	questClearOptionMainQuestHardOrVeryHard = int32(9)
+	questClearOptionSubquestAlt             = int32(70)
+	questClearOptionDarkMemory              = int32(71)
+	questClearOptionDailyChallenge          = int32(84)
+	questClearOptionMainQuestHardAlt        = int32(100004)
+	questClearOptionMainQuestVeryHard       = int32(100021)
+	questClearOptionAbyssTower              = int32(100024)
+	questClearOptionFateBoard               = int32(100025)
+	questClearOptionDailyQuest              = int32(30029)
+	questClearOptionGuerrilla               = int32(30030)
+	questClearOptionDungeon                 = int32(101030801)
 	mainQuestDifficultyHard                 = int32(2)
 	mainQuestDifficultyVeryHard             = int32(3)
+	eventQuestTypeDungeon                   = int32(3)
+	eventQuestTypeDayOfTheWeek              = int32(4)
+	eventQuestTypeGuerrilla                 = int32(5)
+	eventQuestTypeCharacter                 = int32(6)
+	eventQuestTypeTower                     = int32(10)
+	eventQuestTypeLimitContent              = int32(11)
+	eventQuestTypeLabyrinth                 = int32(12)
 	gachaOptionChapterSummon                = int32(100001)
 	gachaOptionDailySummon                  = int32(100026)
 	shopOptionItemShop                      = int32(2)
@@ -575,32 +592,65 @@ func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool 
 	switch option {
 	case questClearOptionMainQuest:
 		return catalogs.Quest.RouteIdByQuestId[questId] != 0
-	case questClearOptionSubquest:
-		for _, ids := range catalogs.Quest.EventQuestIdsByChapterId {
-			for _, id := range ids {
-				if id == questId {
-					return true
-				}
-			}
-		}
-		return false
-	case questClearOptionMainQuestHard:
+	case questClearOptionSubquest, questClearOptionSubquestAlt:
+		return eventQuestMatches(catalogs.Quest, questId)
+	case questClearOptionMainQuestHard, questClearOptionMainQuestHardAlt:
 		return catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId] == mainQuestDifficultyHard
 	case questClearOptionMainQuestHardOrVeryHard:
 		difficultyType := catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId]
 		return difficultyType == mainQuestDifficultyHard || difficultyType == mainQuestDifficultyVeryHard
+	case questClearOptionMainQuestVeryHard:
+		return catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId] == mainQuestDifficultyVeryHard
+	case eventQuestTypeCharacter, questClearOptionDarkMemory:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeCharacter, questId)
+	case eventQuestTypeTower, questClearOptionAbyssTower:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeTower, questId)
+	case eventQuestTypeLimitContent:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeLimitContent, questId)
+	case eventQuestTypeLabyrinth, questClearOptionFateBoard:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeLabyrinth, questId)
+	case questClearOptionDailyQuest:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeDayOfTheWeek, questId)
+	case questClearOptionGuerrilla:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeGuerrilla, questId)
+	case questClearOptionDungeon:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeDungeon, questId)
+	case questClearOptionDailyChallenge:
+		return eventDailyQuestMatches(catalogs.Quest, questId)
 	}
-	for chapterId, ids := range catalogs.Quest.EventQuestIdsByChapterId {
-		if chapterId != option {
-			continue
+	if ids, isEventChapter := catalogs.Quest.EventQuestIdsByChapterId[option]; isEventChapter {
+		return containsTarget(ids, questId)
+	}
+	return option == questId
+}
+
+func eventQuestMatches(catalog *masterdata.QuestCatalog, questId int32) bool {
+	for _, ids := range catalog.EventQuestIdsByChapterId {
+		if containsTarget(ids, questId) {
+			return true
 		}
-		for _, id := range ids {
-			if id == questId {
+	}
+	return false
+}
+
+func eventQuestTypeMatches(catalog *masterdata.QuestCatalog, eventQuestType, questId int32) bool {
+	for chapterId, candidateType := range catalog.EventQuestTypeByChapterId {
+		if candidateType == eventQuestType && catalog.EventQuestBelongsToChapter(chapterId, questId) {
+			return true
+		}
+	}
+	return false
+}
+
+func eventDailyQuestMatches(catalog *masterdata.QuestCatalog, questId int32) bool {
+	for _, group := range catalog.EventDailyGroups {
+		for _, chapterId := range group.ChapterIds {
+			if catalog.EventQuestBelongsToChapter(chapterId, questId) {
 				return true
 			}
 		}
 	}
-	return option == questId
+	return false
 }
 
 func exploreHighScore(user *store.UserState, mission masterdata.EntityMMission) int32 {

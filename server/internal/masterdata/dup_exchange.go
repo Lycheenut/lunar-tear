@@ -93,29 +93,40 @@ func EnrichDupExchange(dupMap map[int32][]model.DupExchangeEntry, pool *GachaCat
 
 	added := 0
 	for costumeId := range pool.CostumeById {
-		if _, exists := dupMap[costumeId]; exists {
-			continue
-		}
-		entries := make([]model.DupExchangeEntry, 0, 2)
+		entries := dupMap[costumeId]
+		entryAdded := false
 		if matId := groupToMaterial[costumeLBGroup[costumeId]]; matId != 0 {
-			entries = append(entries, model.DupExchangeEntry{
+			var appended bool
+			entries, appended = appendMissingDupExchangeEntry(entries, model.DupExchangeEntry{
 				PossessionType: int32(model.PossessionTypeMaterial),
 				PossessionId:   matId,
 				Count:          dupExchangeFallbackCount,
 			})
+			entryAdded = entryAdded || appended
 		}
 		if material := awakenMaterialByCostume[costumeId]; material.MaterialId != 0 && material.Count > 0 {
-			entries = append(entries, model.DupExchangeEntry{
+			var appended bool
+			entries, appended = appendMissingDupExchangeEntry(entries, model.DupExchangeEntry{
 				PossessionType: int32(model.PossessionTypeMaterial),
 				PossessionId:   material.MaterialId,
 				Count:          material.Count,
 			})
+			entryAdded = entryAdded || appended
 		}
-		if len(entries) == 0 {
+		if !entryAdded {
 			continue
 		}
 		dupMap[costumeId] = entries
 		added++
 	}
 	return added, nil
+}
+
+func appendMissingDupExchangeEntry(entries []model.DupExchangeEntry, candidate model.DupExchangeEntry) ([]model.DupExchangeEntry, bool) {
+	for _, entry := range entries {
+		if entry.PossessionType == candidate.PossessionType && entry.PossessionId == candidate.PossessionId {
+			return entries, false
+		}
+	}
+	return append(entries, candidate), true
 }
