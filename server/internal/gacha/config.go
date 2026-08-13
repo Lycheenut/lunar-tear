@@ -270,6 +270,9 @@ func BuildPremiumCatalog(config *Config, source *masterdata.GachaCatalog, entrie
 			continue
 		}
 		bannerConfig := config.Banners[entry.GachaId]
+		if entry.GachaId == model.GachaIdGuaranteedFourStarWeapon {
+			bannerConfig = BannerConfig{}
+		}
 		allowedSets := stringSet(bannerConfig.LimitedSets)
 		pickupSet := int32Set(bannerConfig.PickupWeaponIds)
 		groups := make([]PremiumGroup, len(groupDefinitions))
@@ -366,6 +369,9 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 			continue
 		}
 		entries[i].PromotionItems = nil
+		if entries[i].GachaId == model.GachaIdGuaranteedFourStarWeapon {
+			continue
+		}
 		banner := catalog.Banners[entries[i].GachaId]
 		if banner == nil {
 			continue

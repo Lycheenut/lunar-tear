@@ -19,6 +19,10 @@ type GachaMedalInfo struct {
 
 const chapterGachaIdBase int32 = 200000
 
+// This ticket-only Gacha has no m_mom_banner row. Ticket 1003 maps to the
+// 60003 Gacha slot and its dedicated confirm_weapon client assets.
+const guaranteedFourStarWeaponGachaAssetName = "confirm_weapon"
+
 func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, error) {
 	medals, err := utils.ReadTable[EntityMGachaMedal]("m_gacha_medal")
 	if err != nil {
@@ -147,6 +151,7 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 			DescriptionTextId:         descriptionTextId,
 		})
 	}
+	entries = append(entries, buildGuaranteedFourStarWeaponGacha())
 	seenGacha := make(map[int32]bool, len(entries))
 	for _, entry := range entries {
 		seenGacha[entry.GachaId] = true
@@ -193,6 +198,31 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 	}
 
 	return entries, medalInfoByGacha, nil
+}
+
+func buildGuaranteedFourStarWeaponGacha() store.GachaCatalogEntry {
+	gachaId := model.GachaIdGuaranteedFourStarWeapon
+	return store.GachaCatalogEntry{
+		GachaId:                  gachaId,
+		GachaLabelType:           model.GachaLabelPremium,
+		GachaModeType:            model.GachaModeBasic,
+		GachaAutoResetType:       model.GachaAutoResetNone,
+		IsUserGachaUnlock:        true,
+		RequiredConsumableItemId: model.ConsumableIdGuaranteedFourStarWeaponTicket,
+		GachaDecorationType:      model.GachaDecorationNormal,
+		BannerAssetName:          guaranteedFourStarWeaponGachaAssetName,
+		GroupId:                  gachaId,
+		PricePhases: []store.GachaPricePhaseEntry{{
+			PhaseId:        gachaId*model.PhaseIdMultiplier + 1,
+			PriceType:      model.PriceTypeConsumableItem,
+			PriceId:        model.ConsumableIdGuaranteedFourStarWeaponTicket,
+			Price:          1,
+			RegularPrice:   1,
+			DrawCount:      1,
+			FixedRarityMin: model.RaritySSRare,
+			FixedCount:     1,
+		}},
+	}
 }
 
 func EnrichGachaUnlockConditions(entries []store.GachaCatalogEntry, quests *QuestCatalog) {

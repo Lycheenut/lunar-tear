@@ -1390,6 +1390,7 @@ type GachaCatalogEntry struct {
 	GachaAutoResetPeriod       int32
 	NextAutoResetDatetime      int64
 	IsUserGachaUnlock          bool
+	RequiredConsumableItemId   int32
 	StartDatetime              int64
 	EndDatetime                int64
 	RelatedMainQuestChapterId  int32

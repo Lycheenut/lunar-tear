@@ -52,6 +52,53 @@ func TestHandleDrawRejectsOversizedRequestWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestHandleDrawConsumesGuaranteedFourStarWeaponTicket(t *testing.T) {
+	const weaponId int32 = 123
+	banner := &PremiumBannerPool{
+		GachaId: model.GachaIdGuaranteedFourStarWeapon,
+		Groups: []PremiumGroup{{
+			Id:        GroupWeaponOnly4,
+			GrantType: GrantWeaponOnly,
+			Rarity:    model.RaritySSRare,
+			Weight:    1,
+			NonPickup: []PoolItem{{WeaponId: weaponId, RarityType: model.RaritySSRare}},
+		}},
+	}
+	h := &GachaHandler{
+		Premium: &PremiumCatalog{Banners: map[int32]*PremiumBannerPool{
+			model.GachaIdGuaranteedFourStarWeapon: banner,
+		}},
+		Granter: &store.PossessionGranter{},
+	}
+	entry := store.GachaCatalogEntry{
+		GachaId:        model.GachaIdGuaranteedFourStarWeapon,
+		GachaLabelType: model.GachaLabelPremium,
+		PricePhases: []store.GachaPricePhaseEntry{{
+			PhaseId:        600031,
+			PriceType:      model.PriceTypeConsumableItem,
+			PriceId:        model.ConsumableIdGuaranteedFourStarWeaponTicket,
+			Price:          1,
+			DrawCount:      1,
+			FixedRarityMin: model.RaritySSRare,
+			FixedCount:     1,
+		}},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.ConsumableItems[model.ConsumableIdGuaranteedFourStarWeaponTicket] = 1
+
+	result, err := h.HandleDraw(user, entry, 600031, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.ConsumableItems[model.ConsumableIdGuaranteedFourStarWeaponTicket] != 0 {
+		t.Fatal("guaranteed weapon ticket was not consumed")
+	}
+	if len(result.Items) != 1 || result.Items[0].PossessionId != weaponId || result.Items[0].RarityType != model.RaritySSRare {
+		t.Fatalf("draw result = %+v, want four-star weapon %d", result.Items, weaponId)
+	}
+}
+
 func TestHandleDrawEnforcesStepUpOrderAndAdvancesFromFirstStep(t *testing.T) {
 	h := &GachaHandler{Pool: &masterdata.GachaCatalog{}, Granter: &store.PossessionGranter{}}
 	entry := eventBoxEntry()

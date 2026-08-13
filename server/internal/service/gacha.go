@@ -59,7 +59,7 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 
 	gachaList := make([]*pb.Gacha, 0, len(catalog))
 	for _, entry := range catalog {
-		if !gachaVisible(cat, entry, nowMillis) {
+		if !gachaVisibleForUser(cat, &user, entry, nowMillis) {
 			continue
 		}
 		if !matchesGachaLabel(req.GachaLabelType, entry.GachaLabelType) {
@@ -163,7 +163,7 @@ func (s *GachaServiceServer) GetGacha(ctx context.Context, req *pb.GetGachaReque
 			if entry.GachaId != wantedId {
 				continue
 			}
-			if !gachaVisible(cat, entry, nowMillis) {
+			if !gachaVisibleForUser(cat, &user, entry, nowMillis) {
 				break
 			}
 			entry = gachaForUser(cat, &user, entry, nowMillis)
@@ -480,6 +480,13 @@ func gachaVisible(cat *runtime.Catalogs, entry store.GachaCatalogEntry, nowMilli
 	return true
 }
 
+func gachaVisibleForUser(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) bool {
+	if !gachaVisible(cat, entry, nowMillis) {
+		return false
+	}
+	return entry.RequiredConsumableItemId == 0 || user.ConsumableItems[entry.RequiredConsumableItemId] > 0
+}
+
 func gachaForUser(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) store.GachaCatalogEntry {
 	entry.IsUserGachaUnlock = gachaUnlocked(cat, user, entry, nowMillis)
 	return entry
@@ -487,6 +494,9 @@ func gachaForUser(cat *runtime.Catalogs, user *store.UserState, entry store.Gach
 
 func gachaUnlocked(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) bool {
 	if !entry.IsUserGachaUnlock {
+		return false
+	}
+	if entry.RequiredConsumableItemId != 0 && user.ConsumableItems[entry.RequiredConsumableItemId] <= 0 {
 		return false
 	}
 	if entry.RelatedEventQuestChapterId != 0 {
