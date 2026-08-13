@@ -25,10 +25,11 @@ type GameConfig struct {
 
 	MaterialSameWeaponExpCoefficientPermil int32
 
-	UserStaminaRecoverySecond int32
-	RewardGachaDailyMaxCount  int32
-	QuestSkipMaxCountAtOnce   int32
-	ExplorePlayIntervalMinute int32
+	UserStaminaRecoverySecond    int32
+	RewardGachaDailyMaxCount     int32
+	QuestMissionBigWinBonusPower int32
+	QuestSkipMaxCountAtOnce      int32
+	ExplorePlayIntervalMinute    int32
 
 	WeaponLimitBreakAvailableCount int32
 
@@ -80,6 +81,7 @@ func LoadGameConfig() (*GameConfig, error) {
 
 	cfg.UserStaminaRecoverySecond = parseInt32(kv, "USER_STAMINA_RECOVERY_SECOND")
 	cfg.RewardGachaDailyMaxCount = parseInt32(kv, "REWARD_GACHA_DAILY_MAX_COUNT")
+	cfg.QuestMissionBigWinBonusPower = parseInt32(kv, "QUEST_MISSION_BIG_WIN_BONUS_POWER")
 	cfg.QuestSkipMaxCountAtOnce = parseInt32(kv, "QUEST_SKIP_MAX_COUNT_AT_ONCE")
 	cfg.ExplorePlayIntervalMinute = parseInt32(kv, "EXPLORE_PLAY_INTERVAL_MINUTE")
 
