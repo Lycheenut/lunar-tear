@@ -370,9 +370,11 @@ before decoding the APK. Set `GRPC_TLS=true` when `GRPC_ADDR` terminates TLS,
 set `AUTH_HOST=` to omit the Facebook login redirect patch, and use
 `DEFAULT_TEXT_LANGUAGE` / `DEFAULT_VOICE_LANGUAGE` to select initial language
 defaults. When Japanese text is active, the patched client preserves serialized
-prefab fonts and skips every game-level runtime font assignment. The worldwide
-client's non-Korean font replacement rules apply only to English; Korean behavior
-is unchanged.
+prefab fonts at language-dependent replacement points while leaving required
+component font initialization active. Picture-book titles load the default Talking
+picture-book font asset and use their serialized default material for Japanese;
+Korean and English retain their dedicated font/material paths. Other worldwide
+non-Korean replacement rules apply only to English.
 
 The production start, restart, and deploy targets read `LUNAR_ADMIN_TOKEN`
 directly from Google Cloud Secret Manager without writing it to disk. They use
