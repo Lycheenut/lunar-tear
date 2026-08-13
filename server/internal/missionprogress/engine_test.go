@@ -338,6 +338,119 @@ func TestQuestClearByCountHonorsQuestTypeOptions(t *testing.T) {
 	}
 }
 
+func TestFateBoardMissionDoesNotCountCollidingGuerrillaQuestId(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount),
+		MissionClearConditionOptionGroupId: questClearOptionFateBoard, ClearConditionValue: 1,
+	}
+	catalogs := testCatalog(mission)
+	catalogs.Quest = &masterdata.QuestCatalog{
+		EventQuestTypeByChapterId: map[int32]int32{7: eventQuestTypeGuerrilla, 12: eventQuestTypeLabyrinth},
+		EventQuestIdsByChapterId:  map[int32][]int32{7: {questClearOptionFateBoard}, 12: {120001}},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Quests[questClearOptionFateBoard] = store.UserQuestState{QuestId: questClearOptionFateBoard, ClearCount: 1}
+
+	Sync(catalogs, user, 100)
+	if state := user.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
+		t.Fatalf("Guerrilla quest with colliding ID advanced Fate Board mission: %+v", state)
+	}
+
+	user.Quests[120001] = store.UserQuestState{QuestId: 120001, ClearCount: 1}
+	Sync(catalogs, user, 200)
+	if state := user.Missions[1]; state.ProgressValue != 1 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatalf("Fate Board quest did not advance Fate Board mission: %+v", state)
+	}
+}
+
+func TestQuestOptionMatchesKnownCategoryParameters(t *testing.T) {
+	catalogs := &runtime.Catalogs{Quest: &masterdata.QuestCatalog{
+		RouteIdByQuestId:                 map[int32]int32{101: 1, 102: 1, 103: 1},
+		MainQuestDifficultyTypeByQuestId: map[int32]int32{101: 1, 102: mainQuestDifficultyHard, 103: mainQuestDifficultyVeryHard},
+		EventQuestTypeByChapterId: map[int32]int32{
+			300: eventQuestTypeDungeon, 400: eventQuestTypeDayOfTheWeek, 500: eventQuestTypeGuerrilla,
+			600: eventQuestTypeCharacter, 900: 9, 1000: eventQuestTypeTower,
+			1100: eventQuestTypeLimitContent, 1200: eventQuestTypeLabyrinth,
+		},
+		EventQuestIdsByChapterId: map[int32][]int32{
+			300: {3001}, 400: {4001}, 500: {5001}, 600: {6001}, 900: {9001},
+			1000: {10001}, 1100: {11001}, 1200: {12001}, 777: {778},
+		},
+		EventDailyGroups: []masterdata.EventQuestDailyGroup{{ChapterIds: []int32{900}}},
+	}}
+
+	tests := []struct {
+		name    string
+		option  int32
+		questId int32
+		want    bool
+	}{
+		{name: "subquest alias", option: questClearOptionSubquestAlt, questId: 3001, want: true},
+		{name: "Dark Memory direct type", option: eventQuestTypeCharacter, questId: 6001, want: true},
+		{name: "Dark Memory alias", option: questClearOptionDarkMemory, questId: 6001, want: true},
+		{name: "Daily Challenge", option: questClearOptionDailyChallenge, questId: 9001, want: true},
+		{name: "Daily Challenge rejects colliding quest ID", option: questClearOptionDailyChallenge, questId: questClearOptionDailyChallenge},
+		{name: "Hard alias", option: questClearOptionMainQuestHardAlt, questId: 102, want: true},
+		{name: "Hard alias rejects Very Hard", option: questClearOptionMainQuestHardAlt, questId: 103},
+		{name: "Very Hard alias", option: questClearOptionMainQuestVeryHard, questId: 103, want: true},
+		{name: "Abyss Tower alias", option: questClearOptionAbyssTower, questId: 10001, want: true},
+		{name: "Fate Board alias", option: questClearOptionFateBoard, questId: 12001, want: true},
+		{name: "Fate Board rejects Guerrilla", option: questClearOptionFateBoard, questId: 5001},
+		{name: "daily quest alias", option: questClearOptionDailyQuest, questId: 4001, want: true},
+		{name: "Guerrilla alias", option: questClearOptionGuerrilla, questId: 5001, want: true},
+		{name: "dungeon alias", option: questClearOptionDungeon, questId: 3001, want: true},
+		{name: "Tower direct type", option: eventQuestTypeTower, questId: 10001, want: true},
+		{name: "limit content direct type", option: eventQuestTypeLimitContent, questId: 11001, want: true},
+		{name: "Labyrinth direct type", option: eventQuestTypeLabyrinth, questId: 12001, want: true},
+		{name: "event chapter", option: 777, questId: 778, want: true},
+		{name: "event chapter rejects colliding quest ID", option: 777, questId: 777},
+		{name: "exact quest fallback", option: 888, questId: 888, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := questOptionMatches(catalogs, test.option, test.questId); got != test.want {
+				t.Fatalf("questOptionMatches(%d, %d) = %t, want %t", test.option, test.questId, got, test.want)
+			}
+		})
+	}
+}
+
+func TestCurrentMasterFateBoardOptionRejectsGuerrillaCollision(t *testing.T) {
+	resolver := loadConditionResolver(t)
+	parts, err := masterdata.LoadPartsCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	questCatalog, err := masterdata.LoadQuestCatalog(parts, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missionCatalog, err := masterdata.LoadMissionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mission := missionCatalog.MissionById[27701]
+	if mission.MissionClearConditionOptionGroupId != questClearOptionFateBoard {
+		t.Fatalf("Fate Board mission option = %d, want %d", mission.MissionClearConditionOptionGroupId, questClearOptionFateBoard)
+	}
+	catalogs := &runtime.Catalogs{Quest: questCatalog}
+	if questOptionMatches(catalogs, mission.MissionClearConditionOptionGroupId, questClearOptionFateBoard) {
+		t.Fatal("current Guerrilla quest 100025 matched the Fate Board category option")
+	}
+	for chapterId, eventQuestType := range questCatalog.EventQuestTypeByChapterId {
+		if eventQuestType != eventQuestTypeLabyrinth || len(questCatalog.EventQuestIdsByChapterId[chapterId]) == 0 {
+			continue
+		}
+		questId := questCatalog.EventQuestIdsByChapterId[chapterId][0]
+		if !questOptionMatches(catalogs, mission.MissionClearConditionOptionGroupId, questId) {
+			t.Fatalf("Fate Board quest %d did not match the Fate Board category option", questId)
+		}
+		return
+	}
+	t.Fatal("current master has no Fate Board quest to verify")
+}
+
 func TestChapterGachaMissionOnlyCountsChapterGacha(t *testing.T) {
 	mission := masterdata.EntityMMission{
 		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeGachaDrawByCount),
