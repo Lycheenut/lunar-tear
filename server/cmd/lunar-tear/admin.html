@@ -310,6 +310,21 @@
     </section>
   </main>
 
+  <dialog id="master-update-dialog" class="confirm-dialog impact-dialog">
+    <div class="impact-dialog-heading">
+      <div>
+        <p class="eyebrow">APPLY LINKED MASTER DATA</p>
+        <h2>确认应用上游及关联变更？</h2>
+      </div>
+      <p id="master-update-summary" class="impact-summary"></p>
+    </div>
+    <div id="master-update-preview" class="impact-preview"></div>
+    <div class="save-actions">
+      <button id="master-update-cancel" class="button ghost" type="button">取消</button>
+      <button id="master-update-confirm" class="button primary" type="button">确认应用</button>
+    </div>
+  </dialog>
+
   <dialog id="gacha-publish-dialog" class="confirm-dialog">
     <div>
       <p class="eyebrow">PUBLISH GACHA CONFIG</p>

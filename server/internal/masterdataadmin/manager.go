@@ -95,6 +95,25 @@ func Load(path string) (*Catalog, error) {
 }
 
 func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, error) {
+	if err := validateUpdateEnvelope(request); err != nil {
+		return nil, UpdateResult{}, err
+	}
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	if file.Version() != request.ExpectedVersion {
+		return nil, UpdateResult{}, ErrVersionConflict
+	}
+	planned, _, _, err := expandLinkedChanges(file, request.Changes)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	request.Changes = planned
+	return buildUpdate(file, request)
+}
+
+func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResult, error) {
 	if request.ExpectedVersion == "" {
 		return nil, UpdateResult{}, fmt.Errorf("expectedVersion is required")
 	}
@@ -105,10 +124,6 @@ func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, erro
 		return nil, UpdateResult{}, fmt.Errorf("too many changes")
 	}
 
-	file, err := memorydb.OpenFile(path)
-	if err != nil {
-		return nil, UpdateResult{}, err
-	}
 	if file.Version() != request.ExpectedVersion {
 		return nil, UpdateResult{}, ErrVersionConflict
 	}

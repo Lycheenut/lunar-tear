@@ -45,6 +45,36 @@ func startAdmin(listen, binPath, gachaConfigPath string, holder *runtime.Holder)
 		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("/admin/", serveAdminAsset)
+	mux.HandleFunc("/api/admin/master-data/schedules/preview", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			writeAdminError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorized(r) {
+			writeAdminError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		var request masterdataadmin.UpdateRequest
+		body := http.MaxBytesReader(w, r.Body, 2<<20)
+		decoder := json.NewDecoder(body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil {
+			writeAdminError(w, http.StatusBadRequest, "请求格式无效: "+err.Error())
+			return
+		}
+		preview, err := masterdataadmin.PreviewUpdate(binPath, request)
+		if err != nil {
+			if errors.Is(err, masterdataadmin.ErrVersionConflict) {
+				writeAdminError(w, http.StatusConflict, "主数据已被其他操作更新，请刷新后重试")
+				return
+			}
+			writeAdminError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeAdminJSON(w, http.StatusOK, preview)
+	})
 	mux.HandleFunc("/api/admin/master-data/schedules", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(r) {
 			writeAdminError(w, http.StatusUnauthorized, "unauthorized")

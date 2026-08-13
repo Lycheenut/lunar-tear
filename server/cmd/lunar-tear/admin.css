@@ -599,6 +599,36 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .confirm-dialog p:last-child { color: var(--muted); font-size: 13px; line-height: 1.65; }
 .confirm-dialog .save-actions { justify-content: flex-end; margin-top: 22px; }
 
+.impact-dialog {
+  width: min(900px, calc(100% - 32px));
+  max-width: 900px;
+  max-height: min(860px, calc(100vh - 32px));
+  overflow: hidden;
+}
+.impact-dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.impact-summary { max-width: 390px; margin: 0; text-align: right; }
+.impact-preview { display: grid; gap: 14px; max-height: calc(100vh - 250px); margin-top: 18px; overflow: auto; padding-right: 6px; }
+.impact-group { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #0d151a; }
+.impact-group > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #111c22; }
+.impact-group > header strong { font-size: 13px; }
+.impact-group > header span { color: var(--muted); font-size: 11px; }
+.impact-section { display: grid; gap: 9px; padding: 12px 14px; }
+.impact-section + .impact-section { border-top: 1px solid var(--line); }
+.impact-section-title { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.impact-record { display: grid; gap: 7px; padding: 10px 11px; border: 1px solid rgba(105, 132, 145, .24); border-radius: 9px; background: rgba(16, 27, 33, .78); }
+.impact-record-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; }
+.impact-relation { color: var(--accent-strong); font-size: 11px; font-weight: 750; }
+.impact-identity { color: var(--text); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.impact-title { color: var(--muted); font-size: 11px; }
+.impact-note { margin: 0; color: #d8bd88 !important; font-size: 11px !important; line-height: 1.55 !important; }
+.impact-changes { display: grid; gap: 5px; }
+.impact-change { display: grid; grid-template-columns: minmax(130px, .45fr) minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; font-size: 11px; }
+.impact-change code { min-width: 0; padding: 4px 6px; overflow-wrap: anywhere; border-radius: 5px; background: rgba(0, 0, 0, .2); }
+.impact-change .change-field { color: var(--muted); font-weight: 700; }
+.impact-change .change-arrow { color: var(--accent-strong); }
+.impact-change .cascade-badge { display: inline-flex; width: fit-content; margin-left: 6px; padding: 2px 5px; color: #b7d7ff; border-radius: 999px; background: rgba(65, 111, 168, .2); font-size: 9px; }
+.impact-no-change { color: var(--muted); font-size: 11px; }
+
 @media (max-width: 900px) {
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .toolbar { grid-template-columns: 1fr 1fr; }
@@ -626,4 +656,8 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .gacha-toolbar { grid-template-columns: 1fr; }
   .pickup-filter-grid { grid-template-columns: 1fr 1fr; }
   .limited-set-create { grid-template-columns: 1fr; }
+  .impact-dialog-heading { display: block; }
+  .impact-summary { max-width: none; margin-top: 8px !important; text-align: left; }
+  .impact-change { grid-template-columns: 1fr; }
+  .impact-change .change-arrow { transform: rotate(90deg); }
 }

@@ -15,6 +15,9 @@
     tableScroll: $("#table-scroll"), scheduleTable: $("#schedule-table"), head: $("#schedule-head"), body: $("#schedule-body"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
+    masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
+    masterUpdatePreview: $("#master-update-preview"), masterUpdateCancel: $("#master-update-cancel"),
+    masterUpdateConfirm: $("#master-update-confirm"),
     tabMaster: $("#tab-master"), tabRelated: $("#tab-related"), tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
     gachaStandardCount: $("#gacha-standard-count"), gachaOverrideCount: $("#gacha-override-count"),
     gachaBannerCount: $("#gacha-banner-count"), gachaPickupCount: $("#gacha-pickup-count"), gachaWarnings: $("#gacha-warnings"),
@@ -47,7 +50,8 @@
     tableSelections: { master: "", related: "" },
     gachaCatalog: null,
     gachaDraft: null,
-    gachaDirty: false
+    gachaDirty: false,
+    pendingMasterChanges: null
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
   const languageLabels = { en: "English", ja: "日本語", ko: "한국어" };
@@ -104,6 +108,7 @@
       state.gachaCatalog = gachaCatalog;
       resetGachaDraft();
       state.dirty.clear();
+      state.pendingMasterChanges = null;
       sessionStorage.setItem("lunar-admin-token", state.token);
       showWorkspace();
       renderCatalog();
@@ -700,6 +705,147 @@
 
   function displayText(value) {
     return String(value ?? "").replace(/\\n/g, "\n");
+  }
+
+  function renderMasterUpdatePreview(preview) {
+    elements.masterUpdateSummary.textContent = `${preview.requestedChanges} 个上游/直接修改将生成 ${preview.generatedChanges} 个确定的下游修改，共影响 ${preview.changedRows} 行。`;
+    elements.masterUpdatePreview.replaceChildren();
+
+    (preview.impacts || []).forEach((impact) => {
+      const group = document.createElement("section");
+      group.className = "impact-group";
+      const header = document.createElement("header");
+      const title = document.createElement("strong");
+      title.textContent = impact.kind;
+      const count = document.createElement("span");
+      count.textContent = `${(impact.downstream || []).length} 条确定下游`;
+      header.append(title, count);
+      group.append(header);
+
+      group.append(renderImpactSection("修改的上游内容", [impact.upstream]));
+      if ((impact.downstream || []).length) {
+        group.append(renderImpactSection("受影响的下游内容", impact.downstream));
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "impact-section impact-no-change";
+        empty.textContent = "没有找到可由确定链路关联的下游内容。";
+        group.append(empty);
+      }
+      elements.masterUpdatePreview.append(group);
+    });
+
+    if ((preview.otherChanges || []).length) {
+      const group = document.createElement("section");
+      group.className = "impact-group";
+      const header = document.createElement("header");
+      const title = document.createElement("strong");
+      title.textContent = "其他直接修改";
+      const count = document.createElement("span");
+      count.textContent = `${preview.otherChanges.length} 行`;
+      header.append(title, count);
+      group.append(header, renderImpactSection("本次一并提交", preview.otherChanges));
+      elements.masterUpdatePreview.append(group);
+    }
+  }
+
+  function renderImpactSection(titleText, records) {
+    const section = document.createElement("div");
+    section.className = "impact-section";
+    const title = document.createElement("div");
+    title.className = "impact-section-title";
+    title.textContent = titleText;
+    section.append(title);
+    records.forEach((record) => section.append(renderImpactRecord(record)));
+    return section;
+  }
+
+  function renderImpactRecord(record) {
+    const container = document.createElement("article");
+    container.className = "impact-record";
+    const heading = document.createElement("div");
+    heading.className = "impact-record-heading";
+    if (record.relation) {
+      const relation = document.createElement("span");
+      relation.className = "impact-relation";
+      relation.textContent = record.relation;
+      heading.append(relation);
+    }
+    const identity = document.createElement("span");
+    identity.className = "impact-identity";
+    const identityText = (record.identity || []).map((entry) => `${entry.name}=${entry.value}`).join(", ") || `row=${record.row}`;
+    identity.textContent = `${previewTableName(record.table)} · ${identityText}`;
+    heading.append(identity);
+    const titleText = previewLocalizedTitle(record.titles);
+    if (titleText) {
+      const title = document.createElement("span");
+      title.className = "impact-title";
+      title.textContent = titleText;
+      heading.append(title);
+    }
+    container.append(heading);
+
+    if (record.note) {
+      const note = document.createElement("p");
+      note.className = "impact-note";
+      note.textContent = record.note;
+      container.append(note);
+    }
+    const changes = document.createElement("div");
+    changes.className = "impact-changes";
+    if (!(record.changes || []).length) {
+      const unchanged = document.createElement("span");
+      unchanged.className = "impact-no-change";
+      unchanged.textContent = "仅展示确定关联，本次不自动修改字段。";
+      changes.append(unchanged);
+    } else {
+      record.changes.forEach((change) => changes.append(renderImpactChange(change)));
+    }
+    container.append(changes);
+    return container;
+  }
+
+  function renderImpactChange(change) {
+    const row = document.createElement("div");
+    row.className = "impact-change";
+    const field = document.createElement("span");
+    field.className = "change-field";
+    field.textContent = change.field;
+    if (change.generated) {
+      const badge = document.createElement("span");
+      badge.className = "cascade-badge";
+      badge.textContent = "自动级联";
+      field.append(badge);
+    }
+    const before = document.createElement("code");
+    before.textContent = previewChangeValue(change.before, change.datetime);
+    const arrow = document.createElement("span");
+    arrow.className = "change-arrow";
+    arrow.textContent = "→";
+    const after = document.createElement("code");
+    after.textContent = previewChangeValue(change.after, change.datetime);
+    row.append(field, before, arrow, after);
+    return row;
+  }
+
+  function previewChangeValue(value, datetime) {
+    if (!datetime) return displayText(value);
+    const milliseconds = Number(value);
+    if (!Number.isSafeInteger(milliseconds)) return displayText(value);
+    if (milliseconds === 0) return "0（禁用）";
+    const input = timeInputValue(milliseconds).replace("T", " ");
+    return `${input} ${timeModeLabel()}`;
+  }
+
+  function previewLocalizedTitle(titles) {
+    return displayContentText(titles?.[state.language]
+      || titles?.[state.catalog.defaultLanguage]
+      || Object.values(titles || {})[0]
+      || "").replace(/\s*\n\s*/g, " ");
+  }
+
+  function previewTableName(tableName) {
+    const table = state.catalog.tables.find((candidate) => candidate.name === tableName);
+    return table ? tableDisplayName(table) : tableName;
   }
 
   function tableDisplayName(table) {
@@ -1466,6 +1612,7 @@
   elements.discard.addEventListener("click", () => {
     if (!confirm("放弃全部尚未应用的修改？")) return;
     state.dirty.clear();
+    state.pendingMasterChanges = null;
     updateDirtyUI();
     renderTable();
     showNotice("已放弃本次修改。");
@@ -1473,8 +1620,43 @@
   elements.save.addEventListener("click", async () => {
     const changes = [...state.dirty.values()];
     if (!changes.length) return;
-    if (!confirm(`将 ${changes.length} 个修改重建为新的主数据并立即更新当前服务。是否继续？`)) return;
-    setBusy(true, "正在重建、验证并热更新主数据…");
+    setBusy(true, "正在计算确定链路及变更预览…");
+    try {
+      const preview = await api("/api/admin/master-data/schedules/preview", {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: state.catalog.version, changes })
+      });
+      state.pendingMasterChanges = changes;
+      renderMasterUpdatePreview(preview);
+      elements.masterUpdateDialog.showModal();
+      showNotice("已生成上游及确定下游的变更预览，请确认后应用。");
+    } catch (error) {
+      showNotice(error.message, true);
+      if (error.status === 409) {
+        state.dirty.clear();
+        try { await loadCatalog(); } catch (_) { /* keep the conflict notice */ }
+      }
+    } finally {
+      setBusy(false);
+      updateDirtyUI();
+    }
+  });
+  elements.masterUpdateCancel.addEventListener("click", () => {
+    state.pendingMasterChanges = null;
+    elements.masterUpdateDialog.close();
+    showNotice("已取消应用，修改仍保留在编辑器中。");
+  });
+  elements.masterUpdateDialog.addEventListener("close", () => {
+    if (elements.masterUpdateDialog.returnValue !== "confirm") state.pendingMasterChanges = null;
+    elements.masterUpdateDialog.returnValue = "";
+  });
+  elements.masterUpdateConfirm.addEventListener("click", async () => {
+    const changes = state.pendingMasterChanges;
+    if (!changes?.length) return;
+    elements.masterUpdateDialog.returnValue = "confirm";
+    elements.masterUpdateDialog.close();
+    state.pendingMasterChanges = null;
+    setBusy(true, "正在重建、验证并热更新上游及关联主数据…");
     try {
       const result = await api("/api/admin/master-data/schedules", {
         method: "POST",
