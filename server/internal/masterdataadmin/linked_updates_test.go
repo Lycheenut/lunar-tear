@@ -14,6 +14,7 @@ func TestGachaMomBannerPreviewCascadesToMedalShopAndCurrencyTerm(t *testing.T) {
 	path, catalog := linkedUpdateTestCatalog(t)
 	banner := catalogRowByID(t, catalog, "m_mom_banner", "MomBannerId", "4")
 	oldStart := mustParseInt64(t, banner.Values["StartDatetime"])
+	end := mustParseInt64(t, banner.Values["EndDatetime"])
 	preview, err := PreviewUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
 		Changes: []Change{{
@@ -26,7 +27,9 @@ func TestGachaMomBannerPreviewCascadesToMedalShopAndCurrencyTerm(t *testing.T) {
 	}
 	impact := impactByKind(t, preview, "Gacha")
 	assertGeneratedTarget(t, impact, "m_shop", "ShopId", "8003", "StartDatetime")
+	assertGeneratedTarget(t, impact, "m_shop", "ShopId", "8003", "EndDatetime")
 	assertGeneratedTarget(t, impact, "m_consumable_item_term", "ConsumableItemTermId", "8003", "StartDatetime")
+	assertGeneratedTarget(t, impact, "m_consumable_item_term", "ConsumableItemTermId", "8003", "EndDatetime")
 
 	candidate, result, err := BuildUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
@@ -38,15 +41,17 @@ func TestGachaMomBannerPreviewCascadesToMedalShopAndCurrencyTerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ChangedCells != 3 || result.ChangedRows != 3 {
-		t.Fatalf("Gacha cascade result = %+v, want 3 cells across 3 rows", result)
+	if result.ChangedCells != 5 || result.ChangedRows != 3 {
+		t.Fatalf("Gacha cascade result = %+v, want 5 cells across 3 rows", result)
 	}
 	rebuilt, err := memorydb.OpenBytes(candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertRawTimeByID(t, rebuilt, "m_shop", 0, 8003, 9, oldStart+3600000)
+	assertRawTimeByID(t, rebuilt, "m_shop", 0, 8003, 10, end)
 	assertRawTimeByID(t, rebuilt, "m_consumable_item_term", 0, 8003, 1, oldStart+3600000)
+	assertRawTimeByID(t, rebuilt, "m_consumable_item_term", 0, 8003, 2, end)
 }
 
 func TestEventQuestPreviewIncludesAllCertainDownstreamTypes(t *testing.T) {
@@ -68,6 +73,47 @@ func TestEventQuestPreviewIncludesAllCertainDownstreamTypes(t *testing.T) {
 	assertGeneratedTarget(t, impact, "m_mom_banner", "MomBannerId", "33", "EndDatetime")
 	assertGeneratedTarget(t, impact, "m_navi_cut_in", "NaviCutInId", "15", "EndDatetime")
 	assertRelationExists(t, impact, "限时任务档期")
+}
+
+func TestEventQuestSingleTimeEditCopiesWholeScheduleAndSelectsOneNaviCutIn(t *testing.T) {
+	path, catalog := linkedUpdateTestCatalog(t)
+	chapter := catalogRowByID(t, catalog, "m_event_quest_chapter", "EventQuestChapterId", "508")
+	finalTime := chapter.Values["EndDatetime"]
+	preview, err := PreviewUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes: []Change{{
+			Table: "m_event_quest_chapter", Row: chapter.Index, Field: "StartDatetime", Value: finalTime,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	impact := impactByKind(t, preview, "EventQuestChapter")
+	naviTargets := targetsByRelation(impact, "活动 NaviCutIn")
+	if len(naviTargets) != 1 || previewIdentityValue(naviTargets[0], "NaviCutInId") != "15" {
+		t.Fatalf("selected NaviCutIns = %+v, want only NaviCutInId=15", naviTargets)
+	}
+	missionBanner := targetByIdentity(t, impact, "m_mom_banner", "MomBannerId", "91056")
+	assertGeneratedChangeValue(t, missionBanner, "StartDatetime", finalTime)
+	assertGeneratedChangeValue(t, missionBanner, "EndDatetime", finalTime)
+}
+
+func TestLoginBonusNonPairTimeEditStillCopiesWholeSchedule(t *testing.T) {
+	path, catalog := linkedUpdateTestCatalog(t)
+	loginBonus := catalogRowByID(t, catalog, "m_login_bonus", "LoginBonusId", "17")
+	stampEnd := mustParseInt64(t, loginBonus.Values["StampReceiveEndDatetime"])
+	preview, err := PreviewUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes: []Change{{
+			Table: "m_login_bonus", Row: loginBonus.Index, Field: "StampReceiveEndDatetime",
+			Value: strconv.FormatInt(stampEnd+3600000, 10),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := targetByIdentity(t, impactByKind(t, preview, "LoginBonus"), "m_mom_banner", "MomBannerId", "1")
+	assertGeneratedChangeValue(t, target, "EndDatetime", loginBonus.Values["EndDatetime"])
 }
 
 func TestEventQuestLinkChangePreviewsOldAndNewShopsWithoutCascade(t *testing.T) {
@@ -245,6 +291,35 @@ func assertGeneratedTarget(t *testing.T, impact UpdateImpactPreview, table, idFi
 		}
 	}
 	t.Fatalf("%s %s=%s has no generated %s change: %+v", table, idField, idValue, field, target)
+}
+
+func assertGeneratedChangeValue(t *testing.T, target RecordPreview, field, value string) {
+	t.Helper()
+	for _, change := range target.Changes {
+		if change.Field == field && change.Generated && change.After == value {
+			return
+		}
+	}
+	t.Fatalf("%s has no generated %s=%s change: %+v", previewIdentityValue(target, ""), field, value, target)
+}
+
+func targetsByRelation(impact UpdateImpactPreview, relation string) []RecordPreview {
+	var targets []RecordPreview
+	for _, target := range impact.Downstream {
+		if target.Relation == relation {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
+func previewIdentityValue(target RecordPreview, field string) string {
+	for _, identity := range target.Identity {
+		if field == "" || identity.Name == field {
+			return identity.Value
+		}
+	}
+	return ""
 }
 
 func targetByIdentity(t *testing.T, impact UpdateImpactPreview, table, field, value string) RecordPreview {

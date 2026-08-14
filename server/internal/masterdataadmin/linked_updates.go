@@ -434,7 +434,15 @@ func (p *linkedUpdatePlanner) planEventQuestChapter(ref rowRef) error {
 			}
 		}
 	}
-	for _, navi := range index.naviCutInsByChapter[chapterID] {
+	chapterStart, _, err := p.rowTimes(ref)
+	if err != nil {
+		return err
+	}
+	naviCutIns, err := p.selectNaviCutIns(index.naviCutInsByChapter[chapterID], chapterStart)
+	if err != nil {
+		return err
+	}
+	for _, navi := range naviCutIns {
 		target := p.addTarget(impact, navi, "活动 NaviCutIn", "")
 		if err := p.cascadePair(ref, target); err != nil {
 			return err
@@ -511,53 +519,68 @@ func (p *linkedUpdatePlanner) cascadePair(source rowRef, target linkedTarget) er
 	if len(sourcePairs) == 0 || len(targetPairs) == 0 {
 		return nil
 	}
-	if err := p.cascadeTime(source, sourcePairs[0].Start, target, targetPairs[0].Start); err != nil {
-		return err
-	}
-	return p.cascadeTime(source, sourcePairs[0].End, target, targetPairs[0].End)
-}
-
-func (p *linkedUpdatePlanner) cascadeTime(source rowRef, sourceField string, target linkedTarget, targetField string) error {
-	sourceKey := previewCellKey(source.table, source.row, sourceField)
-	if _, changed := p.explicit[sourceKey]; !changed {
-		return nil
-	}
 	sourceRows, err := p.tableRows(source.table)
 	if err != nil {
 		return err
 	}
+	timeChanged := false
+	for _, field := range sourceSpec.Times {
+		value, changed := p.effective[previewCellKey(source.table, source.row, field.Name)]
+		if !changed {
+			continue
+		}
+		original, err := valueAsInt64(sourceRows[source.row][field.Index])
+		if err != nil {
+			return err
+		}
+		effective, err := valueAsInt64(value)
+		if err != nil {
+			return err
+		}
+		if original != effective {
+			timeChanged = true
+			break
+		}
+	}
+	if !timeChanged {
+		return nil
+	}
+	start, err := p.effectiveInt(source, sourcePairs[0].Start)
+	if err != nil {
+		return err
+	}
+	end, err := p.effectiveInt(source, sourcePairs[0].End)
+	if err != nil {
+		return err
+	}
+	if err := p.setCascadeTime(target, targetPairs[0].Start, start); err != nil {
+		return err
+	}
+	return p.setCascadeTime(target, targetPairs[0].End, end)
+}
+
+func (p *linkedUpdatePlanner) setCascadeTime(target linkedTarget, targetField string, value int64) error {
 	targetRows, err := p.tableRows(target.ref.table)
 	if err != nil {
 		return err
 	}
-	sourceSpec, _ := findActivitySpec(source.table)
 	targetSpec, _ := findActivitySpec(target.ref.table)
-	sourceColumn, _ := findField(sourceSpec, sourceField)
 	targetColumn, _ := findField(targetSpec, targetField)
-	oldSource, err := valueAsInt64(sourceRows[source.row][sourceColumn.Index])
-	if err != nil {
-		return err
-	}
-	newSource, err := valueAsInt64(p.effective[sourceKey])
-	if err != nil {
-		return err
-	}
 	oldTarget, err := valueAsInt64(targetRows[target.ref.row][targetColumn.Index])
 	if err != nil {
 		return err
 	}
-	newTarget, ok := cascadedTime(oldSource, newSource, oldTarget)
-	if !ok || newTarget == oldTarget {
+	if value == oldTarget {
 		return nil
 	}
-	if newTarget < 0 || newTarget > maxDatetimeMillis {
+	if value < 0 || value > maxDatetimeMillis {
 		return fmt.Errorf("级联更新 %s row %d field %s 超出支持的日期范围", target.ref.table, target.ref.row, targetField)
 	}
 	key := previewCellKey(target.ref.table, target.ref.row, targetField)
 	if _, explicit := p.explicit[key]; explicit {
 		return nil
 	}
-	change := Change{Table: target.ref.table, Row: target.ref.row, Field: targetField, Value: strconv.FormatInt(newTarget, 10)}
+	change := Change{Table: target.ref.table, Row: target.ref.row, Field: targetField, Value: strconv.FormatInt(value, 10)}
 	if existing, duplicate := p.generated[key]; duplicate {
 		if fmt.Sprint(existing.Value) != fmt.Sprint(change.Value) {
 			return fmt.Errorf("多个上游修改会把 %s row %d field %s 设置为不同值，请拆分修改", target.ref.table, target.ref.row, targetField)
@@ -568,17 +591,44 @@ func (p *linkedUpdatePlanner) cascadeTime(source rowRef, sourceField string, tar
 	return nil
 }
 
-func cascadedTime(oldSource, newSource, oldTarget int64) (int64, bool) {
-	if oldSource == newSource || oldTarget == 0 {
-		return oldTarget, false
+func (p *linkedUpdatePlanner) selectNaviCutIns(candidates []rowRef, sourceStart int64) ([]rowRef, error) {
+	// Event reruns reuse both the chapter and content-group IDs, and SortOrder is
+	// usually identical. The occurrence closest to the chapter start is unique
+	// in the current master data; ID only makes an unexpected tie deterministic.
+	type selection struct {
+		ref      rowRef
+		distance uint64
+		id       int64
 	}
-	if newSource == 0 {
-		return 0, true
+	byContentGroup := make(map[int64]selection)
+	for _, candidate := range candidates {
+		rows, err := p.tableRows(candidate.table)
+		if err != nil {
+			return nil, err
+		}
+		row := rows[candidate.row]
+		id, _ := integerAt(row, 0)
+		start, _ := integerAt(row, 3)
+		contentGroupID, _ := integerAt(row, 5)
+		distance := datetimeDistance(start, sourceStart)
+		current, exists := byContentGroup[contentGroupID]
+		if !exists || distance < current.distance || distance == current.distance && id < current.id {
+			byContentGroup[contentGroupID] = selection{ref: candidate, distance: distance, id: id}
+		}
 	}
-	if oldSource == 0 {
-		return newSource, true
+	result := make([]rowRef, 0, len(byContentGroup))
+	for _, selected := range byContentGroup {
+		result = append(result, selected.ref)
 	}
-	return oldTarget + (newSource - oldSource), true
+	sort.Slice(result, func(i, j int) bool { return result[i].row < result[j].row })
+	return result, nil
+}
+
+func datetimeDistance(left, right int64) uint64 {
+	if left >= right {
+		return uint64(left - right)
+	}
+	return uint64(right - left)
 }
 
 func (p *linkedUpdatePlanner) effectiveInt(ref rowRef, fieldName string) (int64, error) {
