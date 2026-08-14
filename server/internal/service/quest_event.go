@@ -28,6 +28,7 @@ func (s *QuestServiceServer) StartEventQuest(ctx context.Context, req *pb.StartE
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	var validationErr error
+	var drops []masterdata.BattleDropInfo
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if err := validateLimitContentDeck(user, cat.LimitContent, req.EventQuestChapterId, req.UserDeckNumber, nowMillis); err != nil {
 			validationErr = err
@@ -38,6 +39,7 @@ func (s *QuestServiceServer) StartEventQuest(ctx context.Context, req *pb.StartE
 			return
 		}
 		startAutoOrbit(user, model.QuestTypeEvent, req.EventQuestChapterId, req.QuestId, req.MaxAutoOrbitCount, nowMillis)
+		drops = engine.BattleDropRewards(user, req.QuestId)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start event quest: %w", err)
@@ -46,18 +48,8 @@ func (s *QuestServiceServer) StartEventQuest(ctx context.Context, req *pb.StartE
 		return nil, validationErr
 	}
 
-	drops := engine.BattleDropRewards(req.QuestId)
-	pbDrops := make([]*pb.BattleDropReward, len(drops))
-	for i, d := range drops {
-		pbDrops[i] = &pb.BattleDropReward{
-			QuestSceneId:         d.QuestSceneId,
-			BattleDropCategoryId: d.BattleDropCategoryId,
-			BattleDropEffectId:   1,
-		}
-	}
-
 	return &pb.StartEventQuestResponse{
-		BattleDropReward: pbDrops,
+		BattleDropReward: toProtoBattleDrops(drops),
 	}, nil
 }
 
@@ -256,6 +248,7 @@ func (s *QuestServiceServer) RestartEventQuest(ctx context.Context, req *pb.Rest
 	var validationErr error
 	var battleBinary []byte
 	var deckNumber int32
+	var drops []masterdata.BattleDropInfo
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if err := engine.ValidateEventQuestContinuation(user, req.EventQuestChapterId, req.QuestId, nowMillis); err != nil {
 			validationErr = err
@@ -264,6 +257,7 @@ func (s *QuestServiceServer) RestartEventQuest(ctx context.Context, req *pb.Rest
 		engine.HandleEventQuestRestart(user, req.EventQuestChapterId, req.QuestId, nowMillis)
 		battleBinary = battleCheckpoint(user)
 		deckNumber = user.Quests[req.QuestId].UserDeckNumber
+		drops = engine.BattleDropRewards(user, req.QuestId)
 	})
 	if updateErr != nil {
 		return nil, fmt.Errorf("restart event quest: %w", updateErr)
@@ -273,7 +267,7 @@ func (s *QuestServiceServer) RestartEventQuest(ctx context.Context, req *pb.Rest
 	}
 
 	return &pb.RestartEventQuestResponse{
-		BattleDropReward: []*pb.BattleDropReward{},
+		BattleDropReward: toProtoBattleDrops(drops),
 		BattleBinary:     battleBinary,
 		DeckNumber:       deckNumber,
 	}, nil

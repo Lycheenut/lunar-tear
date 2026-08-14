@@ -13,6 +13,7 @@ type RewardGrant struct {
 	PossessionType model.PossessionType
 	PossessionId   int32
 	Count          int32
+	RewardEffectId int32
 	IsAutoSale     bool
 }
 

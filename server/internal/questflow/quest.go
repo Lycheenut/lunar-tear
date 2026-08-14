@@ -392,8 +392,9 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 	raritySet, rankSet := parseAutoSaleRules(user.AutoSaleSettings)
 	var allDrops []RewardGrant
 	goldPerSkip := h.goldWithCampaign(user, questDef.Gold, target, nowMillis)
-	for range skipCount {
-		drops := h.computeDropRewards(user, questDef, target, nowMillis)
+	for runIndex := int32(0); runIndex < skipCount; runIndex++ {
+		runSeed := nowMillis + int64(runIndex) + int64(user.Quests[questId].ClearCount)
+		drops := h.computeDropRewardsForRun(user, questDef, target, nowMillis, runSeed)
 		h.grantDropRewards(user, drops, raritySet, rankSet, nowMillis)
 		allDrops = append(allDrops, drops...)
 

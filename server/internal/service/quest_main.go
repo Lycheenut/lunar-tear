@@ -90,6 +90,7 @@ func (s *QuestServiceServer) StartMainQuest(ctx context.Context, req *pb.StartMa
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	var validationErr error
+	var drops []masterdata.BattleDropInfo
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if req.IsReplayFlow {
 			validationErr = engine.HandleQuestStartReplay(user, req.QuestId, req.IsBattleOnly, req.UserDeckNumber, nowMillis)
@@ -100,6 +101,7 @@ func (s *QuestServiceServer) StartMainQuest(ctx context.Context, req *pb.StartMa
 			return
 		}
 		startAutoOrbit(user, model.QuestTypeMain, 0, req.QuestId, req.MaxAutoOrbitCount, nowMillis)
+		drops = engine.BattleDropRewards(user, req.QuestId)
 	})
 	if updateErr != nil {
 		return nil, fmt.Errorf("start main quest: %w", updateErr)
@@ -108,19 +110,24 @@ func (s *QuestServiceServer) StartMainQuest(ctx context.Context, req *pb.StartMa
 		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
 	}
 
-	drops := engine.BattleDropRewards(req.QuestId)
-	pbDrops := make([]*pb.BattleDropReward, len(drops))
-	for i, d := range drops {
-		pbDrops[i] = &pb.BattleDropReward{
-			QuestSceneId:         d.QuestSceneId,
-			BattleDropCategoryId: d.BattleDropCategoryId,
-			BattleDropEffectId:   1,
+	return &pb.StartMainQuestResponse{
+		BattleDropReward: toProtoBattleDrops(drops),
+	}, nil
+}
+
+func toProtoBattleDrops(drops []masterdata.BattleDropInfo) []*pb.BattleDropReward {
+	if len(drops) == 0 {
+		return []*pb.BattleDropReward{}
+	}
+	out := make([]*pb.BattleDropReward, len(drops))
+	for i, drop := range drops {
+		out[i] = &pb.BattleDropReward{
+			QuestSceneId:         drop.QuestSceneId,
+			BattleDropCategoryId: drop.BattleDropCategoryId,
+			BattleDropEffectId:   drop.BattleDropEffectId,
 		}
 	}
-
-	return &pb.StartMainQuestResponse{
-		BattleDropReward: pbDrops,
-	}, nil
+	return out
 }
 
 func emptyAutoOrbitReward() *pb.QuestAutoOrbitResult {
@@ -153,6 +160,7 @@ func toProtoRewards(grants []questflow.RewardGrant) []*pb.QuestReward {
 			PossessionType: int32(g.PossessionType),
 			PossessionId:   g.PossessionId,
 			Count:          g.Count,
+			RewardEffectId: g.RewardEffectId,
 			IsAutoSale:     g.IsAutoSale,
 		}
 	}
@@ -213,6 +221,7 @@ func (s *QuestServiceServer) RestartMainQuest(ctx context.Context, req *pb.Resta
 	var deckNumber int32
 	var battleBinary []byte
 	var validationErr error
+	var drops []masterdata.BattleDropInfo
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if err := engine.HandleQuestRestart(user, req.QuestId, nowMillis); err != nil {
 			validationErr = err
@@ -220,6 +229,7 @@ func (s *QuestServiceServer) RestartMainQuest(ctx context.Context, req *pb.Resta
 		}
 		deckNumber = user.Quests[req.QuestId].UserDeckNumber
 		battleBinary = battleCheckpoint(user)
+		drops = engine.BattleDropRewards(user, req.QuestId)
 	})
 	if updateErr != nil {
 		return nil, fmt.Errorf("restart main quest: %w", updateErr)
@@ -228,18 +238,8 @@ func (s *QuestServiceServer) RestartMainQuest(ctx context.Context, req *pb.Resta
 		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
 	}
 
-	drops := engine.BattleDropRewards(req.QuestId)
-	pbDrops := make([]*pb.BattleDropReward, len(drops))
-	for i, d := range drops {
-		pbDrops[i] = &pb.BattleDropReward{
-			QuestSceneId:         d.QuestSceneId,
-			BattleDropCategoryId: d.BattleDropCategoryId,
-			BattleDropEffectId:   1,
-		}
-	}
-
 	return &pb.RestartMainQuestResponse{
-		BattleDropReward: pbDrops,
+		BattleDropReward: toProtoBattleDrops(drops),
 		BattleBinary:     battleBinary,
 		DeckNumber:       deckNumber,
 	}, nil
