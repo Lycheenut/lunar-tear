@@ -991,8 +991,8 @@
   const materialTypeLabels = {
     10: "武器强化", 20: "服装强化", 30: "伙伴强化", 40: "武器技能强化",
     50: "服装技能强化", 60: "通用技能强化", 70: "武器进化", 80: "武器突破",
-    90: "服装突破", 100: "角色面板解锁", 110: "服装觉醒", 120: "角色转生",
-    130: "武器觉醒", 140: "服装自定义效果解锁"
+    90: "服装突破", 100: "传承的石碑", 110: "服装觉醒", 120: "升华",
+    130: "精炼", 140: "天命"
   };
   const rewardTypes = ["material", "weapon", "companion", "consumable", "free_gem"];
   const rewardPageSizes = [25, 50, 100];
@@ -1118,7 +1118,7 @@
       fallback.textContent = ({ material: "具", weapon: "武", companion: "伙", consumable: "消", free_gem: "石" })[rewardType] || "奖";
       image.replaceWith(fallback);
     });
-    image.src = `/admin/reward-icons/${item.iconPath.split("/").map(encodeURIComponent).join("/")}`;
+    image.src = `${imagePreviewBaseURL}/${item.iconPath.split("/").map(encodeURIComponent).join("/")}`;
     visual.append(image);
 
     const content = document.createElement("div");

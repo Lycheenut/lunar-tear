@@ -6,12 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -39,7 +37,6 @@ func startAdmin(listen, binPath, gachaConfigPath string, holder *runtime.Holder)
 
 	var updateMu sync.Mutex
 	mux := http.NewServeMux()
-	assetsRoot := filepath.Dir(filepath.Dir(binPath))
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/admin" {
 			http.NotFound(w, r)
@@ -48,20 +45,6 @@ func startAdmin(listen, binPath, gachaConfigPath string, holder *runtime.Holder)
 		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("/admin/", serveAdminAsset)
-	mux.HandleFunc("/admin/reward-icons/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		relative := strings.TrimPrefix(r.URL.Path, "/admin/reward-icons/")
-		if !fs.ValidPath(relative) || filepath.Ext(relative) != ".png" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		http.ServeFile(w, r, filepath.Join(assetsRoot, "ui", filepath.FromSlash(relative)))
-	})
 	mux.HandleFunc("/api/admin/master-data/schedules/preview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")

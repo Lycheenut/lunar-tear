@@ -315,18 +315,19 @@ input:focus, select:focus {
 
 .reward-reference-controls {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 10px;
   padding: 14px;
   border-bottom: 1px solid var(--line);
   background: rgba(12, 20, 25, .72);
 }
 
-.reward-reference-controls > label:nth-child(2),
-.reward-weapon-filters { grid-column: 1 / -1; }
+.reward-primary-filters,
+.reward-weapon-filters { display: grid; gap: 8px; }
+.reward-primary-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.reward-primary-filters:has(#reward-material-type-label.hidden) { grid-template-columns: 1fr; }
+.reward-weapon-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .reward-reference-controls input,
 .reward-reference-controls select { width: 100%; min-width: 0; }
-.reward-weapon-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 
 .reward-reference-list {
   display: grid;
@@ -733,6 +734,45 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .impact-change .cascade-badge { display: inline-flex; width: fit-content; margin-left: 6px; padding: 2px 5px; color: #b7d7ff; border-radius: 999px; background: rgba(65, 111, 168, .2); font-size: 9px; }
 .impact-no-change { color: var(--muted); font-size: 11px; }
 
+@media (min-width: 901px) {
+  .master-layout.with-reward-reference { align-items: stretch; }
+  .master-layout.with-reward-reference > .data-panel,
+  .master-layout.with-reward-reference > .reward-reference {
+    height: max(520px, calc(100vh - 104px));
+    min-height: 0;
+  }
+  .master-layout.with-reward-reference > .data-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .master-layout.with-reward-reference > .reward-reference {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  }
+  .master-layout.with-reward-reference .table-scroll,
+  .master-layout.with-reward-reference .reward-reference-list {
+    min-height: 0;
+    max-height: none;
+  }
+  .master-layout.with-reward-reference .table-scroll { scrollbar-gutter: stable; }
+  .master-layout.with-reward-reference #schedule-table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+  .master-layout.with-reward-reference #schedule-table th {
+    padding-right: 10px;
+    padding-left: 10px;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .master-layout.with-reward-reference #schedule-table td { padding-right: 10px; padding-left: 10px; }
+  .master-layout.with-reward-reference #schedule-table td:first-child,
+  .master-layout.with-reward-reference #schedule-table th:first-child,
+  .master-layout.with-reward-reference #schedule-table .field-column {
+    min-width: 0;
+  }
+}
+
 @media (max-width: 900px) {
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .toolbar { grid-template-columns: 1fr 1fr; }
@@ -765,9 +805,7 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .limited-set-create { grid-template-columns: 1fr; }
   .admin-tabs { display: flex; overflow-x: auto; }
   .admin-tab { flex: 0 0 auto; }
-  .reward-reference-controls { grid-template-columns: 1fr; }
-  .reward-reference-controls > label:nth-child(2), .reward-weapon-filters { grid-column: auto; }
-  .reward-weapon-filters { grid-template-columns: 1fr; }
+  .reward-primary-filters, .reward-weapon-filters { grid-template-columns: 1fr; }
   .reward-reference-pagination { align-items: stretch; flex-direction: column; }
   .reward-page-navigation { justify-content: space-between; }
   .impact-dialog-heading { display: block; }

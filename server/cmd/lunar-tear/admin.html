@@ -114,20 +114,22 @@
             <span id="reward-visible-count" class="row-badge">0 项</span>
           </div>
           <div class="reward-reference-controls">
-            <label>展示类型
-              <select id="reward-type">
-                <option value="material" selected>道具</option>
-                <option value="weapon">武器</option>
-                <option value="companion">伙伴</option>
-                <option value="consumable">消耗品</option>
-                <option value="free_gem">免费宝石</option>
-              </select>
-            </label>
+            <div class="reward-primary-filters">
+              <label>展示类型
+                <select id="reward-type">
+                  <option value="material" selected>道具</option>
+                  <option value="weapon">武器</option>
+                  <option value="companion">伙伴</option>
+                  <option value="consumable">消耗品</option>
+                  <option value="free_gem">免费宝石</option>
+                </select>
+              </label>
+              <label id="reward-material-type-label">具体道具类型
+                <select id="reward-material-type"></select>
+              </label>
+            </div>
             <label>搜索奖励
               <input id="reward-search" type="search" placeholder="按名称或 ID 搜索">
-            </label>
-            <label id="reward-material-type-label">具体道具类型
-              <select id="reward-material-type"></select>
             </label>
             <div id="reward-weapon-filters" class="reward-weapon-filters hidden">
               <label>属性
