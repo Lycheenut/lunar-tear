@@ -50,6 +50,7 @@ type Table struct {
 	Name       string     `json:"name"`
 	EntityName string     `json:"entityName"`
 	Primary    bool       `json:"primary"`
+	Delivery   bool       `json:"delivery,omitempty"`
 	Fields     []Field    `json:"fields"`
 	TimeFields []string   `json:"timeFields"`
 	Pairs      []timePair `json:"pairs"`
@@ -63,6 +64,7 @@ type Catalog struct {
 	TableCount      int      `json:"tableCount"`
 	PrimaryCount    int      `json:"primaryCount"`
 	RelatedCount    int      `json:"relatedCount"`
+	DeliveryCount   int      `json:"deliveryCount"`
 	RowCount        int      `json:"rowCount"`
 	Tables          []Table  `json:"tables"`
 }
@@ -255,6 +257,7 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 			Name:       spec.Name,
 			EntityName: spec.EntityName,
 			Primary:    spec.Primary,
+			Delivery:   spec.Delivery,
 			Pairs:      spec.pairs(),
 			Rows:       make([]Row, 0, len(rows)),
 		}
@@ -302,7 +305,9 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 		}
 		catalog.RowCount += len(table.Rows)
 		catalog.Tables = append(catalog.Tables, table)
-		if spec.Primary {
+		if spec.Delivery {
+			catalog.DeliveryCount++
+		} else if spec.Primary {
 			catalog.PrimaryCount++
 		} else {
 			catalog.RelatedCount++

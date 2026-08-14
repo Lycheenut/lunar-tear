@@ -18,7 +18,16 @@
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
     masterUpdatePreview: $("#master-update-preview"), masterUpdateCancel: $("#master-update-cancel"),
     masterUpdateConfirm: $("#master-update-confirm"),
-    tabMaster: $("#tab-master"), tabRelated: $("#tab-related"), tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
+    tabMaster: $("#tab-master"), tabRelated: $("#tab-related"), tabDelivery: $("#tab-delivery"),
+    tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"), masterLayout: $("#master-layout"),
+    rewardReference: $("#reward-reference"), rewardVisibleCount: $("#reward-visible-count"),
+    rewardType: $("#reward-type"), rewardSearch: $("#reward-search"),
+    rewardMaterialTypeLabel: $("#reward-material-type-label"), rewardMaterialType: $("#reward-material-type"),
+    rewardWeaponFilters: $("#reward-weapon-filters"), rewardWeaponAttribute: $("#reward-weapon-attribute"),
+    rewardWeaponType: $("#reward-weapon-type"), rewardWeaponGrant: $("#reward-weapon-grant"),
+    rewardReferenceList: $("#reward-reference-list"), rewardReferenceEmpty: $("#reward-reference-empty"),
+    rewardPageSize: $("#reward-page-size"), rewardPagePrevious: $("#reward-page-previous"),
+    rewardPageInfo: $("#reward-page-info"), rewardPageNext: $("#reward-page-next"),
     gachaStandardCount: $("#gacha-standard-count"), gachaOverrideCount: $("#gacha-override-count"),
     gachaBannerCount: $("#gacha-banner-count"), gachaPickupCount: $("#gacha-pickup-count"), gachaWarnings: $("#gacha-warnings"),
     gachaLanguageSelect: $("#gacha-language-select"), gachaLimitedSetId: $("#gacha-limited-set-id"),
@@ -47,7 +56,11 @@
     catalog: null,
     dirty: new Map(),
     section: "master",
-    tableSelections: { master: "", related: "" },
+    tableSelections: { master: "", related: "", delivery: "" },
+    rewardCatalog: null,
+    rewardPage: 1,
+    rewardPageSize: 25,
+    rewardPageCount: 1,
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false,
@@ -100,12 +113,14 @@
   async function loadCatalog() {
     setBusy(true, "正在读取主数据…");
     try {
-      const [catalog, gachaCatalog] = await Promise.all([
+      const [catalog, gachaCatalog, rewardCatalog] = await Promise.all([
         api("/api/admin/master-data/schedules"),
-        api("/api/admin/gacha-config")
+        api("/api/admin/gacha-config"),
+        api("/api/admin/reward-reference")
       ]);
       state.catalog = catalog;
       state.gachaCatalog = gachaCatalog;
+      state.rewardCatalog = rewardCatalog;
       resetGachaDraft();
       state.dirty.clear();
       state.pendingMasterChanges = null;
@@ -113,8 +128,10 @@
       showWorkspace();
       renderCatalog();
       renderGachaEditor();
+      initializeRewardFilters();
+      renderRewardReference();
       switchAdminSection(state.section);
-      showNotice(`已读取 ${state.catalog.primaryCount + state.catalog.relatedCount} 张配置表、${state.catalog.rowCount} 行内容，以及 ${state.gachaCatalog.weapons.length} 件 Gacha 武器。`);
+      showNotice(`已读取 ${state.catalog.tableCount} 张配置表、${state.catalog.rowCount} 行内容，以及 ${rewardReferenceCount()} 个奖励对象。`);
     } catch (error) {
       if (error.status === 401) {
         state.token = "";
@@ -188,8 +205,9 @@
 
   function configurationTables() {
     if (!state.catalog) return [];
-    const primary = state.section !== "related";
-    return state.catalog.tables.filter((table) => table.primary === primary);
+    if (state.section === "delivery") return state.catalog.tables.filter((table) => table.delivery);
+    if (state.section === "related") return state.catalog.tables.filter((table) => !table.primary && !table.delivery);
+    return state.catalog.tables.filter((table) => table.primary && !table.delivery);
   }
 
   function renderTypeFilters(table) {
@@ -970,6 +988,14 @@
   const availabilityLabels = { standard: "常驻", event: "活动", limited: "限定" };
   const weaponAttributeLabels = { 1: "暗", 2: "火", 3: "光", 5: "水", 6: "风" };
   const weaponTypeLabels = { 1: "小剑", 2: "枪", 3: "大剑", 4: "拳", 5: "杖", 6: "铳" };
+  const materialTypeLabels = {
+    10: "武器强化", 20: "服装强化", 30: "伙伴强化", 40: "武器技能强化",
+    50: "服装技能强化", 60: "通用技能强化", 70: "武器进化", 80: "武器突破",
+    90: "服装突破", 100: "角色面板解锁", 110: "服装觉醒", 120: "角色转生",
+    130: "武器觉醒", 140: "服装自定义效果解锁"
+  };
+  const rewardTypes = ["material", "weapon", "companion", "consumable", "free_gem"];
+  const rewardPageSizes = [25, 50, 100];
   const gachaGroupDefinitions = [
     { id: "character_weapon_4", grantType: "character_weapon", star: 4, label: "4星角色武器" },
     { id: "weapon_only_4", grantType: "weapon_only", star: 4, label: "4星武器" },
@@ -978,19 +1004,167 @@
     { id: "weapon_only_2", grantType: "weapon_only", star: 2, label: "2星武器", calculated: true }
   ];
 
+  function initializeRewardFilters() {
+    if (!state.rewardCatalog) return;
+    if (!rewardTypes.includes(elements.rewardType.value)) {
+      elements.rewardType.value = state.rewardCatalog.defaultType || "material";
+    }
+    populateRewardFilter(
+      elements.rewardMaterialType,
+      state.rewardCatalog.materials.map((item) => item.materialType),
+      (value) => materialTypeLabels[value] || `类型 ${value}`
+    );
+    populateRewardFilter(
+      elements.rewardWeaponAttribute,
+      state.rewardCatalog.weapons.map((item) => item.attributeType),
+      (value) => weaponAttributeLabels[value] || `属性 ${value}`
+    );
+    populateRewardFilter(
+      elements.rewardWeaponType,
+      state.rewardCatalog.weapons.map((item) => item.weaponType),
+      (value) => weaponTypeLabels[value] || `类型 ${value}`
+    );
+  }
+
+  function populateRewardFilter(select, values, labelForValue) {
+    const previous = select.value;
+    select.replaceChildren();
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = "全部";
+    select.append(all);
+    [...new Set(values.map(Number).filter(Number.isFinite))].sort((left, right) => left - right).forEach((value) => {
+      const option = document.createElement("option");
+      option.value = String(value);
+      option.textContent = `${labelForValue(value)}（${value}）`;
+      select.append(option);
+    });
+    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+  }
+
+  function renderRewardReference() {
+    if (!state.rewardCatalog) return;
+    const rewardType = elements.rewardType.value;
+    const isWeapon = rewardType === "weapon";
+    elements.rewardMaterialTypeLabel.classList.toggle("hidden", rewardType !== "material");
+    elements.rewardWeaponFilters.classList.toggle("hidden", !isWeapon);
+
+    const query = elements.rewardSearch.value.trim().toLocaleLowerCase();
+    const materialType = elements.rewardMaterialType.value;
+    const attributeType = elements.rewardWeaponAttribute.value;
+    const weaponType = elements.rewardWeaponType.value;
+    const grantCharacter = elements.rewardWeaponGrant.value;
+    const sources = {
+      material: state.rewardCatalog.materials,
+      weapon: state.rewardCatalog.weapons,
+      companion: state.rewardCatalog.companions,
+      consumable: state.rewardCatalog.consumableItems,
+      free_gem: state.rewardCatalog.freeGems
+    };
+    const source = sources[rewardType] || [];
+    const visible = source.filter((item) => {
+      if (rewardType === "material" && materialType && String(item.materialType) !== materialType) return false;
+      if (isWeapon && attributeType && String(item.attributeType) !== attributeType) return false;
+      if (isWeapon && weaponType && String(item.weaponType) !== weaponType) return false;
+      if (isWeapon && grantCharacter && String(Boolean(item.grantsCharacter)) !== grantCharacter) return false;
+      if (!query) return true;
+      return `${item.possessionId} ${localizedText(item.names)} ${Object.values(item.names || {}).join(" ")}`
+        .toLocaleLowerCase().includes(query);
+    });
+
+    const pageCount = Math.max(1, Math.ceil(visible.length / state.rewardPageSize));
+    state.rewardPage = Math.min(Math.max(1, state.rewardPage), pageCount);
+    state.rewardPageCount = pageCount;
+    const pageStart = (state.rewardPage - 1) * state.rewardPageSize;
+    const pageEnd = Math.min(pageStart + state.rewardPageSize, visible.length);
+    const rendered = visible.slice(pageStart, pageEnd);
+    elements.rewardReferenceList.replaceChildren();
+    rendered.forEach((item) => elements.rewardReferenceList.append(renderRewardReferenceCard(item, rewardType)));
+    elements.rewardReferenceList.scrollTop = 0;
+    elements.rewardVisibleCount.textContent = visible.length
+      ? `${visible.length.toLocaleString()} 项 · ${pageStart + 1}–${pageEnd}`
+      : "0 项";
+    elements.rewardPageInfo.textContent = `第 ${state.rewardPage.toLocaleString()} / ${pageCount.toLocaleString()} 页`;
+    elements.rewardPagePrevious.disabled = state.rewardPage === 1;
+    elements.rewardPageNext.disabled = state.rewardPage === pageCount;
+    elements.rewardReferenceEmpty.classList.toggle("hidden", visible.length !== 0);
+  }
+
+  function resetRewardPageAndRender() {
+    state.rewardPage = 1;
+    renderRewardReference();
+  }
+
+  function rewardReferenceCount() {
+    if (!state.rewardCatalog) return 0;
+    return ["materials", "weapons", "companions", "consumableItems", "freeGems"]
+      .reduce((count, key) => count + (state.rewardCatalog[key]?.length || 0), 0)
+      .toLocaleString();
+  }
+
+  function renderRewardReferenceCard(item, rewardType) {
+    const card = document.createElement("article");
+    card.className = "reward-reference-card";
+    const visual = document.createElement("div");
+    visual.className = "reward-reference-icon";
+    const image = document.createElement("img");
+    const fallbackNames = { material: "未命名道具", weapon: "未命名武器", companion: "未命名伙伴", consumable: "未命名消耗品", free_gem: "免费宝石" };
+    const name = localizedText(item.names) || fallbackNames[rewardType] || "未命名奖励";
+    image.alt = name;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.addEventListener("error", () => {
+      const fallback = document.createElement("span");
+      fallback.textContent = ({ material: "具", weapon: "武", companion: "伙", consumable: "消", free_gem: "石" })[rewardType] || "奖";
+      image.replaceWith(fallback);
+    });
+    image.src = `/admin/reward-icons/${item.iconPath.split("/").map(encodeURIComponent).join("/")}`;
+    visual.append(image);
+
+    const content = document.createElement("div");
+    content.className = "reward-reference-content";
+    const title = document.createElement("strong");
+    title.textContent = name;
+    const summary = document.createElement("span");
+    if (rewardType === "weapon") {
+      summary.textContent = `${weaponAttributeLabels[item.attributeType] || `属性 ${item.attributeType}`} · ${weaponTypeLabels[item.weaponType] || `类型 ${item.weaponType}`} · ${item.grantsCharacter ? "赠送角色" : "不赠送角色"}`;
+    } else if (rewardType === "material") {
+      summary.textContent = materialTypeLabels[item.materialType] || `类型 ${item.materialType}`;
+    } else if (rewardType === "companion") {
+      summary.textContent = weaponAttributeLabels[item.attributeType] || `属性 ${item.attributeType}`;
+    } else if (rewardType === "consumable") {
+      summary.textContent = `消耗品类型 ${item.consumableType}`;
+    } else {
+      summary.textContent = "免费宝石";
+    }
+    const identifiers = document.createElement("code");
+    identifiers.textContent = `Type=${item.possessionType} · ID=${item.possessionId}`;
+    content.append(title, summary, identifiers);
+    card.append(visual, content);
+    return card;
+  }
+
   function switchAdminSection(section) {
-    state.section = ["master", "related", "gacha"].includes(section) ? section : "master";
+    state.section = ["master", "related", "delivery", "gacha"].includes(section) ? section : "master";
     const isGacha = state.section === "gacha";
+    const isDelivery = state.section === "delivery";
     document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha));
     elements.gachaEditor.classList.toggle("hidden", !isGacha);
+    elements.rewardReference.classList.toggle("hidden", !isDelivery);
+    elements.masterLayout.classList.toggle("with-reward-reference", isDelivery);
     elements.tabMaster.classList.toggle("active", state.section === "master");
     elements.tabRelated.classList.toggle("active", state.section === "related");
+    elements.tabDelivery.classList.toggle("active", isDelivery);
     elements.tabGacha.classList.toggle("active", isGacha);
     elements.tabMaster.setAttribute("aria-pressed", String(state.section === "master"));
     elements.tabRelated.setAttribute("aria-pressed", String(state.section === "related"));
+    elements.tabDelivery.setAttribute("aria-pressed", String(isDelivery));
     elements.tabGacha.setAttribute("aria-pressed", String(isGacha));
     if (isGacha) renderGachaEditor();
-    else if (state.catalog) renderCatalog();
+    else if (state.catalog) {
+      renderCatalog();
+      if (isDelivery) renderRewardReference();
+    }
   }
 
   function resetGachaDraft() {
@@ -1572,6 +1746,7 @@
   elements.logout.addEventListener("click", () => {
     state.token = "";
     state.catalog = null;
+    state.rewardCatalog = null;
     state.gachaCatalog = null;
     state.gachaDraft = null;
     state.gachaDirty = false;
@@ -1582,6 +1757,7 @@
 
   elements.tabMaster.addEventListener("click", () => switchAdminSection("master"));
   elements.tabRelated.addEventListener("click", () => switchAdminSection("related"));
+  elements.tabDelivery.addEventListener("click", () => switchAdminSection("delivery"));
   elements.tabGacha.addEventListener("click", () => switchAdminSection("gacha"));
 
   elements.tableSelect.addEventListener("change", () => {
@@ -1599,6 +1775,29 @@
     localStorage.setItem("lunar-admin-language", state.language);
     renderTable();
     renderGachaEditor();
+    renderRewardReference();
+  });
+
+  elements.rewardType.addEventListener("change", resetRewardPageAndRender);
+  elements.rewardSearch.addEventListener("input", resetRewardPageAndRender);
+  elements.rewardMaterialType.addEventListener("change", resetRewardPageAndRender);
+  elements.rewardWeaponAttribute.addEventListener("change", resetRewardPageAndRender);
+  elements.rewardWeaponType.addEventListener("change", resetRewardPageAndRender);
+  elements.rewardWeaponGrant.addEventListener("change", resetRewardPageAndRender);
+  elements.rewardPageSize.addEventListener("change", () => {
+    const pageSize = Number(elements.rewardPageSize.value);
+    state.rewardPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;
+    resetRewardPageAndRender();
+  });
+  elements.rewardPagePrevious.addEventListener("click", () => {
+    if (state.rewardPage <= 1) return;
+    state.rewardPage -= 1;
+    renderRewardReference();
+  });
+  elements.rewardPageNext.addEventListener("click", () => {
+    if (state.rewardPage >= state.rewardPageCount) return;
+    state.rewardPage += 1;
+    renderRewardReference();
   });
   elements.search.addEventListener("input", renderTable);
   elements.modeButtons.forEach((button) => button.addEventListener("click", () => {

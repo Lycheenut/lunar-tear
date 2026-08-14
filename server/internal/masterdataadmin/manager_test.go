@@ -12,7 +12,7 @@ import (
 )
 
 func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
-	if got, want := len(activityTableSpecs), 36; got != want {
+	if got, want := len(activityTableSpecs), 37; got != want {
 		t.Fatalf("activity spec count = %d, want %d", got, want)
 	}
 	wantPrimary := map[string]bool{
@@ -39,6 +39,7 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_pvp_grade_group":                   true, "m_quest_campaign_target_group": true,
 		"m_quest_campaign_effect_group": true, "m_shop_item_cell_group": true,
 	}
+	wantDelivery := map[string]bool{"m_login_bonus_stamp": true}
 	seen := make(map[string]bool, len(activityTableSpecs))
 	primaryCount := 0
 	for _, spec := range activityTableSpecs {
@@ -49,7 +50,10 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		if spec.Primary != wantPrimary[spec.Name] {
 			t.Errorf("table %q primary = %v, want %v", spec.Name, spec.Primary, wantPrimary[spec.Name])
 		}
-		if !spec.Primary && !wantRelated[spec.Name] {
+		if spec.Delivery != wantDelivery[spec.Name] {
+			t.Errorf("table %q delivery = %v, want %v", spec.Name, spec.Delivery, wantDelivery[spec.Name])
+		}
+		if !spec.Primary && !spec.Delivery && !wantRelated[spec.Name] {
 			t.Errorf("unexpected related table %q", spec.Name)
 		}
 		if spec.Primary {
@@ -65,8 +69,8 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 	if primaryCount != len(wantPrimary) {
 		t.Fatalf("primary table count = %d, want %d", primaryCount, len(wantPrimary))
 	}
-	if len(seen)-primaryCount != len(wantRelated) {
-		t.Fatalf("related table count = %d, want %d", len(seen)-primaryCount, len(wantRelated))
+	if len(seen)-primaryCount-len(wantDelivery) != len(wantRelated) {
+		t.Fatalf("related table count = %d, want %d", len(seen)-primaryCount-len(wantDelivery), len(wantRelated))
 	}
 }
 
@@ -84,8 +88,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 16 {
-		t.Fatalf("loaded primary/related counts = %d/%d, want 20/16", catalog.PrimaryCount, catalog.RelatedCount)
+	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 1 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/16/1", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")
@@ -143,6 +147,58 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	}
 	if got != updated {
 		t.Fatalf("rebuilt value = %d, want %d", got, updated)
+	}
+}
+
+func TestLoginBonusStampIsDeliveryTableAndEditable(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table Table
+	for _, candidate := range catalog.Tables {
+		if candidate.Name == "m_login_bonus_stamp" {
+			table = candidate
+			break
+		}
+	}
+	if !table.Delivery || table.Primary || len(table.Rows) == 0 {
+		t.Fatalf("unexpected login bonus stamp table: delivery=%v primary=%v rows=%d", table.Delivery, table.Primary, len(table.Rows))
+	}
+	for index, field := range table.Fields {
+		if field.PrimaryKey != (index < 3) {
+			t.Fatalf("field %s primaryKey = %v, want %v", field.Name, field.PrimaryKey, index < 3)
+		}
+	}
+
+	row := table.Rows[0]
+	count, err := strconv.ParseInt(row.Values["RewardCount"], 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, _, err := BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes:         []Change{{Table: table.Name, Row: row.Index, Field: "RewardCount", Value: count + 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := rebuilt.TableRows(table.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := valueAsInt64(rows[row.Index][5]); err != nil || got != count+1 {
+		t.Fatalf("RewardCount = %d, %v; want %d", got, err, count+1)
 	}
 }
 

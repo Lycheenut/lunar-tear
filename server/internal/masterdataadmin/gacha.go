@@ -130,11 +130,7 @@ func LoadGachaEditorCatalog(
 }
 
 func weaponTitles(resolver *titleResolver, weapon masterdata.EntityMWeapon) map[string]string {
-	prefix := "wp"
-	if weapon.WeaponCategoryType == 2 {
-		prefix = "mw"
-	}
-	assetName := fmt.Sprintf("%s%03d%03d", prefix, weapon.WeaponType, weapon.AssetVariationId)
+	assetName := rewardWeaponAssetName(weapon)
 	for _, key := range []string{
 		"weapon.name.replace." + assetName + ".1",
 		"weapon.name." + assetName + ".1",

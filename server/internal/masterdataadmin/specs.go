@@ -24,6 +24,7 @@ type tableSpec struct {
 	Name       string
 	EntityName string
 	Primary    bool
+	Delivery   bool
 	Fields     []columnSpec
 	Times      []columnSpec
 }
@@ -59,6 +60,12 @@ func activityTable(name, entityName string, primaryKeyCount int, primary bool, f
 			spec.Times = append(spec.Times, field)
 		}
 	}
+	return spec
+}
+
+func deliveryTable(name, entityName string, primaryKeyCount int, fields ...columnSpec) tableSpec {
+	spec := activityTable(name, entityName, primaryKeyCount, false, fields...)
+	spec.Delivery = true
 	return spec
 }
 
@@ -122,4 +129,6 @@ var activityTableSpecs = []tableSpec{
 	activityTable("m_quest_campaign_target_group", "EntityMQuestCampaignTargetGroup", 2, false, field("QuestCampaignTargetGroupId", 0, "int"), field("QuestCampaignTargetIndex", 1, "int"), field("QuestCampaignTargetType", 2, "QuestCampaignTargetType"), field("QuestCampaignTargetValue", 3, "int")),
 	activityTable("m_quest_campaign_effect_group", "EntityMQuestCampaignEffectGroup", 1, false, field("QuestCampaignEffectGroupId", 0, "int"), field("QuestCampaignEffectType", 1, "QuestCampaignEffectType"), field("QuestCampaignEffectValue", 2, "int"), field("QuestCampaignTargetItemGroupId", 3, "int")),
 	activityTable("m_shop_item_cell_group", "EntityMShopItemCellGroup", 2, false, field("ShopItemCellGroupId", 0, "int"), field("ShopItemCellId", 1, "int"), field("SortOrder", 2, "int"), field("ShopItemCellTermId", 3, "int")),
+
+	deliveryTable("m_login_bonus_stamp", "EntityMLoginBonusStamp", 3, field("LoginBonusId", 0, "int"), field("LowerPageNumber", 1, "int"), field("StampNumber", 2, "int"), field("RewardPossessionType", 3, "PossessionType"), field("RewardPossessionId", 4, "int"), field("RewardCount", 5, "int")),
 }

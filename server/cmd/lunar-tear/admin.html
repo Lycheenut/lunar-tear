@@ -38,6 +38,7 @@
       <nav class="admin-tabs" aria-label="配置区域">
         <button id="tab-master" class="admin-tab active" type="button" aria-pressed="true">运营活动配置</button>
         <button id="tab-related" class="admin-tab" type="button" aria-pressed="false">关联表配置</button>
+        <button id="tab-delivery" class="admin-tab" type="button" aria-pressed="false">投放配置</button>
         <button id="tab-gacha" class="admin-tab" type="button" aria-pressed="false">Gacha 配置</button>
       </nav>
 
@@ -86,22 +87,82 @@
 
       <div id="notice" class="notice hidden" role="status"></div>
 
-      <section class="data-panel master-only">
-        <div class="data-heading">
-          <div>
-            <p id="entity-name" class="eyebrow"></p>
-            <h2 id="table-name">—</h2>
+      <div id="master-layout" class="master-layout master-only">
+        <section class="data-panel">
+          <div class="data-heading">
+            <div>
+              <p id="entity-name" class="eyebrow"></p>
+              <h2 id="table-name">—</h2>
+            </div>
+            <span id="visible-count" class="row-badge">0 行</span>
           </div>
-          <span id="visible-count" class="row-badge">0 行</span>
-        </div>
-        <div id="table-scroll" class="table-scroll">
-          <table id="schedule-table">
-            <thead id="schedule-head"></thead>
-            <tbody id="schedule-body"></tbody>
-          </table>
-        </div>
-        <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
-      </section>
+          <div id="table-scroll" class="table-scroll">
+            <table id="schedule-table">
+              <thead id="schedule-head"></thead>
+              <tbody id="schedule-body"></tbody>
+            </table>
+          </div>
+          <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
+        </section>
+
+        <aside id="reward-reference" class="reward-reference hidden" aria-label="奖励对象对照表">
+          <div class="reward-reference-heading">
+            <div>
+              <p class="eyebrow">REWARD REFERENCE</p>
+              <h2>奖励对象对照表</h2>
+            </div>
+            <span id="reward-visible-count" class="row-badge">0 项</span>
+          </div>
+          <div class="reward-reference-controls">
+            <label>展示类型
+              <select id="reward-type">
+                <option value="material" selected>道具</option>
+                <option value="weapon">武器</option>
+                <option value="companion">伙伴</option>
+                <option value="consumable">消耗品</option>
+                <option value="free_gem">免费宝石</option>
+              </select>
+            </label>
+            <label>搜索奖励
+              <input id="reward-search" type="search" placeholder="按名称或 ID 搜索">
+            </label>
+            <label id="reward-material-type-label">具体道具类型
+              <select id="reward-material-type"></select>
+            </label>
+            <div id="reward-weapon-filters" class="reward-weapon-filters hidden">
+              <label>属性
+                <select id="reward-weapon-attribute"></select>
+              </label>
+              <label>武器类型
+                <select id="reward-weapon-type"></select>
+              </label>
+              <label>赠送角色
+                <select id="reward-weapon-grant">
+                  <option value="">全部</option>
+                  <option value="true">是</option>
+                  <option value="false">否</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div id="reward-reference-list" class="reward-reference-list"></div>
+          <div id="reward-reference-empty" class="empty-state hidden">当前筛选条件下没有奖励对象。</div>
+          <div class="reward-reference-pagination">
+            <label>每页
+              <select id="reward-page-size">
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+            <div class="reward-page-navigation">
+              <button id="reward-page-previous" class="button ghost" type="button">上一页</button>
+              <span id="reward-page-info" aria-live="polite">第 1 / 1 页</span>
+              <button id="reward-page-next" class="button ghost" type="button">下一页</button>
+            </div>
+          </div>
+        </aside>
+      </div>
 
       <div class="savebar master-only">
         <div>
