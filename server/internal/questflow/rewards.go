@@ -2,6 +2,7 @@ package questflow
 
 import (
 	"log"
+	"math/rand"
 	"strconv"
 	"strings"
 
@@ -202,7 +203,56 @@ func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGra
 	}
 }
 
+func battleDropSeed(userId int64, questId int32, runSeed int64) int64 {
+	value := uint64(userId) ^ uint64(runSeed) ^ uint64(uint32(questId))*0x9e3779b97f4a7c15
+	value ^= value >> 30
+	value *= 0xbf58476d1ce4e5b9
+	value ^= value >> 27
+	value *= 0x94d049bb133111eb
+	value ^= value >> 31
+	return int64(value)
+}
+
+func (h *QuestHandler) battleDropPlan(user *store.UserState, questId int32, runSeed int64) []masterdata.BattleDropInfo {
+	quest, ok := h.QuestById[questId]
+	if !ok || quest.QuestPickupRewardGroupId == 0 {
+		return nil
+	}
+	candidates := h.BattleDropsByQuestId[questId]
+	pool := h.PickupRewardIdsByGroupId[quest.QuestPickupRewardGroupId]
+	if len(candidates) == 0 || len(pool) == 0 {
+		return nil
+	}
+
+	random := rand.New(rand.NewSource(battleDropSeed(user.UserId, questId, runSeed)))
+	plan := make([]masterdata.BattleDropInfo, 0, len(candidates))
+	for _, candidate := range candidates {
+		// The first draw determines what rarity the battle reveals. The actual
+		// reward is then drawn uniformly from that rarity's subset.
+		probeRewardId := pool[random.Intn(len(pool))]
+		effectId := h.BattleDropEffectIdByRewardId[probeRewardId]
+		subset := h.PickupRewardIdsByGroupAndEffectId[quest.QuestPickupRewardGroupId][effectId]
+		if len(subset) == 0 {
+			continue
+		}
+		candidate.BattleDropEffectId = effectId
+		candidate.BattleDropRewardId = subset[random.Intn(len(subset))]
+		plan = append(plan, candidate)
+	}
+	return plan
+}
+
 func (h *QuestHandler) computeDropRewards(user *store.UserState, questDef masterdata.EntityMQuest, target campaign.QuestTarget, nowMillis int64) []RewardGrant {
+	runSeed := user.Quests[questDef.QuestId].LatestStartDatetime
+	return h.computeDropRewardsForRun(user, questDef, target, nowMillis, runSeed)
+}
+
+func (h *QuestHandler) computeDropRewardsForRun(
+	user *store.UserState,
+	questDef masterdata.EntityMQuest,
+	target campaign.QuestTarget,
+	nowMillis, runSeed int64,
+) []RewardGrant {
 	var drops []RewardGrant
 	var dropRate campaign.DropRateMul
 	var dropCount campaign.DropCountMul
@@ -210,17 +260,17 @@ func (h *QuestHandler) computeDropRewards(user *store.UserState, questDef master
 		dropRate = h.Campaigns.QuestDropRate(target, h.campaignFilter(user, nowMillis))
 		dropCount = h.Campaigns.QuestDropCount(target, h.campaignFilter(user, nowMillis))
 	}
-	if questDef.QuestPickupRewardGroupId != 0 {
-		for _, dropId := range h.PickupRewardIdsByGroupId[questDef.QuestPickupRewardGroupId] {
-			if bdr, ok := h.BattleDropRewardById[dropId]; ok {
-				drops = append(drops, RewardGrant{
-					PossessionType: model.PossessionType(bdr.PossessionType),
-					PossessionId:   bdr.PossessionId,
-					Count:          dropCount.Apply(dropRate.Apply(bdr.Count)),
-				})
-			}
+	for _, planned := range h.battleDropPlan(user, questDef.QuestId, runSeed) {
+		if bdr, ok := h.BattleDropRewardById[planned.BattleDropRewardId]; ok {
+			drops = append(drops, RewardGrant{
+				PossessionType: model.PossessionType(bdr.PossessionType),
+				PossessionId:   bdr.PossessionId,
+				Count:          dropCount.Apply(dropRate.Apply(bdr.Count)),
+				RewardEffectId: planned.BattleDropEffectId,
+			})
 		}
 	}
+	drops = append(drops, h.questBonusDropRewards(user, questDef, nowMillis)...)
 	return h.appendBonusDrops(user, drops, target, nowMillis)
 }
 
@@ -256,14 +306,25 @@ func (h *QuestHandler) applyExpRewards(user *store.UserState, questId int32, now
 		log.Printf("[applyExpRewards] questId=%d skipping character/costume exp (deck not resolved)", questId)
 		return
 	}
+	characterBonusByCostume, costumeBonusByCostume := h.questBonusExpPermilByCostume(user, questDef, nowMillis)
+	characterBonusByCharacter := make(map[int32]int32)
+	for costumeUuid, bonusPermil := range characterBonusByCostume {
+		costume, ok := user.Costumes[costumeUuid]
+		if !ok {
+			continue
+		}
+		characterId := h.CostumeById[costume.CostumeId].CharacterId
+		characterBonusByCharacter[characterId] += bonusPermil
+	}
 
 	if questDef.CharacterExp != 0 {
 		for id := range deckCharacterIds {
 			row := user.Characters[id]
-			row.Exp += questDef.CharacterExp
+			gainedExp := int32(int64(questDef.CharacterExp) * int64(1000+characterBonusByCharacter[id]) / 1000)
+			row.Exp += gainedExp
 			row.Level, row.Exp = gameutil.LevelAndCap(row.Exp, h.CharacterExpThresholds)
 			user.Characters[id] = row
-			log.Printf("[applyExpRewards] questId=%d character=%d: +%d exp -> total=%d level=%d", questId, id, questDef.CharacterExp, row.Exp, row.Level)
+			log.Printf("[applyExpRewards] questId=%d character=%d: +%d exp -> total=%d level=%d", questId, id, gainedExp, row.Exp, row.Level)
 		}
 	}
 
@@ -283,41 +344,27 @@ func (h *QuestHandler) applyExpRewards(user *store.UserState, questId int32, now
 					continue
 				}
 			}
-			row.Exp += questDef.CostumeExp
+			gainedExp := int32(int64(questDef.CostumeExp) * int64(1000+costumeBonusByCostume[key]) / 1000)
+			row.Exp += gainedExp
 			if thresholds, ok := h.CostumeExpByRarity[cm.RarityType]; ok {
 				row.Level, row.Exp = gameutil.ApplyExpWithMaxLevel(row.Exp, thresholds, maxLevel)
 			}
 			user.Costumes[key] = row
-			log.Printf("[applyExpRewards] questId=%d costume=%d (key=%s): +%d exp -> total=%d level=%d", questId, row.CostumeId, key, questDef.CostumeExp, row.Exp, row.Level)
+			log.Printf("[applyExpRewards] questId=%d costume=%d (key=%s): +%d exp -> total=%d level=%d", questId, row.CostumeId, key, gainedExp, row.Exp, row.Level)
 		}
 	}
 }
 
 func (h *QuestHandler) resolveDeckUnits(user *store.UserState, questId int32) (costumeUuids map[string]bool, characterIds map[int32]bool) {
-	dn := user.Quests[questId].UserDeckNumber
-	if dn == 0 {
-		return nil, nil
-	}
-	deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: dn}]
-	if !ok {
-		return nil, nil
-	}
-
 	costumeUuids = make(map[string]bool)
 	characterIds = make(map[int32]bool)
-	for _, dcUuid := range []string{deck.UserDeckCharacterUuid01, deck.UserDeckCharacterUuid02, deck.UserDeckCharacterUuid03} {
-		if dcUuid == "" {
+	for _, unit := range h.questBonusDeckUnits(user, questId) {
+		if unit.costumeUuid == "" {
 			continue
 		}
-		dc, ok := user.DeckCharacters[dcUuid]
-		if !ok || dc.UserCostumeUuid == "" {
-			continue
-		}
-		costumeUuids[dc.UserCostumeUuid] = true
-		if costume, ok := user.Costumes[dc.UserCostumeUuid]; ok {
-			if cm, ok := h.CostumeById[costume.CostumeId]; ok {
-				characterIds[cm.CharacterId] = true
-			}
+		costumeUuids[unit.costumeUuid] = true
+		if unit.characterId != 0 {
+			characterIds[unit.characterId] = true
 		}
 	}
 
@@ -396,8 +443,8 @@ func (h *QuestHandler) applyCompanionTutorialReward(user *store.UserState, choic
 	}}
 }
 
-func (h *QuestHandler) BattleDropRewards(questId int32) []masterdata.BattleDropInfo {
-	return h.BattleDropsByQuestId[questId]
+func (h *QuestHandler) BattleDropRewards(user *store.UserState, questId int32) []masterdata.BattleDropInfo {
+	return h.battleDropPlan(user, questId, user.Quests[questId].LatestStartDatetime)
 }
 
 func (h *QuestHandler) grantWeaponStoryUnlocksForQuestScene(user *store.UserState, questId int32, resultType model.QuestResultType, nowMillis int64) []int32 {

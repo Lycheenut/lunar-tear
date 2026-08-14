@@ -4,12 +4,65 @@ import (
 	"fmt"
 	"sort"
 
+	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/utils"
+)
+
+const (
+	battleDropEffectNormal int32 = 1
+	battleDropEffectRare   int32 = 2
+	battleDropEffectHigh   int32 = 3
+
+	consumableItemTypeGachaTicket   int32 = 200
+	consumableItemTypeExploreTicket int32 = 201
+	consumableItemTypeQuestSkip     int32 = 202
+	consumableItemTypeEffect        int32 = 300
 )
 
 type BattleDropInfo struct {
 	QuestSceneId         int32
 	BattleDropCategoryId int32
+	BattleDropEffectId   int32
+	BattleDropRewardId   int32
+}
+
+type WeaponEvolutionInfo struct {
+	GroupId int32
+	Order   int32
+}
+
+func battleDropEffectId(
+	reward EntityMBattleDropReward,
+	materialRarity map[int32]int32,
+	partsById map[int32]EntityMParts,
+	consumableType map[int32]int32,
+) int32 {
+	var rarity int32
+	switch model.PossessionType(reward.PossessionType) {
+	case model.PossessionTypeMaterial:
+		rarity = materialRarity[reward.PossessionId]
+	case model.PossessionTypeParts, model.PossessionTypePartsEnhanced:
+		rarity = partsById[reward.PossessionId].RarityType
+	case model.PossessionTypeConsumableItem:
+		switch consumableType[reward.PossessionId] {
+		case consumableItemTypeGachaTicket, consumableItemTypeExploreTicket,
+			consumableItemTypeQuestSkip, consumableItemTypeEffect:
+			return battleDropEffectHigh
+		default:
+			return battleDropEffectNormal
+		}
+	case model.PossessionTypeFreeGem, model.PossessionTypePaidGem:
+		return battleDropEffectHigh
+	}
+
+	switch {
+	case rarity >= model.RaritySRare:
+		return battleDropEffectHigh
+	case rarity >= model.RarityRare:
+		return battleDropEffectRare
+	default:
+		return battleDropEffectNormal
+	}
 }
 
 type EventQuestDailyGroup struct {
@@ -50,7 +103,17 @@ type QuestCatalog struct {
 	SceneGrantsBySceneId               map[int32][]EntityMUserQuestSceneGrantPossession
 	BattleDropRewardById               map[int32]EntityMBattleDropReward
 	PickupRewardIdsByGroupId           map[int32][]int32
+	PickupRewardIdsByGroupAndEffectId  map[int32]map[int32][]int32
+	BattleDropEffectIdByRewardId       map[int32]int32
 	BattleDropsByQuestId               map[int32][]BattleDropInfo
+	QuestBonusById                     map[int32]EntityMQuestBonus
+	QuestBonusCharacterRowsByGroupId   map[int32][]EntityMQuestBonusCharacterGroup
+	QuestBonusWeaponRowsByGroupId      map[int32][]EntityMQuestBonusWeaponGroup
+	QuestBonusEffectsByGroupId         map[int32][]EntityMQuestBonusEffectGroup
+	QuestBonusDropByEffectId           map[int32]EntityMQuestBonusDropReward
+	QuestBonusExpByEffectId            map[int32]EntityMQuestBonusExp
+	QuestBonusTermsByGroupId           map[int32][]EntityMQuestBonusTermGroup
+	WeaponEvolutionByWeaponId          map[int32]WeaponEvolutionInfo
 	ReplayFlowRewardsByGroupId         map[int32][]EntityMQuestReplayFlowRewardGroup
 	RentalQuestIds                     map[int32]bool
 	TutorialUnlockConditions           []EntityMTutorialUnlockCondition
@@ -64,6 +127,7 @@ type QuestCatalog struct {
 	EventChapterById                   map[int32]EntityMEventQuestChapter
 	EventQuestIdsByChapterId           map[int32][]int32
 	EventQuestIdsByChapterSortOrder    map[int32]map[int32][]int32
+	LimitContentQuestIds               map[int32]bool
 	EventUnlockConditions              []EventQuestUnlockCondition
 	EventCharacterIdsByChapterId       map[int32]map[int32]bool
 	EventDailyGroups                   []EventQuestDailyGroup
@@ -206,6 +270,34 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load quest table: %w", err)
 	}
+	questBonuses, err := utils.ReadTable[EntityMQuestBonus]("m_quest_bonus")
+	if err != nil {
+		return nil, fmt.Errorf("load quest bonus table: %w", err)
+	}
+	questBonusCharacters, err := utils.ReadTable[EntityMQuestBonusCharacterGroup]("m_quest_bonus_character_group")
+	if err != nil {
+		return nil, fmt.Errorf("load quest bonus character table: %w", err)
+	}
+	questBonusWeapons, err := utils.ReadTable[EntityMQuestBonusWeaponGroup]("m_quest_bonus_weapon_group")
+	if err != nil {
+		return nil, fmt.Errorf("load quest bonus weapon table: %w", err)
+	}
+	questBonusEffects, err := utils.ReadTable[EntityMQuestBonusEffectGroup]("m_quest_bonus_effect_group")
+	if err != nil {
+		return nil, fmt.Errorf("load quest bonus effect table: %w", err)
+	}
+	questBonusDrops, err := utils.ReadTable[EntityMQuestBonusDropReward]("m_quest_bonus_drop_reward")
+	if err != nil {
+		return nil, fmt.Errorf("load quest bonus drop reward table: %w", err)
+	}
+	questBonusExps, err := utils.ReadTable[EntityMQuestBonusExp]("m_quest_bonus_exp")
+	if err != nil {
+		return nil, fmt.Errorf("load quest bonus exp table: %w", err)
+	}
+	questBonusTerms, err := utils.ReadTable[EntityMQuestBonusTermGroup]("m_quest_bonus_term_group")
+	if err != nil {
+		return nil, fmt.Errorf("load quest bonus term table: %w", err)
+	}
 
 	missionGroups, err := utils.ReadTable[EntityMQuestMissionGroup]("m_quest_mission_group")
 	if err != nil {
@@ -337,6 +429,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load weapon table: %w", err)
 	}
+	weaponEvolutions, err := utils.ReadTable[EntityMWeaponEvolutionGroup]("m_weapon_evolution_group")
+	if err != nil {
+		return nil, fmt.Errorf("load weapon evolution table: %w", err)
+	}
 
 	weaponSkillGroups, err := utils.ReadTable[EntityMWeaponSkillGroup]("m_weapon_skill_group")
 	if err != nil {
@@ -371,6 +467,14 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	battleDropRewards, err := utils.ReadTable[EntityMBattleDropReward]("m_battle_drop_reward")
 	if err != nil {
 		return nil, fmt.Errorf("load battle drop reward table: %w", err)
+	}
+	materials, err := utils.ReadTable[EntityMMaterial]("m_material")
+	if err != nil {
+		return nil, fmt.Errorf("load material table for battle drops: %w", err)
+	}
+	consumableItems, err := utils.ReadTable[EntityMConsumableItem]("m_consumable_item")
+	if err != nil {
+		return nil, fmt.Errorf("load consumable item table for battle drops: %w", err)
 	}
 
 	pickupRewardGroups, err := utils.ReadTable[EntityMQuestPickupRewardGroup]("m_quest_pickup_reward_group")
@@ -469,6 +573,13 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	for _, w := range weapons {
 		weaponById[w.WeaponId] = w
 	}
+	weaponEvolutionByWeaponId := make(map[int32]WeaponEvolutionInfo, len(weaponEvolutions))
+	for _, evolution := range weaponEvolutions {
+		weaponEvolutionByWeaponId[evolution.WeaponId] = WeaponEvolutionInfo{
+			GroupId: evolution.WeaponEvolutionGroupId,
+			Order:   evolution.EvolutionOrder,
+		}
+	}
 
 	skillSlots := make(map[int32][]int32)
 	for _, row := range weaponSkillGroups {
@@ -503,6 +614,43 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	questById := make(map[int32]EntityMQuest, len(quests))
 	for _, quest := range quests {
 		questById[quest.QuestId] = quest
+	}
+	questBonusById := make(map[int32]EntityMQuestBonus, len(questBonuses))
+	for _, bonus := range questBonuses {
+		questBonusById[bonus.QuestBonusId] = bonus
+	}
+	questBonusCharacterRowsByGroupId := make(map[int32][]EntityMQuestBonusCharacterGroup)
+	for _, row := range questBonusCharacters {
+		questBonusCharacterRowsByGroupId[row.QuestBonusCharacterGroupId] = append(
+			questBonusCharacterRowsByGroupId[row.QuestBonusCharacterGroupId], row)
+	}
+	questBonusWeaponRowsByGroupId := make(map[int32][]EntityMQuestBonusWeaponGroup)
+	for _, row := range questBonusWeapons {
+		questBonusWeaponRowsByGroupId[row.QuestBonusWeaponGroupId] = append(
+			questBonusWeaponRowsByGroupId[row.QuestBonusWeaponGroupId], row)
+	}
+	questBonusEffectsByGroupId := make(map[int32][]EntityMQuestBonusEffectGroup)
+	for _, row := range questBonusEffects {
+		questBonusEffectsByGroupId[row.QuestBonusEffectGroupId] = append(
+			questBonusEffectsByGroupId[row.QuestBonusEffectGroupId], row)
+	}
+	for groupId := range questBonusEffectsByGroupId {
+		rows := questBonusEffectsByGroupId[groupId]
+		sort.Slice(rows, func(i, j int) bool { return rows[i].SortOrder < rows[j].SortOrder })
+		questBonusEffectsByGroupId[groupId] = rows
+	}
+	questBonusDropByEffectId := make(map[int32]EntityMQuestBonusDropReward, len(questBonusDrops))
+	for _, row := range questBonusDrops {
+		questBonusDropByEffectId[row.QuestBonusEffectId] = row
+	}
+	questBonusExpByEffectId := make(map[int32]EntityMQuestBonusExp, len(questBonusExps))
+	for _, row := range questBonusExps {
+		questBonusExpByEffectId[row.QuestBonusEffectId] = row
+	}
+	questBonusTermsByGroupId := make(map[int32][]EntityMQuestBonusTermGroup)
+	for _, row := range questBonusTerms {
+		questBonusTermsByGroupId[row.QuestBonusTermGroupId] = append(
+			questBonusTermsByGroupId[row.QuestBonusTermGroupId], row)
 	}
 
 	missionIdsByGroupId := make(map[int32][]int32, len(missionGroups))
@@ -546,6 +694,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load event quest chapter table: %w", err)
 	}
+	eventLimitRelations, err := utils.ReadTable[EntityMEventQuestChapterLimitContentRelation]("m_event_quest_chapter_limit_content_relation")
+	if err != nil {
+		return nil, fmt.Errorf("load event quest limit content relation table: %w", err)
+	}
 	eventQuestTypeByChapterId := make(map[int32]int32, len(eventChapters))
 	eventChapterById := make(map[int32]EntityMEventQuestChapter, len(eventChapters))
 	for _, ec := range eventChapters {
@@ -572,6 +724,12 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		return nil, fmt.Errorf("load event quest sequences: %w", err)
 	}
 	eventQuestIdsByChapterId, eventQuestIdsByChapterSortOrder := buildEventQuestIndexes(eventChapters, eventSequenceGroups, eventSequences)
+	limitContentQuestIds := make(map[int32]bool)
+	for _, relation := range eventLimitRelations {
+		for _, questId := range eventQuestIdsByChapterId[relation.EventQuestChapterId] {
+			limitContentQuestIds[questId] = true
+		}
+	}
 	eventUnlockRows, err := utils.ReadTable[EntityMEventQuestUnlockCondition]("m_event_quest_unlock_condition")
 	if err != nil {
 		return nil, fmt.Errorf("load event unlock conditions: %w", err)
@@ -710,11 +868,35 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	for _, bdr := range battleDropRewards {
 		battleDropRewardById[bdr.BattleDropRewardId] = bdr
 	}
+	materialRarityById := make(map[int32]int32, len(materials))
+	for _, material := range materials {
+		materialRarityById[material.MaterialId] = material.RarityType
+	}
+	consumableTypeById := make(map[int32]int32, len(consumableItems))
+	for _, item := range consumableItems {
+		consumableTypeById[item.ConsumableItemId] = item.ConsumableItemType
+	}
+	partsById := map[int32]EntityMParts{}
+	if partsCatalog != nil {
+		partsById = partsCatalog.PartsById
+	}
+	battleDropEffectIdByRewardId := make(map[int32]int32, len(battleDropRewards))
+	for _, reward := range battleDropRewards {
+		battleDropEffectIdByRewardId[reward.BattleDropRewardId] = battleDropEffectId(
+			reward, materialRarityById, partsById, consumableTypeById)
+	}
 
 	pickupRewardIdsByGroupId := make(map[int32][]int32)
+	pickupRewardIdsByGroupAndEffectId := make(map[int32]map[int32][]int32)
 	for _, pg := range pickupRewardGroups {
 		pickupRewardIdsByGroupId[pg.QuestPickupRewardGroupId] = append(
 			pickupRewardIdsByGroupId[pg.QuestPickupRewardGroupId], pg.BattleDropRewardId)
+		if pickupRewardIdsByGroupAndEffectId[pg.QuestPickupRewardGroupId] == nil {
+			pickupRewardIdsByGroupAndEffectId[pg.QuestPickupRewardGroupId] = make(map[int32][]int32)
+		}
+		effectId := battleDropEffectIdByRewardId[pg.BattleDropRewardId]
+		pickupRewardIdsByGroupAndEffectId[pg.QuestPickupRewardGroupId][effectId] = append(
+			pickupRewardIdsByGroupAndEffectId[pg.QuestPickupRewardGroupId][effectId], pg.BattleDropRewardId)
 	}
 
 	battleGroupBySceneId := make(map[int32]int32, len(sceneBattles))
@@ -722,9 +904,14 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		battleGroupBySceneId[sb.QuestSceneId] = sb.BattleGroupId
 	}
 
-	battleIdsByGroupId := make(map[int32][]int32)
+	battleRowsByGroupId := make(map[int32][]EntityMBattleGroup)
 	for _, bg := range battleGroups {
-		battleIdsByGroupId[bg.BattleGroupId] = append(battleIdsByGroupId[bg.BattleGroupId], bg.BattleId)
+		battleRowsByGroupId[bg.BattleGroupId] = append(battleRowsByGroupId[bg.BattleGroupId], bg)
+	}
+	for groupId := range battleRowsByGroupId {
+		rows := battleRowsByGroupId[groupId]
+		sort.Slice(rows, func(i, j int) bool { return rows[i].WaveNumber < rows[j].WaveNumber })
+		battleRowsByGroupId[groupId] = rows
 	}
 
 	type npcDeckKey struct {
@@ -754,15 +941,14 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	battleDropsByQuestId := make(map[int32][]BattleDropInfo)
 	for questId := range questById {
 		sids := sceneIdsByQuestId[questId]
-		seen := make(map[BattleDropInfo]bool)
 		var drops []BattleDropInfo
 		for _, sceneId := range sids {
 			groupId, ok := battleGroupBySceneId[sceneId]
 			if !ok {
 				continue
 			}
-			for _, battleId := range battleIdsByGroupId[groupId] {
-				b, ok := battleByIdMap[battleId]
+			for _, battleRow := range battleRowsByGroupId[groupId] {
+				b, ok := battleByIdMap[battleRow.BattleId]
 				if !ok {
 					continue
 				}
@@ -780,10 +966,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 						continue
 					}
 					info := BattleDropInfo{QuestSceneId: sceneId, BattleDropCategoryId: catId}
-					if !seen[info] {
-						seen[info] = true
-						drops = append(drops, info)
-					}
+					drops = append(drops, info)
 				}
 			}
 		}
@@ -825,7 +1008,17 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		SceneGrantsBySceneId:               sceneGrantsBySceneId,
 		BattleDropRewardById:               battleDropRewardById,
 		PickupRewardIdsByGroupId:           pickupRewardIdsByGroupId,
+		PickupRewardIdsByGroupAndEffectId:  pickupRewardIdsByGroupAndEffectId,
+		BattleDropEffectIdByRewardId:       battleDropEffectIdByRewardId,
 		BattleDropsByQuestId:               battleDropsByQuestId,
+		QuestBonusById:                     questBonusById,
+		QuestBonusCharacterRowsByGroupId:   questBonusCharacterRowsByGroupId,
+		QuestBonusWeaponRowsByGroupId:      questBonusWeaponRowsByGroupId,
+		QuestBonusEffectsByGroupId:         questBonusEffectsByGroupId,
+		QuestBonusDropByEffectId:           questBonusDropByEffectId,
+		QuestBonusExpByEffectId:            questBonusExpByEffectId,
+		QuestBonusTermsByGroupId:           questBonusTermsByGroupId,
+		WeaponEvolutionByWeaponId:          weaponEvolutionByWeaponId,
 		ReplayFlowRewardsByGroupId:         replayFlowRewardsByGroupId,
 		RentalQuestIds:                     rentalQuestIds,
 		TutorialUnlockConditions:           tutorialUnlockConds,
@@ -839,6 +1032,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		EventChapterById:                   eventChapterById,
 		EventQuestIdsByChapterId:           eventQuestIdsByChapterId,
 		EventQuestIdsByChapterSortOrder:    eventQuestIdsByChapterSortOrder,
+		LimitContentQuestIds:               limitContentQuestIds,
 		EventUnlockConditions:              eventUnlockConditions,
 		EventCharacterIdsByChapterId:       eventCharacterIdsByChapterId,
 		EventDailyGroups:                   eventDailyGroups,

@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/store"
 )
@@ -20,8 +21,12 @@ func (s *QuestServiceServer) StartExtraQuest(ctx context.Context, req *pb.StartE
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	var validationErr error
+	var drops []masterdata.BattleDropInfo
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		validationErr = engine.HandleExtraQuestStart(user, req.QuestId, req.UserDeckNumber, nowMillis)
+		if validationErr == nil {
+			drops = engine.BattleDropRewards(user, req.QuestId)
+		}
 	})
 	if updateErr != nil {
 		return nil, fmt.Errorf("start extra quest: %w", updateErr)
@@ -30,18 +35,8 @@ func (s *QuestServiceServer) StartExtraQuest(ctx context.Context, req *pb.StartE
 		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
 	}
 
-	drops := engine.BattleDropRewards(req.QuestId)
-	pbDrops := make([]*pb.BattleDropReward, len(drops))
-	for i, d := range drops {
-		pbDrops[i] = &pb.BattleDropReward{
-			QuestSceneId:         d.QuestSceneId,
-			BattleDropCategoryId: d.BattleDropCategoryId,
-			BattleDropEffectId:   1,
-		}
-	}
-
 	return &pb.StartExtraQuestResponse{
-		BattleDropReward: pbDrops,
+		BattleDropReward: toProtoBattleDrops(drops),
 	}, nil
 }
 
@@ -87,6 +82,7 @@ func (s *QuestServiceServer) RestartExtraQuest(ctx context.Context, req *pb.Rest
 	var deckNumber int32
 	var battleBinary []byte
 	var validationErr error
+	var drops []masterdata.BattleDropInfo
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if err := engine.HandleExtraQuestRestart(user, req.QuestId, nowMillis); err != nil {
 			validationErr = err
@@ -94,6 +90,7 @@ func (s *QuestServiceServer) RestartExtraQuest(ctx context.Context, req *pb.Rest
 		}
 		deckNumber = user.Quests[req.QuestId].UserDeckNumber
 		battleBinary = battleCheckpoint(user)
+		drops = engine.BattleDropRewards(user, req.QuestId)
 	})
 	if updateErr != nil {
 		return nil, fmt.Errorf("restart extra quest: %w", updateErr)
@@ -102,18 +99,8 @@ func (s *QuestServiceServer) RestartExtraQuest(ctx context.Context, req *pb.Rest
 		return nil, status.Error(codes.FailedPrecondition, validationErr.Error())
 	}
 
-	drops := engine.BattleDropRewards(req.QuestId)
-	pbDrops := make([]*pb.BattleDropReward, len(drops))
-	for i, d := range drops {
-		pbDrops[i] = &pb.BattleDropReward{
-			QuestSceneId:         d.QuestSceneId,
-			BattleDropCategoryId: d.BattleDropCategoryId,
-			BattleDropEffectId:   1,
-		}
-	}
-
 	return &pb.RestartExtraQuestResponse{
-		BattleDropReward: pbDrops,
+		BattleDropReward: toProtoBattleDrops(drops),
 		BattleBinary:     battleBinary,
 		DeckNumber:       deckNumber,
 	}, nil

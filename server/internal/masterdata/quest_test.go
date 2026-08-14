@@ -6,7 +6,34 @@ import (
 	"testing"
 
 	"lunar-tear/server/internal/masterdata/memorydb"
+	"lunar-tear/server/internal/model"
 )
+
+func TestBattleDropEffectIdUsesRewardRarity(t *testing.T) {
+	materialRarity := map[int32]int32{101: model.RarityNormal, 102: model.RarityRare, 103: model.RaritySRare}
+	partsById := map[int32]EntityMParts{201: {PartsId: 201, RarityType: model.RarityRare}}
+	consumableType := map[int32]int32{301: consumableItemTypeGachaTicket, 302: 100}
+	tests := []struct {
+		name   string
+		reward EntityMBattleDropReward
+		want   int32
+	}{
+		{name: "normal material", reward: EntityMBattleDropReward{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 101}, want: battleDropEffectNormal},
+		{name: "rare material", reward: EntityMBattleDropReward{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 102}, want: battleDropEffectRare},
+		{name: "high material", reward: EntityMBattleDropReward{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 103}, want: battleDropEffectHigh},
+		{name: "rare parts", reward: EntityMBattleDropReward{PossessionType: int32(model.PossessionTypeParts), PossessionId: 201}, want: battleDropEffectRare},
+		{name: "ticket", reward: EntityMBattleDropReward{PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 301}, want: battleDropEffectHigh},
+		{name: "currency", reward: EntityMBattleDropReward{PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 302}, want: battleDropEffectNormal},
+		{name: "gem", reward: EntityMBattleDropReward{PossessionType: int32(model.PossessionTypeFreeGem), PossessionId: 1}, want: battleDropEffectHigh},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := battleDropEffectId(test.reward, materialRarity, partsById, consumableType); got != test.want {
+				t.Fatalf("battleDropEffectId() = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
 
 func TestBuildEventQuestIndexesUsesSequenceSortOrder(t *testing.T) {
 	chapters := []EntityMEventQuestChapter{
@@ -49,6 +76,18 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	catalog, err := LoadQuestCatalog(parts, resolver)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for groupId, rewardIds := range catalog.PickupRewardIdsByGroupId {
+		classifiedCount := 0
+		for effectId, subset := range catalog.PickupRewardIdsByGroupAndEffectId[groupId] {
+			if effectId < battleDropEffectNormal || effectId > battleDropEffectHigh {
+				t.Fatalf("pickup reward group %d has invalid drop effect %d", groupId, effectId)
+			}
+			classifiedCount += len(subset)
+		}
+		if classifiedCount != len(rewardIds) {
+			t.Fatalf("pickup reward group %d classified %d of %d rewards", groupId, classifiedCount, len(rewardIds))
+		}
 	}
 	for questId, wantDifficulty := range map[int32]int32{2: 1, 10001: 2, 20001: 3} {
 		if got := catalog.MainQuestDifficultyTypeByQuestId[questId]; got != wantDifficulty {
