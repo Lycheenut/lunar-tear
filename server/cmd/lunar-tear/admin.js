@@ -1233,7 +1233,7 @@
 
   function rewardReferenceOptionLabel(reference, definition) {
     const name = rewardReferenceName(reference, definition).replace(/\s*\n\s*/g, " ");
-    return `${name}（ID ${reference.possessionId}）`;
+    return `${name}（${reference.possessionId}）`;
   }
 
   function renderRewardIcon(reference, definition, className) {
