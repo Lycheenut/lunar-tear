@@ -731,9 +731,10 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   max-height: min(860px, calc(100vh - 32px));
   overflow: hidden;
 }
+.impact-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .impact-dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .impact-summary { max-width: 390px; margin: 0; text-align: right; }
-.impact-preview { display: grid; gap: 14px; max-height: calc(100vh - 250px); margin-top: 18px; overflow: auto; padding-right: 6px; }
+.impact-preview { display: grid; align-content: start; min-height: 0; gap: 14px; margin-top: 18px; overflow: auto; padding-right: 6px; }
 .impact-group { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #0d151a; }
 .impact-group > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #111c22; }
 .impact-group > header strong { font-size: 13px; }
