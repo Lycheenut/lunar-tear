@@ -2,6 +2,7 @@ package service
 
 import (
 	"math"
+	"sort"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,6 +28,75 @@ func finalizeEnhancementExp(baseExp int64, ratePermil int32, roll int) (int32, b
 		return 0, false, status.Error(codes.InvalidArgument, "enhancement experience is too large")
 	}
 	return int32(baseExp), isGreatSuccess, nil
+}
+
+type enhancementSelection struct {
+	count      int32
+	expPerUnit int64
+}
+
+type enhancementMaterialSelection struct {
+	materialId int32
+	enhancementSelection
+}
+
+func sortEnhancementMaterialSelections(selections []enhancementMaterialSelection) {
+	sort.Slice(selections, func(i, j int) bool {
+		if selections[i].expPerUnit != selections[j].expPerUnit {
+			return selections[i].expPerUnit > selections[j].expPerUnit
+		}
+		return selections[i].materialId < selections[j].materialId
+	})
+}
+
+func consumeEnhancementMaterials(selections []enhancementMaterialSelection, requiredExp, multiplier int64) (int64, int32, map[int32]int32) {
+	sortEnhancementMaterialSelections(selections)
+	consumptionSelections := make([]enhancementSelection, len(selections))
+	for i := range selections {
+		consumptionSelections[i] = selections[i].enhancementSelection
+	}
+	consumed, effectiveExp, consumedCount := consumeEnhancementSelections(consumptionSelections, requiredExp, multiplier)
+	surplus := make(map[int32]int32)
+	for i, selection := range selections {
+		if count := selection.count - consumed[i]; count > 0 {
+			surplus[selection.materialId] = count
+		}
+		selection.count = consumed[i]
+		selections[i] = selection
+	}
+	return effectiveExp, consumedCount, surplus
+}
+
+func consumeEnhancementSelections(selections []enhancementSelection, requiredExp, multiplier int64) ([]int32, int64, int32) {
+	consumed := make([]int32, len(selections))
+	var effectiveExp int64
+	var consumedCount int32
+	for i, selection := range selections {
+		if effectiveExp >= requiredExp {
+			break
+		}
+		effectiveExpPerUnit := selection.expPerUnit * multiplier
+		remainingExp := requiredExp - effectiveExp
+		count := int64(selection.count)
+		if needed := (remainingExp + effectiveExpPerUnit - 1) / effectiveExpPerUnit; count > needed {
+			count = needed
+		}
+		consumed[i] = int32(count)
+		consumedCount += int32(count)
+		effectiveExp += count * effectiveExpPerUnit
+	}
+	return consumed, effectiveExp, consumedCount
+}
+
+func enhancementExpCap(thresholds []int32, maxLevel int32) (int32, bool) {
+	if len(thresholds) == 0 {
+		return 0, false
+	}
+	capIndex := len(thresholds) - 1
+	if maxLevel > 0 && int(maxLevel) < len(thresholds) {
+		capIndex = int(maxLevel)
+	}
+	return thresholds[capIndex], true
 }
 
 func enhancementCampaignFilter(catalog *campaign.Catalog, user *store.UserState, nowMillis int64) campaign.Filter {
