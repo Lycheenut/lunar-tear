@@ -248,6 +248,9 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 
 	for i, item := range drawResult.Items {
 		isNew := !isOwnedByType(item, ownedCostumes, acquiredWeapons, updatedUser)
+		if item.PossessionType == weaponPT {
+			isNew = isNewWeaponInDraw(item.PossessionId, acquiredWeapons)
+		}
 
 		var oddsItem *pb.DrawGachaOddsItem
 
@@ -262,6 +265,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 				GachaItemBonus: &pb.GachaItem{},
 			}
 		} else if bonus, hasBonusWeapon := drawResult.BonusItems[i]; hasBonusWeapon {
+			bonusIsNew := isNewWeaponInDraw(bonus.PossessionId, acquiredWeapons)
 			oddsItem = &pb.DrawGachaOddsItem{
 				GachaItem: &pb.GachaItem{
 					PossessionType: costumePT,
@@ -273,7 +277,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 					PossessionType: weaponPT,
 					PossessionId:   bonus.PossessionId,
 					Count:          1,
-					IsNew:          !acquiredWeapons[bonus.PossessionId],
+					IsNew:          bonusIsNew,
 				},
 			}
 		} else {
@@ -743,6 +747,12 @@ func acquiredWeaponIds(user *store.UserState) map[int32]bool {
 		weaponIds[weaponId] = true
 	}
 	return weaponIds
+}
+
+func isNewWeaponInDraw(weaponId int32, acquiredWeapons map[int32]bool) bool {
+	isNew := !acquiredWeapons[weaponId]
+	acquiredWeapons[weaponId] = true
+	return isNew
 }
 
 func isOwnedByType(item gacha.DrawnItem, costumes, weapons map[int32]bool, user store.UserState) bool {

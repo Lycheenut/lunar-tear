@@ -1,16 +1,91 @@
 package service
 
 import (
+	"context"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
+	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/database"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
+	"lunar-tear/server/internal/store/sqlite"
+	"lunar-tear/server/migrations"
 )
+
+func TestGetGiftListPreservesPermanentExpirationOnWire(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrations.Up(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := sqlite.New(db, nil)
+	userID, err := repo.CreateUser("permanent-gift", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpdateUser(userID, func(user *store.UserState) {
+		user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
+			GiftCommon: store.GiftCommonState{
+				PossessionType: int32(model.PossessionTypeWeapon),
+				PossessionId:   1,
+				Count:          1,
+				GrantDatetime:  1,
+			},
+			UserGiftUuid: "permanent-gift-uuid",
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	masterData, err := os.ReadFile(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterDataPath := filepath.Join(t.TempDir(), "master-data.bin.e")
+	if err := os.WriteFile(masterDataPath, masterData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := runtime.NewHolder(masterDataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := NewGiftServiceServer(repo, nil, holder).GetGiftList(context.Background(), &pb.GetGiftListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := proto.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := &pb.GetGiftListResponse{}
+	if err := proto.Unmarshal(wire, decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Gift) != 1 {
+		t.Fatalf("gift count = %d, want 1", len(decoded.Gift))
+	}
+	expiration := decoded.Gift[0].ExpirationDatetime
+	if expiration == nil {
+		t.Fatal("permanent gift expiration was omitted from the protobuf payload")
+	}
+	if expiration.Seconds != 0 || expiration.Nanos != 0 {
+		t.Fatalf("permanent gift expiration = (%d,%d), want (0,0)", expiration.Seconds, expiration.Nanos)
+	}
+}
 
 func TestGrantGiftGrantsAssetsAndRejectsOverflow(t *testing.T) {
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})

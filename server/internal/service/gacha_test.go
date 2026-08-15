@@ -41,6 +41,17 @@ func TestAcquiredWeaponIdsIncludesSoldWeapons(t *testing.T) {
 	}
 }
 
+func TestIsNewWeaponInDrawMarksOnlyFirstDuplicateAsNew(t *testing.T) {
+	acquiredWeapons := map[int32]bool{}
+
+	if !isNewWeaponInDraw(100, acquiredWeapons) {
+		t.Fatal("first copy of an unacquired weapon was not new")
+	}
+	if isNewWeaponInDraw(100, acquiredWeapons) {
+		t.Fatal("second copy of the same weapon in one draw was new")
+	}
+}
+
 func TestAutoConvertExpiredMedalsUsesMedalDeadlineAndTarget(t *testing.T) {
 	const (
 		gachaId     = int32(614)
