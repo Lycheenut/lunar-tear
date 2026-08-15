@@ -1,6 +1,10 @@
 package masterdataadmin
 
-import "testing"
+import (
+	"testing"
+
+	"lunar-tear/server/internal/masterdata"
+)
 
 func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 	resolver := &titleResolver{texts: localizationIndex{
@@ -47,5 +51,31 @@ func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 	}, resolver)
 	if !ok || consumable.Names["en"] != "Gold Automata Medal" || consumable.IconPath != "consumable_item/consumable110004/consumable110004_standard.png" {
 		t.Fatalf("unexpected consumable reference: %+v", consumable)
+	}
+}
+
+func TestRewardWeaponIconPathUsesWeaponAssetNaming(t *testing.T) {
+	tests := []struct {
+		name   string
+		weapon masterdata.EntityMWeapon
+		want   string
+	}{
+		{
+			name:   "standard weapon",
+			weapon: masterdata.EntityMWeapon{WeaponCategoryType: 1, WeaponType: 3, AssetVariationId: 12},
+			want:   "weapon/wp003012/wp003012_standard.png",
+		},
+		{
+			name:   "special weapon",
+			weapon: masterdata.EntityMWeapon{WeaponCategoryType: 2, WeaponType: 5, AssetVariationId: 7},
+			want:   "weapon/mw005007/mw005007_standard.png",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := rewardWeaponIconPath(test.weapon); got != test.want {
+				t.Fatalf("rewardWeaponIconPath() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

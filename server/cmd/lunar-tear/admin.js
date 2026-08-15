@@ -1236,26 +1236,35 @@
     return `${name}（${reference.possessionId}）`;
   }
 
-  function renderRewardIcon(reference, definition, className) {
+  function renderAssetIcon(iconPath, alt, glyph, className) {
     const visual = document.createElement("div");
     visual.className = className;
     const fallback = () => {
-      const glyph = document.createElement("span");
-      glyph.textContent = definition?.glyph || "奖";
-      visual.replaceChildren(glyph);
+      const fallbackGlyph = document.createElement("span");
+      fallbackGlyph.textContent = glyph;
+      visual.replaceChildren(fallbackGlyph);
     };
-    if (!reference?.iconPath) {
+    if (!iconPath) {
       fallback();
       return visual;
     }
     const image = document.createElement("img");
-    image.alt = rewardReferenceName(reference, definition);
+    image.alt = alt;
     image.loading = "lazy";
     image.decoding = "async";
     image.addEventListener("error", fallback, { once: true });
-    image.src = `${imagePreviewBaseURL}/${reference.iconPath.split("/").map(encodeURIComponent).join("/")}`;
+    image.src = `${imagePreviewBaseURL}/${iconPath.split("/").map(encodeURIComponent).join("/")}`;
     visual.append(image);
     return visual;
+  }
+
+  function renderRewardIcon(reference, definition, className) {
+    return renderAssetIcon(
+      reference?.iconPath,
+      rewardReferenceName(reference, definition),
+      definition?.glyph || "奖",
+      className
+    );
   }
 
   function renderRewardReference() {
@@ -1536,9 +1545,13 @@
 
   function renderGachaWeaponRow(weapon) {
     const tr = document.createElement("tr");
+    const weaponName = gachaLocalizedText(weapon.weaponNames) || `#${weapon.weaponId}`;
+    const iconCell = document.createElement("td");
+    iconCell.append(renderAssetIcon(weapon.iconPath, weaponName, "武", "gacha-weapon-icon"));
     tr.append(
       makeCell("td", String(weapon.weaponId)),
-      makeCell("td", gachaLocalizedText(weapon.weaponNames) || `#${weapon.weaponId}`),
+      iconCell,
+      makeCell("td", weaponName),
       makeCell("td", gachaLocalizedText(weapon.costumeNames) || (weapon.costumeId ? `Costume #${weapon.costumeId}` : "—")),
       makeCell("td", weaponAttributeLabels[weapon.attributeType] || `#${weapon.attributeType}`),
       makeCell("td", weaponTypeLabels[weapon.weaponType] || `#${weapon.weaponType}`)

@@ -129,12 +129,11 @@ func weaponRewardReference(row []interface{}, resolver *titleResolver, character
 		RarityType:         int32(rarityType),
 		AttributeType:      int32(attributeType),
 	}
-	assetName := rewardWeaponAssetName(weapon)
 	return RewardReference{
 		PossessionType:  int32(model.PossessionTypeWeapon),
 		PossessionId:    int32(id),
 		Names:           weaponTitles(resolver, weapon),
-		IconPath:        path.Join("weapon", assetName, assetName+"_standard.png"),
+		IconPath:        rewardWeaponIconPath(weapon),
 		RarityType:      int32(rarityType),
 		WeaponType:      int32(weaponType),
 		AttributeType:   int32(attributeType),
@@ -187,4 +186,9 @@ func rewardWeaponAssetName(weapon masterdata.EntityMWeapon) string {
 		prefix = "mw"
 	}
 	return fmt.Sprintf("%s%03d%03d", prefix, weapon.WeaponType, weapon.AssetVariationId)
+}
+
+func rewardWeaponIconPath(weapon masterdata.EntityMWeapon) string {
+	assetName := rewardWeaponAssetName(weapon)
+	return path.Join("weapon", assetName, assetName+"_standard.png")
 }

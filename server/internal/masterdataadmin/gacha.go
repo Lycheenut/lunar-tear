@@ -15,6 +15,7 @@ import (
 type GachaWeaponReference struct {
 	WeaponId      int32             `json:"weaponId"`
 	WeaponNames   map[string]string `json:"weaponNames,omitempty"`
+	IconPath      string            `json:"iconPath"`
 	CostumeId     int32             `json:"costumeId,omitempty"`
 	CostumeNames  map[string]string `json:"costumeNames,omitempty"`
 	WeaponType    int32             `json:"weaponType"`
@@ -80,6 +81,7 @@ func LoadGachaEditorCatalog(
 		reference := GachaWeaponReference{
 			WeaponId:      weaponId,
 			WeaponNames:   weaponTitles(resolver, weapon),
+			IconPath:      rewardWeaponIconPath(weapon),
 			WeaponType:    weapon.WeaponType,
 			AttributeType: weapon.AttributeType,
 			Star:          rarityStar(poolItem.RarityType),
