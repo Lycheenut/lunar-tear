@@ -169,7 +169,7 @@ func (s *GiftServiceServer) GetGiftList(ctx context.Context, req *pb.GetGiftList
 	for _, gift := range gifts {
 		items = append(items, &pb.NotReceivedGift{
 			GiftCommon:         toProtoGiftCommon(gift.GiftCommon),
-			ExpirationDatetime: timestampOrNilGift(gift.ExpirationDatetime),
+			ExpirationDatetime: timestamppb.New(time.UnixMilli(gift.ExpirationDatetime)),
 			UserGiftUuid:       gift.UserGiftUuid,
 		})
 	}
