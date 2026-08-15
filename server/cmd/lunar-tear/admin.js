@@ -278,7 +278,7 @@
     const loginBonusTable = state.catalog?.tables.find((table) => table.name === "m_login_bonus");
     const loginBonus = loginBonusTable?.rows.find((row) => row.values.LoginBonusId === loginBonusID);
     const name = localizedText(loginBonus?.titles) || loginBonus?.values.LoginBonusAssetName;
-    return name ? `${name}（ID ${loginBonusID}）` : `ID ${loginBonusID}`;
+    return name ? `${name}（${loginBonusID}）` : `${loginBonusID}`;
   }
 
   function compareFieldValues(left, right) {
@@ -333,7 +333,7 @@
       const footnoteValues = (row.contentFootnotes || []).flatMap((footnote) => Object.values(footnote || {}));
       const artworkValues = (row.dokanImages || []).flatMap((image) => [image.contentIndex, image.imageId]);
       const haystack = [...Object.values(row.titles || {}), ...Object.values(row.contentBody || {}),
-        ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
+      ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
       return haystack.includes(query);
     });
 
