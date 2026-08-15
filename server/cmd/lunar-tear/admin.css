@@ -27,6 +27,8 @@ body {
     linear-gradient(180deg, #0d1418 0, var(--bg) 42rem);
 }
 
+html:has(.confirm-dialog[open]) { overflow: hidden; }
+
 button, input, select { font: inherit; }
 
 button { cursor: pointer; }
@@ -734,7 +736,7 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .impact-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .impact-dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .impact-summary { max-width: 390px; margin: 0; text-align: right; }
-.impact-preview { display: grid; align-content: start; min-height: 0; gap: 14px; margin-top: 18px; overflow: auto; padding-right: 6px; }
+.impact-preview { display: grid; align-content: start; min-height: 0; gap: 14px; margin-top: 18px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; scrollbar-gutter: stable; }
 .impact-group { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #0d151a; }
 .impact-group > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #111c22; }
 .impact-group > header strong { font-size: 13px; }
