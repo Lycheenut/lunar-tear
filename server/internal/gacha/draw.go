@@ -19,7 +19,19 @@ func DrawPremium(bp *PremiumBannerPool, count int, fixedRarityMin int32, fixedCo
 	return drawPremiumWithIntn(bp, count, fixedRarityMin, fixedCount, rateMultiplier, rand.Intn)
 }
 
+func DrawPremiumTenthSlot(bp *PremiumBannerPool, rateMultiplier float64) ([]DrawnItem, error) {
+	return drawPremiumTenthSlotWithIntn(bp, rateMultiplier, rand.Intn)
+}
+
+func drawPremiumTenthSlotWithIntn(bp *PremiumBannerPool, rateMultiplier float64, intn func(int) int) ([]DrawnItem, error) {
+	return drawPremiumWithOptions(bp, 1, 0, 0, rateMultiplier, true, intn)
+}
+
 func drawPremiumWithIntn(bp *PremiumBannerPool, count int, fixedRarityMin int32, fixedCount int, rateMultiplier float64, intn func(int) int) ([]DrawnItem, error) {
+	return drawPremiumWithOptions(bp, count, fixedRarityMin, fixedCount, rateMultiplier, false, intn)
+}
+
+func drawPremiumWithOptions(bp *PremiumBannerPool, count int, fixedRarityMin int32, fixedCount int, rateMultiplier float64, forceTenthSlot bool, intn func(int) int) ([]DrawnItem, error) {
 	if bp == nil {
 		return nil, fmt.Errorf("premium Gacha pool is not configured")
 	}
@@ -29,7 +41,7 @@ func drawPremiumWithIntn(bp *PremiumBannerPool, count int, fixedRarityMin int32,
 	for i := range count {
 		isGuaranteeSlot := fixedCount > 0 && i >= count-fixedCount
 		slotWeights := weights
-		if (i+1)%int(model.PremiumMultiPullCount) == 0 {
+		if forceTenthSlot || (i+1)%int(model.PremiumMultiPullCount) == 0 {
 			slotWeights = transferTwoStarWeightsToThreeStar(bp.Groups, weights)
 		}
 		minimumRarity := int32(0)

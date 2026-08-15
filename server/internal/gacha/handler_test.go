@@ -52,50 +52,73 @@ func TestHandleDrawRejectsOversizedRequestWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestHandleDrawConsumesGuaranteedFourStarWeaponTicket(t *testing.T) {
-	const weaponId int32 = 123
-	banner := &PremiumBannerPool{
-		GachaId: model.GachaIdGuaranteedFourStarWeapon,
-		Groups: []PremiumGroup{{
-			Id:        GroupWeaponOnly4,
-			GrantType: GrantWeaponOnly,
-			Rarity:    model.RaritySSRare,
-			Weight:    1,
-			NonPickup: []PoolItem{{WeaponId: weaponId, RarityType: model.RaritySSRare}},
-		}},
+func TestHandleDrawConsumesGuaranteedTickets(t *testing.T) {
+	tests := []struct {
+		name     string
+		gachaId  int32
+		ticketId int32
+		rarity   model.RarityType
+		weaponId int32
+		groups   []PremiumGroup
+	}{
+		{
+			name:     "three-star or higher",
+			gachaId:  model.GachaIdGuaranteedThreeStarOrHigher,
+			ticketId: model.ConsumableIdGuaranteedThreeStarOrHigherTicket,
+			rarity:   model.RaritySRare,
+			weaponId: 123,
+			groups: []PremiumGroup{
+				{Id: GroupWeaponOnly3, GrantType: GrantWeaponOnly, Star: 3, Rarity: model.RaritySRare, Weight: 1, NonPickup: []PoolItem{{WeaponId: 123, RarityType: model.RaritySRare}}},
+				{Id: GroupWeaponOnly2, GrantType: GrantWeaponOnly, Star: 2, Rarity: model.RarityRare, Weight: 100, NonPickup: []PoolItem{{WeaponId: 122, RarityType: model.RarityRare}}},
+			},
+		},
+		{
+			name:     "four-star",
+			gachaId:  model.GachaIdGuaranteedFourStar,
+			ticketId: model.ConsumableIdGuaranteedFourStarTicket,
+			rarity:   model.RaritySSRare,
+			weaponId: 124,
+			groups: []PremiumGroup{{
+				Id: GroupWeaponOnly4, GrantType: GrantWeaponOnly, Star: 4, Rarity: model.RaritySSRare, Weight: 1, NonPickup: []PoolItem{{WeaponId: 124, RarityType: model.RaritySSRare}},
+			}},
+		},
 	}
-	h := &GachaHandler{
-		Premium: &PremiumCatalog{Banners: map[int32]*PremiumBannerPool{
-			model.GachaIdGuaranteedFourStarWeapon: banner,
-		}},
-		Granter: &store.PossessionGranter{},
-	}
-	entry := store.GachaCatalogEntry{
-		GachaId:        model.GachaIdGuaranteedFourStarWeapon,
-		GachaLabelType: model.GachaLabelPremium,
-		PricePhases: []store.GachaPricePhaseEntry{{
-			PhaseId:        600031,
-			PriceType:      model.PriceTypeConsumableItem,
-			PriceId:        model.ConsumableIdGuaranteedFourStarWeaponTicket,
-			Price:          1,
-			DrawCount:      1,
-			FixedRarityMin: model.RaritySSRare,
-			FixedCount:     1,
-		}},
-	}
-	user := &store.UserState{}
-	user.EnsureMaps()
-	user.ConsumableItems[model.ConsumableIdGuaranteedFourStarWeaponTicket] = 1
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			banner := &PremiumBannerPool{GachaId: tt.gachaId, Groups: tt.groups}
+			h := &GachaHandler{
+				Premium: &PremiumCatalog{Banners: map[int32]*PremiumBannerPool{tt.gachaId: banner}},
+				Granter: &store.PossessionGranter{},
+			}
+			phaseId := tt.gachaId*model.PhaseIdMultiplier + 1
+			entry := store.GachaCatalogEntry{
+				GachaId:        tt.gachaId,
+				GachaLabelType: model.GachaLabelPremium,
+				PricePhases: []store.GachaPricePhaseEntry{{
+					PhaseId:        phaseId,
+					PriceType:      model.PriceTypeConsumableItem,
+					PriceId:        tt.ticketId,
+					Price:          1,
+					DrawCount:      1,
+					FixedRarityMin: tt.rarity,
+					FixedCount:     1,
+				}},
+			}
+			user := &store.UserState{}
+			user.EnsureMaps()
+			user.ConsumableItems[tt.ticketId] = 1
 
-	result, err := h.HandleDraw(user, entry, 600031, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if user.ConsumableItems[model.ConsumableIdGuaranteedFourStarWeaponTicket] != 0 {
-		t.Fatal("guaranteed weapon ticket was not consumed")
-	}
-	if len(result.Items) != 1 || result.Items[0].PossessionId != weaponId || result.Items[0].RarityType != model.RaritySSRare {
-		t.Fatalf("draw result = %+v, want four-star weapon %d", result.Items, weaponId)
+			result, err := h.HandleDraw(user, entry, phaseId, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if user.ConsumableItems[tt.ticketId] != 0 {
+				t.Fatalf("ticket %d was not consumed", tt.ticketId)
+			}
+			if len(result.Items) != 1 || result.Items[0].PossessionId != tt.weaponId || result.Items[0].RarityType != tt.rarity {
+				t.Fatalf("draw result = %+v, want rarity %d weapon %d", result.Items, tt.rarity, tt.weaponId)
+			}
+		})
 	}
 }
 

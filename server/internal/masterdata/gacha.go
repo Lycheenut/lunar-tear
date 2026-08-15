@@ -19,9 +19,11 @@ type GachaMedalInfo struct {
 
 const chapterGachaIdBase int32 = 200000
 
-// This ticket-only Gacha has no m_mom_banner row. Ticket 1003 maps to the
-// 60003 Gacha slot and its dedicated confirm_weapon client assets.
-const guaranteedFourStarWeaponGachaAssetName = "confirm_weapon"
+// These ticket-only Gachas have no m_mom_banner rows in this snapshot.
+const (
+	guaranteedThreeStarOrHigherGachaAssetName = "confirm_sr"
+	guaranteedFourStarGachaAssetName          = "confirm_ssr"
+)
 
 func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, error) {
 	medals, err := utils.ReadTable[EntityMGachaMedal]("m_gacha_medal")
@@ -151,7 +153,20 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 			DescriptionTextId:         descriptionTextId,
 		})
 	}
-	entries = append(entries, buildGuaranteedFourStarWeaponGacha())
+	entries = append(entries,
+		buildGuaranteedTicketGacha(
+			model.GachaIdGuaranteedThreeStarOrHigher,
+			model.ConsumableIdGuaranteedThreeStarOrHigherTicket,
+			guaranteedThreeStarOrHigherGachaAssetName,
+			model.RaritySRare,
+		),
+		buildGuaranteedTicketGacha(
+			model.GachaIdGuaranteedFourStar,
+			model.ConsumableIdGuaranteedFourStarTicket,
+			guaranteedFourStarGachaAssetName,
+			model.RaritySSRare,
+		),
+	)
 	seenGacha := make(map[int32]bool, len(entries))
 	for _, entry := range entries {
 		seenGacha[entry.GachaId] = true
@@ -200,26 +215,25 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 	return entries, medalInfoByGacha, nil
 }
 
-func buildGuaranteedFourStarWeaponGacha() store.GachaCatalogEntry {
-	gachaId := model.GachaIdGuaranteedFourStarWeapon
+func buildGuaranteedTicketGacha(gachaId, ticketId int32, assetName string, minimumRarity model.RarityType) store.GachaCatalogEntry {
 	return store.GachaCatalogEntry{
 		GachaId:                  gachaId,
 		GachaLabelType:           model.GachaLabelPremium,
 		GachaModeType:            model.GachaModeBasic,
 		GachaAutoResetType:       model.GachaAutoResetNone,
 		IsUserGachaUnlock:        true,
-		RequiredConsumableItemId: model.ConsumableIdGuaranteedFourStarWeaponTicket,
+		RequiredConsumableItemId: ticketId,
 		GachaDecorationType:      model.GachaDecorationNormal,
-		BannerAssetName:          guaranteedFourStarWeaponGachaAssetName,
+		BannerAssetName:          assetName,
 		GroupId:                  gachaId,
 		PricePhases: []store.GachaPricePhaseEntry{{
 			PhaseId:        gachaId*model.PhaseIdMultiplier + 1,
 			PriceType:      model.PriceTypeConsumableItem,
-			PriceId:        model.ConsumableIdGuaranteedFourStarWeaponTicket,
+			PriceId:        ticketId,
 			Price:          1,
 			RegularPrice:   1,
 			DrawCount:      1,
-			FixedRarityMin: model.RaritySSRare,
+			FixedRarityMin: minimumRarity,
 			FixedCount:     1,
 		}},
 	}
