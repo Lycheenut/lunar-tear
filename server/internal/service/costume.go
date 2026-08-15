@@ -166,6 +166,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 
 	var validationErr error
 	var isGreatSuccess bool
+	surplusEnhanceMaterial := make(map[int32]int32)
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		costume, ok := user.Costumes[req.UserCostumeUuid]
 		if !ok {
@@ -187,7 +188,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 
 		totalExp := int64(0)
 		totalMaterialCount := int32(0)
-		costs := make([]store.PossessionCost, 0, len(req.Materials)+1)
+		selections := make([]enhancementMaterialSelection, 0, len(req.Materials))
 		for materialId, count := range req.Materials {
 			if count <= 0 {
 				validationErr = status.Errorf(codes.InvalidArgument, "invalid material count for %d", materialId)
@@ -202,7 +203,6 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 				validationErr = status.Error(codes.InvalidArgument, "material count is too large")
 				return
 			}
-			costs = append(costs, materialCost(materialId, count))
 			totalMaterialCount += count
 
 			expPerUnit := int64(mat.EffectValue)
@@ -210,6 +210,20 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 				expPerUnit = expPerUnit * int64(config.MaterialSameWeaponExpCoefficientPermil) / 1000
 			}
 			totalExp += expPerUnit * int64(count)
+			selections = append(selections, enhancementMaterialSelection{
+				materialId: materialId,
+				enhancementSelection: enhancementSelection{
+					count:      count,
+					expPerUnit: expPerUnit,
+				},
+			})
+		}
+
+		thresholds, hasThresholds := catalog.ExpByRarity[cm.RarityType]
+		var maxLevel int32
+		if maxLevelFunc, hasMax := catalog.MaxLevelByRarity[cm.RarityType]; hasMax {
+			maxLevel = maxLevelFunc.Evaluate(costume.LimitBreakCount) +
+				cat.CharacterRebirth.CostumeLevelLimitUp(cm.CharacterId, user.CharacterRebirths[cm.CharacterId].RebirthCount)
 		}
 
 		greatSuccessRate := rateBonus.Apply(standardGreatSuccessRatePermil)
@@ -219,7 +233,22 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 			return
 		}
 		isGreatSuccess = greatSuccess
+		if expCap, hasCap := enhancementExpCap(thresholds, maxLevel); greatSuccess && hasCap {
+			effectiveExp, _, surplus := consumeEnhancementMaterials(
+				selections,
+				int64(expCap)-int64(costume.Exp),
+				greatSuccessExpMultiplier,
+			)
+			finalExp = int32(effectiveExp)
+			surplusEnhanceMaterial = surplus
+		}
 
+		costs := make([]store.PossessionCost, 0, len(selections)+1)
+		for _, selection := range selections {
+			if selection.count > 0 {
+				costs = append(costs, materialCost(selection.materialId, selection.count))
+			}
+		}
 		if costFunc, ok := catalog.EnhanceCostByRarity[cm.RarityType]; ok && totalMaterialCount > 0 {
 			goldCost := costFunc.Evaluate(totalMaterialCount)
 			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
@@ -232,12 +261,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 
 		costume.Exp += finalExp
 
-		if thresholds, ok := catalog.ExpByRarity[cm.RarityType]; ok {
-			var maxLevel int32
-			if maxLevelFunc, hasMax := catalog.MaxLevelByRarity[cm.RarityType]; hasMax {
-				maxLevel = maxLevelFunc.Evaluate(costume.LimitBreakCount) +
-					cat.CharacterRebirth.CostumeLevelLimitUp(cm.CharacterId, user.CharacterRebirths[cm.CharacterId].RebirthCount)
-			}
+		if hasThresholds {
 			costume.Level, costume.Exp = gameutil.ApplyExpWithMaxLevel(costume.Exp, thresholds, maxLevel)
 		}
 
@@ -254,7 +278,7 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 
 	return &pb.EnhanceResponse{
 		IsGreatSuccess:         isGreatSuccess,
-		SurplusEnhanceMaterial: map[int32]int32{},
+		SurplusEnhanceMaterial: surplusEnhanceMaterial,
 	}, nil
 }
 

@@ -85,6 +85,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 
 	var validationErr error
 	var isGreatSuccess bool
+	surplusEnhanceMaterial := make(map[int32]int32)
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -106,7 +107,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 
 		totalExp := int64(0)
 		totalMaterialCount := int32(0)
-		costs := make([]store.PossessionCost, 0, len(req.Materials)+1)
+		selections := make([]enhancementMaterialSelection, 0, len(req.Materials))
 		for materialId, count := range req.Materials {
 			if count <= 0 {
 				validationErr = status.Errorf(codes.InvalidArgument, "invalid material count for %d", materialId)
@@ -121,7 +122,6 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 				validationErr = status.Error(codes.InvalidArgument, "material count is too large")
 				return
 			}
-			costs = append(costs, materialCost(materialId, count))
 			totalMaterialCount += count
 
 			expPerUnit := int64(mat.EffectValue)
@@ -129,6 +129,20 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 				expPerUnit = expPerUnit * int64(config.MaterialSameWeaponExpCoefficientPermil) / 1000
 			}
 			totalExp += expPerUnit * int64(count)
+			selections = append(selections, enhancementMaterialSelection{
+				materialId: materialId,
+				enhancementSelection: enhancementSelection{
+					count:      count,
+					expPerUnit: expPerUnit,
+				},
+			})
+		}
+
+		levelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[weapon.WeaponId]
+		thresholds, hasThresholds := catalog.ExpByEnhanceId[levelingEnhanceId]
+		var maxLevel int32
+		if maxFunc, ok := catalog.MaxLevelByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
+			maxLevel = awakenedLevelCap(catalog, user, weapon, req.UserWeaponUuid, maxFunc.Evaluate(weapon.LimitBreakCount))
 		}
 
 		greatSuccessRate := rateBonus.Apply(standardGreatSuccessRatePermil)
@@ -138,7 +152,22 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 			return
 		}
 		isGreatSuccess = greatSuccess
+		if expCap, hasCap := enhancementExpCap(thresholds, maxLevel); greatSuccess && hasCap {
+			effectiveExp, _, surplus := consumeEnhancementMaterials(
+				selections,
+				int64(expCap)-int64(weapon.Exp),
+				greatSuccessExpMultiplier,
+			)
+			finalExp = int32(effectiveExp)
+			surplusEnhanceMaterial = surplus
+		}
 
+		costs := make([]store.PossessionCost, 0, len(selections)+1)
+		for _, selection := range selections {
+			if selection.count > 0 {
+				costs = append(costs, materialCost(selection.materialId, selection.count))
+			}
+		}
 		if costFunc, ok := catalog.GoldCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && totalMaterialCount > 0 {
 			goldCost := costFunc.Evaluate(totalMaterialCount)
 			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
@@ -150,12 +179,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 		}
 
 		weapon.Exp += finalExp
-		levelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[weapon.WeaponId]
-		if thresholds, ok := catalog.ExpByEnhanceId[levelingEnhanceId]; ok {
-			var maxLevel int32
-			if maxFunc, ok := catalog.MaxLevelByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
-				maxLevel = awakenedLevelCap(catalog, user, weapon, req.UserWeaponUuid, maxFunc.Evaluate(weapon.LimitBreakCount))
-			}
+		if hasThresholds {
 			weapon.Level, weapon.Exp = gameutil.ApplyExpWithMaxLevel(weapon.Exp, thresholds, maxLevel)
 		}
 
@@ -182,7 +206,7 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 
 	return &pb.EnhanceByMaterialResponse{
 		IsGreatSuccess:         isGreatSuccess,
-		SurplusEnhanceMaterial: map[int32]int32{},
+		SurplusEnhanceMaterial: surplusEnhanceMaterial,
 	}, nil
 }
 
@@ -747,6 +771,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 
 	var validationErr error
 	var isGreatSuccess bool
+	surplusEnhanceWeapon := make([]string, 0)
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		weapon, ok := user.Weapons[req.UserWeaponUuid]
 		if !ok {
@@ -772,6 +797,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 			validationErr = materialErr
 			return
 		}
+		selections := make([]enhancementSelection, 0, len(materialUUIDs))
 		for _, uuid := range materialUUIDs {
 			matWeapon := user.Weapons[uuid]
 
@@ -787,7 +813,16 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 				baseExp = baseExp * int64(config.MaterialSameWeaponExpCoefficientPermil) / 1000
 			}
 			totalExp += baseExp
+			selections = append(selections, enhancementSelection{count: 1, expPerUnit: baseExp})
 		}
+
+		levelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[weapon.WeaponId]
+		thresholds, hasThresholds := catalog.ExpByEnhanceId[levelingEnhanceId]
+		var maxLevel int32
+		if maxFunc, ok := catalog.MaxLevelByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
+			maxLevel = awakenedLevelCap(catalog, user, weapon, req.UserWeaponUuid, maxFunc.Evaluate(weapon.LimitBreakCount))
+		}
+
 		consumedCount := int32(len(materialUUIDs))
 		greatSuccessRate := rateBonus.Apply(standardGreatSuccessRatePermil)
 		finalExp, greatSuccess, outcomeErr := finalizeEnhancementExp(totalExp, greatSuccessRate, rand.Intn(1000))
@@ -796,8 +831,25 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 			return
 		}
 		isGreatSuccess = greatSuccess
+		if expCap, hasCap := enhancementExpCap(thresholds, maxLevel); greatSuccess && hasCap {
+			consumed, effectiveExp, count := consumeEnhancementSelections(
+				selections,
+				int64(expCap)-int64(weapon.Exp),
+				greatSuccessExpMultiplier,
+			)
+			consumedUUIDs := make([]string, 0, count)
+			for i, uuid := range materialUUIDs {
+				if consumed[i] == 0 {
+					surplusEnhanceWeapon = append(surplusEnhanceWeapon, uuid)
+				} else {
+					consumedUUIDs = append(consumedUUIDs, uuid)
+				}
+			}
+			materialUUIDs = consumedUUIDs
+			finalExp = int32(effectiveExp)
+		}
 
-		if costFunc, ok := catalog.EnhanceCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
+		if costFunc, ok := catalog.EnhanceCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && consumedCount > 0 {
 			goldCost := costFunc.Evaluate(consumedCount)
 			if err := deductUpgradeCosts(user, "weapon enhancement cost", []store.PossessionCost{
 				consumableCost(config.ConsumableItemIdForGold, goldCost),
@@ -823,12 +875,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 		}
 
 		weapon.Exp += finalExp
-		levelingEnhanceId := catalog.LevelingEnhanceIdByWeaponId[weapon.WeaponId]
-		if thresholds, ok := catalog.ExpByEnhanceId[levelingEnhanceId]; ok {
-			var maxLevel int32
-			if maxFunc, ok := catalog.MaxLevelByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
-				maxLevel = awakenedLevelCap(catalog, user, weapon, req.UserWeaponUuid, maxFunc.Evaluate(weapon.LimitBreakCount))
-			}
+		if hasThresholds {
 			weapon.Level, weapon.Exp = gameutil.ApplyExpWithMaxLevel(weapon.Exp, thresholds, maxLevel)
 		}
 
@@ -855,7 +902,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 
 	return &pb.EnhanceByWeaponResponse{
 		IsGreatSuccess:       isGreatSuccess,
-		SurplusEnhanceWeapon: []string{},
+		SurplusEnhanceWeapon: surplusEnhanceWeapon,
 	}, nil
 }
 
