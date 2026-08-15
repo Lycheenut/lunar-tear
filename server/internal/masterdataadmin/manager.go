@@ -58,15 +58,16 @@ type Table struct {
 }
 
 type Catalog struct {
-	Version         string   `json:"version"`
-	DefaultLanguage string   `json:"defaultLanguage"`
-	Languages       []string `json:"languages"`
-	TableCount      int      `json:"tableCount"`
-	PrimaryCount    int      `json:"primaryCount"`
-	RelatedCount    int      `json:"relatedCount"`
-	DeliveryCount   int      `json:"deliveryCount"`
-	RowCount        int      `json:"rowCount"`
-	Tables          []Table  `json:"tables"`
+	Version         string               `json:"version"`
+	DefaultLanguage string               `json:"defaultLanguage"`
+	Languages       []string             `json:"languages"`
+	TableCount      int                  `json:"tableCount"`
+	PrimaryCount    int                  `json:"primaryCount"`
+	RelatedCount    int                  `json:"relatedCount"`
+	DeliveryCount   int                  `json:"deliveryCount"`
+	RowCount        int                  `json:"rowCount"`
+	Tables          []Table              `json:"tables"`
+	MissionSources  MissionSourceCatalog `json:"missionSources"`
 }
 
 type Change struct {
@@ -244,6 +245,7 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 		Version:         file.Version(),
 		DefaultLanguage: "en",
 		Languages:       append([]string(nil), supportedLanguages...),
+		MissionSources:  loadMissionSources(file, resolver),
 	}
 	for _, spec := range activityTableSpecs {
 		rows, exists, err := file.TableRows(spec.Name)

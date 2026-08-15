@@ -12,7 +12,7 @@ import (
 )
 
 func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
-	if got, want := len(activityTableSpecs), 37; got != want {
+	if got, want := len(activityTableSpecs), 38; got != want {
 		t.Fatalf("activity spec count = %d, want %d", got, want)
 	}
 	wantPrimary := map[string]bool{
@@ -39,7 +39,7 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_pvp_grade_group":                   true, "m_quest_campaign_target_group": true,
 		"m_quest_campaign_effect_group": true, "m_shop_item_cell_group": true,
 	}
-	wantDelivery := map[string]bool{"m_login_bonus_stamp": true}
+	wantDelivery := map[string]bool{"m_login_bonus_stamp": true, "m_mission_reward": true}
 	seen := make(map[string]bool, len(activityTableSpecs))
 	primaryCount := 0
 	for _, spec := range activityTableSpecs {
@@ -88,8 +88,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 1 {
-		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/16/1", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
+	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 2 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/16/2", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")
@@ -199,6 +199,102 @@ func TestLoginBonusStampIsDeliveryTableAndEditable(t *testing.T) {
 	}
 	if got, err := valueAsInt64(rows[row.Index][5]); err != nil || got != count+1 {
 		t.Fatalf("RewardCount = %d, %v; want %d", got, err, count+1)
+	}
+}
+
+func TestMissionRewardIsDeliveryTableWithLocalizedSources(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table Table
+	var termTable Table
+	for _, candidate := range catalog.Tables {
+		if candidate.Name == "m_mission_reward" {
+			table = candidate
+		}
+		if candidate.Name == "m_mission_term" {
+			termTable = candidate
+		}
+	}
+	if !table.Delivery || table.Primary || len(table.Rows) == 0 {
+		t.Fatalf("unexpected mission reward table: delivery=%v primary=%v rows=%d", table.Delivery, table.Primary, len(table.Rows))
+	}
+	for index, field := range table.Fields {
+		if field.PrimaryKey != (index == 0) {
+			t.Fatalf("field %s primaryKey = %v, want %v", field.Name, field.PrimaryKey, index == 0)
+		}
+	}
+	if table.Fields[1].Name != "PossessionType" || table.Fields[1].Type != "PossessionType" || table.Fields[2].Name != "PossessionId" {
+		t.Fatalf("mission reward fields do not expose the shared reward editor pair: %+v", table.Fields)
+	}
+	if len(catalog.MissionSources.Groups) == 0 || len(catalog.MissionSources.Missions) == 0 {
+		t.Fatal("mission source catalog is empty")
+	}
+	groupByID := make(map[int64]MissionGroupSource)
+	for _, group := range catalog.MissionSources.Groups {
+		groupByID[group.MissionGroupID] = group
+	}
+	rewardIDs := make(map[string]bool)
+	for _, row := range table.Rows {
+		rewardIDs[row.Values["MissionRewardId"]] = true
+	}
+	localizedGroup := false
+	localizedMission := false
+	termIDs := make(map[int64]bool)
+	for _, row := range termTable.Rows {
+		termID, err := strconv.ParseInt(row.Values["MissionTermId"], 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		termIDs[termID] = true
+	}
+	termSourceFound := false
+	for _, group := range catalog.MissionSources.Groups {
+		localizedGroup = localizedGroup || group.Names["en"] != "" && group.Names["ja"] != "" && group.Names["ko"] != ""
+	}
+	for _, mission := range catalog.MissionSources.Missions {
+		if _, ok := groupByID[mission.MissionGroupID]; !ok {
+			t.Fatalf("mission %d references missing group %d", mission.MissionID, mission.MissionGroupID)
+		}
+		if !rewardIDs[strconv.FormatInt(mission.MissionRewardID, 10)] {
+			t.Fatalf("mission %d references missing reward %d", mission.MissionID, mission.MissionRewardID)
+		}
+		localizedMission = localizedMission || mission.Names["en"] != "" && mission.Names["ja"] != "" && mission.Names["ko"] != ""
+		termSourceFound = termSourceFound || termIDs[mission.MissionTermID]
+	}
+	if !localizedGroup || !localizedMission || !termSourceFound {
+		t.Fatalf("mission sources missing: group=%v mission=%v term=%v", localizedGroup, localizedMission, termSourceFound)
+	}
+
+	row := table.Rows[0]
+	count, err := strconv.ParseInt(row.Values["Count"], 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, _, err := BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes:         []Change{{Table: table.Name, Row: row.Index, Field: "Count", Value: count + 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := rebuilt.TableRows(table.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := valueAsInt64(rows[row.Index][3]); err != nil || got != count+1 {
+		t.Fatalf("Count = %d, %v; want %d", got, err, count+1)
 	}
 }
 

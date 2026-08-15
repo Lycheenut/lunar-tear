@@ -68,6 +68,11 @@
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
   const languageLabels = { en: "English", ja: "日本語", ko: "한국어" };
+  const missionCategoryLabels = {
+    "1": "每日任务", "2": "挑战任务", "3": "特殊任务", "4": "WebView 任务",
+    "5": "完成任务", "6": "商店购买任务", "7": "条件评估任务", "8": "妈妈积分任务",
+    "9": "任务通行证 · 每日", "10": "任务通行证 · 特殊"
+  };
   const simpleFieldNames = {
     m_beginner_campaign: ["BeginnerCampaignId", "GrantCampaignTermDayCount", "CampaignUnlockQuestId"],
     m_big_hunt_schedule: ["BigHuntScheduleId"],
@@ -211,8 +216,13 @@
   }
 
   function displayedTableFields(table) {
-    if (table.name !== "m_login_bonus_stamp") return table.fields;
-    return table.fields.filter((field) => !["LoginBonusId", "LowerPageNumber"].includes(field.name));
+    if (table.name === "m_login_bonus_stamp") {
+      return table.fields.filter((field) => !["LoginBonusId", "LowerPageNumber"].includes(field.name));
+    }
+    if (table.name === "m_mission_reward") {
+      return table.fields.filter((field) => field.name !== "MissionRewardId");
+    }
+    return table.fields;
   }
 
   function renderTypeFilters(table) {
@@ -220,6 +230,11 @@
     elements.typeFilters.replaceChildren();
     if (table?.name === "m_login_bonus_stamp") {
       renderLoginBonusStampFilters(table, previous);
+      elements.typeFilters.classList.remove("hidden");
+      return;
+    }
+    if (["m_mission_reward", "m_mission_term"].includes(table?.name)) {
+      renderMissionSourceFilters(table, previous);
       elements.typeFilters.classList.remove("hidden");
       return;
     }
@@ -281,6 +296,103 @@
     return name ? `${name}（${loginBonusID}）` : `${loginBonusID}`;
   }
 
+  function renderMissionSourceFilters(table, previous) {
+    const sourceCatalog = state.catalog?.missionSources || { groups: [], missions: [] };
+    const sourceMissions = missionSourcesForTable(table);
+    const sourceGroupIDs = new Set(sourceMissions.map((mission) => String(mission.missionGroupId)));
+    const sourceGroups = sourceCatalog.groups.filter((group) => sourceGroupIDs.has(String(group.missionGroupId)));
+    const categoryValues = [...new Set(sourceGroups.map((group) => String(group.missionCategoryType)))];
+    categoryValues.sort(compareFieldValues);
+    const categorySelect = appendMissionSourceFilter(
+      "任务类别", "MissionCategoryType", categoryValues,
+      (value) => `${missionCategoryLabels[value] || `任务类别 ${value}`}（${value}）`,
+      previous.get("MissionCategoryType"), () => renderTypeFilters(table)
+    );
+    const categoryType = categorySelect?.value;
+    const groups = sourceGroups.filter((group) => String(group.missionCategoryType) === categoryType);
+    const groupValues = groups.map((group) => String(group.missionGroupId));
+    let groupID = groupValues[0];
+    if (groupValues.length > 1) {
+      const groupByID = new Map(groups.map((group) => [String(group.missionGroupId), group]));
+      const groupSelect = appendMissionSourceFilter(
+        "任务组", "MissionGroupId", groupValues,
+        (value) => missionGroupSourceLabel(groupByID.get(value)),
+        previous.get("MissionGroupId"), () => renderTypeFilters(table)
+      );
+      groupID = groupSelect?.value;
+    }
+    const missions = sourceMissions.filter((mission) => String(mission.missionGroupId) === groupID);
+    appendMissionSourceFilter(
+      "任务", "MissionId", missions.map((mission) => String(mission.missionId)),
+      (value) => missionSourceLabel(missions.find((mission) => String(mission.missionId) === value)),
+      previous.get("MissionId"), renderTable
+    );
+  }
+
+  function missionSourcesForTable(table) {
+    const sources = state.catalog?.missionSources?.missions || [];
+    const sourceField = table.name === "m_mission_reward" ? "MissionRewardId" : "MissionTermId";
+    const sourceIDs = new Set(table.rows.map((row) => row.values[sourceField]));
+    return sources.filter((mission) => sourceIDs.has(String(
+      table.name === "m_mission_reward" ? mission.missionRewardId : mission.missionTermId
+    )));
+  }
+
+  function appendMissionSourceFilter(labelText, field, values, optionLabel, previous, onChange) {
+    if (!values.length) return null;
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    const select = document.createElement("select");
+    select.dataset.field = field;
+    select.dataset.sourceFilter = "mission";
+    values.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = optionLabel(value);
+      select.append(option);
+    });
+    if (values.includes(previous)) select.value = previous;
+    select.addEventListener("change", onChange);
+    label.append(select);
+    elements.typeFilters.append(label);
+    return select;
+  }
+
+  function missionGroupSourceLabel(group) {
+    if (!group) return "未知任务组";
+    const name = localizedText(group.names) || "未命名任务组";
+    return `${name}（${group.missionGroupId}）`;
+  }
+
+  function missionSourceLabel(mission) {
+    if (!mission) return "未知任务";
+    const name = localizedInlineText(mission.names) || "未命名任务";
+    return `${name}（${mission.missionId}）`;
+  }
+
+  function selectedMissionSource() {
+    const select = elements.typeFilters.querySelector('select[data-field="MissionId"][data-source-filter="mission"]');
+    if (!select) return null;
+    return state.catalog?.missionSources?.missions.find(
+      (mission) => String(mission.missionId) === select.value
+    ) || null;
+  }
+
+  function hasMissionSource(table) {
+    return ["m_mission_reward", "m_mission_term"].includes(table.name);
+  }
+
+  function missionSourceMatchesRow(table, row, source) {
+    if (!source) return false;
+    if (table.name === "m_mission_reward") {
+      return row.values.MissionRewardId === String(source.missionRewardId);
+    }
+    if (table.name === "m_mission_term") {
+      return row.values.MissionTermId === String(source.missionTermId);
+    }
+    return true;
+  }
+
   function compareFieldValues(left, right) {
     const leftNumber = Number(left);
     const rightNumber = Number(right);
@@ -304,6 +416,8 @@
     elements.tableName.textContent = tableDisplayName(table);
     elements.modeControl.classList.toggle("hidden", !table.primary);
     elements.scheduleTable.classList.toggle("detail-mode", detailed);
+    elements.scheduleTable.classList.toggle("mission-source-table", hasMissionSource(table));
+    elements.scheduleTable.classList.toggle("mission-reward-table", table.name === "m_mission_reward");
     syncModeToggle();
     elements.head.replaceChildren();
     elements.body.replaceChildren();
@@ -312,17 +426,19 @@
     const statusFilter = elements.statusFilter.value;
     const hasSchedule = (table.pairs || []).length > 0;
     const hasArtwork = table.name === "m_dokan";
-    const hasContent = table.name === "m_mom_banner"
+    const hasContent = table.name !== "m_mission_term" && (table.name === "m_mom_banner"
       || table.rows.some((row) => Object.keys(row.titles || {}).length > 0
         || Object.keys(row.contentBody || {}).length > 0
-        || (row.contentFootnotes || []).length > 0);
+        || (row.contentFootnotes || []).length > 0));
     const displayedFields = displayedTableFields(table);
+    const missionSource = hasMissionSource(table) ? selectedMissionSource() : null;
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
-      .filter((select) => select.value !== "")
+      .filter((select) => select.value !== "" && select.dataset.sourceFilter !== "mission")
       .map((select) => ({ field: select.dataset.field, value: select.value }));
     const visibleRows = table.rows.filter((row) => {
       if (hasSchedule && statusFilter !== "all" && rowStatus(table, row) !== statusFilter) return false;
+      if (hasMissionSource(table) && !missionSourceMatchesRow(table, row, missionSource)) return false;
       if (typeFilters.some((filter) => effectiveValue(table.name, row, filter.field) !== filter.value)) return false;
       if (!query) return true;
       const relationValues = (row.shopRelations || []).flatMap((relation) => [
@@ -332,14 +448,18 @@
       const fieldValues = table.fields.flatMap((field) => [field.name, effectiveValue(table.name, row, field.name)]);
       const footnoteValues = (row.contentFootnotes || []).flatMap((footnote) => Object.values(footnote || {}));
       const artworkValues = (row.dokanImages || []).flatMap((image) => [image.contentIndex, image.imageId]);
+      const missionSourceValues = missionSource
+        ? [missionSource.missionId, missionSource.requirementCount, ...Object.values(missionSource.names || {})]
+        : [];
       const haystack = [...Object.values(row.titles || {}), ...Object.values(row.contentBody || {}),
       ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
-      return haystack.includes(query);
+      return `${haystack} ${missionSourceValues.join(" ")}`.toLocaleLowerCase().includes(query);
     });
 
     if (!detailed) {
       const headerRow = document.createElement("tr");
-      ["ID", "内容"].forEach((label) => headerRow.append(makeCell("th", label)));
+      (table.name === "m_mission_term" ? ["ID", "任务名称", "任务要求数"] : ["ID", "内容"])
+        .forEach((label) => headerRow.append(makeCell("th", label)));
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       ["状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
       simpleTimeFields(table).forEach((field) => headerRow.append(makeCell("th", field.name)));
@@ -350,6 +470,13 @@
       if (hasContent) headerRow.append(makeCell("th", "内容"));
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       if (hasSchedule) headerRow.append(makeCell("th", "状态"));
+      if (hasMissionSource(table)) {
+        const missionNameHeader = makeCell("th", "任务名称");
+        missionNameHeader.dataset.field = "MissionName";
+        const requirementHeader = makeCell("th", "任务要求数");
+        requirementHeader.dataset.field = "RequirementCount";
+        headerRow.append(missionNameHeader, requirementHeader);
+      }
       displayedFields.forEach((field) => {
         const header = makeCell("th", field.name);
         header.dataset.field = field.name;
@@ -377,6 +504,17 @@
       statusCell.append(renderStatus(rowStatus(table, row)));
       tr.append(statusCell);
     }
+    if (hasMissionSource(table)) {
+      const source = selectedMissionSource();
+      const missionName = makeCell("td", source ? localizedInlineText(source.names) || "-" : "-");
+      missionName.className = "mission-source-cell";
+      missionName.dataset.field = "MissionName";
+      missionName.title = source ? `MissionId=${source.missionId}` : "";
+      const requirement = makeCell("td", source ? String(source.requirementCount) : "-");
+      requirement.className = "mission-source-cell mission-requirement-cell";
+      requirement.dataset.field = "RequirementCount";
+      tr.append(missionName, requirement);
+    }
     fields.forEach((field) => {
       const td = document.createElement("td");
       td.className = field.primaryKey ? "id-cell field-column" : "field-column";
@@ -396,9 +534,19 @@
     idCell.title = primary?.name || "ID";
     tr.append(idCell);
 
-    const contentCell = renderContentCell(table, row);
-    contentCell.classList.add("content-cell");
-    tr.append(contentCell);
+    if (table.name === "m_mission_term") {
+      const source = selectedMissionSource();
+      const missionName = makeCell("td", source ? localizedInlineText(source.names) || "-" : "-");
+      missionName.className = "content-cell mission-source-cell";
+      missionName.title = source ? `MissionId=${source.missionId}` : "";
+      const requirement = makeCell("td", source ? String(source.requirementCount) : "-");
+      requirement.className = "mission-source-cell mission-requirement-cell";
+      tr.append(missionName, requirement);
+    } else {
+      const contentCell = renderContentCell(table, row);
+      contentCell.classList.add("content-cell");
+      tr.append(contentCell);
+    }
 
     if (table.name === "m_dokan") tr.append(renderDokanImagesCell(row));
 
