@@ -124,6 +124,26 @@ remains bound to loopback.
 Set `OCTO_RESOURCES_BASE_URL` to the R2 custom domain used in step 1, not the
 ECS `octo` hostname.
 
+### Configure Cloud Logging
+
+The production Compose template sends container stdout and stderr directly to
+Google Cloud Logging with Docker's `gcplogs` driver. Set `GCP_PROJECT_ID` in
+`.env.production` to the same project passed to the production Makefile
+targets. The Docker host identity needs `roles/logging.logWriter` in that
+project.
+
+On Compute Engine, grant that role to the VM's attached service account. On a
+host outside Google Cloud, configure Application Default Credentials for the
+Docker daemon itself; setting credentials only inside the application
+containers does not authenticate the logging driver. Protect any credential
+configuration as a root-readable secret and restart Docker after changing the
+daemon environment.
+
+The logging driver includes the `environment` and `service` container labels.
+It uses a 4 MB non-blocking buffer per container so a temporary logging outage
+does not block application stdout or stderr. When that buffer fills, Docker
+drops new log messages, so monitor ingestion and alert on sustained failures.
+
 ## 4. Validate and start
 
 ```sh
@@ -138,6 +158,21 @@ The VM service account must have `roles/secretmanager.secretAccessor` on the
 the image build. `prod-start` reads it immediately before creating containers,
 and `prod-restart` reads it again before recreating them. Set
 `PROD_ADMIN_TOKEN_SECRET` only when the Secret Manager secret uses another ID.
+The same `GCP_PROJECT_ID` must be present in `.env.production` so Compose can
+configure `gcplogs`.
+
+After the containers start, verify the driver before querying Logs Explorer:
+
+```sh
+docker inspect --format '{{json .HostConfig.LogConfig}}' \
+  "$(docker compose --env-file deploy/.env.production \
+    -f deploy/docker-compose.production.yaml ps -q server)"
+```
+
+The output should report `gcplogs`, the configured GCP project, and the
+`environment,service` label list. Because logging-driver changes require
+container recreation, use `make prod-restart` when applying this change to an
+existing deployment.
 
 The auth token secret is generated once at `${DATA_DIR}/db/auth.secret` with
 mode 0600 and reused after restarts. Do not delete it while users have active

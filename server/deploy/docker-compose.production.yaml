@@ -7,14 +7,19 @@ x-service-defaults: &service-defaults
   cap_drop:
     - ALL
   logging:
-    driver: json-file
+    driver: gcplogs
     options:
-      max-size: 10m
-      max-file: "5"
+      gcp-project: ${GCP_PROJECT_ID:?set GCP_PROJECT_ID}
+      labels: environment,service
+      mode: non-blocking
+      max-buffer-size: 4m
 
 services:
   server:
     <<: *service-defaults
+    labels:
+      environment: production
+      service: lunar-tear-server
     security_opt:
       - no-new-privileges:false
     cap_add:
@@ -47,6 +52,9 @@ services:
 
   cdn:
     <<: *service-defaults
+    labels:
+      environment: production
+      service: lunar-tear-cdn
     security_opt:
       - no-new-privileges:false
     cap_add:
@@ -70,6 +78,9 @@ services:
 
   auth:
     <<: *service-defaults
+    labels:
+      environment: production
+      service: lunar-tear-auth
     build:
       context: ..
       dockerfile: Dockerfile.auth
