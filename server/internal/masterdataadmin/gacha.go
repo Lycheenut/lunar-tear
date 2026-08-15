@@ -2,6 +2,7 @@ package masterdataadmin
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -13,16 +14,17 @@ import (
 )
 
 type GachaWeaponReference struct {
-	WeaponId      int32             `json:"weaponId"`
-	WeaponNames   map[string]string `json:"weaponNames,omitempty"`
-	IconPath      string            `json:"iconPath"`
-	CostumeId     int32             `json:"costumeId,omitempty"`
-	CostumeNames  map[string]string `json:"costumeNames,omitempty"`
-	WeaponType    int32             `json:"weaponType"`
-	AttributeType int32             `json:"attributeType"`
-	Star          int32             `json:"star"`
-	GrantType     gacha.GrantType   `json:"grantType"`
-	Eligible      bool              `json:"eligible"`
+	WeaponId        int32             `json:"weaponId"`
+	WeaponNames     map[string]string `json:"weaponNames,omitempty"`
+	IconPath        string            `json:"iconPath"`
+	CostumeId       int32             `json:"costumeId,omitempty"`
+	CostumeNames    map[string]string `json:"costumeNames,omitempty"`
+	CostumeIconPath string            `json:"costumeIconPath,omitempty"`
+	WeaponType      int32             `json:"weaponType"`
+	AttributeType   int32             `json:"attributeType"`
+	Star            int32             `json:"star"`
+	GrantType       gacha.GrantType   `json:"grantType"`
+	Eligible        bool              `json:"eligible"`
 }
 
 type GachaBannerReference struct {
@@ -93,6 +95,7 @@ func LoadGachaEditorCatalog(
 			reference.CostumeId = costume.PossessionId
 			if master, ok := costumeCatalog.Costumes[costume.PossessionId]; ok {
 				reference.CostumeNames = costumeTitles(resolver, master)
+				reference.CostumeIconPath = costumeIconPath(master)
 			}
 		}
 		result.Weapons = append(result.Weapons, reference)
@@ -147,13 +150,22 @@ func weaponTitles(resolver *titleResolver, weapon masterdata.EntityMWeapon) map[
 }
 
 func costumeTitles(resolver *titleResolver, costume masterdata.EntityMCostume) map[string]string {
-	assetName := fmt.Sprintf("ch%03d%03d", costume.ActorSkeletonId, costume.AssetVariationId)
+	assetName := costumeAssetName(costume)
 	for _, key := range []string{"costume.name.replace." + assetName, "costume.name." + assetName} {
 		if titles := resolver.byKey(key); len(titles) > 0 {
 			return titles
 		}
 	}
 	return nil
+}
+
+func costumeAssetName(costume masterdata.EntityMCostume) string {
+	return fmt.Sprintf("ch%03d%03d", costume.ActorSkeletonId, costume.AssetVariationId)
+}
+
+func costumeIconPath(costume masterdata.EntityMCostume) string {
+	assetName := costumeAssetName(costume)
+	return path.Join("costume", assetName, assetName+"_standard.png")
 }
 
 func rarityStar(rarity model.RarityType) int32 {

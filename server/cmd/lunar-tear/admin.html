@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lunar Tear · 内容配置管理</title>
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
+
 <body>
   <header class="topbar">
     <div>
@@ -214,7 +216,7 @@
             </div>
             <div class="gacha-toolbar">
               <label class="search-field">搜索武器
-                <input id="gacha-weapon-search" type="search" placeholder="武器 ID、武器名或 Costume 名">
+                <input id="gacha-weapon-search" type="search" placeholder="武器 ID、武器名或服装名">
               </label>
               <label>分类状态
                 <select id="gacha-availability-filter">
@@ -268,7 +270,7 @@
                     <th>武器 ID</th>
                     <th>图标</th>
                     <th>武器名称</th>
-                    <th>Costume 名称</th>
+                    <th>服装名称</th>
                     <th>属性</th>
                     <th>类型</th>
                     <th>星级</th>
@@ -308,7 +310,7 @@
                 </div>
                 <div class="banner-control-column">
                   <label>搜索候选武器
-                    <input id="gacha-pickup-search" type="search" placeholder="武器 ID、武器名或 Costume 名">
+                    <input id="gacha-pickup-search" type="search" placeholder="武器 ID、武器名或服装名">
                   </label>
                   <div class="pickup-filter-grid">
                     <label>星级
@@ -350,7 +352,18 @@
                   </div>
                   <div class="table-scroll pickup-table-scroll">
                     <table class="pickup-table">
-                      <thead><tr><th>Pickup</th><th>武器 ID</th><th>武器名称</th><th>Costume 名称</th><th>属性</th><th>类别</th><th>星级</th><th>顺序</th></tr></thead>
+                      <thead>
+                        <tr>
+                          <th>Pickup</th>
+                          <th>武器 ID</th>
+                          <th>武器名称</th>
+                          <th>服装名称</th>
+                          <th>属性</th>
+                          <th>类别</th>
+                          <th>星级</th>
+                          <th>顺序</th>
+                        </tr>
+                      </thead>
                       <tbody id="gacha-pickup-body"></tbody>
                     </table>
                   </div>
@@ -403,4 +416,5 @@
 
   <script src="/admin/admin.js" defer></script>
 </body>
+
 </html>

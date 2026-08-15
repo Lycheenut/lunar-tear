@@ -1548,11 +1548,26 @@
     const weaponName = gachaLocalizedText(weapon.weaponNames) || `#${weapon.weaponId}`;
     const iconCell = document.createElement("td");
     iconCell.append(renderAssetIcon(weapon.iconPath, weaponName, "武", "gacha-weapon-icon"));
+    const costumeName = gachaLocalizedText(weapon.costumeNames) || (weapon.costumeId ? `Costume #${weapon.costumeId}` : "—");
+    const costumeCell = document.createElement("td");
+    if (weapon.costumeIconPath) {
+      const costumeReference = document.createElement("div");
+      costumeReference.className = "gacha-costume-reference";
+      const label = document.createElement("span");
+      label.textContent = costumeName;
+      costumeReference.append(
+        renderAssetIcon(weapon.costumeIconPath, costumeName, "装", "gacha-costume-icon"),
+        label
+      );
+      costumeCell.append(costumeReference);
+    } else {
+      costumeCell.textContent = costumeName;
+    }
     tr.append(
       makeCell("td", String(weapon.weaponId)),
       iconCell,
       makeCell("td", weaponName),
-      makeCell("td", gachaLocalizedText(weapon.costumeNames) || (weapon.costumeId ? `Costume #${weapon.costumeId}` : "—")),
+      costumeCell,
       makeCell("td", weaponAttributeLabels[weapon.attributeType] || `#${weapon.attributeType}`),
       makeCell("td", weaponTypeLabels[weapon.weaponType] || `#${weapon.weaponType}`)
     );
