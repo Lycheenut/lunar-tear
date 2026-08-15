@@ -274,7 +274,13 @@ func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.Ga
 	drawCountPerExecution := int(phase.DrawCount)
 	result := make([]DrawnItem, 0, drawCountPerExecution*execCount)
 	for range execCount {
-		execResult, err := DrawPremium(bp, drawCountPerExecution, fixedMin, fixedCount, rateMultiplier)
+		var execResult []DrawnItem
+		var err error
+		if entry.GachaId == model.GachaIdGuaranteedThreeStarOrHigher {
+			execResult, err = DrawPremiumTenthSlot(bp, rateMultiplier)
+		} else {
+			execResult, err = DrawPremium(bp, drawCountPerExecution, fixedMin, fixedCount, rateMultiplier)
+		}
 		if err != nil {
 			return nil, err
 		}

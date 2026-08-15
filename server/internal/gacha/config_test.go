@@ -88,23 +88,21 @@ func TestBuildPremiumCatalogDefaultsMissingWeaponToStandard(t *testing.T) {
 	}
 }
 
-func TestGuaranteedFourStarWeaponGachaUsesOnlyStandardFourStarWeapons(t *testing.T) {
+func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 	source, entries, config := testPremiumSource()
 	config.LimitedSets["limited_a"] = LimitedSetConfig{DisplayName: "Limited A"}
 	config.Weapons[1] = WeaponConfig{Availability: AvailabilityLimited, LimitedSet: "limited_a"}
-	config.Banners[model.GachaIdGuaranteedFourStarWeapon] = BannerConfig{
-		LimitedSets:     []string{"limited_a"},
-		PickupWeaponIds: []int32{1},
+	guaranteedGachaIds := []int32{model.GachaIdGuaranteedThreeStarOrHigher, model.GachaIdGuaranteedFourStar}
+	for _, gachaId := range guaranteedGachaIds {
+		config.Banners[gachaId] = BannerConfig{
+			LimitedSets:     []string{"limited_a"},
+			PickupWeaponIds: []int32{1},
+		}
+		entries = append(entries, store.GachaCatalogEntry{
+			GachaId:        gachaId,
+			GachaLabelType: model.GachaLabelPremium,
+		})
 	}
-	entries = append(entries, store.GachaCatalogEntry{
-		GachaId:        model.GachaIdGuaranteedFourStarWeapon,
-		GachaLabelType: model.GachaLabelPremium,
-		PricePhases: []store.GachaPricePhaseEntry{{
-			PhaseId:        600031,
-			FixedRarityMin: model.RaritySSRare,
-			FixedCount:     1,
-		}},
-	})
 
 	catalog, err := BuildPremiumCatalog(config, source, entries, BuildOptions{
 		RequireComplete:       true,
@@ -113,29 +111,55 @@ func TestGuaranteedFourStarWeaponGachaUsesOnlyStandardFourStarWeapons(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	banner := catalog.Banners[model.GachaIdGuaranteedFourStarWeapon]
-	if banner == nil {
-		t.Fatal("guaranteed weapon pool was not built")
-	}
-	if _, exists := banner.ItemsByWeaponId[1]; exists {
-		t.Fatal("limited weapon entered the guaranteed standard pool")
-	}
 	ApplyConfiguredPromotions(entries, catalog)
-	if len(entries[1].PromotionItems) != 0 {
-		t.Fatalf("configured pickups leaked into guaranteed weapon promotions: %+v", entries[1].PromotionItems)
-	}
-	for _, weaponId := range []int32{2, 3, 4} {
-		if _, exists := banner.ItemsByWeaponId[weaponId]; !exists {
-			t.Fatalf("standard four-star weapon %d is missing", weaponId)
+	for index, gachaId := range guaranteedGachaIds {
+		banner := catalog.Banners[gachaId]
+		if banner == nil {
+			t.Fatalf("guaranteed Gacha %d pool was not built", gachaId)
+		}
+		if _, exists := banner.ItemsByWeaponId[1]; exists {
+			t.Fatalf("limited weapon entered guaranteed Gacha %d", gachaId)
+		}
+		if len(entries[index+1].PromotionItems) != 0 {
+			t.Fatalf("configured pickups leaked into guaranteed Gacha %d promotions: %+v", gachaId, entries[index+1].PromotionItems)
+		}
+		for weaponId := int32(2); weaponId <= 10; weaponId++ {
+			if _, exists := banner.ItemsByWeaponId[weaponId]; !exists {
+				t.Fatalf("standard weapon %d is missing from guaranteed Gacha %d", weaponId, gachaId)
+			}
 		}
 	}
 
+	banner := catalog.Banners[model.GachaIdGuaranteedFourStar]
 	items, err := drawPremiumWithIntn(banner, 1, model.RaritySSRare, 1, 1, sequenceIntn(0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].RarityType != model.RaritySSRare {
 		t.Fatalf("guaranteed draw = %+v, want one four-star item", items)
+	}
+}
+
+func TestGuaranteedThreeStarDrawUsesTenthSlotProbability(t *testing.T) {
+	banner := &PremiumBannerPool{Groups: []PremiumGroup{
+		{Id: GroupWeaponOnly4, GrantType: GrantWeaponOnly, Star: 4, Rarity: model.RaritySSRare, Weight: 500, NonPickup: []PoolItem{{WeaponId: 4, RarityType: model.RaritySSRare}}},
+		{Id: GroupWeaponOnly3, GrantType: GrantWeaponOnly, Star: 3, Rarity: model.RaritySRare, Weight: 1500, NonPickup: []PoolItem{{WeaponId: 3, RarityType: model.RaritySRare}}},
+		{Id: GroupWeaponOnly2, GrantType: GrantWeaponOnly, Star: 2, Rarity: model.RarityRare, Weight: 8000, NonPickup: []PoolItem{{WeaponId: 2, RarityType: model.RarityRare}}},
+	}}
+	random := rand.New(rand.NewSource(3))
+	counts := make(map[int32]int)
+	const draws = 20000
+	for range draws {
+		items, err := drawPremiumTenthSlotWithIntn(banner, 1, random.Intn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		counts[items[0].PossessionId]++
+	}
+	assertRateNear(t, counts[4], draws, 0.05, 0.01)
+	assertRateNear(t, counts[3], draws, 0.95, 0.01)
+	if counts[2] != 0 {
+		t.Fatalf("guaranteed three-star draw produced %d 2-star weapons", counts[2])
 	}
 }
 

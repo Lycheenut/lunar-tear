@@ -113,9 +113,17 @@ const (
 const PhaseIdMultiplier int32 = 10
 
 const (
-	ConsumableIdPremiumTicket                  int32 = 1
-	ConsumableIdChapterTicket                  int32 = 2
-	ConsumableIdGuaranteedFourStarWeaponTicket int32 = 1003
+	ConsumableIdPremiumTicket                     int32 = 1
+	ConsumableIdChapterTicket                     int32 = 2
+	ConsumableIdGuaranteedThreeStarOrHigherTicket int32 = 1005
+	ConsumableIdGuaranteedFourStarTicket          int32 = 1006
 )
 
-const GachaIdGuaranteedFourStarWeapon int32 = 60003
+const (
+	GachaIdGuaranteedThreeStarOrHigher int32 = 60001
+	GachaIdGuaranteedFourStar          int32 = 60002
+)
+
+func IsGuaranteedTicketGacha(gachaId int32) bool {
+	return gachaId == GachaIdGuaranteedThreeStarOrHigher || gachaId == GachaIdGuaranteedFourStar
+}
