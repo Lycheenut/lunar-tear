@@ -5,9 +5,29 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
+
+func TestCanSellWeapon(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		weapon      store.WeaponState
+		master      masterdata.EntityMWeapon
+		wantCanSell bool
+	}{
+		{name: "eligible", wantCanSell: true},
+		{name: "protected", weapon: store.WeaponState{IsProtected: true}},
+		{name: "restricted by master data", master: masterdata.EntityMWeapon{IsRestrictDiscard: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := canSellWeapon(tc.weapon, tc.master); got != tc.wantCanSell {
+				t.Fatalf("canSellWeapon() = %v, want %v", got, tc.wantCanSell)
+			}
+		})
+	}
+}
 
 func TestValidateMaterialWeaponsRejectsUnsafeWeapons(t *testing.T) {
 	newUser := func() *store.UserState {

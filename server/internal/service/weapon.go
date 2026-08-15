@@ -208,6 +208,10 @@ func (s *WeaponServiceServer) Sell(ctx context.Context, req *pb.SellRequest) (*p
 				log.Printf("[WeaponService] Sell: weapon master id=%d not found, skipping", weapon.WeaponId)
 				continue
 			}
+			if !canSellWeapon(weapon, wm) {
+				log.Printf("[WeaponService] Sell: weapon uuid=%s is protected or restricted, skipping", uuid)
+				continue
+			}
 
 			if sellFunc, ok := catalog.SellPriceByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
 				totalGold += sellFunc.Evaluate(weapon.Level)
@@ -235,6 +239,10 @@ func (s *WeaponServiceServer) Sell(ctx context.Context, req *pb.SellRequest) (*p
 	}
 
 	return &pb.SellResponse{}, nil
+}
+
+func canSellWeapon(weapon store.WeaponState, master masterdata.EntityMWeapon) bool {
+	return !weapon.IsProtected && !master.IsRestrictDiscard
 }
 
 func (s *WeaponServiceServer) Evolve(ctx context.Context, req *pb.EvolveRequest) (*pb.EvolveResponse, error) {
