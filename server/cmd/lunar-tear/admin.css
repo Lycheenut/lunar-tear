@@ -577,6 +577,8 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .field-editor .changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
 .field-editor .invalid { border-color: var(--danger); }
 .reward-id-field-editor { grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 8px; }
+.reward-field-select { display: flex; min-width: 0; }
+.reward-field-select select { flex: 1 1 auto; width: auto; min-width: 0; }
 .reward-field-icon {
   display: grid;
   place-items: center;
@@ -789,6 +791,10 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .master-layout.with-reward-reference #schedule-table .field-column {
     min-width: 0;
   }
+  .master-layout.with-reward-reference #schedule-table [data-field="StampNumber"] { width: 12%; }
+  .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionType"] { width: 24%; }
+  .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionId"] { width: 50%; }
+  .master-layout.with-reward-reference #schedule-table [data-field="RewardCount"] { width: 14%; }
 }
 
 @media (max-width: 900px) {

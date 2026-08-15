@@ -210,9 +210,19 @@
     return state.catalog.tables.filter((table) => table.primary && !table.delivery);
   }
 
+  function displayedTableFields(table) {
+    if (table.name !== "m_login_bonus_stamp") return table.fields;
+    return table.fields.filter((field) => !["LoginBonusId", "LowerPageNumber"].includes(field.name));
+  }
+
   function renderTypeFilters(table) {
     const previous = new Map([...elements.typeFilters.querySelectorAll("select")].map((select) => [select.dataset.field, select.value]));
     elements.typeFilters.replaceChildren();
+    if (table?.name === "m_login_bonus_stamp") {
+      renderLoginBonusStampFilters(table, previous);
+      elements.typeFilters.classList.remove("hidden");
+      return;
+    }
     const fields = (table?.fields || []).filter((field) => field.type.endsWith("Type"));
     fields.forEach((field) => {
       const label = document.createElement("label");
@@ -237,6 +247,38 @@
       elements.typeFilters.append(label);
     });
     elements.typeFilters.classList.toggle("hidden", fields.length === 0);
+  }
+
+  function renderLoginBonusStampFilters(table, previous) {
+    [
+      { field: "LoginBonusId", label: "奖励来源 · LoginBonusId", optionLabel: loginBonusSourceLabel },
+      { field: "LowerPageNumber", label: "页码 · LowerPageNumber", defaultValue: "1" }
+    ].forEach((definition) => {
+      const label = document.createElement("label");
+      label.textContent = definition.label;
+      const select = document.createElement("select");
+      select.dataset.field = definition.field;
+      const values = [...new Set(table.rows.map((row) => row.values[definition.field]).filter((value) => value !== undefined))];
+      values.sort(compareFieldValues);
+      values.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = definition.optionLabel ? definition.optionLabel(value) : value;
+        select.append(option);
+      });
+      const preferred = previous.get(definition.field) || definition.defaultValue;
+      if (values.includes(preferred)) select.value = preferred;
+      select.addEventListener("change", renderTable);
+      label.append(select);
+      elements.typeFilters.append(label);
+    });
+  }
+
+  function loginBonusSourceLabel(loginBonusID) {
+    const loginBonusTable = state.catalog?.tables.find((table) => table.name === "m_login_bonus");
+    const loginBonus = loginBonusTable?.rows.find((row) => row.values.LoginBonusId === loginBonusID);
+    const name = localizedText(loginBonus?.titles) || loginBonus?.values.LoginBonusAssetName;
+    return name ? `${name}（ID ${loginBonusID}）` : `ID ${loginBonusID}`;
   }
 
   function compareFieldValues(left, right) {
@@ -274,6 +316,7 @@
       || table.rows.some((row) => Object.keys(row.titles || {}).length > 0
         || Object.keys(row.contentBody || {}).length > 0
         || (row.contentFootnotes || []).length > 0);
+    const displayedFields = displayedTableFields(table);
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "")
@@ -307,19 +350,20 @@
       if (hasContent) headerRow.append(makeCell("th", "内容"));
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       if (hasSchedule) headerRow.append(makeCell("th", "状态"));
-      table.fields.forEach((field) => {
+      displayedFields.forEach((field) => {
         const header = makeCell("th", field.name);
+        header.dataset.field = field.name;
         header.title = `${field.type}${field.primaryKey ? " · 主键（只读）" : ""}`;
         headerRow.append(header);
       });
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, hasContent, hasArtwork, hasSchedule)));
+      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, displayedFields, hasContent, hasArtwork, hasSchedule)));
     }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
-  function renderDetailedRow(table, row, hasContent, hasArtwork, hasSchedule) {
+  function renderDetailedRow(table, row, fields, hasContent, hasArtwork, hasSchedule) {
     const tr = document.createElement("tr");
     if (hasContent) {
       const contentCell = renderContentCell(table, row);
@@ -333,9 +377,10 @@
       statusCell.append(renderStatus(rowStatus(table, row)));
       tr.append(statusCell);
     }
-    table.fields.forEach((field) => {
+    fields.forEach((field) => {
       const td = document.createElement("td");
       td.className = field.primaryKey ? "id-cell field-column" : "field-column";
+      td.dataset.field = field.name;
       td.append(renderFieldEditor(table, row, field));
       tr.append(td);
     });
@@ -792,7 +837,10 @@
       icon.replaceWith(nextIcon);
       icon = nextIcon;
     });
-    wrapper.append(icon, select);
+    const selectSlot = document.createElement("div");
+    selectSlot.className = "reward-field-select";
+    selectSlot.append(select);
+    wrapper.append(icon, selectSlot);
     return wrapper;
   }
 
@@ -1923,6 +1971,7 @@
   elements.languageSelect.addEventListener("change", () => {
     state.language = elements.languageSelect.value;
     localStorage.setItem("lunar-admin-language", state.language);
+    renderTypeFilters(currentTable());
     renderTable();
     renderGachaEditor();
     renderRewardReference();
