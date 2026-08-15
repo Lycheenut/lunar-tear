@@ -247,6 +247,10 @@
   }
 
   function typeOptionLabel(tableName, fieldName, value) {
+    if (fieldName.endsWith("PossessionType")) {
+      const definition = rewardDefinitionForPossessionType(value);
+      if (definition) return `${definition.label}（${value}）`;
+    }
     return value;
   }
 
@@ -676,6 +680,9 @@
       return wrapper;
     }
 
+    const rewardPair = rewardFieldPair(table, field.name);
+    if (rewardPair) return renderRewardFieldEditor(table, row, field, rewardPair);
+
     let input;
     if (field.kind === "bool") {
       input = document.createElement("select");
@@ -706,6 +713,116 @@
     input.addEventListener(eventName, () => onFieldChange(table, row, field, input));
     wrapper.append(input);
     return wrapper;
+  }
+
+  function rewardFieldPair(table, fieldName) {
+    const typeField = table.fields.find((candidate) => {
+      if (candidate.type !== "PossessionType" || !candidate.name.endsWith("Type")) return false;
+      const idFieldName = `${candidate.name.slice(0, -"Type".length)}Id`;
+      return candidate.name === fieldName || idFieldName === fieldName;
+    });
+    if (!typeField) return null;
+    const idField = table.fields.find((candidate) => (
+      candidate.name === `${typeField.name.slice(0, -"Type".length)}Id`
+    ));
+    return idField ? { typeField, idField } : null;
+  }
+
+  function renderRewardFieldEditor(table, row, field, pair) {
+    return field.name === pair.typeField.name
+      ? renderRewardTypeFieldEditor(table, row, pair)
+      : renderRewardIDFieldEditor(table, row, pair);
+  }
+
+  function renderRewardTypeFieldEditor(table, row, pair) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "field-editor reward-type-field-editor";
+    const select = document.createElement("select");
+    const currentType = effectiveValue(table.name, row, pair.typeField.name);
+    rewardDefinitions.forEach((definition) => {
+      if (!rewardReferencesForPossessionType(definition.possessionType).length) return;
+      const option = document.createElement("option");
+      option.value = definition.possessionType;
+      option.textContent = `${definition.label}（${definition.possessionType}）`;
+      select.append(option);
+    });
+    if (![...select.options].some((option) => option.value === currentType)) {
+      const unknown = document.createElement("option");
+      unknown.value = currentType;
+      unknown.textContent = `未知类型（${currentType}）`;
+      select.append(unknown);
+    }
+    select.value = currentType;
+    configureFieldInput(select, table, row, pair.typeField);
+    select.addEventListener("change", () => {
+      onFieldChange(table, row, pair.typeField, select);
+      const references = rewardReferencesForPossessionType(select.value);
+      const currentID = effectiveValue(table.name, row, pair.idField.name);
+      if (!references.some((reference) => String(reference.possessionId) === currentID) && references.length) {
+        const originalID = row.values[pair.idField.name];
+        const replacement = references.find((reference) => String(reference.possessionId) === originalID) || references[0];
+        storeFieldChange(table, row, pair.idField, String(replacement.possessionId));
+      }
+      renderTable();
+    });
+    wrapper.append(select);
+    return wrapper;
+  }
+
+  function renderRewardIDFieldEditor(table, row, pair) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "field-editor reward-id-field-editor";
+    const select = document.createElement("select");
+    const possessionType = effectiveValue(table.name, row, pair.typeField.name);
+    const currentID = effectiveValue(table.name, row, pair.idField.name);
+    const definition = rewardDefinitionForPossessionType(possessionType);
+    const references = rewardReferencesForPossessionType(possessionType);
+    let reference = references.find((candidate) => String(candidate.possessionId) === currentID);
+    populateRewardIDSelect(select, references, currentID, definition, false);
+    configureFieldInput(select, table, row, pair.idField);
+    const populate = () => populateRewardIDSelect(select, references, select.value, definition, true);
+    select.addEventListener("focus", populate);
+    select.addEventListener("pointerdown", populate);
+
+    let icon = renderRewardIcon(reference, definition, "reward-field-icon");
+    select.addEventListener("change", () => {
+      onFieldChange(table, row, pair.idField, select);
+      reference = references.find((candidate) => String(candidate.possessionId) === select.value);
+      const nextIcon = renderRewardIcon(reference, definition, "reward-field-icon");
+      icon.replaceWith(nextIcon);
+      icon = nextIcon;
+    });
+    wrapper.append(icon, select);
+    return wrapper;
+  }
+
+  function populateRewardIDSelect(select, references, selectedID, definition, expanded) {
+    if (expanded && select.dataset.expanded === "true") return;
+    select.replaceChildren();
+    const selected = references.find((reference) => String(reference.possessionId) === selectedID);
+    const options = expanded ? references : selected ? [selected] : [];
+    options.forEach((reference) => {
+      const option = document.createElement("option");
+      option.value = String(reference.possessionId);
+      option.textContent = rewardReferenceOptionLabel(reference, definition);
+      select.append(option);
+    });
+    if (!selected) {
+      const unknown = document.createElement("option");
+      unknown.value = selectedID;
+      unknown.textContent = `未知奖励（ID ${selectedID}）`;
+      select.append(unknown);
+    }
+    select.value = selectedID;
+    select.dataset.expanded = String(expanded);
+  }
+
+  function configureFieldInput(input, table, row, field) {
+    input.dataset.table = table.name;
+    input.dataset.row = String(row.index);
+    input.dataset.field = field.name;
+    input.setAttribute("aria-label", field.name);
+    input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field.name)));
   }
 
   function localizedText(titles) {
@@ -906,10 +1023,14 @@
       return;
     }
     input.classList.remove("invalid");
+    storeFieldChange(table, row, field, value, input);
+  }
+
+  function storeFieldChange(table, row, field, value, input = null) {
     const key = changeKey(table.name, row.index, field.name);
     if (value === row.values[field.name]) state.dirty.delete(key);
     else state.dirty.set(key, { table: table.name, row: row.index, field: field.name, value });
-    input.classList.toggle("changed", state.dirty.has(key));
+    input?.classList.toggle("changed", state.dirty.has(key));
     updateDirtyUI();
   }
 
@@ -994,7 +1115,14 @@
     90: "服装突破", 100: "传承的石碑", 110: "服装觉醒", 120: "升华",
     130: "精炼", 140: "天命"
   };
-  const rewardTypes = ["material", "weapon", "companion", "consumable", "free_gem"];
+  const rewardDefinitions = [
+    { key: "material", catalogKey: "materials", possessionType: "5", label: "道具", fallbackName: "未命名道具", glyph: "具" },
+    { key: "weapon", catalogKey: "weapons", possessionType: "2", label: "武器", fallbackName: "未命名武器", glyph: "武" },
+    { key: "companion", catalogKey: "companions", possessionType: "3", label: "伙伴", fallbackName: "未命名伙伴", glyph: "伙" },
+    { key: "consumable", catalogKey: "consumableItems", possessionType: "6", label: "消耗品", fallbackName: "未命名消耗品", glyph: "消" },
+    { key: "free_gem", catalogKey: "freeGems", possessionType: "12", label: "免费宝石", fallbackName: "免费宝石", glyph: "石" }
+  ];
+  const rewardTypes = rewardDefinitions.map((definition) => definition.key);
   const rewardPageSizes = [25, 50, 100];
   const gachaGroupDefinitions = [
     { id: "character_weapon_4", grantType: "character_weapon", star: 4, label: "4星角色武器" },
@@ -1042,6 +1170,46 @@
     if ([...select.options].some((option) => option.value === previous)) select.value = previous;
   }
 
+  function rewardDefinitionForPossessionType(possessionType) {
+    return rewardDefinitions.find((definition) => definition.possessionType === String(possessionType));
+  }
+
+  function rewardReferencesForPossessionType(possessionType) {
+    const definition = rewardDefinitionForPossessionType(possessionType);
+    return definition ? state.rewardCatalog?.[definition.catalogKey] || [] : [];
+  }
+
+  function rewardReferenceName(reference, definition) {
+    return localizedText(reference?.names) || definition?.fallbackName || "未命名奖励";
+  }
+
+  function rewardReferenceOptionLabel(reference, definition) {
+    const name = rewardReferenceName(reference, definition).replace(/\s*\n\s*/g, " ");
+    return `${name}（ID ${reference.possessionId}）`;
+  }
+
+  function renderRewardIcon(reference, definition, className) {
+    const visual = document.createElement("div");
+    visual.className = className;
+    const fallback = () => {
+      const glyph = document.createElement("span");
+      glyph.textContent = definition?.glyph || "奖";
+      visual.replaceChildren(glyph);
+    };
+    if (!reference?.iconPath) {
+      fallback();
+      return visual;
+    }
+    const image = document.createElement("img");
+    image.alt = rewardReferenceName(reference, definition);
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.addEventListener("error", fallback, { once: true });
+    image.src = `${imagePreviewBaseURL}/${reference.iconPath.split("/").map(encodeURIComponent).join("/")}`;
+    visual.append(image);
+    return visual;
+  }
+
   function renderRewardReference() {
     if (!state.rewardCatalog) return;
     const rewardType = elements.rewardType.value;
@@ -1054,14 +1222,8 @@
     const attributeType = elements.rewardWeaponAttribute.value;
     const weaponType = elements.rewardWeaponType.value;
     const grantCharacter = elements.rewardWeaponGrant.value;
-    const sources = {
-      material: state.rewardCatalog.materials,
-      weapon: state.rewardCatalog.weapons,
-      companion: state.rewardCatalog.companions,
-      consumable: state.rewardCatalog.consumableItems,
-      free_gem: state.rewardCatalog.freeGems
-    };
-    const source = sources[rewardType] || [];
+    const definition = rewardDefinitions.find((candidate) => candidate.key === rewardType);
+    const source = definition ? state.rewardCatalog[definition.catalogKey] || [] : [];
     const visible = source.filter((item) => {
       if (rewardType === "material" && materialType && String(item.materialType) !== materialType) return false;
       if (isWeapon && attributeType && String(item.attributeType) !== attributeType) return false;
@@ -1097,29 +1259,17 @@
 
   function rewardReferenceCount() {
     if (!state.rewardCatalog) return 0;
-    return ["materials", "weapons", "companions", "consumableItems", "freeGems"]
-      .reduce((count, key) => count + (state.rewardCatalog[key]?.length || 0), 0)
+    return rewardDefinitions
+      .reduce((count, definition) => count + (state.rewardCatalog[definition.catalogKey]?.length || 0), 0)
       .toLocaleString();
   }
 
   function renderRewardReferenceCard(item, rewardType) {
     const card = document.createElement("article");
     card.className = "reward-reference-card";
-    const visual = document.createElement("div");
-    visual.className = "reward-reference-icon";
-    const image = document.createElement("img");
-    const fallbackNames = { material: "未命名道具", weapon: "未命名武器", companion: "未命名伙伴", consumable: "未命名消耗品", free_gem: "免费宝石" };
-    const name = localizedText(item.names) || fallbackNames[rewardType] || "未命名奖励";
-    image.alt = name;
-    image.loading = "lazy";
-    image.decoding = "async";
-    image.addEventListener("error", () => {
-      const fallback = document.createElement("span");
-      fallback.textContent = ({ material: "具", weapon: "武", companion: "伙", consumable: "消", free_gem: "石" })[rewardType] || "奖";
-      image.replaceWith(fallback);
-    });
-    image.src = `${imagePreviewBaseURL}/${item.iconPath.split("/").map(encodeURIComponent).join("/")}`;
-    visual.append(image);
+    const definition = rewardDefinitions.find((candidate) => candidate.key === rewardType);
+    const visual = renderRewardIcon(item, definition, "reward-reference-icon");
+    const name = rewardReferenceName(item, definition);
 
     const content = document.createElement("div");
     content.className = "reward-reference-content";

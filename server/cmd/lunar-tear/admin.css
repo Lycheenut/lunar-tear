@@ -331,6 +331,8 @@ input:focus, select:focus {
 
 .reward-reference-list {
   display: grid;
+  align-content: start;
+  grid-auto-rows: 82px;
   max-height: calc(100vh - 405px);
   overflow: auto;
 }
@@ -340,6 +342,7 @@ input:focus, select:focus {
   grid-template-columns: 62px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
+  height: 82px;
   min-height: 82px;
   padding: 10px 14px;
   border-bottom: 1px solid rgba(38, 52, 61, .7);
@@ -573,6 +576,21 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .field-editor input, .field-editor select { width: 100%; min-height: 38px; font-size: 12px; }
 .field-editor .changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
 .field-editor .invalid { border-color: var(--danger); }
+.reward-id-field-editor { grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 8px; }
+.reward-field-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1216;
+  font-size: 12px;
+  font-weight: 800;
+}
+.reward-field-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .readonly-field {
   display: block;
   min-height: 38px;
