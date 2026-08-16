@@ -60,6 +60,44 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 	}
 }
 
+func TestChapterGachaPromotionsMatchCoverPickups(t *testing.T) {
+	entries := buildChapterGachaEntries()
+	EnrichCatalogPromotions(entries, &GachaCatalog{})
+	wantChapterMaterials := [...][2]int32{
+		{330001, 330009},
+		{330005, 330013},
+		{330002, 330017},
+		{330010, 330006},
+		{330014, 330018},
+		{330003, 330011},
+		{330007, 330015},
+		{330023, 330019},
+		{330004, 330012},
+		{330008, 330016},
+		{330020, 330024},
+	}
+
+	for i, entry := range entries {
+		want := [...]struct {
+			id    int32
+			count int32
+		}{
+			{100003, 6},
+			{100004, 5},
+			{wantChapterMaterials[i][0], 1},
+			{wantChapterMaterials[i][1], 1},
+		}
+		if len(entry.PromotionItems) != len(want) {
+			t.Fatalf("chapter %d promotion count = %d, want %d", i+1, len(entry.PromotionItems), len(want))
+		}
+		for j, pickup := range entry.PromotionItems {
+			if pickup.PossessionId != want[j].id || pickup.Count != want[j].count || !pickup.IsTarget {
+				t.Errorf("chapter %d promotion %d = %+v, want material %d x%d", i+1, j+1, pickup, want[j].id, want[j].count)
+			}
+		}
+	}
+}
+
 func TestChapterGachaUnlocksWhenPlayerReachesChapter(t *testing.T) {
 	entries := buildChapterGachaEntries()[:3]
 	quests := &QuestCatalog{
