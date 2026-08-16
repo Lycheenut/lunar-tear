@@ -408,7 +408,7 @@ func buildChapterPricePhases(gachaId, ticketId int32) []store.GachaPricePhaseEnt
 			PriceType:    model.PriceTypeConsumableItem,
 			PriceId:      ticketId,
 			Price:        1,
-			RegularPrice: 1,
+			RegularPrice: 0,
 			DrawCount:    1,
 		},
 		{
@@ -416,7 +416,7 @@ func buildChapterPricePhases(gachaId, ticketId int32) []store.GachaPricePhaseEnt
 			PriceType:    model.PriceTypeConsumableItem,
 			PriceId:      ticketId,
 			Price:        10,
-			RegularPrice: 10,
+			RegularPrice: 0,
 			DrawCount:    model.PremiumMultiPullCount,
 		},
 	}

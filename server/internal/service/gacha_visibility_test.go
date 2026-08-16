@@ -46,3 +46,25 @@ func TestGuaranteedGachaIsVisibleOnlyWithMatchingTicket(t *testing.T) {
 		})
 	}
 }
+
+func TestChapterGachaIsVisibleOnlyAfterUnlock(t *testing.T) {
+	cat := &runtime.Catalogs{}
+	entry := store.GachaCatalogEntry{
+		GachaLabelType:    model.GachaLabelChapter,
+		IsUserGachaUnlock: true,
+		UnlockConditions: []store.GachaUnlockConditionEntry{{
+			GachaUnlockConditionType: model.GachaUnlockMainQuestClear,
+			ConditionValue:           10,
+		}},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+
+	if gachaVisibleForUser(cat, user, entry, 1) {
+		t.Fatal("locked chapter Gacha is visible")
+	}
+	user.Quests[10] = store.UserQuestState{QuestStateType: model.UserQuestStateTypeCleared}
+	if !gachaVisibleForUser(cat, user, entry, 1) {
+		t.Fatal("unlocked chapter Gacha is hidden")
+	}
+}

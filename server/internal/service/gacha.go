@@ -492,6 +492,9 @@ func gachaVisibleForUser(cat *runtime.Catalogs, user *store.UserState, entry sto
 	if !gachaVisible(cat, entry, nowMillis) {
 		return false
 	}
+	if entry.GachaLabelType == model.GachaLabelChapter && !gachaUnlocked(cat, user, entry, nowMillis) {
+		return false
+	}
 	return entry.RequiredConsumableItemId == 0 || user.ConsumableItems[entry.RequiredConsumableItemId] > 0
 }
 

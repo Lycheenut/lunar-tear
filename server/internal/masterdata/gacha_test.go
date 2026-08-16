@@ -28,7 +28,11 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 			entry.GachaAutoResetType != model.GachaAutoResetMonthly {
 			t.Fatalf("unexpected chapter %d catalog entry: %+v", chapterNumber, entry)
 		}
-		if len(entry.PricePhases) != 2 || entry.PricePhases[0].PriceId != 1008+int32(i) || entry.PricePhases[1].PriceId != 1008+int32(i) {
+		if len(entry.PricePhases) != 2 ||
+			entry.PricePhases[0].PriceId != 1008+int32(i) ||
+			entry.PricePhases[1].PriceId != 1008+int32(i) ||
+			entry.PricePhases[0].RegularPrice != 0 ||
+			entry.PricePhases[1].RegularPrice != 0 {
 			t.Fatalf("chapter %d price phases use the wrong ticket: %+v", chapterNumber, entry.PricePhases)
 		}
 		wantRows := 22
