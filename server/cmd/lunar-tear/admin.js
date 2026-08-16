@@ -48,7 +48,19 @@
     gachaPickupBody: $("#gacha-pickup-body"),
     gachaSaveSummary: $("#gacha-save-summary"), gachaDiscard: $("#gacha-discard"), gachaSave: $("#gacha-save"),
     gachaPublishDialog: $("#gacha-publish-dialog"), gachaPublishCancel: $("#gacha-publish-cancel"),
-    gachaPublishConfirm: $("#gacha-publish-confirm")
+    gachaPublishConfirm: $("#gacha-publish-confirm"),
+    gachaKindPremium: $("#gacha-kind-premium"), gachaKindChapter: $("#gacha-kind-chapter"),
+    gachaKindEvent: $("#gacha-kind-event"), premiumGachaConfig: $("#premium-gacha-config"),
+    boxGachaConfig: $("#box-gacha-config"), boxGachaEyebrow: $("#box-gacha-eyebrow"),
+    boxGachaTitle: $("#box-gacha-title"), boxGachaState: $("#box-gacha-state"),
+    boxGachaBannerSelect: $("#box-gacha-banner-select"), boxGachaNumberLabel: $("#box-gacha-number-label"),
+    boxGachaNumberSelect: $("#box-gacha-number-select"), boxGachaActions: $("#box-gacha-actions"),
+    boxGachaAddBox: $("#box-gacha-add-box"), boxGachaRemoveBox: $("#box-gacha-remove-box"),
+    boxGachaEmpty: $("#box-gacha-empty"), boxGachaEditorBody: $("#box-gacha-editor-body"),
+    boxLimitedProbability: $("#box-limited-probability"), boxUnlimitedProbability: $("#box-unlimited-probability"),
+    boxAddLimitedReward: $("#box-add-limited-reward"), boxAddUnlimitedReward: $("#box-add-unlimited-reward"),
+    boxLimitedRewardBody: $("#box-limited-reward-body"), boxUnlimitedRewardBody: $("#box-unlimited-reward-body"),
+    boxGachaRuleNote: $("#box-gacha-rule-note")
   };
 
   const state = {
@@ -67,6 +79,8 @@
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false,
+    gachaKind: "premium",
+    boxSelections: {},
     pendingMasterChanges: null
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
@@ -1709,6 +1723,8 @@
     state.gachaDraft.limitedSets ||= {};
     state.gachaDraft.weapons ||= {};
     state.gachaDraft.banners ||= {};
+    state.gachaDraft.chapterBanners ||= {};
+    state.gachaDraft.eventBanners ||= {};
     state.gachaDraft.groupWeights ||= {
       characterWeapon: { "3": 500, "4": 200 },
       weaponOnly: { "2": 8000, "3": 1000, "4": 300 }
@@ -1722,12 +1738,24 @@
 
   function renderGachaEditor() {
     if (!state.gachaCatalog || !state.gachaDraft) return;
-    renderGachaLanguages();
-    renderGachaLimitedSets();
-    renderGachaWeapons();
-    renderGachaBanners();
-    renderGachaGroupProbabilities();
-    renderGachaBannerEditor();
+    const isPremium = state.gachaKind === "premium";
+    elements.premiumGachaConfig.classList.toggle("hidden", !isPremium);
+    elements.boxGachaConfig.classList.toggle("hidden", isPremium);
+    [[elements.gachaKindPremium, "premium"], [elements.gachaKindChapter, "chapter"], [elements.gachaKindEvent, "event"]].forEach(([button, kind]) => {
+      const active = state.gachaKind === kind;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    if (isPremium) {
+      renderGachaLanguages();
+      renderGachaLimitedSets();
+      renderGachaWeapons();
+      renderGachaBanners();
+      renderGachaGroupProbabilities();
+      renderGachaBannerEditor();
+    } else {
+      renderBoxGachaEditor();
+    }
     renderGachaWarnings();
     updateGachaDirtyUI();
   }
@@ -2223,6 +2251,303 @@
     syncCalculatedGroupProbability();
   }
 
+  function setGachaKind(kind) {
+    state.gachaKind = ["premium", "chapter", "event"].includes(kind) ? kind : "premium";
+    renderGachaEditor();
+  }
+
+  function boxBannersForCurrentKind() {
+    const labelType = state.gachaKind === "chapter" ? 3 : 2;
+    return (state.gachaCatalog.boxBanners || []).filter((banner) => banner.gachaLabelType === labelType);
+  }
+
+  function currentBoxBanner() {
+    const banners = boxBannersForCurrentKind();
+    const selected = Number(elements.boxGachaBannerSelect.value);
+    return banners.find((banner) => banner.gachaId === selected) || banners[0];
+  }
+
+  function selectedBoxNumber(banner, boxCount) {
+    if (!banner || boxCount <= 0) return 0;
+    const key = `${state.gachaKind}:${banner.gachaId}`;
+    const selected = Number(state.boxSelections[key] || elements.boxGachaNumberSelect.value || 1);
+    return Math.min(Math.max(selected, 1), boxCount);
+  }
+
+	  function boxConfigForBanner(banner) {
+	    if (!banner) return { box: null, boxNumber: 0, boxCount: 0 };
+	    if (state.gachaKind === "chapter") {
+	      const box = state.gachaDraft.chapterBanners[String(banner.gachaId)] || null;
+	      return { box, boxNumber: box ? 1 : 0, boxCount: box ? 1 : 0 };
+	    }
+    const event = state.gachaDraft.eventBanners[String(banner.gachaId)];
+    const boxCount = event?.boxes?.length || 0;
+    const boxNumber = selectedBoxNumber(banner, boxCount);
+    return { box: boxNumber ? event.boxes[boxNumber - 1] : null, boxNumber, boxCount };
+  }
+
+  function renderBoxGachaEditor() {
+    const banners = boxBannersForCurrentKind();
+    const previousBanner = elements.boxGachaBannerSelect.value;
+    elements.boxGachaBannerSelect.replaceChildren();
+    banners.forEach((banner) => {
+      const option = document.createElement("option");
+      option.value = String(banner.gachaId);
+      const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || (state.gachaKind === "chapter" ? `Chapter ${banner.relatedMainQuestChapterId}` : `Event ${banner.relatedEventQuestChapterId}`);
+      option.textContent = `${banner.gachaId} · ${name}`;
+      elements.boxGachaBannerSelect.append(option);
+    });
+    if (banners.some((banner) => String(banner.gachaId) === previousBanner)) elements.boxGachaBannerSelect.value = previousBanner;
+
+    const banner = currentBoxBanner();
+    const event = state.gachaKind === "event";
+    elements.boxGachaEyebrow.textContent = event ? "EVENT BOX CONFIG" : "CHAPTER BOX CONFIG";
+    elements.boxGachaTitle.textContent = event ? "Event Gacha 奖励箱" : "Chapter Gacha 奖励箱";
+	    elements.boxGachaActions.classList.remove("hidden");
+	    elements.boxGachaNumberLabel.classList.toggle("hidden", !event);
+    document.querySelectorAll(".jackpot-column").forEach((column) => column.classList.toggle("hidden", !event));
+
+    const selection = boxConfigForBanner(banner);
+    elements.boxGachaNumberSelect.replaceChildren();
+    for (let number = 1; number <= selection.boxCount; number++) {
+      const option = document.createElement("option");
+      option.value = String(number);
+      option.textContent = `第 ${number} 箱`;
+      elements.boxGachaNumberSelect.append(option);
+    }
+    if (selection.boxNumber) elements.boxGachaNumberSelect.value = String(selection.boxNumber);
+	    elements.boxGachaAddBox.textContent = event ? "新增箱子" : "创建 Chapter 配置";
+	    elements.boxGachaAddBox.disabled = !event && Boolean(selection.box);
+	    elements.boxGachaRemoveBox.textContent = event ? "删除当前箱子" : "删除 Chapter 配置";
+	    elements.boxGachaRemoveBox.disabled = !selection.box;
+	    elements.boxGachaState.textContent = selection.box ? `${selection.boxCount} 箱 · 当前第 ${selection.boxNumber} 箱` : "未配置";
+	    elements.boxGachaEmpty.textContent = event
+	      ? "当前 Event Gacha 尚未配置箱子。点击“新增箱子”开始配置。"
+	      : "当前 Chapter Gacha 尚未配置奖励。点击“创建 Chapter 配置”开始配置。";
+    elements.boxGachaEmpty.classList.toggle("hidden", Boolean(selection.box));
+    elements.boxGachaEditorBody.classList.toggle("hidden", !selection.box);
+    if (!selection.box) return;
+
+    selection.box.groupWeights ||= { limited: 8000, unlimited: 2000 };
+    selection.box.limitedRewards ||= [];
+    selection.box.unlimitedRewards ||= [];
+    elements.boxLimitedProbability.value = formatGroupProbability(Number(selection.box.groupWeights.limited || 0));
+    elements.boxUnlimitedProbability.value = formatGroupProbability(Number(selection.box.groupWeights.unlimited || 0));
+    elements.boxLimitedRewardBody.replaceChildren();
+    selection.box.limitedRewards.forEach((reward, index) => elements.boxLimitedRewardBody.append(renderBoxRewardRow("limited", index, reward, event)));
+    elements.boxUnlimitedRewardBody.replaceChildren();
+    selection.box.unlimitedRewards.forEach((reward, index) => elements.boxUnlimitedRewardBody.append(renderBoxRewardRow("unlimited", index, reward, event)));
+    elements.boxGachaRuleNote.textContent = event
+      ? (selection.boxNumber === selection.boxCount ? "末箱：有限奖励库存全部抽完后才可重置本箱。" : "非末箱：所有标记为“大奖”的有限奖励抽完后才可解锁下一箱。")
+      : "Chapter Gacha 每月自动重置有限奖励库存，不允许手动重置。";
+    refreshBoxProbabilityPreviews();
+  }
+
+  function currentEditableBox() {
+    return boxConfigForBanner(currentBoxBanner()).box;
+  }
+
+  function setRewardFromReference(reward, reference) {
+    reward.possessionType = Number(reference.possessionType);
+    reward.possessionId = Number(reference.possessionId);
+    reward.rarityType = Number(reference.rarityType || 0);
+  }
+
+  function newBoxReward(limited, event, offset = 0) {
+    const references = state.rewardCatalog?.materials || [];
+    const reference = references[Math.min(offset, Math.max(references.length - 1, 0))] || { possessionType: 5, possessionId: 100001, rarityType: 1 };
+    return {
+      possessionType: Number(reference.possessionType), possessionId: Number(reference.possessionId), rarityType: Number(reference.rarityType || 0),
+      count: 1, ...(limited ? { maxCount: 1 } : {}), weight: 100, featured: false, ...(limited && event ? { jackpot: true } : {})
+    };
+  }
+
+  function newBoxConfig(event) {
+    return {
+      groupWeights: { limited: 8000, unlimited: 2000 },
+      limitedRewards: [newBoxReward(true, event, 0)],
+      unlimitedRewards: [newBoxReward(false, event, 1)]
+    };
+  }
+
+  function renderBoxRewardRow(group, index, reward, event) {
+    const limited = group === "limited";
+    const tr = document.createElement("tr");
+    const rewardCell = document.createElement("td");
+    const editor = document.createElement("div");
+    editor.className = "box-reward-selector";
+    const typeSelect = document.createElement("select");
+    rewardDefinitions.forEach((definition) => {
+      if (!rewardReferencesForPossessionType(definition.possessionType).length) return;
+      const option = document.createElement("option");
+      option.value = definition.possessionType;
+      option.textContent = definition.label;
+      typeSelect.append(option);
+    });
+    typeSelect.value = String(reward.possessionType);
+    const itemSelect = document.createElement("select");
+    const renderOptions = () => {
+      itemSelect.replaceChildren();
+      const references = rewardReferencesForPossessionType(typeSelect.value);
+      references.forEach((reference) => {
+        const option = document.createElement("option");
+        option.value = String(reference.possessionId);
+        option.textContent = `${reference.possessionId || "—"} · ${gachaLocalizedText(reference.names) || rewardDefinitionForPossessionType(reference.possessionType)?.fallbackName || "未命名奖励"}`;
+        itemSelect.append(option);
+      });
+      itemSelect.value = String(reward.possessionId || 0);
+      if (!itemSelect.value && references.length) {
+        setRewardFromReference(reward, references[0]);
+        itemSelect.value = String(reward.possessionId || 0);
+      }
+    };
+    renderOptions();
+    typeSelect.addEventListener("change", () => {
+      const reference = rewardReferencesForPossessionType(typeSelect.value)[0];
+      if (reference) setRewardFromReference(reward, reference);
+      markBoxGachaDirty(true);
+    });
+    itemSelect.addEventListener("change", () => {
+      const reference = rewardReferencesForPossessionType(typeSelect.value).find((item) => item.possessionId === Number(itemSelect.value));
+      if (reference) setRewardFromReference(reward, reference);
+      markBoxGachaDirty(false);
+    });
+    editor.append(typeSelect, itemSelect);
+    rewardCell.append(editor);
+    tr.append(rewardCell);
+
+    const appendNumber = (field, label, min, onInput) => {
+      const cell = document.createElement("td");
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = String(min);
+      input.step = "1";
+      input.value = String(reward[field] ?? min);
+      input.setAttribute("aria-label", label);
+      input.addEventListener("input", () => {
+        reward[field] = Math.round(Number(input.value || 0));
+        markBoxGachaDirty(false);
+        if (onInput) onInput();
+      });
+      cell.append(input);
+      tr.append(cell);
+    };
+    appendNumber("count", "单次获得数量", 1);
+    if (limited) appendNumber("maxCount", "有限库存", 1);
+    appendNumber("weight", "奖励权重", 1, refreshBoxProbabilityPreviews);
+
+    const probabilityCell = document.createElement("td");
+    const probability = document.createElement("strong");
+    probability.className = "box-probability-preview";
+    probability.dataset.boxProbability = `${group}:${index}`;
+    probabilityCell.append(probability);
+    tr.append(probabilityCell);
+
+    const featuredCell = document.createElement("td");
+    const featured = document.createElement("input");
+    featured.type = "checkbox";
+    featured.checked = Boolean(reward.featured);
+    featured.setAttribute("aria-label", "Featured 奖励");
+    featured.addEventListener("change", () => { reward.featured = featured.checked; markBoxGachaDirty(false); });
+    featuredCell.append(featured);
+    tr.append(featuredCell);
+
+    if (limited) {
+      const jackpotCell = document.createElement("td");
+      jackpotCell.className = "jackpot-column";
+      const jackpot = document.createElement("input");
+      jackpot.type = "checkbox";
+      jackpot.checked = Boolean(reward.jackpot);
+      jackpot.disabled = !event;
+      jackpot.setAttribute("aria-label", "Event Gacha 大奖");
+      jackpot.addEventListener("change", () => { reward.jackpot = jackpot.checked; markBoxGachaDirty(false); });
+      jackpotCell.append(jackpot);
+      jackpotCell.classList.toggle("hidden", !event);
+      tr.append(jackpotCell);
+    }
+
+    const removeCell = document.createElement("td");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "chip-action box-remove-reward";
+    remove.textContent = "删除";
+    remove.addEventListener("click", () => {
+      const box = currentEditableBox();
+      box[limited ? "limitedRewards" : "unlimitedRewards"].splice(index, 1);
+      markBoxGachaDirty(true);
+    });
+    removeCell.append(remove);
+    tr.append(removeCell);
+    return tr;
+  }
+
+  function refreshBoxProbabilityPreviews() {
+    const box = currentEditableBox();
+    if (!box) return;
+    const limitedWeight = Number(box.groupWeights?.limited || 0);
+    const unlimitedWeight = Number(box.groupWeights?.unlimited || 0);
+    const groupTotal = limitedWeight + unlimitedWeight;
+    [["limited", box.limitedRewards || [], limitedWeight], ["unlimited", box.unlimitedRewards || [], unlimitedWeight]].forEach(([group, rewards, groupWeight]) => {
+      const rewardTotal = rewards.reduce((sum, reward) => sum + Math.max(0, Number(reward.weight || 0)), 0);
+      rewards.forEach((reward, index) => {
+        const target = document.querySelector(`[data-box-probability="${group}:${index}"]`);
+        if (!target) return;
+        const probability = groupTotal > 0 && rewardTotal > 0 ? groupWeight / groupTotal * Math.max(0, Number(reward.weight || 0)) / rewardTotal * 100 : 0;
+        target.textContent = `${probability.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}%`;
+      });
+    });
+  }
+
+  function markBoxGachaDirty(rerender) {
+    state.gachaDirty = true;
+    if (rerender) renderBoxGachaEditor();
+    else updateGachaDirtyUI();
+  }
+
+  function addBoxReward(group) {
+    const box = currentEditableBox();
+    if (!box) return;
+    const limited = group === "limited";
+    box[limited ? "limitedRewards" : "unlimitedRewards"].push(newBoxReward(limited, state.gachaKind === "event"));
+    markBoxGachaDirty(true);
+  }
+
+	  function addConfiguredBox() {
+	    const banner = currentBoxBanner();
+	    if (!banner) return;
+	    const key = String(banner.gachaId);
+	    if (state.gachaKind === "chapter") {
+	      if (state.gachaDraft.chapterBanners[key]) return;
+	      state.gachaDraft.chapterBanners[key] = newBoxConfig(false);
+	      markBoxGachaDirty(true);
+	      return;
+	    }
+	    const event = state.gachaDraft.eventBanners[key] ||= { boxes: [] };
+    event.boxes ||= [];
+    event.boxes.push(newBoxConfig(true));
+    state.boxSelections[`event:${banner.gachaId}`] = event.boxes.length;
+    markBoxGachaDirty(true);
+  }
+
+	  function removeConfiguredBox() {
+	    const banner = currentBoxBanner();
+	    if (!banner) return;
+	    if (state.gachaKind === "chapter") {
+	      const key = String(banner.gachaId);
+	      if (!state.gachaDraft.chapterBanners[key] || !confirm(`删除 Chapter Gacha ${banner.gachaId} 的奖励配置？`)) return;
+	      delete state.gachaDraft.chapterBanners[key];
+	      markBoxGachaDirty(true);
+	      return;
+	    }
+	    const event = state.gachaDraft.eventBanners[String(banner.gachaId)];
+    if (!event?.boxes?.length || !confirm(`删除 Event Gacha ${banner.gachaId} 的当前箱子？`)) return;
+    const number = selectedBoxNumber(banner, event.boxes.length);
+    event.boxes.splice(number - 1, 1);
+    if (!event.boxes.length) delete state.gachaDraft.eventBanners[String(banner.gachaId)];
+    state.boxSelections[`event:${banner.gachaId}`] = Math.max(1, number - 1);
+    markBoxGachaDirty(true);
+  }
+
   function groupStatsForBanner(banner) {
     const definition = bannerConfig(banner.gachaId);
     const pickupSet = new Set(definition.pickupWeaponIds || []);
@@ -2241,6 +2566,37 @@
     });
     const tenthTotalWeight = Object.values(tenthWeights).reduce((sum, weight) => sum + weight, 0);
     return { groups, candidates, totalWeight, tenthWeights, tenthTotalWeight };
+  }
+
+  function appendBoxValidationErrors(errors) {
+    const knownRewards = new Set(rewardDefinitions.flatMap((definition) =>
+      rewardReferencesForPossessionType(definition.possessionType).map((reward) => `${reward.possessionType}:${reward.possessionId}`)
+    ));
+    const validateBox = (gachaId, box, boxNumber, event) => {
+      const limitedWeight = Number(box?.groupWeights?.limited);
+      const unlimitedWeight = Number(box?.groupWeights?.unlimited);
+      if (![limitedWeight, unlimitedWeight].every((weight) => Number.isInteger(weight) && weight >= 0) || limitedWeight + unlimitedWeight !== 10000) {
+        errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的有限、无限奖励组概率合计必须为 100%`);
+      }
+      const groups = [["有限", box?.limitedRewards || [], true, limitedWeight], ["无限", box?.unlimitedRewards || [], false, unlimitedWeight]];
+      groups.forEach(([label, rewards, limited, groupWeight]) => {
+        if (groupWeight > 0 && !rewards.length) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励组有概率但没有奖励`);
+        rewards.forEach((reward, index) => {
+          if (!knownRewards.has(`${reward.possessionType}:${reward.possessionId}`)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 不在主数据奖励列表中`);
+          if (!Number.isInteger(Number(reward.count)) || Number(reward.count) <= 0) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 单次数量必须为正整数`);
+          if (limited && (!Number.isInteger(Number(reward.maxCount)) || Number(reward.maxCount) <= 0)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的有限奖励 ${index + 1} 库存必须为正整数`);
+          if (!Number.isInteger(Number(reward.weight)) || Number(reward.weight) <= 0) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 权重必须为正整数`);
+          if ((!event || !limited) && reward.jackpot) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱只有 Event 有限奖励可以设为大奖`);
+        });
+      });
+      if (event && limitedWeight <= 0) errors.push(`Event Gacha ${gachaId} 第 ${boxNumber} 箱的有限奖励组概率必须大于 0`);
+      if (event && !(box?.limitedRewards || []).some((reward) => reward.jackpot)) errors.push(`Event Gacha ${gachaId} 第 ${boxNumber} 箱至少需要一个大奖`);
+    };
+    Object.entries(state.gachaDraft.chapterBanners || {}).forEach(([gachaId, box]) => validateBox(gachaId, box, 1, false));
+    Object.entries(state.gachaDraft.eventBanners || {}).forEach(([gachaId, event]) => {
+      if (!event.boxes?.length) errors.push(`Event Gacha ${gachaId} 至少需要一个箱子`);
+      (event.boxes || []).forEach((box, index) => validateBox(gachaId, box, index + 1, true));
+    });
   }
 
   function gachaValidationErrors() {
@@ -2271,6 +2627,7 @@
         if (!candidates.has(weaponId)) errors.push(`卡池 ${banner.gachaId} 的 Pickup 武器 ${weaponId} 不在候选池`);
       });
     });
+    appendBoxValidationErrors(errors);
     return errors;
   }
 
@@ -2314,6 +2671,9 @@
   elements.tabRelated.addEventListener("click", () => switchAdminSection("related"));
   elements.tabDelivery.addEventListener("click", () => switchAdminSection("delivery"));
   elements.tabGacha.addEventListener("click", () => switchAdminSection("gacha"));
+  elements.gachaKindPremium.addEventListener("click", () => setGachaKind("premium"));
+  elements.gachaKindChapter.addEventListener("click", () => setGachaKind("chapter"));
+  elements.gachaKindEvent.addEventListener("click", () => setGachaKind("event"));
 
   elements.tableSelect.addEventListener("change", () => {
     state.tableSelections[state.section] = elements.tableSelect.value;
@@ -2446,6 +2806,30 @@
   elements.gachaWeaponTypeFilter.addEventListener("change", renderGachaWeapons);
   elements.gachaGrantFilter.addEventListener("change", renderGachaWeapons);
   elements.gachaBannerSelect.addEventListener("change", renderGachaBannerEditor);
+  elements.boxGachaBannerSelect.addEventListener("change", renderBoxGachaEditor);
+  elements.boxGachaNumberSelect.addEventListener("change", () => {
+    const banner = currentBoxBanner();
+    if (banner) state.boxSelections[`${state.gachaKind}:${banner.gachaId}`] = Number(elements.boxGachaNumberSelect.value || 1);
+    renderBoxGachaEditor();
+  });
+	  elements.boxGachaAddBox.addEventListener("click", addConfiguredBox);
+	  elements.boxGachaRemoveBox.addEventListener("click", removeConfiguredBox);
+  elements.boxAddLimitedReward.addEventListener("click", () => addBoxReward("limited"));
+  elements.boxAddUnlimitedReward.addEventListener("click", () => addBoxReward("unlimited"));
+  elements.boxLimitedProbability.addEventListener("input", () => {
+    const box = currentEditableBox();
+    if (!box) return;
+    box.groupWeights.limited = Math.round(Number(elements.boxLimitedProbability.value || 0) * 100);
+    markBoxGachaDirty(false);
+    refreshBoxProbabilityPreviews();
+  });
+  elements.boxUnlimitedProbability.addEventListener("input", () => {
+    const box = currentEditableBox();
+    if (!box) return;
+    box.groupWeights.unlimited = Math.round(Number(elements.boxUnlimitedProbability.value || 0) * 100);
+    markBoxGachaDirty(false);
+    refreshBoxProbabilityPreviews();
+  });
   const renderCurrentPickupWeapons = () => {
     const banner = currentGachaBanner();
     if (banner) renderPickupWeapons(banner);

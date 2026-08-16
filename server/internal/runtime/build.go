@@ -78,15 +78,21 @@ func buildCatalogs(gachaConfig *gacha.Config, gachaConfigHash string, gachaConfi
 		len(shopCatalog.Items), len(shopCatalog.Contents), len(shopCatalog.ExchangeShopCells))
 
 	gachaPool.PruneUnpairedCostumes()
+	boxRewardKeys, err := masterdata.LoadGachaBoxRewardKeys()
+	if err != nil {
+		return nil, fmt.Errorf("load Gacha box reward references: %w", err)
+	}
 	premiumGacha, err := gacha.BuildPremiumCatalog(gachaConfig, gachaPool, gachaEntries, gacha.BuildOptions{
 		RequireComplete:       requireCompleteGacha,
 		CurrentMasterDataHash: masterDataHash,
+		ValidBoxRewards:       boxRewardKeys,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build configured Gacha pools: %w", err)
 	}
 	masterdata.EnrichCatalogPromotions(gachaEntries, gachaPool)
 	gacha.ApplyConfiguredPromotions(gachaEntries, premiumGacha)
+	gacha.ApplyConfiguredBoxes(gachaEntries, gachaConfig)
 
 	dupExchange, err := masterdata.LoadDupExchange()
 	if err != nil {

@@ -51,6 +51,7 @@ func TestChapterGachaIsVisibleOnlyAfterUnlock(t *testing.T) {
 	cat := &runtime.Catalogs{}
 	entry := store.GachaCatalogEntry{
 		GachaLabelType:    model.GachaLabelChapter,
+		BoxCount:          1,
 		IsUserGachaUnlock: true,
 		UnlockConditions: []store.GachaUnlockConditionEntry{{
 			GachaUnlockConditionType: model.GachaUnlockMainQuestClear,

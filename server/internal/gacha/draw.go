@@ -16,6 +16,7 @@ type DrawnItem struct {
 	CharacterId    int32
 	Count          int32
 	CounterId      int32
+	IsTarget       bool
 }
 
 func DrawPremium(bp *PremiumBannerPool, count int, fixedRarityMin int32, fixedCount int, rateMultiplier float64) ([]DrawnItem, error) {
@@ -81,33 +82,6 @@ func transferTwoStarWeightsToThreeStar(groups []PremiumGroup, weights []int) []i
 	return transferred
 }
 
-func DrawBox(items []BoxItem, count int) []DrawnItem {
-	var available []int
-	for i, item := range items {
-		remaining := item.MaxCount - item.DrewCount
-		for range remaining {
-			available = append(available, i)
-		}
-	}
-
-	result := make([]DrawnItem, 0, count)
-	for i := 0; i < count && len(available) > 0; i++ {
-		pick := rand.Intn(len(available))
-		idx := available[pick]
-		item := items[idx]
-		result = append(result, DrawnItem{
-			PossessionType: item.PossessionType,
-			PossessionId:   item.PossessionId,
-			RarityType:     item.RarityType,
-			Count:          positiveCount(item.Count),
-			CounterId:      item.CounterId,
-		})
-		items[idx].DrewCount++
-		available = append(available[:pick], available[pick+1:]...)
-	}
-	return result
-}
-
 func DrawReward(materials []masterdata.GachaPoolItem, count int) []DrawnItem {
 	if len(materials) == 0 {
 		return nil
@@ -125,29 +99,15 @@ func DrawReward(materials []masterdata.GachaPoolItem, count int) []DrawnItem {
 	return result
 }
 
-type BoxItem struct {
-	PossessionType int32
-	PossessionId   int32
-	RarityType     model.RarityType
-	Count          int32
-	MaxCount       int32
-	DrewCount      int32
-	IsTarget       bool
-	CounterId      int32
-}
-
-const (
-	chapterProbabilityTotal     = 100
-	chapterUnlimitedProbability = 20
-	chapterLimitedProbability   = chapterProbabilityTotal - chapterUnlimitedProbability
-)
-
-func drawChapterWithIntn(items []store.GachaBoxItemEntry, drewCounts map[int32]int32, count int, monthKey int32, intn func(int) int) ([]DrawnItem, error) {
+func drawChapterWithIntn(items []store.GachaBoxItemEntry, groupWeights BoxGroupWeights, drewCounts map[int32]int32, count int, monthKey int32, intn func(int) int) ([]DrawnItem, error) {
 	if drewCounts[model.ChapterGachaMonthCounterId] != monthKey {
 		clear(drewCounts)
 		drewCounts[model.ChapterGachaMonthCounterId] = monthKey
 	}
+	return drawWeightedBoxWithIntn(items, groupWeights, drewCounts, count, intn)
+}
 
+func drawWeightedBoxWithIntn(items []store.GachaBoxItemEntry, groupWeights BoxGroupWeights, drewCounts map[int32]int32, count int, intn func(int) int) ([]DrawnItem, error) {
 	result := make([]DrawnItem, 0, count)
 	for range count {
 		limitedWeight := 0
@@ -155,9 +115,9 @@ func drawChapterWithIntn(items []store.GachaBoxItemEntry, drewCounts map[int32]i
 		for i, item := range items {
 			counterId := chapterCounterId(item, i)
 			if item.Weight > 0 && (item.MaxCount <= 0 || drewCounts[counterId] < item.MaxCount) {
-				if item.MaxCount > 0 {
+				if item.MaxCount > 0 && groupWeights.Limited > 0 {
 					limitedWeight += int(item.Weight)
-				} else {
+				} else if item.MaxCount <= 0 && groupWeights.Unlimited > 0 {
 					unlimitedWeight += int(item.Weight)
 				}
 			}
@@ -168,7 +128,11 @@ func drawChapterWithIntn(items []store.GachaBoxItemEntry, drewCounts map[int32]i
 
 		drawLimited := limitedWeight > 0
 		if limitedWeight > 0 && unlimitedWeight > 0 {
-			drawLimited = intn(chapterProbabilityTotal) < chapterLimitedProbability
+			groupTotal := groupWeights.Limited + groupWeights.Unlimited
+			if groupTotal <= 0 {
+				return nil, fmt.Errorf("box Gacha group weights have no probability")
+			}
+			drawLimited = intn(groupTotal) < groupWeights.Limited
 		} else if limitedWeight <= 0 {
 			drawLimited = false
 		}
@@ -202,6 +166,7 @@ func drawChapterWithIntn(items []store.GachaBoxItemEntry, drewCounts map[int32]i
 			RarityType:     model.RarityType(item.RarityType),
 			Count:          positiveCount(item.Count),
 			CounterId:      counterId,
+			IsTarget:       item.IsJackpot,
 		})
 		if item.MaxCount > 0 {
 			drewCounts[counterId]++

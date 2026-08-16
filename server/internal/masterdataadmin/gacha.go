@@ -35,16 +35,30 @@ type GachaBannerReference struct {
 	EndDatetime     int64             `json:"endDatetime"`
 }
 
+type GachaBoxBannerReference struct {
+	GachaId                    int32             `json:"gachaId"`
+	GachaLabelType             int32             `json:"gachaLabelType"`
+	Titles                     map[string]string `json:"titles,omitempty"`
+	BannerAssetName            string            `json:"bannerAssetName,omitempty"`
+	StartDatetime              int64             `json:"startDatetime"`
+	EndDatetime                int64             `json:"endDatetime"`
+	RelatedMainQuestChapterId  int32             `json:"relatedMainQuestChapterId,omitempty"`
+	RelatedEventQuestChapterId int32             `json:"relatedEventQuestChapterId,omitempty"`
+	RequiredConsumableItemId   int32             `json:"requiredConsumableItemId,omitempty"`
+	ConfiguredBoxCount         int32             `json:"configuredBoxCount"`
+}
+
 type GachaEditorCatalog struct {
-	ContentHash     string                 `json:"contentHash"`
-	MasterDataHash  string                 `json:"masterDataHash"`
-	ConfigExists    bool                   `json:"configExists"`
-	DefaultLanguage string                 `json:"defaultLanguage"`
-	Languages       []string               `json:"languages"`
-	Config          *gacha.Config          `json:"config"`
-	Weapons         []GachaWeaponReference `json:"weapons"`
-	Banners         []GachaBannerReference `json:"banners"`
-	Warnings        []string               `json:"warnings,omitempty"`
+	ContentHash     string                    `json:"contentHash"`
+	MasterDataHash  string                    `json:"masterDataHash"`
+	ConfigExists    bool                      `json:"configExists"`
+	DefaultLanguage string                    `json:"defaultLanguage"`
+	Languages       []string                  `json:"languages"`
+	Config          *gacha.Config             `json:"config"`
+	Weapons         []GachaWeaponReference    `json:"weapons"`
+	Banners         []GachaBannerReference    `json:"banners"`
+	BoxBanners      []GachaBoxBannerReference `json:"boxBanners"`
+	Warnings        []string                  `json:"warnings,omitempty"`
 }
 
 func LoadGachaEditorCatalog(
@@ -103,6 +117,29 @@ func LoadGachaEditorCatalog(
 
 	seenBanners := make(map[int32]bool)
 	for _, entry := range entries {
+		if entry.GachaLabelType == model.GachaLabelChapter || entry.GachaLabelType == model.GachaLabelEvent {
+			titles := resolver.byKey("gacha.title." + entry.BannerAssetName)
+			if entry.GachaLabelType == model.GachaLabelEvent {
+				titles = resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", entry.DescriptionTextId))
+			}
+			boxCount := entry.BoxCount
+			if event, ok := result.Config.EventBanners[entry.GachaId]; ok {
+				boxCount = int32(len(event.Boxes))
+			}
+			result.BoxBanners = append(result.BoxBanners, GachaBoxBannerReference{
+				GachaId:                    entry.GachaId,
+				GachaLabelType:             entry.GachaLabelType,
+				Titles:                     titles,
+				BannerAssetName:            entry.BannerAssetName,
+				StartDatetime:              entry.StartDatetime,
+				EndDatetime:                entry.EndDatetime,
+				RelatedMainQuestChapterId:  entry.RelatedMainQuestChapterId,
+				RelatedEventQuestChapterId: entry.RelatedEventQuestChapterId,
+				RequiredConsumableItemId:   entry.RequiredConsumableItemId,
+				ConfiguredBoxCount:         boxCount,
+			})
+			continue
+		}
 		if entry.GachaLabelType != model.GachaLabelPremium {
 			continue
 		}
@@ -125,9 +162,15 @@ func LoadGachaEditorCatalog(
 		})
 	}
 	sort.Slice(result.Banners, func(i, j int) bool { return result.Banners[i].GachaId < result.Banners[j].GachaId })
+	sort.Slice(result.BoxBanners, func(i, j int) bool {
+		if result.BoxBanners[i].GachaLabelType != result.BoxBanners[j].GachaLabelType {
+			return result.BoxBanners[i].GachaLabelType < result.BoxBanners[j].GachaLabelType
+		}
+		return result.BoxBanners[i].GachaId < result.BoxBanners[j].GachaId
+	})
 
 	if !configExists {
-		result.Warnings = append(result.Warnings, "Gacha 配置尚未发布，当前所有可抽取武器按常驻处理，且无限定、无 Pickup。")
+		result.Warnings = append(result.Warnings, "Gacha 配置尚未发布：可抽取武器按常驻处理，且无限定、无 Pickup；Chapter 与 Event 奖励箱在配置前不会开放。")
 	} else if config.SourceMasterDataHash != masterDataHash {
 		result.Warnings = append(result.Warnings, "Gacha 配置基于旧版主数据；新增可抽取武器已按常驻处理，请检查后重新发布。")
 	}

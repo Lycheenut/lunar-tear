@@ -210,6 +210,13 @@
       </div>
 
       <section id="gacha-editor" class="gacha-editor hidden">
+        <div class="gacha-kind-tabs" role="group" aria-label="Gacha 配置类型">
+          <button id="gacha-kind-premium" class="gacha-kind-tab active" type="button" aria-pressed="true">Premium Gacha</button>
+          <button id="gacha-kind-chapter" class="gacha-kind-tab" type="button" aria-pressed="false">Chapter Gacha</button>
+          <button id="gacha-kind-event" class="gacha-kind-tab" type="button" aria-pressed="false">Event Gacha</button>
+        </div>
+
+        <div id="premium-gacha-config">
         <div class="summary-grid">
           <article class="metric"><span>常驻候选</span><strong id="gacha-standard-count">0</strong></article>
           <article class="metric"><span>活动 / 限定覆盖</span><strong id="gacha-override-count">0</strong></article>
@@ -402,6 +409,69 @@
             </section>
           </aside>
         </div>
+        </div>
+
+        <section id="box-gacha-config" class="box-gacha-config hidden">
+          <section class="data-panel">
+            <div class="data-heading box-gacha-heading">
+              <div>
+                <p id="box-gacha-eyebrow" class="eyebrow">CHAPTER BOX CONFIG</p>
+                <h2 id="box-gacha-title">奖励箱配置</h2>
+              </div>
+              <span id="box-gacha-state" class="row-badge">已配置</span>
+            </div>
+            <div class="box-gacha-toolbar">
+              <label>卡池
+                <select id="box-gacha-banner-select"></select>
+              </label>
+              <label id="box-gacha-number-label">箱子
+                <select id="box-gacha-number-select"></select>
+              </label>
+              <div id="box-gacha-actions" class="box-gacha-actions">
+                <button id="box-gacha-add-box" class="button ghost" type="button">新增箱子</button>
+                <button id="box-gacha-remove-box" class="button ghost danger" type="button">删除当前箱子</button>
+              </div>
+            </div>
+            <div id="box-gacha-empty" class="empty-state hidden">
+              当前 Event Gacha 尚未配置箱子。点击“新增箱子”开始配置。
+            </div>
+            <div id="box-gacha-editor-body" class="box-gacha-editor-body">
+              <fieldset class="box-group-probabilities">
+                <legend>有限 / 无限奖励组概率</legend>
+                <p>两组概率合计必须为 100%；某组没有奖励时，其概率必须为 0。</p>
+                <label><span>有限奖励组</span><span class="gacha-probability-input"><input id="box-limited-probability" type="number" min="0" max="100" step="0.01"><span>%</span></span></label>
+                <label><span>无限奖励组</span><span class="gacha-probability-input"><input id="box-unlimited-probability" type="number" min="0" max="100" step="0.01"><span>%</span></span></label>
+              </fieldset>
+
+              <section class="box-reward-group">
+                <div class="data-heading compact">
+                  <div><p class="eyebrow">LIMITED REWARDS</p><h3>有限奖励</h3></div>
+                  <button id="box-add-limited-reward" class="button ghost" type="button">新增有限奖励</button>
+                </div>
+                <div class="table-scroll box-reward-scroll">
+                  <table class="box-reward-table">
+                    <thead><tr><th>奖励</th><th>单次数量</th><th>库存</th><th>权重</th><th>实时概率</th><th>Featured</th><th class="jackpot-column">大奖</th><th></th></tr></thead>
+                    <tbody id="box-limited-reward-body"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="box-reward-group">
+                <div class="data-heading compact">
+                  <div><p class="eyebrow">UNLIMITED REWARDS</p><h3>无限奖励</h3></div>
+                  <button id="box-add-unlimited-reward" class="button ghost" type="button">新增无限奖励</button>
+                </div>
+                <div class="table-scroll box-reward-scroll">
+                  <table class="box-reward-table">
+                    <thead><tr><th>奖励</th><th>单次数量</th><th>权重</th><th>实时概率</th><th>Featured</th><th></th></tr></thead>
+                    <tbody id="box-unlimited-reward-body"></tbody>
+                  </table>
+                </div>
+              </section>
+              <p id="box-gacha-rule-note" class="box-gacha-rule-note"></p>
+            </div>
+          </section>
+        </section>
 
         <div class="savebar">
           <div>

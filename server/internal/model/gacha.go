@@ -102,14 +102,6 @@ type DupExchangeEntry struct {
 
 const DefaultDailyDrawLimit int32 = 5
 
-const (
-	BoxPoolMaxItems    int   = 50
-	BoxPoolMinItems    int   = 5
-	BoxItemDefaultMax  int32 = 10
-	BoxFallbackItemMax int32 = 20
-	BoxFallbackItemId  int32 = 100001
-)
-
 const PhaseIdMultiplier int32 = 10
 
 const (

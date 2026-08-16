@@ -69,6 +69,8 @@ type Config struct {
 	LimitedSets          map[string]LimitedSetConfig `json:"limitedSets"`
 	Weapons              map[int32]WeaponConfig      `json:"weapons"`
 	Banners              map[int32]BannerConfig      `json:"banners"`
+	ChapterBanners       map[int32]BoxConfig         `json:"chapterBanners,omitempty"`
+	EventBanners         map[int32]EventBoxConfig    `json:"eventBanners,omitempty"`
 }
 
 type PoolItem struct {
@@ -134,6 +136,7 @@ type PremiumCatalog struct {
 type BuildOptions struct {
 	RequireComplete       bool
 	CurrentMasterDataHash string
+	ValidBoxRewards       map[[2]int32]bool
 }
 
 type groupDefinition struct {
@@ -158,9 +161,11 @@ func DefaultConfig() *Config {
 			CharacterWeapon: RarityWeights{ThreeStar: 500, FourStar: 200},
 			WeaponOnly:      RarityWeights{TwoStar: 8000, ThreeStar: 1000, FourStar: 300},
 		},
-		LimitedSets: make(map[string]LimitedSetConfig),
-		Weapons:     make(map[int32]WeaponConfig),
-		Banners:     make(map[int32]BannerConfig),
+		LimitedSets:    make(map[string]LimitedSetConfig),
+		Weapons:        make(map[int32]WeaponConfig),
+		Banners:        make(map[int32]BannerConfig),
+		ChapterBanners: make(map[int32]BoxConfig),
+		EventBanners:   make(map[int32]EventBoxConfig),
 	}
 }
 
@@ -548,7 +553,7 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 			}
 		}
 	}
-	return nil
+	return validateBoxConfigs(config, entries, options.ValidBoxRewards)
 }
 
 func normalizeConfig(config *Config) {
@@ -567,6 +572,12 @@ func normalizeConfig(config *Config) {
 	}
 	if config.Banners == nil {
 		config.Banners = make(map[int32]BannerConfig)
+	}
+	if config.ChapterBanners == nil {
+		config.ChapterBanners = make(map[int32]BoxConfig)
+	}
+	if config.EventBanners == nil {
+		config.EventBanners = make(map[int32]EventBoxConfig)
 	}
 }
 

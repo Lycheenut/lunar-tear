@@ -67,6 +67,25 @@ func TestPremiumPickupPromotionPairsCostumeAndWeaponOrder(t *testing.T) {
 	}
 }
 
+func TestEventBoxResponseReportsProgressionAndResetState(t *testing.T) {
+	entry := store.GachaCatalogEntry{
+		GachaId:                  300001,
+		GachaLabelType:           model.GachaLabelEvent,
+		GachaModeType:            model.GachaModeBox,
+		BoxCount:                 3,
+		IsCurrentBoxResettable:   true,
+		IsResettableByAllTargets: true,
+		IsInvalidReset:           false,
+		GroupId:                  300001,
+		PricePhases:              []store.GachaPricePhaseEntry{{PhaseId: 3000011}},
+	}
+	state := &store.GachaBannerState{BoxNumber: 2}
+	mode := toProtoGacha(entry, state).GetGachaModeBoxComposition()
+	if mode == nil || mode.BoxNumber != 3 || mode.CurrentBoxNumber != 2 || !mode.IsCurrentBoxResettable || !mode.IsResettableByDrawingAllTargets || mode.IsInvalidReset {
+		t.Fatalf("event box response = %+v", mode)
+	}
+}
+
 func TestGuaranteedFourStarGachaResponseMatchesConfirmBanner(t *testing.T) {
 	holder := newGachaResponseTestHolder(t)
 

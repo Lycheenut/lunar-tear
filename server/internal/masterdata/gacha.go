@@ -47,13 +47,17 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 		linkById[link.EventQuestLinkId] = link
 	}
 	// This master-data snapshot has no authoritative event-box inventory table.
-	// Keep the linked ids out of the catalog instead of treating UI display items
-	// as drawable stock with fabricated counts and rarity.
+	// Event metadata still comes from the quest link; the separately managed
+	// Gacha JSON supplies the boxes and rewards.
 	eventGachaIds := make(map[int32]bool)
+	eventGachaChapters := make(map[int32]EntityMEventQuestChapter)
+	eventGachaLinks := make(map[int32]EntityMEventQuestLink)
 	for _, chapter := range eventChapters {
 		link := linkById[chapter.EventQuestLinkId]
 		if link.DestinationDomainType == model.MomBannerDomainGacha {
 			eventGachaIds[link.DestinationDomainId] = true
+			eventGachaChapters[link.DestinationDomainId] = chapter
+			eventGachaLinks[link.DestinationDomainId] = link
 		}
 	}
 
@@ -125,6 +129,7 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 		})
 	}
 	entries = append(entries, buildChapterGachaEntries()...)
+	entries = append(entries, buildEventGachaEntries(eventGachaChapters, eventGachaLinks)...)
 	entries = append(entries,
 		buildGuaranteedTicketGacha(
 			model.GachaIdGuaranteedThreeStarOrHigher,
@@ -217,6 +222,42 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 	return entries, medalInfoByGacha, nil
 }
 
+func buildEventGachaEntries(chapters map[int32]EntityMEventQuestChapter, links map[int32]EntityMEventQuestLink) []store.GachaCatalogEntry {
+	gachaIds := make([]int32, 0, len(chapters))
+	for gachaId := range chapters {
+		gachaIds = append(gachaIds, gachaId)
+	}
+	sort.Slice(gachaIds, func(i, j int) bool { return gachaIds[i] < gachaIds[j] })
+
+	entries := make([]store.GachaCatalogEntry, 0, len(gachaIds))
+	for _, gachaId := range gachaIds {
+		chapter := chapters[gachaId]
+		link := links[gachaId]
+		if link.PossessionType != int32(model.PossessionTypeConsumableItem) || link.PossessionId <= 0 {
+			continue
+		}
+		entries = append(entries, store.GachaCatalogEntry{
+			GachaId:                    gachaId,
+			IsMamaBanner:               true,
+			GachaLabelType:             model.GachaLabelEvent,
+			GachaModeType:              model.GachaModeBox,
+			GachaAutoResetType:         model.GachaAutoResetNone,
+			IsUserGachaUnlock:          true,
+			RequiredConsumableItemId:   link.PossessionId,
+			StartDatetime:              chapter.StartDatetime,
+			EndDatetime:                chapter.EndDatetime,
+			RelatedEventQuestChapterId: chapter.EventQuestChapterId,
+			GachaDecorationType:        model.GachaDecorationNormal,
+			SortOrder:                  chapter.DisplaySortOrder,
+			BannerAssetName:            fmt.Sprintf("event_%d", gachaId),
+			GroupId:                    gachaId,
+			PricePhases:                buildChapterPricePhases(gachaId, link.PossessionId),
+			DescriptionTextId:          chapter.NameEventQuestTextId,
+		})
+	}
+	return entries
+}
+
 func buildGuaranteedTicketGacha(gachaId, ticketId int32, assetName string, minimumRarity model.RarityType) store.GachaCatalogEntry {
 	return store.GachaCatalogEntry{
 		GachaId:                  gachaId,
@@ -277,7 +318,7 @@ func EnrichCatalogPromotions(entries []store.GachaCatalogEntry, pool *GachaCatal
 			continue
 		}
 		if entries[i].GachaLabelType == model.GachaLabelChapter {
-			entries[i].PromotionItems = buildChapterGachaPromotionItems(entries[i])
+			entries[i].PromotionItems = nil
 			continue
 		}
 

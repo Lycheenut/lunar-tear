@@ -172,6 +172,45 @@ JSON 的 `weapons` 使用稀疏覆盖结构：没有出现的武器默认常驻�
 - `banners.*.limitedSets`：该卡池匹配并可加入候选池的限定集合。
 - `banners.*.pickupWeaponIds`：该卡池的 pickup 武器集合。
 
+Chapter 与 Event 奖励箱也保存在同一个、独立于主数据的 `gacha.json` 中：
+
+```json
+{
+  "chapterBanners": {
+    "200001": {
+      "groupWeights": { "limited": 8000, "unlimited": 2000 },
+      "limitedRewards": [
+        { "possessionType": 5, "possessionId": 100004, "rarityType": 3, "count": 5, "maxCount": 20, "weight": 200, "featured": true }
+      ],
+      "unlimitedRewards": [
+        { "possessionType": 6, "possessionId": 1, "count": 5, "weight": 500 }
+      ]
+    }
+  },
+  "eventBanners": {
+    "302001": {
+      "boxes": [
+        {
+          "groupWeights": { "limited": 9000, "unlimited": 1000 },
+          "limitedRewards": [
+            { "possessionType": 5, "possessionId": 100004, "count": 10, "maxCount": 1, "weight": 100, "featured": true, "jackpot": true }
+          ],
+          "unlimitedRewards": [
+            { "possessionType": 6, "possessionId": 1, "count": 100, "weight": 100 }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+- `groupWeights` 固定合计 10,000；单项初始概率为“所属组权重占比 × 该项权重在组内的占比”。有限奖励耗尽后，服务端会在剩余候选中重新归一化。
+- `count` 是单次获得数量；`maxCount` 是有限奖励的箱内库存，无限奖励不得填写库存。
+- `featured` 控制卡池封面/推广奖励展示，可同时标记多个奖励。
+- `jackpot` 仅允许用于 Event 的有限奖励。非末箱抽完全部大奖后才可进入下一箱；末箱必须抽完全部有限库存后才能重置。
+- 当前主数据快照没有 Event 箱子数量或显式 featured 字段，因此 Event 箱子数组由该 JSON 管理。Chapter 与 Event 均不再从代码生成默认奖励；未配置的卡池不会对玩家开放，但仍会显示在管理工具中以便创建配置。
+
 ### 4.5 读取、校验与发布
 
 管理 API 可采用以下边界：

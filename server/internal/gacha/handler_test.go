@@ -2,6 +2,7 @@ package gacha
 
 import (
 	"math"
+	"reflect"
 	"testing"
 
 	"lunar-tear/server/internal/masterdata"
@@ -123,7 +124,7 @@ func TestHandleDrawConsumesGuaranteedTickets(t *testing.T) {
 }
 
 func TestHandleDrawEnforcesStepUpOrderAndAdvancesFromFirstStep(t *testing.T) {
-	h := &GachaHandler{Pool: &masterdata.GachaCatalog{}, Granter: &store.PossessionGranter{}}
+	h := configuredEventHandler(4)
 	entry := eventBoxEntry()
 	entry.GachaModeType = model.GachaModeStepup
 	entry.MaxStepNumber = 2
@@ -131,7 +132,6 @@ func TestHandleDrawEnforcesStepUpOrderAndAdvancesFromFirstStep(t *testing.T) {
 		{PhaseId: 11, DrawCount: 1, LimitExecCount: 1, StepNumber: 1},
 		{PhaseId: 12, DrawCount: 1, LimitExecCount: 1, StepNumber: 2},
 	}
-	entry.BoxItems[0].MaxCount = 4
 	user := &store.UserState{}
 	user.EnsureMaps()
 
@@ -159,6 +159,7 @@ func TestHandleDrawEnforcesStepUpOrderAndAdvancesFromFirstStep(t *testing.T) {
 func TestEventGachaDrawsOnlyItsConfiguredBoxItems(t *testing.T) {
 	h := &GachaHandler{
 		Pool:    &masterdata.GachaCatalog{Materials: []masterdata.GachaPoolItem{{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 10}}},
+		Premium: configuredEventHandler(1).Premium,
 		Granter: &store.PossessionGranter{},
 	}
 	entry := eventBoxEntry()
@@ -180,16 +181,93 @@ func TestEventGachaDrawsOnlyItsConfiguredBoxItems(t *testing.T) {
 }
 
 func TestHandleResetBoxInitializesPersistentBannerIdentity(t *testing.T) {
-	h := &GachaHandler{}
+	h := configuredEventHandler(1)
 	entry := eventBoxEntry()
 	user := &store.UserState{}
 	user.EnsureMaps()
+	user.Gacha.BannerStates[entry.GachaId] = store.GachaBannerState{BoxDrewCounts: map[int32]int32{1: 1}}
 	if err := h.HandleResetBox(user, entry); err != nil {
 		t.Fatal(err)
 	}
 	state := user.Gacha.BannerStates[entry.GachaId]
-	if state.GachaId != entry.GachaId || state.BoxNumber != 2 {
+	if state.GachaId != entry.GachaId || state.BoxNumber != 1 {
 		t.Fatalf("unexpected reset state: %+v", state)
+	}
+}
+
+func TestEventBoxOnlyAdvancesAfterJackpotsAndOnlyResetsLastBoxWhenEmpty(t *testing.T) {
+	boxes := []BoxConfig{
+		{
+			GroupWeights: BoxGroupWeights{Limited: GroupWeightTotal},
+			LimitedRewards: []BoxRewardConfig{
+				{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 1, Weight: 1, Jackpot: true},
+				{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 101, Count: 1, MaxCount: 2, Weight: 1},
+			},
+		},
+		{
+			GroupWeights: BoxGroupWeights{Limited: GroupWeightTotal},
+			LimitedRewards: []BoxRewardConfig{
+				{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 1, MaxCount: 1, Weight: 1, Jackpot: true},
+				{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 201, Count: 1, MaxCount: 1, Weight: 1},
+			},
+		},
+	}
+	h := &GachaHandler{Premium: &PremiumCatalog{Config: &Config{EventBanners: map[int32]EventBoxConfig{1: {Boxes: boxes}}}}}
+	entry := eventBoxEntry()
+	entry.BoxItems = nil
+	user := &store.UserState{}
+	user.EnsureMaps()
+
+	if err := h.HandleResetBox(user, entry); err == nil {
+		t.Fatal("event box advanced before its jackpot was drawn")
+	}
+	state := user.Gacha.BannerStates[entry.GachaId]
+	state.BoxDrewCounts = map[int32]int32{1: 1}
+	user.Gacha.BannerStates[entry.GachaId] = state
+	if err := h.HandleResetBox(user, entry); err != nil {
+		t.Fatalf("event box did not advance after jackpot: %v", err)
+	}
+	state = user.Gacha.BannerStates[entry.GachaId]
+	if state.BoxNumber != 2 || len(state.BoxDrewCounts) != 0 {
+		t.Fatalf("advanced event state = %+v", state)
+	}
+	state.BoxDrewCounts = map[int32]int32{1: 1}
+	user.Gacha.BannerStates[entry.GachaId] = state
+	if err := h.HandleResetBox(user, entry); err == nil {
+		t.Fatal("last event box reset before all limited rewards were drawn")
+	}
+	state.BoxDrewCounts[2] = 1
+	user.Gacha.BannerStates[entry.GachaId] = state
+	if err := h.HandleResetBox(user, entry); err != nil {
+		t.Fatalf("last event box did not reset after becoming empty: %v", err)
+	}
+	state = user.Gacha.BannerStates[entry.GachaId]
+	if state.BoxNumber != 2 || len(state.BoxDrewCounts) != 0 {
+		t.Fatalf("reset last event state = %+v", state)
+	}
+}
+
+func TestConfiguredBoxDrawUsesGroupAndRewardWeights(t *testing.T) {
+	items := []store.GachaBoxItemEntry{
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 1, CounterId: 1, Weight: 1},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 2, CounterId: 2, Weight: 3},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 201, Count: 3, CounterId: 3, Weight: 1},
+	}
+	bounds := []int{}
+	rolls := []int{9000, 3}
+	result, err := drawWeightedBoxWithIntn(items, BoxGroupWeights{Limited: 8000, Unlimited: 2000}, map[int32]int32{}, 1, func(bound int) int {
+		bounds = append(bounds, bound)
+		return rolls[len(bounds)-1]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].PossessionId != 201 || result[0].Count != 3 {
+		t.Fatalf("configured draw = %+v", result)
+	}
+	wantBounds := []int{10000, 4}
+	if !reflect.DeepEqual(bounds, wantBounds) {
+		t.Fatalf("random bounds = %v, want %v", bounds, wantBounds)
 	}
 }
 
@@ -200,7 +278,7 @@ func TestChapterDrawRenormalizesAfterMonthlyRewardCap(t *testing.T) {
 	}
 	drewCounts := make(map[int32]int32)
 	var bounds []int
-	result, err := drawChapterWithIntn(items, drewCounts, 2, 202608, func(bound int) int {
+	result, err := drawChapterWithIntn(items, BoxGroupWeights{Limited: 80, Unlimited: 20}, drewCounts, 2, 202608, func(bound int) int {
 		bounds = append(bounds, bound)
 		return 0
 	})
@@ -234,7 +312,7 @@ func TestChapterDrawKeepsUnlimitedShareAtTwentyPercentWhileLimitedRewardsRemain(
 	wantBounds := [...]int{100, 9999, 100, 1}
 	rolls := [...]int{80, 0, 79, 0}
 	call := 0
-	result, err := drawChapterWithIntn(items, drewCounts, 2, 202608, func(bound int) int {
+	result, err := drawChapterWithIntn(items, BoxGroupWeights{Limited: 80, Unlimited: 20}, drewCounts, 2, 202608, func(bound int) int {
 		if call >= len(wantBounds) {
 			t.Fatalf("unexpected random call with bound %d", bound)
 		}
@@ -262,7 +340,7 @@ func TestChapterDrawResetsCapsInNewBusinessMonth(t *testing.T) {
 		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 1, CounterId: 2, Weight: 90},
 	}
 	drewCounts := map[int32]int32{model.ChapterGachaMonthCounterId: 202607, 1: 1}
-	result, err := drawChapterWithIntn(items, drewCounts, 1, 202608, func(int) int { return 0 })
+	result, err := drawChapterWithIntn(items, BoxGroupWeights{Limited: 80, Unlimited: 20}, drewCounts, 1, 202608, func(int) int { return 0 })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,16 +351,23 @@ func TestChapterDrawResetsCapsInNewBusinessMonth(t *testing.T) {
 
 func TestHandleChapterDrawConsumesItsTicketAndGrantsConfiguredQuantity(t *testing.T) {
 	const ticketId int32 = 1008
-	h := &GachaHandler{Granter: &store.PossessionGranter{}}
+	h := &GachaHandler{
+		Premium: &PremiumCatalog{Config: &Config{ChapterBanners: map[int32]BoxConfig{
+			200001: {
+				GroupWeights: BoxGroupWeights{Limited: GroupWeightTotal},
+				LimitedRewards: []BoxRewardConfig{{
+					PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100004, Count: 4, MaxCount: 30, Weight: 10000,
+				}},
+			},
+		}}},
+		Granter: &store.PossessionGranter{},
+	}
 	entry := store.GachaCatalogEntry{
 		GachaId:        200001,
 		GachaLabelType: model.GachaLabelChapter,
 		GachaModeType:  model.GachaModeBox,
 		PricePhases: []store.GachaPricePhaseEntry{{
 			PhaseId: 2000011, PriceType: model.PriceTypeConsumableItem, PriceId: ticketId, Price: 1, DrawCount: 1,
-		}},
-		BoxItems: []store.GachaBoxItemEntry{{
-			PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100004, Count: 4, MaxCount: 30, CounterId: 1, Weight: 10000,
 		}},
 	}
 	user := &store.UserState{}
@@ -419,6 +504,19 @@ func eventBoxEntry() store.GachaCatalogEntry {
 		GachaLabelType: model.GachaLabelEvent,
 		GachaModeType:  model.GachaModeBox,
 		PricePhases:    []store.GachaPricePhaseEntry{{PhaseId: 10, DrawCount: 1}},
-		BoxItems:       []store.GachaBoxItemEntry{{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 99, RarityType: int32(model.RarityNormal), Count: 1, MaxCount: 1}},
+	}
+}
+
+func configuredEventHandler(maxCount int32) *GachaHandler {
+	box := BoxConfig{
+		GroupWeights: BoxGroupWeights{Limited: GroupWeightTotal},
+		LimitedRewards: []BoxRewardConfig{{
+			PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 99, RarityType: int32(model.RarityNormal), Count: 1, MaxCount: maxCount, Weight: 1, Jackpot: true,
+		}},
+	}
+	return &GachaHandler{
+		Pool:    &masterdata.GachaCatalog{},
+		Premium: &PremiumCatalog{Config: &Config{EventBanners: map[int32]EventBoxConfig{1: {Boxes: []BoxConfig{box}}}}},
+		Granter: &store.PossessionGranter{},
 	}
 }

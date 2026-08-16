@@ -716,6 +716,10 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .savebar span { margin-top: 4px; color: var(--muted); font-size: 11px; }
 
 .gacha-editor { display: grid; gap: 16px; }
+.gacha-kind-tabs { display: flex; width: fit-content; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: #0d151a; }
+.gacha-kind-tab { min-height: 36px; padding: 7px 14px; color: var(--muted); border: 0; border-radius: 8px; background: transparent; font-size: 12px; font-weight: 750; }
+.gacha-kind-tab:hover { color: var(--text); }
+.gacha-kind-tab.active { color: var(--accent-strong); background: rgba(71, 169, 146, .16); box-shadow: inset 0 0 0 1px rgba(71, 169, 146, .25); }
 .gacha-warnings { margin: 0; white-space: pre-line; }
 .gacha-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .gacha-banner-panel { min-width: 0; }
@@ -804,6 +808,34 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .order-actions { display: flex; gap: 4px; }
 .order-button { min-width: 28px; min-height: 28px; padding: 2px 6px; color: var(--muted); border: 1px solid var(--line); border-radius: 7px; background: transparent; }
 .order-button:disabled { opacity: .25; }
+.box-gacha-config { min-width: 0; }
+.box-gacha-heading { border-bottom: 1px solid var(--line); }
+.box-gacha-toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(140px, 220px) auto; align-items: end; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+.box-gacha-toolbar select { width: 100%; }
+.box-gacha-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.button.danger { color: #ffaaa1; border-color: rgba(255, 111, 97, .35); }
+.box-gacha-editor-body { display: grid; gap: 16px; padding: 16px; }
+.box-group-probabilities { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); align-items: center; gap: 10px 28px; }
+.box-group-probabilities > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
+.box-group-probabilities > label { display: grid; grid-template-columns: minmax(0, 1fr) 120px; align-items: center; gap: 10px; }
+.box-reward-group { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: rgba(10, 17, 21, .38); }
+.data-heading.compact { min-height: 64px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.data-heading.compact h3 { margin: 3px 0 0; font-size: 15px; }
+.box-reward-scroll { max-height: 480px; }
+.box-reward-table { min-width: 940px; table-layout: fixed; }
+.box-reward-table th:first-child { width: 410px; }
+.box-reward-table th:nth-child(2), .box-reward-table th:nth-child(3), .box-reward-table th:nth-child(4) { width: 92px; }
+.box-reward-table th:nth-last-child(1) { width: 58px; }
+.box-reward-table td { vertical-align: middle; }
+.box-reward-table td:first-child, .box-reward-table th:first-child { position: static; min-width: 0; background: inherit; }
+.box-reward-table th:first-child { background: #121b20; }
+.box-reward-table input[type="number"] { width: 100%; min-width: 72px; }
+.box-reward-table input[type="checkbox"] { display: block; width: 16px; height: 16px; min-height: 16px; margin: 0 auto; padding: 0; }
+.box-reward-selector { display: grid; grid-template-columns: 100px minmax(240px, 1fr); gap: 8px; }
+.box-reward-selector select { width: 100%; min-width: 0; }
+.box-probability-preview { color: var(--accent-strong); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.box-remove-reward { color: #ffaaa1; }
+.box-gacha-rule-note { margin: 0; padding: 11px 13px; color: #d8bd88; border: 1px solid rgba(216, 189, 136, .2); border-radius: 9px; background: rgba(216, 189, 136, .06); font-size: 11px; line-height: 1.55; }
 
 .confirm-dialog {
   width: min(520px, calc(100% - 32px));
@@ -901,6 +933,8 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .gacha-layout { grid-template-columns: 1fr; }
   .gacha-toolbar { grid-template-columns: 1fr 1fr; }
   .banner-controls { grid-template-columns: 1fr; }
+  .box-gacha-toolbar { grid-template-columns: 1fr 1fr; }
+  .box-gacha-actions { grid-column: 1 / -1; justify-content: flex-start; }
   .limited-set-create { grid-template-columns: 1fr 1fr; }
   .master-layout.with-reward-reference { grid-template-columns: 1fr; }
   .reward-reference { position: static; }
@@ -923,6 +957,11 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .gacha-toolbar { grid-template-columns: 1fr; }
   .pickup-filter-grid { grid-template-columns: 1fr 1fr; }
   .limited-set-create { grid-template-columns: 1fr; }
+  .gacha-kind-tabs { width: 100%; overflow-x: auto; }
+  .gacha-kind-tab { flex: 1 0 auto; }
+  .box-gacha-toolbar, .box-group-probabilities { grid-template-columns: 1fr; }
+  .box-group-probabilities > p { grid-column: auto; }
+  .box-gacha-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .admin-tabs { display: flex; overflow-x: auto; }
   .admin-tab { flex: 0 0 auto; }
   .reward-primary-filters, .reward-weapon-filters { grid-template-columns: 1fr; }

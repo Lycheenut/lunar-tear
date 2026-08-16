@@ -79,9 +79,6 @@ func (h *GachaHandler) HandleDraw(
 	if phase.LimitExecCount > 0 && execCount > phase.LimitExecCount {
 		return nil, fmt.Errorf("exec count %d exceeds phase limit %d", execCount, phase.LimitExecCount)
 	}
-	if (entry.GachaLabelType == model.GachaLabelEvent || entry.GachaLabelType == model.GachaLabelChapter) && len(entry.BoxItems) == 0 {
-		return nil, fmt.Errorf("box gacha %d has no catalog", entry.GachaId)
-	}
 	if entry.GachaLabelType == model.GachaLabelPremium {
 		if h.Premium == nil || h.Premium.Banners[entry.GachaId] == nil {
 			return nil, fmt.Errorf("premium gacha %d is not configured", entry.GachaId)
@@ -96,6 +93,10 @@ func (h *GachaHandler) HandleDraw(
 			cloned[counterId] = drewCount
 		}
 		bs.BoxDrewCounts = cloned
+	}
+	entry = h.EntryForState(entry, &bs)
+	if (entry.GachaLabelType == model.GachaLabelEvent || entry.GachaLabelType == model.GachaLabelChapter) && len(entry.BoxItems) == 0 {
+		return nil, fmt.Errorf("box gacha %d has no catalog", entry.GachaId)
 	}
 	if entry.GachaModeType == model.GachaModeStepup {
 		currentStep := bs.StepNumber
@@ -116,7 +117,7 @@ func (h *GachaHandler) HandleDraw(
 	if drawCount64 <= 0 || drawCount64 > maxDrawCountPerRequest {
 		return nil, fmt.Errorf("gacha draw count is out of range")
 	}
-	if entry.GachaLabelType == model.GachaLabelEvent && drawCount64 > availableBoxDrawCount(entry, bs) {
+	if entry.GachaLabelType == model.GachaLabelEvent && drawCount64 > h.availableBoxDrawCount(entry, &bs) {
 		return nil, fmt.Errorf("event gacha %d has insufficient box items", entry.GachaId)
 	}
 	totalCost := int32(totalCost64)
@@ -140,7 +141,10 @@ func (h *GachaHandler) HandleDraw(
 	case model.GachaLabelRecycle:
 		items = h.drawMaterial(drawCount)
 	case model.GachaLabelEvent:
-		items = h.drawBox(entry, &bs, drawCount)
+		items, err = h.drawBox(entry, &bs, drawCount)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		items, err = h.drawPremium(entry, phase, int(execCount))
 		if err != nil {
@@ -210,11 +214,20 @@ func (h *GachaHandler) HandleResetBox(
 	}
 	bs := user.Gacha.BannerStates[entry.GachaId]
 	bs.GachaId = entry.GachaId
-	bs.BoxDrewCounts = make(map[int32]int32)
-	if bs.BoxNumber <= 0 {
-		bs.BoxNumber = 1
+	entry = h.EntryForState(entry, &bs)
+	if entry.GachaLabelType != model.GachaLabelEvent || entry.BoxCount <= 0 {
+		return fmt.Errorf("event Gacha %d has no configured boxes", entry.GachaId)
 	}
-	if bs.BoxNumber < int32(maxInt32Value) {
+	boxNumber := currentBoxNumber(&bs, entry.BoxCount)
+	if !boxResettable(entry.BoxItems, &bs, boxNumber == entry.BoxCount) {
+		if boxNumber == entry.BoxCount {
+			return fmt.Errorf("last Event Gacha box can only reset after all limited rewards are drawn")
+		}
+		return fmt.Errorf("Event Gacha box %d can only advance after all jackpot rewards are drawn", boxNumber)
+	}
+	bs.BoxDrewCounts = make(map[int32]int32)
+	bs.BoxNumber = boxNumber
+	if bs.BoxNumber < entry.BoxCount {
 		bs.BoxNumber++
 	}
 	user.Gacha.BannerStates[entry.GachaId] = bs
@@ -312,72 +325,30 @@ func (h *GachaHandler) drawChapter(entry store.GachaCatalogEntry, bs *store.Gach
 	if bs.BoxDrewCounts == nil {
 		bs.BoxDrewCounts = make(map[int32]int32)
 	}
-	return drawChapterWithIntn(entry.BoxItems, bs.BoxDrewCounts, count, gametime.BusinessMonthKey(nowMillis), rand.Intn)
+	box, _, configured := h.configuredBox(entry, bs)
+	if !configured {
+		return nil, fmt.Errorf("chapter Gacha %d has no configured box", entry.GachaId)
+	}
+	return drawChapterWithIntn(entry.BoxItems, box.GroupWeights, bs.BoxDrewCounts, count, gametime.BusinessMonthKey(nowMillis), rand.Intn)
 }
 
-func (h *GachaHandler) drawBox(entry store.GachaCatalogEntry, bs *store.GachaBannerState, count int) []DrawnItem {
+func (h *GachaHandler) drawBox(entry store.GachaCatalogEntry, bs *store.GachaBannerState, count int) ([]DrawnItem, error) {
 	if bs.BoxDrewCounts == nil {
 		bs.BoxDrewCounts = make(map[int32]int32)
 	}
-
-	boxItems := h.buildBoxPool(entry)
-	for i := range boxItems {
-		boxItems[i].DrewCount = bs.BoxDrewCounts[boxItems[i].CounterId]
+	box, _, configured := h.configuredBox(entry, bs)
+	if !configured {
+		return nil, fmt.Errorf("event Gacha %d has no configured box", entry.GachaId)
 	}
-
-	result := DrawBox(boxItems, count)
-
-	for _, item := range result {
-		bs.BoxDrewCounts[item.CounterId]++
-	}
-
-	return result
+	return drawWeightedBoxWithIntn(entry.BoxItems, box.GroupWeights, bs.BoxDrewCounts, count, rand.Intn)
 }
 
-func availableBoxDrawCount(entry store.GachaCatalogEntry, bs store.GachaBannerState) int64 {
-	var available int64
-	for i, item := range entry.BoxItems {
-		remaining := int64(item.MaxCount) - int64(bs.BoxDrewCounts[chapterCounterId(item, i)])
-		if remaining > 0 {
-			available += remaining
-		}
+func (h *GachaHandler) availableBoxDrawCount(entry store.GachaCatalogEntry, bs *store.GachaBannerState) int64 {
+	box, _, configured := h.configuredBox(entry, bs)
+	if !configured {
+		return 0
 	}
-	return available
-}
-
-func (h *GachaHandler) buildBoxPool(entry store.GachaCatalogEntry) []BoxItem {
-	if len(entry.BoxItems) > 0 {
-		items := make([]BoxItem, 0, len(entry.BoxItems))
-		for i, item := range entry.BoxItems {
-			items = append(items, BoxItem{PossessionType: item.PossessionType, PossessionId: item.PossessionId, RarityType: model.RarityType(item.RarityType), Count: item.Count, MaxCount: item.MaxCount, CounterId: chapterCounterId(item, i)})
-		}
-		return items
-	}
-	var items []BoxItem
-	for _, mat := range h.Pool.Materials {
-		items = append(items, BoxItem{
-			PossessionType: mat.PossessionType,
-			PossessionId:   mat.PossessionId,
-			RarityType:     mat.RarityType,
-			Count:          1,
-			MaxCount:       model.BoxItemDefaultMax,
-			CounterId:      int32(len(items) + 1),
-		})
-		if len(items) >= model.BoxPoolMaxItems {
-			break
-		}
-	}
-	if len(items) < model.BoxPoolMinItems {
-		items = append(items, BoxItem{
-			PossessionType: int32(model.PossessionTypeMaterial),
-			PossessionId:   model.BoxFallbackItemId,
-			RarityType:     model.RarityNormal,
-			Count:          1,
-			MaxCount:       model.BoxFallbackItemMax,
-			CounterId:      int32(len(items) + 1),
-		})
-	}
-	return items
+	return availableConfiguredBoxDrawCount(entry.BoxItems, box.GroupWeights, bs)
 }
 
 func (h *GachaHandler) grantItems(user *store.UserState, items []DrawnItem, nowMillis int64) []DuplicateInfo {

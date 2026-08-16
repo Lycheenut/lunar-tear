@@ -70,7 +70,7 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 		}
 		bs := user.Gacha.BannerStates[entry.GachaId]
 		entry = gachaForUser(cat, &user, entry, nowMillis)
-		gachaList = append(gachaList, toProtoGacha(entry, &bs))
+		gachaList = append(gachaList, toProtoGacha(handler.EntryForState(entry, &bs), &bs))
 	}
 
 	return &pb.GetGachaListResponse{
@@ -168,7 +168,7 @@ func (s *GachaServiceServer) GetGacha(ctx context.Context, req *pb.GetGachaReque
 			}
 			entry = gachaForUser(cat, &user, entry, nowMillis)
 			bs := user.Gacha.BannerStates[entry.GachaId]
-			byId[wantedId] = toProtoGacha(entry, &bs)
+			byId[wantedId] = toProtoGacha(cat.GachaHandler.EntryForState(entry, &bs), &bs)
 			break
 		}
 	}
@@ -306,6 +306,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 		if bdup, ok := bonusDupMap[i]; ok {
 			applyDuplicationBonus(oddsItem, bdup)
 		}
+		oddsItem.IsTarget = item.IsTarget
 
 		gachaResults = append(gachaResults, oddsItem)
 	}
@@ -325,7 +326,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 	// NextGacha usable for the result production even when the draw consumed
 	// the last required ticket; subsequent list requests will hide it.
 	nextEntry.IsUserGachaUnlock = true
-	nextGacha := toProtoGacha(nextEntry, &bs)
+	nextGacha := toProtoGacha(handler.EntryForState(nextEntry, &bs), &bs)
 
 	return &pb.DrawResponse{
 		NextGacha:          nextGacha,
@@ -369,7 +370,7 @@ func (s *GachaServiceServer) ResetBoxGacha(ctx context.Context, req *pb.ResetBox
 	bs := updatedUser.Gacha.BannerStates[entry.GachaId]
 
 	return &pb.ResetBoxGachaResponse{
-		Gacha: toProtoGacha(*entry, &bs),
+		Gacha: toProtoGacha(handler.EntryForState(*entry, &bs), &bs),
 	}, nil
 }
 
@@ -464,6 +465,9 @@ func matchesGachaLabel(labels []int32, label int32) bool {
 
 func gachaActiveAt(entry store.GachaCatalogEntry, nowMillis int64) bool {
 	if entry.IsInactive {
+		return false
+	}
+	if (entry.GachaLabelType == model.GachaLabelEvent || entry.GachaLabelType == model.GachaLabelChapter) && entry.BoxCount <= 0 {
 		return false
 	}
 	if entry.StartDatetime != 0 && nowMillis < entry.StartDatetime {
@@ -583,14 +587,17 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 		}
 		g.GachaMode = &pb.Gacha_GachaModeBoxComposition{
 			GachaModeBoxComposition: &pb.GachaModeBoxComposition{
-				GachaBoxGroupId:               entry.GroupId,
-				BoxNumber:                     boxNumber,
-				CurrentBoxNumber:              boxNumber,
-				NaviCharacterCommentAssetName: "production",
-				GachaAssetName:                entry.BannerAssetName,
-				GachaPricePhaseId:             phaseId,
-				PromotionGachaOddsItem:        promotionItems,
-				GachaDescriptionTextId:        entry.DescriptionTextId,
+				GachaBoxGroupId:                 entry.GroupId,
+				BoxNumber:                       max(entry.BoxCount, 1),
+				CurrentBoxNumber:                boxNumber,
+				IsCurrentBoxResettable:          entry.IsCurrentBoxResettable,
+				NaviCharacterCommentAssetName:   "production",
+				GachaAssetName:                  entry.BannerAssetName,
+				GachaPricePhaseId:               phaseId,
+				PromotionGachaOddsItem:          promotionItems,
+				IsResettableByDrawingAllTargets: entry.IsResettableByAllTargets,
+				IsInvalidReset:                  entry.IsInvalidReset,
+				GachaDescriptionTextId:          entry.DescriptionTextId,
 			},
 		}
 	case model.GachaModeStepup:

@@ -123,7 +123,13 @@ func TestInstallGachaConfigPublishesValidatedSnapshot(t *testing.T) {
 	if got, want := len(editor.Weapons), len(before.GachaPool.EligibleWeaponById); got != want {
 		t.Fatalf("editor weapon count = %d, want %d eligible weapons", got, want)
 	}
-	config := gacha.DefaultConfig()
+	if len(editor.BoxBanners) == 0 {
+		t.Fatal("Gacha editor did not expose Chapter/Event box configuration")
+	}
+	if len(editor.Config.ChapterBanners) != 0 {
+		t.Fatal("Gacha editor synthesized Chapter reward configuration")
+	}
+	config := editor.Config
 	config.SourceMasterDataHash = before.MasterDataHash
 	for weaponID := range before.GachaPool.ConfigurableWeaponById {
 		availability := gacha.AvailabilityEvent
