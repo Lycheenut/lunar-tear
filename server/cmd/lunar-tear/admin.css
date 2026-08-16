@@ -581,6 +581,63 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .field-editor .invalid { border-color: var(--danger); }
 .mission-source-cell { color: var(--text); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-line; }
 .mission-requirement-cell { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+.mission-reward-table td:first-child,
+.mission-reward-table th:first-child { position: static; width: auto; min-width: 0; }
+.mission-reward-assignment-cell,
+.mission-reward-definition-cell { min-width: 0; padding: 0; }
+.mission-reward-assignment-list,
+.mission-reward-definition-list { display: grid; align-content: start; min-width: 0; }
+.mission-reward-assignment,
+.mission-reward-definition-group { padding: 12px 14px; }
+.mission-reward-assignment + .mission-reward-assignment,
+.mission-reward-definition-group + .mission-reward-definition-group {
+  border-top: 1px solid rgba(38, 52, 61, .7);
+}
+.mission-reward-assignment { display: grid; min-width: 0; gap: 10px; }
+.mission-reward-assignment-heading { display: grid; min-width: 0; gap: 4px; }
+.mission-reward-assignment-heading strong { overflow-wrap: anywhere; font-size: 12px; line-height: 1.45; }
+.mission-reward-assignment-heading span { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.mission-reward-assignment-editor {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+}
+.mission-reward-assignment-select { width: 100%; min-width: 0; min-height: 42px; font-size: 11px; }
+.mission-reward-assignment-select.changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
+.mission-reward-inline-preview { display: flex; flex-wrap: wrap; gap: 4px; max-width: 92px; }
+.mission-reward-inline-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1216;
+  font-size: 12px;
+  font-weight: 800;
+}
+.mission-reward-inline-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.mission-reward-definition { display: grid; min-width: 0; gap: 8px; }
+.mission-reward-definition + .mission-reward-definition {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(75, 105, 118, .45);
+}
+.mission-reward-definition-id { color: var(--accent-strong); font-size: 10px; }
+.mission-reward-definition-fields {
+  display: grid;
+  grid-template-columns: minmax(135px, .8fr) minmax(190px, 1.35fr) minmax(70px, .4fr);
+  gap: 8px;
+  align-items: end;
+}
+.mission-reward-definition-field { display: grid; min-width: 0; gap: 5px; }
+.mission-reward-definition-field > span { color: var(--muted); font-size: 9px; font-weight: 750; }
+.mission-reward-definition-field input,
+.mission-reward-definition-field select { width: 100%; min-width: 0; }
 .reward-id-field-editor { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 8px; }
 .reward-field-select { display: flex; min-width: 0; }
 .reward-field-select select { flex: 1 1 auto; width: auto; min-width: 0; }
@@ -823,11 +880,10 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionType"] { width: 24%; }
   .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionId"] { width: 50%; }
   .master-layout.with-reward-reference #schedule-table [data-field="RewardCount"] { width: 14%; }
-  .master-layout.with-reward-reference #schedule-table.mission-reward-table [data-field="MissionName"] { width: 22%; }
-  .master-layout.with-reward-reference #schedule-table.mission-reward-table [data-field="RequirementCount"] { width: 10%; }
-  .master-layout.with-reward-reference #schedule-table.mission-reward-table [data-field="PossessionType"] { width: 18%; }
-  .master-layout.with-reward-reference #schedule-table.mission-reward-table [data-field="PossessionId"] { width: 38%; }
-  .master-layout.with-reward-reference #schedule-table.mission-reward-table [data-field="Count"] { width: 12%; }
+  .master-layout.with-reward-reference #schedule-table.mission-reward-table [data-field="MissionRewardAssignment"] { width: 42%; }
+  .master-layout.with-reward-reference #schedule-table.mission-reward-table [data-field="MissionRewardDefinition"] { width: 58%; }
+  .master-layout.with-reward-reference #schedule-table.mission-reward-table td:first-child,
+  .master-layout.with-reward-reference #schedule-table.mission-reward-table th:first-child { position: static; }
 }
 
 @media (max-width: 900px) {

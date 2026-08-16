@@ -20,6 +20,7 @@ type MissionGroupSource struct {
 }
 
 type MissionSource struct {
+	Row              int               `json:"row"`
 	MissionID        int64             `json:"missionId"`
 	MissionGroupID   int64             `json:"missionGroupId"`
 	MissionRewardID  int64             `json:"missionRewardId"`
@@ -62,7 +63,7 @@ func loadMissionSources(file *memorydb.File, resolver *titleResolver) MissionSou
 
 	usedGroups := make(map[int64]struct{})
 	var missions []MissionSource
-	for _, row := range readRows(file, "m_mission") {
+	for rowIndex, row := range readRows(file, "m_mission") {
 		missionID, missionOK := integerAt(row, 0)
 		groupID, groupOK := integerAt(row, 1)
 		sortOrder, sortOK := integerAt(row, 2)
@@ -77,6 +78,7 @@ func loadMissionSources(file *memorydb.File, resolver *titleResolver) MissionSou
 			continue
 		}
 		missions = append(missions, MissionSource{
+			Row:              rowIndex,
 			MissionID:        missionID,
 			MissionGroupID:   groupID,
 			MissionRewardID:  rewardID,

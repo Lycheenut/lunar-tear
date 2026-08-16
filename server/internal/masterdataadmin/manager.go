@@ -131,9 +131,9 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 		return nil, UpdateResult{}, ErrVersionConflict
 	}
 
-	specByName := make(map[string]tableSpec, len(activityTableSpecs))
+	specByName := make(map[string]tableSpec, len(editableTableSpecs))
 	rowsByTable := make(map[string][][]interface{})
-	for _, spec := range activityTableSpecs {
+	for _, spec := range editableTableSpecs {
 		specByName[spec.Name] = spec
 	}
 	overrides := make(map[string]map[int]map[string]int64)

@@ -298,6 +298,84 @@ func TestMissionRewardIsDeliveryTableWithLocalizedSources(t *testing.T) {
 	}
 }
 
+func TestMissionRewardAssignmentCanBeUpdatedWithoutExposingMissionTable(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.MissionSources.Missions) == 0 {
+		t.Fatal("mission source catalog is empty")
+	}
+	for _, table := range catalog.Tables {
+		if table.Name == "m_mission" {
+			t.Fatal("m_mission must remain hidden from the general-purpose table catalog")
+		}
+	}
+
+	source := catalog.MissionSources.Missions[0]
+	var replacement int64
+	for _, table := range catalog.Tables {
+		if table.Name != "m_mission_reward" {
+			continue
+		}
+		for _, row := range table.Rows {
+			candidate, parseErr := strconv.ParseInt(row.Values["MissionRewardId"], 10, 64)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			if candidate != source.MissionRewardID {
+				replacement = candidate
+				break
+			}
+		}
+	}
+	if replacement == 0 {
+		t.Fatal("no alternate mission reward id found")
+	}
+	request := UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes: []Change{{
+			Table: "m_mission", Row: source.Row, Field: "MissionRewardId", Value: replacement,
+		}},
+	}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.OtherChanges) != 1 || len(preview.OtherChanges[0].Changes) != 1 {
+		t.Fatalf("unexpected assignment preview: %+v", preview)
+	}
+	change := preview.OtherChanges[0].Changes[0]
+	if change.Before != strconv.FormatInt(source.MissionRewardID, 10) || change.After != strconv.FormatInt(replacement, 10) {
+		t.Fatalf("assignment preview = %+v", change)
+	}
+
+	candidate, result, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedCells != 1 || result.ChangedRows != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := rebuilt.TableRows("m_mission")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := valueAsInt64(rows[source.Row][11]); err != nil || got != replacement {
+		t.Fatalf("MissionRewardId = %d, %v; want %d", got, err, replacement)
+	}
+}
+
 func TestBuildUpdateSupportsAllScalarKindsAndRejectsPrimaryKeys(t *testing.T) {
 	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {

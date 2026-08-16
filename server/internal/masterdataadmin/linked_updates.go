@@ -957,7 +957,7 @@ func appendUniqueInt64(values []int64, value int64) []int64 {
 }
 
 func findActivitySpec(name string) (tableSpec, bool) {
-	for _, spec := range activityTableSpecs {
+	for _, spec := range editableTableSpecs {
 		if spec.Name == name {
 			return spec, true
 		}
@@ -975,6 +975,21 @@ func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, impact
 		}
 		for _, row := range table.Rows {
 			rows[previewRecordKey(rowRef{table: table.Name, row: row.Index})] = row
+		}
+	}
+	fields["m_mission"] = map[string]Field{
+		"MissionId":       {Name: "MissionId", Type: "int", Kind: string(fieldKindInt32), PrimaryKey: true},
+		"MissionRewardId": {Name: "MissionRewardId", Type: "int", Kind: string(fieldKindInt32)},
+	}
+	for _, mission := range catalog.MissionSources.Missions {
+		rows[previewRecordKey(rowRef{table: "m_mission", row: mission.Row})] = Row{
+			Index:    mission.Row,
+			Identity: []FieldValue{{Name: "MissionId", Value: strconv.FormatInt(mission.MissionID, 10)}},
+			Values: map[string]string{
+				"MissionId":       strconv.FormatInt(mission.MissionID, 10),
+				"MissionRewardId": strconv.FormatInt(mission.MissionRewardID, 10),
+			},
+			Titles: cloneTitles(mission.Names),
 		}
 	}
 	requestedByRecord := changesByRecord(requested)
