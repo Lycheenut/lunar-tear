@@ -17,13 +17,18 @@ func TestLoadGachaCatalogDoesNotSynthesizeEventBoxInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hasMamaBanner := false
 	for _, entry := range entries {
 		if entry.GachaLabelType == model.GachaLabelEvent {
 			t.Fatalf("event gacha %d was exposed without authoritative inventory", entry.GachaId)
 		}
+		hasMamaBanner = hasMamaBanner || entry.IsMamaBanner
 	}
 	if len(entries) == 0 {
 		t.Fatal("non-event gachas were removed with event gachas")
+	}
+	if !hasMamaBanner {
+		t.Fatal("m_mom_banner entries were not marked as Mama banners")
 	}
 }
 
@@ -55,6 +60,9 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 		}
 		if entry.BannerAssetName != tt.assetName || entry.RequiredConsumableItemId != tt.ticketId {
 			t.Fatalf("unexpected guaranteed Gacha %d: %+v", tt.gachaId, entry)
+		}
+		if entry.IsMamaBanner {
+			t.Fatalf("ticket-only Gacha %d was marked as a Mama banner", tt.gachaId)
 		}
 		if len(entry.PricePhases) != 1 {
 			t.Fatalf("Gacha %d price phase count = %d, want 1", tt.gachaId, len(entry.PricePhases))
