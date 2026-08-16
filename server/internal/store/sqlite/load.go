@@ -15,10 +15,10 @@ func (s *SQLiteStore) LoadUser(userId int64) (store.UserState, error) {
 
 	err := s.db.QueryRow(`SELECT user_id, uuid, player_id, os_type, platform_type, user_restriction_type,
 		register_datetime, game_start_datetime, latest_version, birth_year, birth_month,
-		backup_token, charge_money_this_month, facebook_id FROM users WHERE user_id = ?`, userId).Scan(
+		backup_token, charge_money_this_month, facebook_id, cage_running_distance_meters FROM users WHERE user_id = ?`, userId).Scan(
 		&u.UserId, &u.Uuid, &u.PlayerId, &u.OsType, &u.PlatformType, &u.UserRestrictionType,
 		&u.RegisterDatetime, &u.GameStartDatetime, &u.LatestVersion, &u.BirthYear, &u.BirthMonth,
-		&u.BackupToken, &u.ChargeMoneyThisMonth, &fbId)
+		&u.BackupToken, &u.ChargeMoneyThisMonth, &fbId, &u.CageRunningDistanceMeters)
 	if err == sql.ErrNoRows {
 		return u, store.ErrNotFound
 	}

@@ -319,6 +319,7 @@ const (
 	playHistoryChapterGachaDraw int32 = 1
 	playHistoryEventGachaDraw   int32 = 2
 	playHistoryMissionClear     int32 = 12
+	playHistoryCageWalkDistance int32 = 13
 	playHistoryCostumeOwned     int32 = 14
 	playHistoryWeaponOwned      int32 = 15
 	playHistoryCompanionOwned   int32 = 16
@@ -391,6 +392,8 @@ func gamePlayHistoryValue(user store.UserState, catalogs *runtime.Catalogs, hist
 			}
 		}
 		return count
+	case playHistoryCageWalkDistance:
+		return user.CageRunningDistanceMeters
 	case playHistoryTotalLogin:
 		return int64(user.Login.TotalLoginCount)
 	default:

@@ -11,26 +11,58 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-func TestSyncMissionProgressUsesMeasuredValues(t *testing.T) {
+func TestSyncMissionProgressAddsCageMeasuredDeltas(t *testing.T) {
 	catalog := &masterdata.MissionCatalog{
-		MissionById:                map[int32]masterdata.EntityMMission{1: {MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeTowerWalkedDistance), ClearConditionValue: 100}},
-		MeasurableMissionIdsByType: map[int32][]int32{int32(model.MissionClearConditionTypeTowerWalkedDistance): {1}},
-		TermById:                   map[int32]masterdata.EntityMMissionTerm{},
-		UnlockById:                 map[int32]masterdata.EntityMMissionUnlockCondition{},
+		MissionById: map[int32]masterdata.EntityMMission{
+			1: {MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeTowerWalkedDistance), ClearConditionValue: 100},
+			2: {MissionId: 2, MissionClearConditionType: int32(model.MissionClearConditionTypeMamaTapByCount), ClearConditionValue: 5},
+		},
+		MeasurableMissionIdsByType: map[int32][]int32{
+			int32(model.MissionClearConditionTypeTowerWalkedDistance): {1},
+			int32(model.MissionClearConditionTypeMamaTapByCount):      {2},
+		},
+		TermById:   map[int32]masterdata.EntityMMissionTerm{},
+		UnlockById: map[int32]masterdata.EntityMMissionUnlockCondition{},
 	}
 	user := &store.UserState{}
 	user.EnsureMaps()
-	if err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 99}}, 2); err != nil {
+	if err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 40, MamaTappedCount: 2}}, 2); err != nil {
 		t.Fatal(err)
 	}
-	if user.Missions[1].MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
-		t.Fatal("mission cleared below target")
+	if state := user.Missions[1]; state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) || state.ProgressValue != 40 {
+		t.Fatalf("mission after first delta = %+v, want progress 40", state)
 	}
-	if err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 100}}, 3); err != nil {
+	if user.CageRunningDistanceMeters != 40 {
+		t.Fatalf("total cage distance = %d, want 40", user.CageRunningDistanceMeters)
+	}
+	if state := user.Missions[2]; state.ProgressValue != 2 {
+		t.Fatalf("mama tap mission after first delta = %+v, want progress 2", state)
+	}
+	if err := syncMissionProgress(&runtime.Catalogs{Mission: catalog}, user, &pb.UpdateMissionProgressRequest{CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: 60, MamaTappedCount: 3}}, 3); err != nil {
 		t.Fatal(err)
 	}
 	if user.Missions[1].MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
 		t.Fatal("mission did not clear at target")
+	}
+	if user.CageRunningDistanceMeters != 100 {
+		t.Fatalf("total cage distance = %d, want 100", user.CageRunningDistanceMeters)
+	}
+	if user.Missions[2].MissionProgressStatusType != int32(model.MissionProgressStatusTypeClear) {
+		t.Fatal("mama tap mission did not clear from cumulative deltas")
+	}
+}
+
+func TestSyncMissionProgressRejectsInvalidCageDeltaWithoutMutation(t *testing.T) {
+	user := &store.UserState{CageRunningDistanceMeters: 10}
+	user.EnsureMaps()
+	err := syncMissionProgress(&runtime.Catalogs{Mission: &masterdata.MissionCatalog{}}, user, &pb.UpdateMissionProgressRequest{
+		CageMeasurableValues: &pb.CageMeasurableValues{RunningDistanceMeters: -1},
+	}, 2)
+	if err == nil {
+		t.Fatal("negative cage distance was accepted")
+	}
+	if user.CageRunningDistanceMeters != 10 || len(user.Missions) != 0 {
+		t.Fatalf("invalid cage delta mutated user: distance=%d missions=%v", user.CageRunningDistanceMeters, user.Missions)
 	}
 }
 

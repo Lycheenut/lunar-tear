@@ -649,13 +649,14 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		before.UserRestrictionType != after.UserRestrictionType || before.RegisterDatetime != after.RegisterDatetime ||
 		before.GameStartDatetime != after.GameStartDatetime || before.LatestVersion != after.LatestVersion ||
 		before.BirthYear != after.BirthYear || before.BirthMonth != after.BirthMonth ||
-		before.BackupToken != after.BackupToken || before.ChargeMoneyThisMonth != after.ChargeMoneyThisMonth {
+		before.BackupToken != after.BackupToken || before.ChargeMoneyThisMonth != after.ChargeMoneyThisMonth ||
+		before.CageRunningDistanceMeters != after.CageRunningDistanceMeters {
 		if err := exec(`UPDATE users SET player_id=?, os_type=?, platform_type=?, user_restriction_type=?,
 			register_datetime=?, game_start_datetime=?, latest_version=?, birth_year=?, birth_month=?,
-			backup_token=?, charge_money_this_month=? WHERE user_id=?`,
+			backup_token=?, charge_money_this_month=?, cage_running_distance_meters=? WHERE user_id=?`,
 			after.PlayerId, after.OsType, after.PlatformType, after.UserRestrictionType,
 			after.RegisterDatetime, after.GameStartDatetime, after.LatestVersion, after.BirthYear, after.BirthMonth,
-			after.BackupToken, after.ChargeMoneyThisMonth, uid); err != nil {
+			after.BackupToken, after.ChargeMoneyThisMonth, after.CageRunningDistanceMeters, uid); err != nil {
 			return err
 		}
 	}
