@@ -350,6 +350,8 @@ input:focus, select:focus {
   border-bottom: 1px solid rgba(38, 52, 61, .7);
 }
 
+.reward-reference-card.with-costume { grid-template-columns: 62px minmax(0, 1fr) 50px; }
+
 .reward-reference-card:last-child { border-bottom: 0; }
 .reward-reference-card:hover { background: rgba(255, 255, 255, .018); }
 
@@ -368,13 +370,28 @@ input:focus, select:focus {
 }
 
 .reward-reference-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.reward-reference-costume-icon {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  overflow: hidden;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #0b1216;
+  font-size: 14px;
+  font-weight: 800;
+}
+.reward-reference-costume-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .reward-reference-content { display: grid; min-width: 0; gap: 4px; }
 .reward-reference-content strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
 .reward-reference-content span { color: var(--muted); font-size: 10px; line-height: 1.4; }
 .reward-reference-content code { color: var(--accent-strong); font-size: 10px; overflow-wrap: anywhere; }
 .reward-reference > .empty-state { border-top: 0; }
 
-.reward-reference-pagination {
+.reward-reference-pagination,
+.mission-reward-pagination {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -385,9 +402,12 @@ input:focus, select:focus {
 }
 
 .reward-reference-pagination label,
+.mission-reward-pagination label,
 .reward-page-navigation { display: flex; align-items: center; gap: 8px; }
-.reward-reference-pagination label { flex: 0 0 auto; }
-.reward-reference-pagination select { width: auto; min-width: 64px; }
+.reward-reference-pagination label,
+.mission-reward-pagination label { flex: 0 0 auto; }
+.reward-reference-pagination select,
+.mission-reward-pagination select { width: auto; min-width: 64px; }
 .reward-page-navigation { justify-content: flex-end; min-width: 0; }
 .reward-page-navigation .button { min-height: 32px; padding: 6px 9px; font-size: 11px; }
 .reward-page-navigation span { color: var(--muted); white-space: nowrap; font-size: 11px; }
@@ -584,7 +604,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .table-scroll.mission-reward-mode { overflow: hidden; padding: 12px; scrollbar-gutter: auto; }
 .mission-reward-editor {
   display: grid;
-  grid-template-columns: minmax(0, 45fr) minmax(0, 55fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -600,6 +620,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   border-radius: 10px;
   background: rgba(11, 18, 22, .72);
 }
+.mission-reward-content-panel { grid-template-rows: auto minmax(0, 1fr) auto; }
 .mission-reward-panel-heading {
   display: flex;
   align-items: center;
@@ -612,15 +633,15 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .mission-reward-panel-heading h3 { margin: 0; font-size: 14px; }
 .mission-reward-panel-scroll { min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .mission-reward-panel table { width: 100%; min-width: 0; table-layout: fixed; }
-.mission-reward-panel th { padding: 9px 10px; overflow-wrap: normal; font-size: 10px; white-space: nowrap; }
-.mission-reward-panel td { padding: 9px 10px; vertical-align: middle; }
+.mission-reward-panel th { padding: 11px 14px; overflow-wrap: normal; font-size: 11px; white-space: nowrap; }
+.mission-reward-panel td { padding: 11px 14px; vertical-align: middle; }
 .mission-reward-panel td:first-child,
 .mission-reward-panel th:first-child { min-width: 0; }
 .mission-reward-assignment-table th:nth-child(1) { width: 76px; }
 .mission-reward-assignment-table th:nth-child(2) { width: 28%; }
 .mission-reward-assignment-table td:first-child,
-.mission-reward-content-table td:first-child { color: var(--accent-strong); font-size: 11px; }
-.mission-reward-description { overflow-wrap: anywhere; font-size: 11px; line-height: 1.45; }
+.mission-reward-content-table td:first-child { color: var(--accent-strong); font-size: 12px; }
+.mission-reward-description { overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
 .mission-reward-content-table th:nth-child(1) { width: 76px; }
 .mission-reward-content-table th:nth-child(2) { width: 110px; }
 .mission-reward-content-table th:nth-child(4) { width: 75px; }
@@ -631,7 +652,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   min-width: 0;
   gap: 9px;
 }
-.mission-reward-assignment-select { width: 100%; min-width: 0; min-height: 42px; font-size: 11px; }
+.mission-reward-assignment-select { width: 100%; min-width: 0; min-height: 38px; font-size: 12px; }
 .mission-reward-assignment-select.changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
 .mission-reward-inline-preview { display: flex; flex-wrap: wrap; gap: 4px; max-width: 92px; }
 .mission-reward-inline-icon {
@@ -648,6 +669,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   font-weight: 800;
 }
 .mission-reward-inline-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.mission-reward-pagination { padding: 8px 14px; }
 .mission-reward-empty { padding: 32px !important; color: var(--muted); text-align: center; }
 .reward-id-field-editor { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 8px; }
 .reward-field-select { display: flex; min-width: 0; }

@@ -118,7 +118,7 @@
                   </table>
                 </div>
               </section>
-              <section class="mission-reward-panel" aria-labelledby="mission-reward-content-title">
+              <section class="mission-reward-panel mission-reward-content-panel" aria-labelledby="mission-reward-content-title">
                 <header class="mission-reward-panel-heading">
                   <h3 id="mission-reward-content-title">奖励内容</h3>
                   <span id="mission-reward-content-count" class="row-badge">0 行</span>
@@ -130,6 +130,20 @@
                     </thead>
                     <tbody id="mission-reward-content-body"></tbody>
                   </table>
+                </div>
+                <div class="mission-reward-pagination">
+                  <label>每页
+                    <select id="mission-reward-content-page-size">
+                      <option value="25" selected>25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </label>
+                  <div class="reward-page-navigation">
+                    <button id="mission-reward-content-page-previous" class="button ghost" type="button">上一页</button>
+                    <span id="mission-reward-content-page-info" aria-live="polite">第 1 / 1 页</span>
+                    <button id="mission-reward-content-page-next" class="button ghost" type="button">下一页</button>
+                  </div>
                 </div>
               </section>
             </div>

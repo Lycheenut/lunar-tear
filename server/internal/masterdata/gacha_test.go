@@ -12,12 +12,15 @@ import (
 
 func TestChapterGachaCatalogContainsMetadataWithoutRewards(t *testing.T) {
 	entries := buildChapterGachaEntries()
-	wantChapterIds := [...]int32{2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13}
-	if len(entries) != len(wantChapterIds) {
-		t.Fatalf("chapter Gacha count = %d, want %d", len(entries), len(wantChapterIds))
+	wantChapterIds := [...]int32{
+		2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14,
+		17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30,
+	}
+	if len(entries) != len(wantChapterIds)+1 {
+		t.Fatalf("chapter Gacha count = %d, want %d", len(entries), len(wantChapterIds)+1)
 	}
 
-	for i, entry := range entries {
+	for i, entry := range entries[:len(wantChapterIds)] {
 		chapterNumber := int32(i + 1)
 		if entry.GachaId != chapterGachaIdBase+chapterNumber ||
 			entry.BannerAssetName != fmt.Sprintf("chapter_%d", chapterNumber) ||
@@ -37,6 +40,16 @@ func TestChapterGachaCatalogContainsMetadataWithoutRewards(t *testing.T) {
 		if len(entry.BoxItems) != 0 || len(entry.PromotionItems) != 0 || entry.BoxCount != 0 {
 			t.Fatalf("chapter %d contains hardcoded rewards: %+v", chapterNumber, entry)
 		}
+	}
+
+	ex := entries[len(entries)-1]
+	if ex.GachaId != chapterGachaIdBase || ex.BannerAssetName != "chapter_ex" ||
+		ex.RelatedMainQuestChapterId != 0 || len(ex.PricePhases) != 2 ||
+		ex.PricePhases[0].PriceId != 1007 || ex.PricePhases[1].PriceId != 1007 {
+		t.Fatalf("unexpected true-dark chapter catalog entry: %+v", ex)
+	}
+	if len(ex.BoxItems) != 0 || len(ex.PromotionItems) != 0 || ex.BoxCount != 0 {
+		t.Fatalf("true-dark chapter contains hardcoded rewards: %+v", ex)
 	}
 }
 

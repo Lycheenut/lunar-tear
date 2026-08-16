@@ -24,10 +24,23 @@ var chapterGachaSpecs = []chapterGachaSpec{
 	{11, 1016},
 	{12, 1017},
 	{13, 1018},
+	{14, 1019},
+	{17, 1020},
+	{18, 1021},
+	{19, 1022},
+	{20, 1023},
+	{21, 1024},
+	{22, 1025},
+	{25, 1026},
+	{26, 1027},
+	{27, 1028},
+	{28, 1029},
+	{29, 1030},
+	{30, 1031},
 }
 
 func buildChapterGachaEntries() []store.GachaCatalogEntry {
-	entries := make([]store.GachaCatalogEntry, 0, len(chapterGachaSpecs))
+	entries := make([]store.GachaCatalogEntry, 0, len(chapterGachaSpecs)+1)
 	for i, spec := range chapterGachaSpecs {
 		chapterNumber := int32(i + 1)
 		gachaId := chapterGachaIdBase + chapterNumber
@@ -48,6 +61,21 @@ func buildChapterGachaEntries() []store.GachaCatalogEntry {
 			DescriptionTextId:         gachaId,
 		})
 	}
+	entries = append(entries, store.GachaCatalogEntry{
+		GachaId:              chapterGachaIdBase,
+		IsMamaBanner:         true,
+		GachaLabelType:       model.GachaLabelChapter,
+		GachaModeType:        model.GachaModeBox,
+		GachaAutoResetType:   model.GachaAutoResetMonthly,
+		GachaAutoResetPeriod: 1,
+		IsUserGachaUnlock:    true,
+		GachaDecorationType:  model.GachaDecorationNormal,
+		SortOrder:            int32(len(chapterGachaSpecs) + 1),
+		BannerAssetName:      "chapter_ex",
+		GroupId:              chapterGachaIdBase,
+		PricePhases:          buildChapterPricePhases(chapterGachaIdBase, 1007),
+		DescriptionTextId:    chapterGachaIdBase,
+	})
 	return entries
 }
 

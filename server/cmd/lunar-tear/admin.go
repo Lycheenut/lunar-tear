@@ -141,7 +141,8 @@ func startAdmin(listen, binPath, gachaConfigPath string, holder *runtime.Holder)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		catalog, err := masterdataadmin.LoadRewardReferenceCatalog(binPath, holder.Get().GachaPool)
+		snapshot := holder.Get()
+		catalog, err := masterdataadmin.LoadRewardReferenceCatalog(binPath, snapshot.GachaPool, snapshot.Costume)
 		if err != nil {
 			log.Printf("[admin] read reward reference failed: %v", err)
 			writeAdminError(w, http.StatusInternalServerError, "读取奖励对象失败")

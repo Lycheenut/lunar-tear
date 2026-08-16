@@ -21,6 +21,8 @@ type RewardReference struct {
 	AttributeType   int32             `json:"attributeType,omitempty"`
 	ConsumableType  int32             `json:"consumableType,omitempty"`
 	GrantsCharacter bool              `json:"grantsCharacter,omitempty"`
+	CostumeNames    map[string]string `json:"costumeNames,omitempty"`
+	CostumeIconPath string            `json:"costumeIconPath,omitempty"`
 }
 
 type RewardReferenceCatalog struct {
@@ -32,7 +34,11 @@ type RewardReferenceCatalog struct {
 	FreeGems        []RewardReference `json:"freeGems"`
 }
 
-func LoadRewardReferenceCatalog(masterDataPath string, pool *masterdata.GachaCatalog) (*RewardReferenceCatalog, error) {
+func LoadRewardReferenceCatalog(
+	masterDataPath string,
+	pool *masterdata.GachaCatalog,
+	costumeCatalog *masterdata.CostumeCatalog,
+) (*RewardReferenceCatalog, error) {
 	file, err := memorydb.OpenFile(masterDataPath)
 	if err != nil {
 		return nil, err
@@ -46,14 +52,20 @@ func LoadRewardReferenceCatalog(masterDataPath string, pool *masterdata.GachaCat
 		}
 	}
 
-	characterWeapons := make(map[int32]bool)
-	if pool != nil {
-		for _, weaponID := range pool.CostumeWeaponMap {
-			characterWeapons[weaponID] = true
+	characterCostumes := make(map[int32]masterdata.EntityMCostume)
+	if pool != nil && costumeCatalog != nil {
+		for costumeID, weaponID := range pool.CostumeWeaponMap {
+			costume, ok := costumeCatalog.Costumes[costumeID]
+			if !ok {
+				continue
+			}
+			if previous, exists := characterCostumes[weaponID]; !exists || costume.CostumeId < previous.CostumeId {
+				characterCostumes[weaponID] = costume
+			}
 		}
 	}
 	for _, row := range readRows(file, "m_weapon") {
-		if reference, ok := weaponRewardReference(row, resolver, characterWeapons); ok {
+		if reference, ok := weaponRewardReference(row, resolver, characterCostumes); ok {
 			result.Weapons = append(result.Weapons, reference)
 		}
 	}
@@ -111,7 +123,11 @@ func materialRewardReference(row []interface{}, resolver *titleResolver) (Reward
 	}, true
 }
 
-func weaponRewardReference(row []interface{}, resolver *titleResolver, characterWeapons map[int32]bool) (RewardReference, bool) {
+func weaponRewardReference(
+	row []interface{},
+	resolver *titleResolver,
+	characterCostumes map[int32]masterdata.EntityMCostume,
+) (RewardReference, bool) {
 	id, idOK := integerAt(row, 0)
 	categoryType, categoryOK := integerAt(row, 1)
 	weaponType, weaponTypeOK := integerAt(row, 2)
@@ -129,16 +145,21 @@ func weaponRewardReference(row []interface{}, resolver *titleResolver, character
 		RarityType:         int32(rarityType),
 		AttributeType:      int32(attributeType),
 	}
-	return RewardReference{
-		PossessionType:  int32(model.PossessionTypeWeapon),
-		PossessionId:    int32(id),
-		Names:           weaponTitles(resolver, weapon),
-		IconPath:        rewardWeaponIconPath(weapon),
-		RarityType:      int32(rarityType),
-		WeaponType:      int32(weaponType),
-		AttributeType:   int32(attributeType),
-		GrantsCharacter: characterWeapons[int32(id)],
-	}, true
+	reference := RewardReference{
+		PossessionType: int32(model.PossessionTypeWeapon),
+		PossessionId:   int32(id),
+		Names:          weaponTitles(resolver, weapon),
+		IconPath:       rewardWeaponIconPath(weapon),
+		RarityType:     int32(rarityType),
+		WeaponType:     int32(weaponType),
+		AttributeType:  int32(attributeType),
+	}
+	if costume, ok := characterCostumes[int32(id)]; ok {
+		reference.GrantsCharacter = true
+		reference.CostumeNames = costumeTitles(resolver, costume)
+		reference.CostumeIconPath = costumeIconPath(costume)
+	}
+	return reference, true
 }
 
 func companionRewardReference(row []interface{}, resolver *titleResolver) (RewardReference, bool) {

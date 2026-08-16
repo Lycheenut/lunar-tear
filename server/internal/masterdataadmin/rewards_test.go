@@ -11,6 +11,7 @@ func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 		"en": {
 			"material.name.100001":        "Small Weapon Enhancement",
 			"weapon.name.wp001002.1":      "Nameless Blade",
+			"costume.name.ch003004":       "Abstract Hunter",
 			"companion.name.cm001002":     "Bear: Precious",
 			"consumable_item.name.110004": "Gold Automata Medal",
 		},
@@ -31,11 +32,15 @@ func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 
 	weapon, ok := weaponRewardReference([]interface{}{
 		int32(6001), int32(1), int32(1), int32(2), int32(4), int32(3), false,
-	}, resolver, map[int32]bool{6001: true})
+	}, resolver, map[int32]masterdata.EntityMCostume{
+		6001: {CostumeId: 9001, ActorSkeletonId: 3, AssetVariationId: 4},
+	})
 	if !ok {
 		t.Fatal("weapon reference was not built")
 	}
-	if weapon.Names["en"] != "Nameless Blade" || weapon.IconPath != "weapon/wp001002/wp001002_standard.png" || !weapon.GrantsCharacter {
+	if weapon.Names["en"] != "Nameless Blade" || weapon.IconPath != "weapon/wp001002/wp001002_standard.png" ||
+		!weapon.GrantsCharacter || weapon.CostumeNames["en"] != "Abstract Hunter" ||
+		weapon.CostumeIconPath != "costume/ch003004/ch003004_standard.png" {
 		t.Fatalf("unexpected weapon reference: %+v", weapon)
 	}
 

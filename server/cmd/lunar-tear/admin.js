@@ -16,6 +16,10 @@
     missionRewardEditor: $("#mission-reward-editor"), missionRewardAssignmentBody: $("#mission-reward-assignment-body"),
     missionRewardAssignmentCount: $("#mission-reward-assignment-count"), missionRewardContentBody: $("#mission-reward-content-body"),
     missionRewardContentCount: $("#mission-reward-content-count"),
+    missionRewardContentPageSize: $("#mission-reward-content-page-size"),
+    missionRewardContentPagePrevious: $("#mission-reward-content-page-previous"),
+    missionRewardContentPageInfo: $("#mission-reward-content-page-info"),
+    missionRewardContentPageNext: $("#mission-reward-content-page-next"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
@@ -76,6 +80,9 @@
     rewardPage: 1,
     rewardPageSize: 25,
     rewardPageCount: 1,
+    missionRewardContentPage: 1,
+    missionRewardContentPageSize: 25,
+    missionRewardContentPageCount: 1,
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false,
@@ -528,10 +535,22 @@
     elements.missionRewardAssignmentBody.replaceChildren();
     visibleSources.forEach((source) => elements.missionRewardAssignmentBody.append(renderMissionRewardAssignmentRow(table, source)));
     if (!visibleSources.length) elements.missionRewardAssignmentBody.append(renderMissionRewardEmptyRow(3, "当前筛选条件下没有任务。"));
+    const pageCount = Math.max(1, Math.ceil(table.rows.length / state.missionRewardContentPageSize));
+    state.missionRewardContentPage = Math.min(Math.max(1, state.missionRewardContentPage), pageCount);
+    state.missionRewardContentPageCount = pageCount;
+    const pageStart = (state.missionRewardContentPage - 1) * state.missionRewardContentPageSize;
+    const pageEnd = Math.min(pageStart + state.missionRewardContentPageSize, table.rows.length);
     elements.missionRewardContentBody.replaceChildren();
-    table.rows.forEach((row) => elements.missionRewardContentBody.append(renderMissionRewardContentRow(table, fields, row)));
+    table.rows.slice(pageStart, pageEnd)
+      .forEach((row) => elements.missionRewardContentBody.append(renderMissionRewardContentRow(table, fields, row)));
+    if (!table.rows.length) elements.missionRewardContentBody.append(renderMissionRewardEmptyRow(4, "当前没有奖励内容。"));
     elements.missionRewardAssignmentCount.textContent = `${visibleSources.length.toLocaleString()} 个任务`;
-    elements.missionRewardContentCount.textContent = `${table.rows.length.toLocaleString()} 行`;
+    elements.missionRewardContentCount.textContent = table.rows.length
+      ? `${table.rows.length.toLocaleString()} 行 · ${pageStart + 1}–${pageEnd}`
+      : "0 行";
+    elements.missionRewardContentPageInfo.textContent = `第 ${state.missionRewardContentPage.toLocaleString()} / ${pageCount.toLocaleString()} 页`;
+    elements.missionRewardContentPagePrevious.disabled = state.missionRewardContentPage === 1;
+    elements.missionRewardContentPageNext.disabled = state.missionRewardContentPage === pageCount;
     elements.visibleCount.textContent = `${visibleSources.length.toLocaleString()} 个任务 · ${table.rows.length.toLocaleString()} 条奖励内容`;
     elements.empty.classList.add("hidden");
   }
@@ -1630,7 +1649,7 @@
       if (isWeapon && weaponType && String(item.weaponType) !== weaponType) return false;
       if (isWeapon && grantCharacter && String(Boolean(item.grantsCharacter)) !== grantCharacter) return false;
       if (!query) return true;
-      return `${item.possessionId} ${localizedText(item.names)} ${Object.values(item.names || {}).join(" ")}`
+      return `${item.possessionId} ${localizedText(item.names)} ${Object.values(item.names || {}).join(" ")} ${Object.values(item.costumeNames || {}).join(" ")}`
         .toLocaleLowerCase().includes(query);
     });
 
@@ -1677,7 +1696,12 @@
     title.textContent = name;
     const summary = document.createElement("span");
     if (rewardType === "weapon") {
-      summary.textContent = `${weaponAttributeLabels[item.attributeType] || `属性 ${item.attributeType}`} · ${weaponTypeLabels[item.weaponType] || `类型 ${item.weaponType}`} · ${item.grantsCharacter ? "赠送角色" : "不赠送角色"}`;
+      const segments = [
+        weaponAttributeLabels[item.attributeType] || `属性 ${item.attributeType}`,
+        weaponTypeLabels[item.weaponType] || `类型 ${item.weaponType}`
+      ];
+      if (item.grantsCharacter) segments.push(localizedText(item.costumeNames) || "未命名服装");
+      summary.textContent = segments.join(" · ");
     } else if (rewardType === "material") {
       summary.textContent = materialTypeLabels[item.materialType] || `类型 ${item.materialType}`;
     } else if (rewardType === "companion") {
@@ -1691,6 +1715,11 @@
     identifiers.textContent = `Type=${item.possessionType} · ID=${item.possessionId}`;
     content.append(title, summary, identifiers);
     card.append(visual, content);
+    if (rewardType === "weapon" && item.grantsCharacter) {
+      const costumeName = localizedText(item.costumeNames) || "未命名服装";
+      card.classList.add("with-costume");
+      card.append(renderAssetIcon(item.costumeIconPath, costumeName, "装", "reward-reference-costume-icon"));
+    }
     return card;
   }
 
@@ -2677,6 +2706,7 @@
 
   elements.tableSelect.addEventListener("change", () => {
     state.tableSelections[state.section] = elements.tableSelect.value;
+    state.missionRewardContentPage = 1;
     renderTypeFilters(currentTable());
     renderTable();
   });
@@ -2714,6 +2744,22 @@
     if (state.rewardPage >= state.rewardPageCount) return;
     state.rewardPage += 1;
     renderRewardReference();
+  });
+  elements.missionRewardContentPageSize.addEventListener("change", () => {
+    const pageSize = Number(elements.missionRewardContentPageSize.value);
+    state.missionRewardContentPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;
+    state.missionRewardContentPage = 1;
+    renderTable();
+  });
+  elements.missionRewardContentPagePrevious.addEventListener("click", () => {
+    if (state.missionRewardContentPage <= 1) return;
+    state.missionRewardContentPage -= 1;
+    renderTable();
+  });
+  elements.missionRewardContentPageNext.addEventListener("click", () => {
+    if (state.missionRewardContentPage >= state.missionRewardContentPageCount) return;
+    state.missionRewardContentPage += 1;
+    renderTable();
   });
   elements.search.addEventListener("input", renderTable);
   elements.modeButtons.forEach((button) => button.addEventListener("click", () => {
