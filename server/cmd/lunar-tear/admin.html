@@ -103,6 +103,36 @@
               <thead id="schedule-head"></thead>
               <tbody id="schedule-body"></tbody>
             </table>
+            <div id="mission-reward-editor" class="mission-reward-editor hidden">
+              <section class="mission-reward-panel" aria-labelledby="mission-reward-assignment-title">
+                <header class="mission-reward-panel-heading">
+                  <h3 id="mission-reward-assignment-title">任务奖励</h3>
+                  <span id="mission-reward-assignment-count" class="row-badge">0 个任务</span>
+                </header>
+                <div class="mission-reward-panel-scroll">
+                  <table class="mission-reward-assignment-table">
+                    <thead>
+                      <tr><th>MissionId</th><th>Description</th><th>RewardId</th></tr>
+                    </thead>
+                    <tbody id="mission-reward-assignment-body"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section class="mission-reward-panel" aria-labelledby="mission-reward-content-title">
+                <header class="mission-reward-panel-heading">
+                  <h3 id="mission-reward-content-title">奖励内容</h3>
+                  <span id="mission-reward-content-count" class="row-badge">0 行</span>
+                </header>
+                <div class="mission-reward-panel-scroll">
+                  <table class="mission-reward-content-table">
+                    <thead>
+                      <tr><th>RewardId</th><th>PossessionType</th><th>PossessionId</th><th>Count</th></tr>
+                    </thead>
+                    <tbody id="mission-reward-content-body"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
           </div>
           <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
         </section>

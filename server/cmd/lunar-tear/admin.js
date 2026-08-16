@@ -13,6 +13,9 @@
     languageSelect: $("#language-select"), search: $("#search"), refresh: $("#refresh"), notice: $("#notice"),
     entityName: $("#entity-name"), tableName: $("#table-name"), visibleCount: $("#visible-count"),
     tableScroll: $("#table-scroll"), scheduleTable: $("#schedule-table"), head: $("#schedule-head"), body: $("#schedule-body"),
+    missionRewardEditor: $("#mission-reward-editor"), missionRewardAssignmentBody: $("#mission-reward-assignment-body"),
+    missionRewardAssignmentCount: $("#mission-reward-assignment-count"), missionRewardContentBody: $("#mission-reward-content-body"),
+    missionRewardContentCount: $("#mission-reward-content-count"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
@@ -411,7 +414,10 @@
     elements.modeControl.classList.toggle("hidden", !table.primary);
     elements.scheduleTable.classList.toggle("detail-mode", detailed);
     elements.scheduleTable.classList.toggle("mission-source-table", hasMissionSource(table));
-    elements.scheduleTable.classList.toggle("mission-reward-table", table.name === "m_mission_reward");
+    const isMissionReward = table.name === "m_mission_reward";
+    elements.scheduleTable.classList.toggle("hidden", isMissionReward);
+    elements.missionRewardEditor.classList.toggle("hidden", !isMissionReward);
+    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionReward);
     syncModeToggle();
     elements.head.replaceChildren();
     elements.body.replaceChildren();
@@ -430,8 +436,8 @@
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "" && select.dataset.sourceFilter !== "mission")
       .map((select) => ({ field: select.dataset.field, value: select.value }));
-    if (table.name === "m_mission_reward") {
-      renderMissionRewardTable(table, displayedFields, selectedSources, query);
+    if (isMissionReward) {
+      renderMissionRewardEditor(table, displayedFields, selectedSources, query);
       return;
     }
     const visibleRows = table.rows.filter((row) => {
@@ -494,58 +500,37 @@
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
-  function renderMissionRewardTable(table, fields, sources, query) {
-    const headerRow = document.createElement("tr");
-    const assignmentHeader = makeCell("th", "任务名称 → RewardId");
-    assignmentHeader.dataset.field = "MissionRewardAssignment";
-    const definitionHeader = makeCell("th", "RewardId → PossessionType / PossessionId / Count");
-    definitionHeader.dataset.field = "MissionRewardDefinition";
-    headerRow.append(assignmentHeader, definitionHeader);
-    elements.head.append(headerRow);
-
+  function renderMissionRewardEditor(table, fields, sources, query) {
     const visibleSources = sources.filter((source) => {
       if (!query) return true;
       const rewardID = effectiveMissionRewardID(source);
       return [
         source.missionId,
-        source.requirementCount,
         rewardID,
         ...Object.values(source.names || {}),
         missionRewardOptionLabel(table, rewardID)
       ].join(" ").toLocaleLowerCase().includes(query);
     });
-    const rewardIDs = [...new Set(visibleSources.map(effectiveMissionRewardID))];
-    const row = document.createElement("tr");
-    const assignmentColumn = document.createElement("td");
-    assignmentColumn.className = "mission-reward-assignment-cell";
-    const assignmentList = document.createElement("div");
-    assignmentList.className = "mission-reward-assignment-list";
-    visibleSources.forEach((source) => assignmentList.append(renderMissionRewardAssignment(table, source)));
-    assignmentColumn.append(assignmentList);
-    const definitionColumn = document.createElement("td");
-    definitionColumn.className = "mission-reward-definition-cell";
-    const definitionList = document.createElement("div");
-    definitionList.className = "mission-reward-definition-list";
-    rewardIDs.forEach((rewardID) => definitionList.append(renderMissionRewardDefinition(table, fields, rewardID)));
-    definitionColumn.append(definitionList);
-    row.append(assignmentColumn, definitionColumn);
-    elements.body.append(row);
-    elements.visibleCount.textContent = `${visibleSources.length.toLocaleString()} 个任务 · ${rewardIDs.length.toLocaleString()} 个 RewardId`;
-    elements.empty.classList.toggle("hidden", visibleSources.length !== 0);
+    elements.missionRewardAssignmentBody.replaceChildren();
+    visibleSources.forEach((source) => elements.missionRewardAssignmentBody.append(renderMissionRewardAssignmentRow(table, source)));
+    if (!visibleSources.length) elements.missionRewardAssignmentBody.append(renderMissionRewardEmptyRow(3, "当前筛选条件下没有任务。"));
+    elements.missionRewardContentBody.replaceChildren();
+    table.rows.forEach((row) => elements.missionRewardContentBody.append(renderMissionRewardContentRow(table, fields, row)));
+    elements.missionRewardAssignmentCount.textContent = `${visibleSources.length.toLocaleString()} 个任务`;
+    elements.missionRewardContentCount.textContent = `${table.rows.length.toLocaleString()} 行`;
+    elements.visibleCount.textContent = `${visibleSources.length.toLocaleString()} 个任务 · ${table.rows.length.toLocaleString()} 条奖励内容`;
+    elements.empty.classList.add("hidden");
   }
 
-  function renderMissionRewardAssignment(table, source) {
-    const content = document.createElement("div");
-    content.className = "mission-reward-assignment";
-
-    const heading = document.createElement("div");
-    heading.className = "mission-reward-assignment-heading";
-    const name = document.createElement("strong");
-    name.textContent = localizedInlineText(source.names) || "未命名任务";
-    const meta = document.createElement("span");
-    meta.textContent = `MissionId=${source.missionId} · 要求数 ${source.requirementCount}`;
-    heading.append(name, meta);
-
+  function renderMissionRewardAssignmentRow(table, source) {
+    const tr = document.createElement("tr");
+    const missionID = document.createElement("td");
+    const missionIDValue = document.createElement("code");
+    missionIDValue.textContent = String(source.missionId);
+    missionID.append(missionIDValue);
+    const description = makeCell("td", localizedInlineText(source.names) || "未命名任务");
+    description.className = "mission-reward-description";
+    const reward = document.createElement("td");
     const editor = document.createElement("div");
     editor.className = "mission-reward-assignment-editor";
     const rewardID = effectiveMissionRewardID(source);
@@ -556,7 +541,7 @@
     select.dataset.table = "m_mission";
     select.dataset.row = String(source.row);
     select.dataset.field = "MissionRewardId";
-    select.setAttribute("aria-label", `${name.textContent} 的 RewardId`);
+    select.setAttribute("aria-label", `${description.textContent} 的 RewardId`);
     select.classList.toggle("changed", state.dirty.has(changeKey("m_mission", source.row, "MissionRewardId")));
     const populate = () => populateMissionRewardSelect(select, table, select.value, true);
     select.addEventListener("focus", populate);
@@ -571,43 +556,33 @@
       renderTable();
     });
     editor.append(preview, select);
-    content.append(heading, editor);
-    return content;
+    reward.append(editor);
+    tr.append(missionID, description, reward);
+    return tr;
   }
 
-  function renderMissionRewardDefinition(table, fields, rewardID) {
-    const group = document.createElement("article");
-    group.className = "mission-reward-definition-group";
-    const rewardRows = missionRewardRows(table, rewardID);
-    if (!rewardRows.length) {
-      const empty = document.createElement("span");
-      empty.className = "notes-empty";
-      empty.textContent = `RewardId ${rewardID} 没有具体奖励定义`;
-      group.append(empty);
-      return group;
-    }
-    rewardRows.forEach((row, index) => {
-      const definition = document.createElement("div");
-      definition.className = "mission-reward-definition";
-      const identity = document.createElement("code");
-      identity.className = "mission-reward-definition-id";
-      identity.textContent = rewardRows.length > 1
-        ? `RewardId ${rewardID} · #${index + 1}`
-        : `RewardId ${rewardID}`;
-      const editorGrid = document.createElement("div");
-      editorGrid.className = "mission-reward-definition-fields";
-      fields.forEach((field) => {
-        const editor = document.createElement("label");
-        editor.className = `mission-reward-definition-field mission-reward-definition-${field.name.toLocaleLowerCase()}`;
-        const label = document.createElement("span");
-        label.textContent = field.name;
-        editor.append(label, renderFieldEditor(table, row, field));
-        editorGrid.append(editor);
-      });
-      definition.append(identity, editorGrid);
-      group.append(definition);
+  function renderMissionRewardContentRow(table, fields, row) {
+    const tr = document.createElement("tr");
+    const rewardID = document.createElement("td");
+    const rewardIDValue = document.createElement("code");
+    rewardIDValue.textContent = row.values.MissionRewardId;
+    rewardID.append(rewardIDValue);
+    tr.append(rewardID);
+    fields.forEach((field) => {
+      const cell = document.createElement("td");
+      cell.append(renderFieldEditor(table, row, field));
+      tr.append(cell);
     });
-    return group;
+    return tr;
+  }
+
+  function renderMissionRewardEmptyRow(columnCount, message) {
+    const tr = document.createElement("tr");
+    const cell = makeCell("td", message);
+    cell.className = "mission-reward-empty";
+    cell.colSpan = columnCount;
+    tr.append(cell);
+    return tr;
   }
 
   function effectiveMissionRewardID(source) {
@@ -641,6 +616,7 @@
       select.append(unknown);
     }
     select.value = String(selectedID);
+    select.title = select.options[select.selectedIndex]?.textContent || "";
     select.dataset.expanded = String(expanded);
   }
 
@@ -682,7 +658,10 @@
   function refreshMissionRewardAssignmentDisplays(table, rewardID) {
     document.querySelectorAll(".mission-reward-assignment-select").forEach((select) => {
       const option = [...select.options].find((candidate) => candidate.value === String(rewardID));
-      if (option) option.textContent = missionRewardOptionLabel(table, rewardID);
+      if (option) {
+        option.textContent = missionRewardOptionLabel(table, rewardID);
+        if (select.value === String(rewardID)) select.title = option.textContent;
+      }
     });
     document.querySelectorAll("[data-mission-reward-preview]").forEach((preview) => {
       if (preview.dataset.missionRewardPreview !== String(rewardID)) return;
