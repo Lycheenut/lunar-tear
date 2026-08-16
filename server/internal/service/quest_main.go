@@ -86,18 +86,31 @@ func (s *QuestServiceServer) StartMainQuest(ctx context.Context, req *pb.StartMa
 	log.Printf("[QuestService] StartMainQuest: questId=%d isMainFlow=%v isReplayFlow=%v isBattleOnly=%v maxAutoOrbitCount=%d",
 		req.QuestId, req.IsMainFlow, req.IsReplayFlow, req.IsBattleOnly, req.MaxAutoOrbitCount)
 
-	engine := s.holder.Get().QuestHandler
+	cageUpdate, err := parseCageMeasurableValues(req.CageMeasurableValues)
+	if err != nil {
+		return nil, err
+	}
+	catalogs := s.holder.Get()
+	engine := catalogs.QuestHandler
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	var validationErr error
 	var drops []masterdata.BattleDropInfo
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
+		var beforeCageUpdate store.UserState
+		if cageUpdate.present {
+			beforeCageUpdate = store.CloneUserState(*user)
+			cageUpdate.apply(catalogs, user, nowMillis)
+		}
 		if req.IsReplayFlow {
 			validationErr = engine.HandleQuestStartReplay(user, req.QuestId, req.IsBattleOnly, req.UserDeckNumber, nowMillis)
 		} else {
 			validationErr = engine.HandleQuestStart(user, req.QuestId, req.IsBattleOnly, req.IsMainFlow, req.UserDeckNumber, nowMillis)
 		}
 		if validationErr != nil {
+			if cageUpdate.present {
+				*user = beforeCageUpdate
+			}
 			return
 		}
 		startAutoOrbit(user, model.QuestTypeMain, 0, req.QuestId, req.MaxAutoOrbitCount, nowMillis)

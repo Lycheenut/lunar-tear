@@ -50,7 +50,7 @@ func TestMamaBannerExcludesTicketOnlyGachas(t *testing.T) {
 		visibleBannerEntry(model.GachaIdGuaranteedThreeStarOrHigher, model.ConsumableIdGuaranteedThreeStarOrHigherTicket, false),
 		visibleBannerEntry(model.GachaIdGuaranteedFourStar, model.ConsumableIdGuaranteedFourStarTicket, false),
 	}
-	bannerServer := NewBannerServiceServer(holder)
+	bannerServer := NewBannerServiceServer(repo, repo, holder)
 	gachaServer := NewGachaServiceServer(repo, repo, holder)
 
 	assertBannerAndGachaIds(t, bannerServer, gachaServer, []int32{45}, []int32{45})

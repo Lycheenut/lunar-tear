@@ -27,11 +27,12 @@ type UserState struct {
 	GameStartDatetime   int64
 	LatestVersion       int64
 
-	BirthYear            int32
-	BirthMonth           int32
-	BackupToken          string
-	ChargeMoneyThisMonth int64
-	FacebookId           int64
+	BirthYear                 int32
+	BirthMonth                int32
+	BackupToken               string
+	ChargeMoneyThisMonth      int64
+	FacebookId                int64
+	CageRunningDistanceMeters int64
 
 	Setting                 UserSettingState
 	Status                  UserStatusState

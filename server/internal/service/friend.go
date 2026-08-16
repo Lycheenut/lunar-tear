@@ -104,10 +104,21 @@ func (s *FriendServiceServer) SearchRecommendedUsers(ctx context.Context, _ *emp
 	return &pb.SearchRecommendedUsersResponse{Users: users}, nil
 }
 
-func (s *FriendServiceServer) GetFriendList(ctx context.Context, _ *pb.GetFriendListRequest) (*pb.GetFriendListResponse, error) {
+func (s *FriendServiceServer) GetFriendList(ctx context.Context, req *pb.GetFriendListRequest) (*pb.GetFriendListResponse, error) {
 	log.Printf("[FriendService] GetFriendList")
+	cageUpdate, err := parseCageMeasurableValues(req.CageMeasurableValues)
+	if err != nil {
+		return nil, err
+	}
 	currentUserId := CurrentUserId(ctx, s.users, s.sessions)
-	current, err := s.users.LoadUser(currentUserId)
+	var current store.UserState
+	if cageUpdate.present {
+		current, err = s.users.UpdateUser(currentUserId, func(user *store.UserState) {
+			cageUpdate.apply(s.holder.Get(), user, gametime.NowMillis())
+		})
+	} else {
+		current, err = s.users.LoadUser(currentUserId)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("load current user: %w", err)
 	}

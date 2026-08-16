@@ -138,11 +138,11 @@ func (s *SQLiteStore) ImportUser(u *store.UserState) error {
 
 	if _, err := tx.Exec(`INSERT INTO users (user_id, uuid, player_id, os_type, platform_type,
 		user_restriction_type, register_datetime, game_start_datetime, latest_version,
-		birth_year, birth_month, backup_token, charge_money_this_month)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		birth_year, birth_month, backup_token, charge_money_this_month, cage_running_distance_meters)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		uid, u.Uuid, u.PlayerId, u.OsType, u.PlatformType, u.UserRestrictionType,
 		u.RegisterDatetime, u.GameStartDatetime, u.LatestVersion,
-		u.BirthYear, u.BirthMonth, u.BackupToken, u.ChargeMoneyThisMonth); err != nil {
+		u.BirthYear, u.BirthMonth, u.BackupToken, u.ChargeMoneyThisMonth, u.CageRunningDistanceMeters); err != nil {
 		return fmt.Errorf("insert user: %w", err)
 	}
 

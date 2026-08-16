@@ -30,14 +30,49 @@ func NewMissionServiceServer(users store.UserRepository, sessions store.SessionR
 	return &MissionServiceServer{users: users, sessions: sessions, holder: holder}
 }
 
+type cageMeasurableUpdate struct {
+	present               bool
+	runningDistanceMeters int32
+	events                []store.MissionEvent
+}
+
+func parseCageMeasurableValues(values *pb.CageMeasurableValues) (cageMeasurableUpdate, error) {
+	if values == nil {
+		return cageMeasurableUpdate{}, nil
+	}
+	if values.RunningDistanceMeters < 0 {
+		return cageMeasurableUpdate{}, status.Error(codes.InvalidArgument, "cage running distance must not be negative")
+	}
+	if values.MamaTappedCount < 0 {
+		return cageMeasurableUpdate{}, status.Error(codes.InvalidArgument, "mama tapped count must not be negative")
+	}
+	return cageMeasurableUpdate{
+		present:               true,
+		runningDistanceMeters: values.RunningDistanceMeters,
+		events: []store.MissionEvent{
+			{ConditionType: int32(model.MissionClearConditionTypeTowerWalkedDistance), Count: values.RunningDistanceMeters},
+			{ConditionType: int32(model.MissionClearConditionTypeMamaTapByCount), Count: values.MamaTappedCount},
+		},
+	}, nil
+}
+
+func (update cageMeasurableUpdate) apply(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int64) {
+	if !update.present {
+		return
+	}
+	before := store.CloneUserState(*user)
+	user.CageRunningDistanceMeters += int64(update.runningDistanceMeters)
+	missionprogress.Apply(catalogs, &before, user, update.events, nowMillis)
+}
+
 func syncMissionProgress(catalogs *runtime.Catalogs, user *store.UserState, req *pb.UpdateMissionProgressRequest, nowMillis int64) error {
-	var events []store.MissionEvent
+	cageUpdate, err := parseCageMeasurableValues(req.CageMeasurableValues)
+	if err != nil {
+		return err
+	}
+	events := append([]store.MissionEvent(nil), cageUpdate.events...)
 	set := func(conditionType, value, targetId, optionGroupId int32) {
 		events = append(events, store.MissionEvent{ConditionType: conditionType, Value: value, IsValue: true, TargetId: targetId, OptionGroupId: optionGroupId})
-	}
-	if req.CageMeasurableValues != nil {
-		set(int32(model.MissionClearConditionTypeTowerWalkedDistance), req.CageMeasurableValues.RunningDistanceMeters, 0, 0)
-		set(int32(model.MissionClearConditionTypeMamaTapByCount), req.CageMeasurableValues.MamaTappedCount, 0, 0)
 	}
 	if req.PictureBookMeasurableValues != nil {
 		set(int32(model.MissionClearConditionTypeDefeatWizardCount), req.PictureBookMeasurableValues.DefeatWizardCount, 0, 0)
@@ -51,11 +86,12 @@ func syncMissionProgress(catalogs *runtime.Catalogs, user *store.UserState, req 
 		}
 	}
 	for _, event := range events {
-		if event.Value < 0 {
+		if event.IsValue && event.Value < 0 {
 			return status.Errorf(codes.InvalidArgument, "mission metric type %d must not be negative", event.ConditionType)
 		}
 	}
 	before := store.CloneUserState(*user)
+	user.CageRunningDistanceMeters += int64(cageUpdate.runningDistanceMeters)
 	missionprogress.Apply(catalogs, &before, user, events, nowMillis)
 	return nil
 }
