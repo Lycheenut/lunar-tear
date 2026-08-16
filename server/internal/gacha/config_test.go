@@ -112,6 +112,22 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 		t.Fatal(err)
 	}
 	ApplyConfiguredPromotions(entries, catalog)
+	wantPromotions := []store.GachaPromotionItem{
+		{
+			PossessionType:      int32(model.PossessionTypeCostume),
+			PossessionId:        105,
+			IsTarget:            true,
+			BonusPossessionType: int32(model.PossessionTypeWeapon),
+			BonusPossessionId:   5,
+		},
+		{
+			PossessionType:      int32(model.PossessionTypeCostume),
+			PossessionId:        102,
+			IsTarget:            true,
+			BonusPossessionType: int32(model.PossessionTypeWeapon),
+			BonusPossessionId:   2,
+		},
+	}
 	for index, gachaId := range guaranteedGachaIds {
 		banner := catalog.Banners[gachaId]
 		if banner == nil {
@@ -120,8 +136,8 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 		if _, exists := banner.ItemsByWeaponId[1]; exists {
 			t.Fatalf("limited weapon entered guaranteed Gacha %d", gachaId)
 		}
-		if len(entries[index+1].PromotionItems) != 0 {
-			t.Fatalf("configured pickups leaked into guaranteed Gacha %d promotions: %+v", gachaId, entries[index+1].PromotionItems)
+		if len(entries[index+1].PromotionItems) != 1 || entries[index+1].PromotionItems[0] != wantPromotions[index] {
+			t.Fatalf("guaranteed Gacha %d render fallback = %+v, want %+v", gachaId, entries[index+1].PromotionItems, wantPromotions[index])
 		}
 		for weaponId := int32(2); weaponId <= 10; weaponId++ {
 			if _, exists := banner.ItemsByWeaponId[weaponId]; !exists {

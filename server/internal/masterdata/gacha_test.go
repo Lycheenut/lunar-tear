@@ -50,8 +50,12 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 		{model.GachaIdGuaranteedFourStar, model.ConsumableIdGuaranteedFourStarTicket, guaranteedFourStarGachaAssetName, model.RaritySSRare},
 	}
 	byId := make(map[int32]store.GachaCatalogEntry, len(entries))
+	maxMasterSortOrder := int32(0)
 	for _, entry := range entries {
 		byId[entry.GachaId] = entry
+		if !model.IsGuaranteedTicketGacha(entry.GachaId) && entry.SortOrder > maxMasterSortOrder {
+			maxMasterSortOrder = entry.SortOrder
+		}
 	}
 	for _, tt := range tests {
 		entry, ok := byId[tt.gachaId]
@@ -64,6 +68,9 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 		if entry.IsMamaBanner {
 			t.Fatalf("ticket-only Gacha %d was marked as a Mama banner", tt.gachaId)
 		}
+		if entry.SortOrder <= maxMasterSortOrder {
+			t.Fatalf("ticket-only Gacha %d sort order %d is not after master-data Gachas ending at %d", tt.gachaId, entry.SortOrder, maxMasterSortOrder)
+		}
 		if len(entry.PricePhases) != 1 {
 			t.Fatalf("Gacha %d price phase count = %d, want 1", tt.gachaId, len(entry.PricePhases))
 		}
@@ -75,5 +82,8 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 			phase.FixedRarityMin != tt.minimumRarity || phase.FixedCount != 1 {
 			t.Fatalf("unexpected guaranteed Gacha %d price phase: %+v", tt.gachaId, phase)
 		}
+	}
+	if byId[model.GachaIdGuaranteedFourStar].SortOrder <= byId[model.GachaIdGuaranteedThreeStarOrHigher].SortOrder {
+		t.Fatal("four-star guaranteed Gacha was not ordered after the three-star guaranteed Gacha")
 	}
 }

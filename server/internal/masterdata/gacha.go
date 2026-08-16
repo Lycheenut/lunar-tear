@@ -214,6 +214,21 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 		seenGacha[gachaId] = true
 	}
 
+	// The client opens the first active Gacha after sorting ascending. Keep the
+	// synthetic ticket pools behind every master-data-backed pool.
+	maxSortOrder := int32(0)
+	for _, entry := range entries {
+		if !model.IsGuaranteedTicketGacha(entry.GachaId) && entry.SortOrder > maxSortOrder {
+			maxSortOrder = entry.SortOrder
+		}
+	}
+	for i := range entries {
+		if model.IsGuaranteedTicketGacha(entries[i].GachaId) {
+			maxSortOrder++
+			entries[i].SortOrder = maxSortOrder
+		}
+	}
+
 	return entries, medalInfoByGacha, nil
 }
 
