@@ -76,6 +76,11 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 		if b.DestinationDomainType != model.MomBannerDomainGacha {
 			continue
 		}
+		// The snapshot's common_* rows are incomplete proxy banners. Chapter
+		// Gachas are reconstructed below from their chapter-specific data.
+		if strings.HasPrefix(b.BannerAssetName, model.BannerPrefixCommon) {
+			continue
+		}
 		gachaId := b.DestinationDomainId
 		if eventGachaIds[gachaId] {
 			continue
@@ -90,70 +95,36 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 			continue
 		}
 
-		labelType := model.GachaLabelPremium
-		modeType := model.GachaModeBasic
 		decoration := model.GachaDecorationNormal
-
-		isChapter := strings.HasPrefix(b.BannerAssetName, model.BannerPrefixCommon)
 
 		if strings.HasPrefix(b.BannerAssetName, model.BannerPrefixLimited) {
 			decoration = model.GachaDecorationFestival
 		}
-		if isChapter {
-			labelType = model.GachaLabelChapter
-			modeType = model.GachaModeBox
-		}
 		medal, hasMedal := gachaToMedal[gachaId]
-		if !hasMedal && !isChapter {
+		if !hasMedal {
 			continue
-		}
-		var medalId int32
-		var medalConsumableId int32
-		var ceilingCount int32
-		if hasMedal {
-			medalId = medal.GachaMedalId
-			medalConsumableId = medal.ConsumableItemId
-			ceilingCount = model.PityCeilingCount
-		}
-
-		var pricePhases []store.GachaPricePhaseEntry
-		if isChapter {
-			pricePhases = buildChapterPricePhases(gachaId)
-		} else {
-			pricePhases = buildPremiumBasicPricePhases(gachaId)
-		}
-
-		relMainQuest := int32(0)
-		if isChapter {
-			relMainQuest = gachaId - chapterGachaIdBase
-		}
-
-		var descriptionTextId int32
-		if isChapter {
-			descriptionTextId = gachaId
 		}
 
 		entries = append(entries, store.GachaCatalogEntry{
-			GachaId:                   gachaId,
-			IsMamaBanner:              true,
-			GachaLabelType:            labelType,
-			GachaModeType:             modeType,
-			GachaAutoResetType:        model.GachaAutoResetNone,
-			IsUserGachaUnlock:         true,
-			StartDatetime:             b.StartDatetime,
-			EndDatetime:               b.EndDatetime,
-			RelatedMainQuestChapterId: relMainQuest,
-			GachaMedalId:              medalId,
-			MedalConsumableItemId:     medalConsumableId,
-			GachaDecorationType:       decoration,
-			SortOrder:                 b.SortOrderDesc,
-			BannerAssetName:           b.BannerAssetName,
-			GroupId:                   gachaId,
-			CeilingCount:              ceilingCount,
-			PricePhases:               pricePhases,
-			DescriptionTextId:         descriptionTextId,
+			GachaId:               gachaId,
+			IsMamaBanner:          true,
+			GachaLabelType:        model.GachaLabelPremium,
+			GachaModeType:         model.GachaModeBasic,
+			GachaAutoResetType:    model.GachaAutoResetNone,
+			IsUserGachaUnlock:     true,
+			StartDatetime:         b.StartDatetime,
+			EndDatetime:           b.EndDatetime,
+			GachaMedalId:          medal.GachaMedalId,
+			MedalConsumableItemId: medal.ConsumableItemId,
+			GachaDecorationType:   decoration,
+			SortOrder:             b.SortOrderDesc,
+			BannerAssetName:       b.BannerAssetName,
+			GroupId:               gachaId,
+			CeilingCount:          model.PityCeilingCount,
+			PricePhases:           buildPremiumBasicPricePhases(gachaId),
 		})
 	}
+	entries = append(entries, buildChapterGachaEntries()...)
 	entries = append(entries,
 		buildGuaranteedTicketGacha(
 			model.GachaIdGuaranteedThreeStarOrHigher,
@@ -277,8 +248,12 @@ func EnrichGachaUnlockConditions(entries []store.GachaCatalogEntry, quests *Ques
 		}
 	}
 	for i := range entries {
-		if entries[i].RelatedMainQuestChapterId != 0 {
-			if questId := lastQuestByChapter[entries[i].RelatedMainQuestChapterId]; questId != 0 {
+		mainQuestChapterId := entries[i].RelatedMainQuestChapterId
+		if entries[i].GachaLabelType == model.GachaLabelChapter {
+			mainQuestChapterId = chapterGachaPrerequisiteMainQuestChapterId(mainQuestChapterId)
+		}
+		if mainQuestChapterId != 0 {
+			if questId := lastQuestByChapter[mainQuestChapterId]; questId != 0 {
 				entries[i].UnlockConditions = []store.GachaUnlockConditionEntry{{GachaUnlockConditionType: model.GachaUnlockMainQuestClear, ConditionValue: questId}}
 			}
 		}
@@ -302,7 +277,7 @@ func EnrichCatalogPromotions(entries []store.GachaCatalogEntry, pool *GachaCatal
 			continue
 		}
 		if entries[i].GachaLabelType == model.GachaLabelChapter {
-			entries[i].PromotionItems = buildChapterPromotionItems(pool.Materials)
+			entries[i].PromotionItems = buildBoxPromotionItems(entries[i].BoxItems)
 			continue
 		}
 
@@ -347,20 +322,18 @@ func toPromoItemWithBonus(item GachaPoolItem, pool *GachaCatalog) store.GachaPro
 	return pi
 }
 
-func buildChapterPromotionItems(materials []GachaPoolItem) []store.GachaPromotionItem {
-	limit := min(chapterPromoMaxItems, len(materials))
-	items := make([]store.GachaPromotionItem, 0, limit)
-	for _, m := range materials[:limit] {
-		items = append(items, toPromoItem(m))
-	}
-	return items
-}
-
 func buildBoxPromotionItems(boxItems []store.GachaBoxItemEntry) []store.GachaPromotionItem {
 	limit := min(chapterPromoMaxItems, len(boxItems))
 	items := make([]store.GachaPromotionItem, 0, limit)
 	for _, item := range boxItems[:limit] {
-		items = append(items, store.GachaPromotionItem{PossessionType: item.PossessionType, PossessionId: item.PossessionId, IsTarget: true})
+		items = append(items, store.GachaPromotionItem{
+			PossessionType:   item.PossessionType,
+			PossessionId:     item.PossessionId,
+			Count:            item.Count,
+			MaxDrawableCount: item.MaxCount,
+			CounterId:        item.CounterId,
+			IsTarget:         true,
+		})
 	}
 	return items
 }
@@ -428,12 +401,12 @@ func buildStepUpPricePhases(gachaId int32, totalSteps int) []store.GachaPricePha
 	return phases
 }
 
-func buildChapterPricePhases(gachaId int32) []store.GachaPricePhaseEntry {
+func buildChapterPricePhases(gachaId, ticketId int32) []store.GachaPricePhaseEntry {
 	return []store.GachaPricePhaseEntry{
 		{
 			PhaseId:      gachaId*model.PhaseIdMultiplier + 1,
 			PriceType:    model.PriceTypeConsumableItem,
-			PriceId:      model.ConsumableIdChapterTicket,
+			PriceId:      ticketId,
 			Price:        1,
 			RegularPrice: 1,
 			DrawCount:    1,
@@ -441,7 +414,7 @@ func buildChapterPricePhases(gachaId int32) []store.GachaPricePhaseEntry {
 		{
 			PhaseId:      gachaId*model.PhaseIdMultiplier + 2,
 			PriceType:    model.PriceTypeConsumableItem,
-			PriceId:      model.ConsumableIdChapterTicket,
+			PriceId:      ticketId,
 			Price:        10,
 			RegularPrice: 10,
 			DrawCount:    model.PremiumMultiPullCount,

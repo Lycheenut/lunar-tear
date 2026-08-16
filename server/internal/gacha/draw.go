@@ -6,6 +6,7 @@ import (
 
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/store"
 )
 
 type DrawnItem struct {
@@ -13,6 +14,8 @@ type DrawnItem struct {
 	PossessionId   int32
 	RarityType     model.RarityType
 	CharacterId    int32
+	Count          int32
+	CounterId      int32
 }
 
 func DrawPremium(bp *PremiumBannerPool, count int, fixedRarityMin int32, fixedCount int, rateMultiplier float64) ([]DrawnItem, error) {
@@ -96,6 +99,8 @@ func DrawBox(items []BoxItem, count int) []DrawnItem {
 			PossessionType: item.PossessionType,
 			PossessionId:   item.PossessionId,
 			RarityType:     item.RarityType,
+			Count:          positiveCount(item.Count),
+			CounterId:      item.CounterId,
 		})
 		items[idx].DrewCount++
 		available = append(available[:pick], available[pick+1:]...)
@@ -114,6 +119,7 @@ func DrawReward(materials []masterdata.GachaPoolItem, count int) []DrawnItem {
 			PossessionType: m.PossessionType,
 			PossessionId:   m.PossessionId,
 			RarityType:     m.RarityType,
+			Count:          1,
 		})
 	}
 	return result
@@ -127,6 +133,77 @@ type BoxItem struct {
 	MaxCount       int32
 	DrewCount      int32
 	IsTarget       bool
+	CounterId      int32
+}
+
+func drawChapterWithIntn(items []store.GachaBoxItemEntry, drewCounts map[int32]int32, count int, monthKey int32, intn func(int) int) ([]DrawnItem, error) {
+	if drewCounts[model.ChapterGachaMonthCounterId] != monthKey {
+		clear(drewCounts)
+		drewCounts[model.ChapterGachaMonthCounterId] = monthKey
+	}
+
+	result := make([]DrawnItem, 0, count)
+	for range count {
+		totalWeight := 0
+		for i, item := range items {
+			counterId := chapterCounterId(item, i)
+			if item.Weight > 0 && (item.MaxCount <= 0 || drewCounts[counterId] < item.MaxCount) {
+				totalWeight += int(item.Weight)
+			}
+		}
+		if totalWeight <= 0 {
+			return nil, fmt.Errorf("chapter Gacha has no available rewards")
+		}
+
+		roll := intn(totalWeight)
+		selected := -1
+		for i, item := range items {
+			counterId := chapterCounterId(item, i)
+			if item.Weight <= 0 || (item.MaxCount > 0 && drewCounts[counterId] >= item.MaxCount) {
+				continue
+			}
+			if roll >= int(item.Weight) {
+				roll -= int(item.Weight)
+				continue
+			}
+			selected = i
+			break
+		}
+		if selected < 0 {
+			return nil, fmt.Errorf("chapter Gacha reward selection failed")
+		}
+
+		item := items[selected]
+		counterId := chapterCounterId(item, selected)
+		result = append(result, DrawnItem{
+			PossessionType: item.PossessionType,
+			PossessionId:   item.PossessionId,
+			RarityType:     model.RarityType(item.RarityType),
+			Count:          positiveCount(item.Count),
+			CounterId:      counterId,
+		})
+		if item.MaxCount > 0 {
+			drewCounts[counterId]++
+		}
+	}
+	return result, nil
+}
+
+func chapterCounterId(item store.GachaBoxItemEntry, index int) int32 {
+	if item.CounterId > 0 {
+		return item.CounterId
+	}
+	if item.PossessionId > 0 {
+		return item.PossessionId
+	}
+	return int32(index + 1)
+}
+
+func positiveCount(count int32) int32 {
+	if count > 0 {
+		return count
+	}
+	return 1
 }
 
 func adjustedGroupWeights(groups []PremiumGroup, multiplier float64) []int {
