@@ -321,6 +321,10 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 
 	bs := updatedUser.Gacha.BannerStates[entry.GachaId]
 	nextEntry := gachaForUser(cat, &updatedUser, *entry, nowMillis)
+	// Draw succeeded while this Gacha was unlocked. Keep the response-side
+	// NextGacha usable for the result production even when the draw consumed
+	// the last required ticket; subsequent list requests will hide it.
+	nextEntry.IsUserGachaUnlock = true
 	nextGacha := toProtoGacha(nextEntry, &bs)
 
 	return &pb.DrawResponse{
