@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 
@@ -90,6 +91,21 @@ func TestBuildPremiumCatalogDefaultsMissingWeaponToStandard(t *testing.T) {
 
 func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 	source, entries, config := testPremiumSource()
+	for _, item := range []struct {
+		weaponId    int32
+		costumeId   int32
+		characterId int32
+	}{
+		{320081, 32000, 2},
+		{350161, 35001, 5},
+		{330001, 33000, 3},
+	} {
+		weapon := masterdata.GachaPoolItem{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: item.weaponId, RarityType: model.RaritySSRare}
+		source.ConfigurableWeaponById[item.weaponId] = weapon
+		source.EligibleWeaponById[item.weaponId] = weapon
+		source.CostumeByWeaponId[item.weaponId] = masterdata.GachaPoolItem{PossessionType: int32(model.PossessionTypeCostume), PossessionId: item.costumeId, RarityType: model.RaritySSRare, CharacterId: item.characterId}
+		config.Weapons[item.weaponId] = WeaponConfig{Availability: AvailabilityStandard}
+	}
 	config.LimitedSets["limited_a"] = LimitedSetConfig{DisplayName: "Limited A"}
 	config.Weapons[1] = WeaponConfig{Availability: AvailabilityLimited, LimitedSet: "limited_a"}
 	guaranteedGachaIds := []int32{model.GachaIdGuaranteedThreeStarOrHigher, model.GachaIdGuaranteedFourStar}
@@ -112,20 +128,36 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 		t.Fatal(err)
 	}
 	ApplyConfiguredPromotions(entries, catalog)
-	wantPromotions := []store.GachaPromotionItem{
-		{
+	wantPromotions := [][]store.GachaPromotionItem{
+		{{
 			PossessionType:      int32(model.PossessionTypeCostume),
 			PossessionId:        105,
 			IsTarget:            true,
 			BonusPossessionType: int32(model.PossessionTypeWeapon),
 			BonusPossessionId:   5,
-		},
+		}},
 		{
-			PossessionType:      int32(model.PossessionTypeCostume),
-			PossessionId:        102,
-			IsTarget:            true,
-			BonusPossessionType: int32(model.PossessionTypeWeapon),
-			BonusPossessionId:   2,
+			{
+				PossessionType:      int32(model.PossessionTypeCostume),
+				PossessionId:        32000,
+				IsTarget:            true,
+				BonusPossessionType: int32(model.PossessionTypeWeapon),
+				BonusPossessionId:   320081,
+			},
+			{
+				PossessionType:      int32(model.PossessionTypeCostume),
+				PossessionId:        35001,
+				IsTarget:            true,
+				BonusPossessionType: int32(model.PossessionTypeWeapon),
+				BonusPossessionId:   350161,
+			},
+			{
+				PossessionType:      int32(model.PossessionTypeCostume),
+				PossessionId:        33000,
+				IsTarget:            true,
+				BonusPossessionType: int32(model.PossessionTypeWeapon),
+				BonusPossessionId:   330001,
+			},
 		},
 	}
 	for index, gachaId := range guaranteedGachaIds {
@@ -136,7 +168,7 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 		if _, exists := banner.ItemsByWeaponId[1]; exists {
 			t.Fatalf("limited weapon entered guaranteed Gacha %d", gachaId)
 		}
-		if len(entries[index+1].PromotionItems) != 1 || entries[index+1].PromotionItems[0] != wantPromotions[index] {
+		if !slices.Equal(entries[index+1].PromotionItems, wantPromotions[index]) {
 			t.Fatalf("guaranteed Gacha %d render fallback = %+v, want %+v", gachaId, entries[index+1].PromotionItems, wantPromotions[index])
 		}
 		for weaponId := int32(2); weaponId <= 10; weaponId++ {
