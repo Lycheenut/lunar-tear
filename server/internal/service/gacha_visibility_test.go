@@ -3,7 +3,9 @@ package service
 import (
 	"testing"
 
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 )
@@ -67,5 +69,44 @@ func TestChapterGachaIsVisibleOnlyAfterUnlock(t *testing.T) {
 	user.Quests[10] = store.UserQuestState{QuestStateType: model.UserQuestStateTypeCleared}
 	if !gachaVisibleForUser(cat, user, entry, 1) {
 		t.Fatal("unlocked chapter Gacha is hidden")
+	}
+}
+
+func TestChapterGachaIsVisibleOnlyForSelectedStoryRoute(t *testing.T) {
+	quests := &masterdata.QuestCatalog{
+		MainQuestRouteIdByChapterId: map[int32]int32{17: 2, 25: 3},
+		SeasonIdByRouteId:           map[int32]int32{2: 2, 3: 2},
+		RoutesBySeason:              map[int32][]int32{2: {2, 3}},
+		RouteCompletionQuestId:      make(map[int32]int32),
+	}
+	cat := &runtime.Catalogs{
+		Quest:        quests,
+		QuestHandler: &questflow.QuestHandler{QuestCatalog: quests},
+	}
+	routeA := store.GachaCatalogEntry{
+		GachaLabelType:            model.GachaLabelChapter,
+		RelatedMainQuestChapterId: 17,
+		BoxCount:                  1,
+		IsUserGachaUnlock:         true,
+		UnlockConditions: []store.GachaUnlockConditionEntry{{
+			GachaUnlockConditionType: model.GachaUnlockNone,
+		}},
+	}
+	routeB := routeA
+	routeB.RelatedMainQuestChapterId = 25
+	user := &store.UserState{}
+	user.EnsureMaps()
+
+	if gachaVisibleForUser(cat, user, routeA, 1) || gachaVisibleForUser(cat, user, routeB, 1) {
+		t.Fatal("a second-season chapter Gacha was visible before choosing a route")
+	}
+	user.MainQuest.MainQuestSeasonId = 2
+	user.MainQuest.CurrentMainQuestRouteId = 2
+	if !gachaVisibleForUser(cat, user, routeA, 1) || gachaVisibleForUser(cat, user, routeB, 1) {
+		t.Fatal("route 2 did not exclusively expose its Chapter Gacha group")
+	}
+	user.MainQuest.CurrentMainQuestRouteId = 3
+	if gachaVisibleForUser(cat, user, routeA, 1) || !gachaVisibleForUser(cat, user, routeB, 1) {
+		t.Fatal("route 3 did not exclusively expose its Chapter Gacha group")
 	}
 }
