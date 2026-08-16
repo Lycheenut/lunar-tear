@@ -1,5 +1,6 @@
 # IDE / Cursor
 .cursor/
+.codex/
 
 # Build artifacts
 server/bin/

@@ -370,6 +370,11 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 		}
 		entries[i].PromotionItems = nil
 		if model.IsGuaranteedTicketGacha(entries[i].GachaId) {
+			// The Japanese confirm_sr/confirm_ssr assets have no appeal image, and
+			// the client cannot initialize a Gacha with zero appeal parts.
+			if promotion, ok := guaranteedTicketPromotion(entries[i].GachaId, catalog.Banners[entries[i].GachaId]); ok {
+				entries[i].PromotionItems = []store.GachaPromotionItem{promotion}
+			}
 			continue
 		}
 		banner := catalog.Banners[entries[i].GachaId]
@@ -394,6 +399,42 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 			entries[i].PromotionItems = append(entries[i].PromotionItems, promotion)
 		}
 	}
+}
+
+func guaranteedTicketPromotion(gachaId int32, banner *PremiumBannerPool) (store.GachaPromotionItem, bool) {
+	if banner == nil {
+		return store.GachaPromotionItem{}, false
+	}
+	minimumRarity := model.RaritySRare
+	if gachaId == model.GachaIdGuaranteedFourStar {
+		minimumRarity = model.RaritySSRare
+	}
+	for _, group := range banner.Groups {
+		if group.Rarity != minimumRarity {
+			continue
+		}
+		var item PoolItem
+		switch {
+		case len(group.NonPickup) > 0:
+			item = group.NonPickup[0]
+		case len(group.Pickup) > 0:
+			item = group.Pickup[0]
+		default:
+			continue
+		}
+		promotion := store.GachaPromotionItem{IsTarget: true}
+		if item.CostumeId != 0 {
+			promotion.PossessionType = int32(model.PossessionTypeCostume)
+			promotion.PossessionId = item.CostumeId
+			promotion.BonusPossessionType = int32(model.PossessionTypeWeapon)
+			promotion.BonusPossessionId = item.WeaponId
+		} else {
+			promotion.PossessionType = int32(model.PossessionTypeWeapon)
+			promotion.PossessionId = item.WeaponId
+		}
+		return promotion, true
+	}
+	return store.GachaPromotionItem{}, false
 }
 
 func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entries []store.GachaCatalogEntry, options BuildOptions) error {
