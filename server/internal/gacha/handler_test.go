@@ -199,7 +199,11 @@ func TestChapterDrawRenormalizesAfterMonthlyRewardCap(t *testing.T) {
 		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 2, CounterId: 2, Weight: 90},
 	}
 	drewCounts := make(map[int32]int32)
-	result, err := drawChapterWithIntn(items, drewCounts, 2, 202608, func(int) int { return 0 })
+	var bounds []int
+	result, err := drawChapterWithIntn(items, drewCounts, 2, 202608, func(bound int) int {
+		bounds = append(bounds, bound)
+		return 0
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,6 +212,47 @@ func TestChapterDrawRenormalizesAfterMonthlyRewardCap(t *testing.T) {
 	}
 	if drewCounts[1] != 1 || drewCounts[model.ChapterGachaMonthCounterId] != 202608 {
 		t.Fatalf("chapter counters = %v", drewCounts)
+	}
+	wantBounds := [...]int{100, 10, 90}
+	if len(bounds) != len(wantBounds) {
+		t.Fatalf("random bounds = %v, want %v", bounds, wantBounds)
+	}
+	for i := range wantBounds {
+		if bounds[i] != wantBounds[i] {
+			t.Fatalf("random bounds = %v, want %v", bounds, wantBounds)
+		}
+	}
+}
+
+func TestChapterDrawKeepsUnlimitedShareAtTwentyPercentWhileLimitedRewardsRemain(t *testing.T) {
+	items := []store.GachaBoxItemEntry{
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 1, CounterId: 1, Weight: 9999},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 101, Count: 1, MaxCount: 1, CounterId: 2, Weight: 1},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 1, CounterId: 3, Weight: 9999},
+	}
+	drewCounts := map[int32]int32{model.ChapterGachaMonthCounterId: 202608, 1: 1}
+	wantBounds := [...]int{100, 9999, 100, 1}
+	rolls := [...]int{80, 0, 79, 0}
+	call := 0
+	result, err := drawChapterWithIntn(items, drewCounts, 2, 202608, func(bound int) int {
+		if call >= len(wantBounds) {
+			t.Fatalf("unexpected random call with bound %d", bound)
+		}
+		if bound != wantBounds[call] {
+			t.Fatalf("random call %d bound = %d, want %d", call+1, bound, wantBounds[call])
+		}
+		roll := rolls[call]
+		call++
+		return roll
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call != len(wantBounds) {
+		t.Fatalf("random call count = %d, want %d", call, len(wantBounds))
+	}
+	if len(result) != 2 || result[0].PossessionId != 200 || result[1].PossessionId != 101 {
+		t.Fatalf("chapter draw result = %+v, want unlimited then limited", result)
 	}
 }
 
