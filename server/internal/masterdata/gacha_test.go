@@ -28,7 +28,11 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 			entry.GachaAutoResetType != model.GachaAutoResetMonthly {
 			t.Fatalf("unexpected chapter %d catalog entry: %+v", chapterNumber, entry)
 		}
-		if len(entry.PricePhases) != 2 || entry.PricePhases[0].PriceId != 1008+int32(i) || entry.PricePhases[1].PriceId != 1008+int32(i) {
+		if len(entry.PricePhases) != 2 ||
+			entry.PricePhases[0].PriceId != 1008+int32(i) ||
+			entry.PricePhases[1].PriceId != 1008+int32(i) ||
+			entry.PricePhases[0].RegularPrice != 0 ||
+			entry.PricePhases[1].RegularPrice != 0 {
 			t.Fatalf("chapter %d price phases use the wrong ticket: %+v", chapterNumber, entry.PricePhases)
 		}
 		wantRows := 22
@@ -53,6 +57,44 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 	first := entries[0].BoxItems[0]
 	if first.PossessionId != 100004 || first.Count != 5 || first.MaxCount != 20 || first.Weight != 200 {
 		t.Fatalf("unexpected first chapter reward row: %+v", first)
+	}
+}
+
+func TestChapterGachaPromotionsMatchCoverPickups(t *testing.T) {
+	entries := buildChapterGachaEntries()
+	EnrichCatalogPromotions(entries, &GachaCatalog{})
+	wantChapterMaterials := [...][2]int32{
+		{330001, 330009},
+		{330005, 330013},
+		{330002, 330017},
+		{330010, 330006},
+		{330014, 330018},
+		{330003, 330011},
+		{330007, 330015},
+		{330023, 330019},
+		{330004, 330012},
+		{330008, 330016},
+		{330020, 330024},
+	}
+
+	for i, entry := range entries {
+		want := [...]struct {
+			id    int32
+			count int32
+		}{
+			{100003, 6},
+			{100004, 5},
+			{wantChapterMaterials[i][0], 1},
+			{wantChapterMaterials[i][1], 1},
+		}
+		if len(entry.PromotionItems) != len(want) {
+			t.Fatalf("chapter %d promotion count = %d, want %d", i+1, len(entry.PromotionItems), len(want))
+		}
+		for j, pickup := range entry.PromotionItems {
+			if pickup.PossessionId != want[j].id || pickup.Count != want[j].count || !pickup.IsTarget {
+				t.Errorf("chapter %d promotion %d = %+v, want material %d x%d", i+1, j+1, pickup, want[j].id, want[j].count)
+			}
+		}
 	}
 }
 

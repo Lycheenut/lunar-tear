@@ -101,6 +101,20 @@ var chapterGachaSpecs = []chapterGachaSpec{
 	{13, 1018, [3]int32{250, 380, 510}, []chapterWeightedItem{materialChapterItem(330020, 1, 50, 640), materialChapterItem(330024, 1, 50, 640)}, lateChapterGachaProfile, 301006, 301005},
 }
 
+var chapterGachaPickupMaterialIds = map[int32][2]int32{
+	2:  {330001, 330009},
+	3:  {330005, 330013},
+	4:  {330002, 330017},
+	5:  {330010, 330006},
+	6:  {330014, 330018},
+	7:  {330003, 330011},
+	9:  {330007, 330015},
+	10: {330023, 330019},
+	11: {330004, 330012},
+	12: {330008, 330016},
+	13: {330020, 330024},
+}
+
 func materialChapterItem(id, count, limit, weight int32) chapterWeightedItem {
 	return chapterWeightedItem{possessionType: int32(model.PossessionTypeMaterial), possessionId: id, count: count, monthlyLimit: limit, weight: weight}
 }
@@ -175,6 +189,29 @@ func buildChapterGachaItems(spec chapterGachaSpec) []store.GachaBoxItemEntry {
 		})
 	}
 	return result
+}
+
+func buildChapterGachaPromotionItems(entry store.GachaCatalogEntry) []store.GachaPromotionItem {
+	chapterMaterialIds, ok := chapterGachaPickupMaterialIds[entry.RelatedMainQuestChapterId]
+	if !ok {
+		return buildBoxPromotionItems(entry.BoxItems)
+	}
+	wanted := [...][2]int32{
+		{100003, 6},
+		{100004, 5},
+		{chapterMaterialIds[0], 1},
+		{chapterMaterialIds[1], 1},
+	}
+	pickups := make([]store.GachaBoxItemEntry, 0, len(wanted))
+	for _, target := range wanted {
+		for _, item := range entry.BoxItems {
+			if item.PossessionId == target[0] && item.Count == target[1] {
+				pickups = append(pickups, item)
+				break
+			}
+		}
+	}
+	return buildBoxPromotionItems(pickups)
 }
 
 func chapterGachaItemRarity(possessionType, possessionId int32) int32 {

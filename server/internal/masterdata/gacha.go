@@ -277,7 +277,7 @@ func EnrichCatalogPromotions(entries []store.GachaCatalogEntry, pool *GachaCatal
 			continue
 		}
 		if entries[i].GachaLabelType == model.GachaLabelChapter {
-			entries[i].PromotionItems = buildBoxPromotionItems(entries[i].BoxItems)
+			entries[i].PromotionItems = buildChapterGachaPromotionItems(entries[i])
 			continue
 		}
 
@@ -408,7 +408,7 @@ func buildChapterPricePhases(gachaId, ticketId int32) []store.GachaPricePhaseEnt
 			PriceType:    model.PriceTypeConsumableItem,
 			PriceId:      ticketId,
 			Price:        1,
-			RegularPrice: 1,
+			RegularPrice: 0,
 			DrawCount:    1,
 		},
 		{
@@ -416,7 +416,7 @@ func buildChapterPricePhases(gachaId, ticketId int32) []store.GachaPricePhaseEnt
 			PriceType:    model.PriceTypeConsumableItem,
 			PriceId:      ticketId,
 			Price:        10,
-			RegularPrice: 10,
+			RegularPrice: 0,
 			DrawCount:    model.PremiumMultiPullCount,
 		},
 	}
