@@ -306,27 +306,22 @@
     const categorySelect = appendMissionSourceFilter(
       "任务类别", "MissionCategoryType", categoryValues,
       (value) => `${missionCategoryLabels[value] || `任务类别 ${value}`}（${value}）`,
-      previous.get("MissionCategoryType"), () => renderTypeFilters(table)
+      previous.get("MissionCategoryType"), () => {
+        renderTypeFilters(table);
+        renderTable();
+      }
     );
     const categoryType = categorySelect?.value;
     const groups = sourceGroups.filter((group) => String(group.missionCategoryType) === categoryType);
     const groupValues = groups.map((group) => String(group.missionGroupId));
-    let groupID = groupValues[0];
     if (groupValues.length > 1) {
       const groupByID = new Map(groups.map((group) => [String(group.missionGroupId), group]));
-      const groupSelect = appendMissionSourceFilter(
+      appendMissionSourceFilter(
         "任务组", "MissionGroupId", groupValues,
         (value) => missionGroupSourceLabel(groupByID.get(value)),
-        previous.get("MissionGroupId"), () => renderTypeFilters(table)
+        previous.get("MissionGroupId"), renderTable
       );
-      groupID = groupSelect?.value;
     }
-    const missions = sourceMissions.filter((mission) => String(mission.missionGroupId) === groupID);
-    appendMissionSourceFilter(
-      "任务", "MissionId", missions.map((mission) => String(mission.missionId)),
-      (value) => missionSourceLabel(missions.find((mission) => String(mission.missionId) === value)),
-      previous.get("MissionId"), renderTable
-    );
   }
 
   function missionSourcesForTable(table) {
@@ -364,33 +359,32 @@
     return `${name}（${group.missionGroupId}）`;
   }
 
-  function missionSourceLabel(mission) {
-    if (!mission) return "未知任务";
-    const name = localizedInlineText(mission.names) || "未命名任务";
-    return `${name}（${mission.missionId}）`;
-  }
-
-  function selectedMissionSource() {
-    const select = elements.typeFilters.querySelector('select[data-field="MissionId"][data-source-filter="mission"]');
-    if (!select) return null;
-    return state.catalog?.missionSources?.missions.find(
-      (mission) => String(mission.missionId) === select.value
-    ) || null;
+  function selectedMissionSources(table) {
+    const sources = missionSourcesForTable(table);
+    const categorySelect = elements.typeFilters.querySelector('select[data-field="MissionCategoryType"][data-source-filter="mission"]');
+    if (!categorySelect) return [];
+    const groupSelect = elements.typeFilters.querySelector('select[data-field="MissionGroupId"][data-source-filter="mission"]');
+    if (groupSelect) {
+      return sources.filter((mission) => String(mission.missionGroupId) === groupSelect.value);
+    }
+    const groupIDs = new Set((state.catalog?.missionSources?.groups || [])
+      .filter((group) => String(group.missionCategoryType) === categorySelect.value)
+      .map((group) => String(group.missionGroupId)));
+    return sources.filter((mission) => groupIDs.has(String(mission.missionGroupId)));
   }
 
   function hasMissionSource(table) {
     return ["m_mission_reward", "m_mission_term"].includes(table.name);
   }
 
-  function missionSourceMatchesRow(table, row, source) {
-    if (!source) return false;
+  function missionSourcesForRow(table, row, sources) {
     if (table.name === "m_mission_reward") {
-      return row.values.MissionRewardId === String(source.missionRewardId);
+      return sources.filter((source) => row.values.MissionRewardId === String(source.missionRewardId));
     }
     if (table.name === "m_mission_term") {
-      return row.values.MissionTermId === String(source.missionTermId);
+      return sources.filter((source) => row.values.MissionTermId === String(source.missionTermId));
     }
-    return true;
+    return [];
   }
 
   function compareFieldValues(left, right) {
@@ -431,14 +425,15 @@
         || Object.keys(row.contentBody || {}).length > 0
         || (row.contentFootnotes || []).length > 0));
     const displayedFields = displayedTableFields(table);
-    const missionSource = hasMissionSource(table) ? selectedMissionSource() : null;
+    const selectedSources = hasMissionSource(table) ? selectedMissionSources(table) : [];
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "" && select.dataset.sourceFilter !== "mission")
       .map((select) => ({ field: select.dataset.field, value: select.value }));
     const visibleRows = table.rows.filter((row) => {
       if (hasSchedule && statusFilter !== "all" && rowStatus(table, row) !== statusFilter) return false;
-      if (hasMissionSource(table) && !missionSourceMatchesRow(table, row, missionSource)) return false;
+      const rowMissionSources = hasMissionSource(table) ? missionSourcesForRow(table, row, selectedSources) : [];
+      if (hasMissionSource(table) && rowMissionSources.length === 0) return false;
       if (typeFilters.some((filter) => effectiveValue(table.name, row, filter.field) !== filter.value)) return false;
       if (!query) return true;
       const relationValues = (row.shopRelations || []).flatMap((relation) => [
@@ -448,9 +443,9 @@
       const fieldValues = table.fields.flatMap((field) => [field.name, effectiveValue(table.name, row, field.name)]);
       const footnoteValues = (row.contentFootnotes || []).flatMap((footnote) => Object.values(footnote || {}));
       const artworkValues = (row.dokanImages || []).flatMap((image) => [image.contentIndex, image.imageId]);
-      const missionSourceValues = missionSource
-        ? [missionSource.missionId, missionSource.requirementCount, ...Object.values(missionSource.names || {})]
-        : [];
+      const missionSourceValues = rowMissionSources.flatMap((source) => [
+        source.missionId, source.requirementCount, ...Object.values(source.names || {})
+      ]);
       const haystack = [...Object.values(row.titles || {}), ...Object.values(row.contentBody || {}),
       ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
       return `${haystack} ${missionSourceValues.join(" ")}`.toLocaleLowerCase().includes(query);
@@ -464,7 +459,7 @@
       ["状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
       simpleTimeFields(table).forEach((field) => headerRow.append(makeCell("th", field.name)));
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row)));
+      visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row, missionSourcesForRow(table, row, selectedSources))));
     } else {
       const headerRow = document.createElement("tr");
       if (hasContent) headerRow.append(makeCell("th", "内容"));
@@ -484,13 +479,15 @@
         headerRow.append(header);
       });
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(table, row, displayedFields, hasContent, hasArtwork, hasSchedule)));
+      visibleRows.forEach((row) => elements.body.append(renderDetailedRow(
+        table, row, displayedFields, hasContent, hasArtwork, hasSchedule, missionSourcesForRow(table, row, selectedSources)
+      )));
     }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
 
-  function renderDetailedRow(table, row, fields, hasContent, hasArtwork, hasSchedule) {
+  function renderDetailedRow(table, row, fields, hasContent, hasArtwork, hasSchedule, missionSources) {
     const tr = document.createElement("tr");
     if (hasContent) {
       const contentCell = renderContentCell(table, row);
@@ -505,12 +502,11 @@
       tr.append(statusCell);
     }
     if (hasMissionSource(table)) {
-      const source = selectedMissionSource();
-      const missionName = makeCell("td", source ? localizedInlineText(source.names) || "-" : "-");
+      const missionName = makeCell("td", missionSources.map((source) => localizedInlineText(source.names) || "-").join("\n") || "-");
       missionName.className = "mission-source-cell";
       missionName.dataset.field = "MissionName";
-      missionName.title = source ? `MissionId=${source.missionId}` : "";
-      const requirement = makeCell("td", source ? String(source.requirementCount) : "-");
+      missionName.title = missionSources.map((source) => `MissionId=${source.missionId}`).join("\n");
+      const requirement = makeCell("td", missionSources.map((source) => String(source.requirementCount)).join("\n") || "-");
       requirement.className = "mission-source-cell mission-requirement-cell";
       requirement.dataset.field = "RequirementCount";
       tr.append(missionName, requirement);
@@ -525,7 +521,7 @@
     return tr;
   }
 
-  function renderSimpleRow(table, row) {
+  function renderSimpleRow(table, row, missionSources) {
     const tr = document.createElement("tr");
     const primary = row.identity[0];
 
@@ -535,11 +531,10 @@
     tr.append(idCell);
 
     if (table.name === "m_mission_term") {
-      const source = selectedMissionSource();
-      const missionName = makeCell("td", source ? localizedInlineText(source.names) || "-" : "-");
+      const missionName = makeCell("td", missionSources.map((source) => localizedInlineText(source.names) || "-").join("\n") || "-");
       missionName.className = "content-cell mission-source-cell";
-      missionName.title = source ? `MissionId=${source.missionId}` : "";
-      const requirement = makeCell("td", source ? String(source.requirementCount) : "-");
+      missionName.title = missionSources.map((source) => `MissionId=${source.missionId}`).join("\n");
+      const requirement = makeCell("td", missionSources.map((source) => String(source.requirementCount)).join("\n") || "-");
       requirement.className = "mission-source-cell mission-requirement-cell";
       tr.append(missionName, requirement);
     } else {

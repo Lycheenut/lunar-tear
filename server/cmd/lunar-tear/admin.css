@@ -579,7 +579,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .field-editor > input, .field-editor > select, .field-editor > .readonly-field { flex: 1 1 auto; width: auto; min-width: 0; }
 .field-editor .changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
 .field-editor .invalid { border-color: var(--danger); }
-.mission-source-cell { color: var(--text); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.mission-source-cell { color: var(--text); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-line; }
 .mission-requirement-cell { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
 .reward-id-field-editor { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 8px; }
 .reward-field-select { display: flex; min-width: 0; }
