@@ -1384,6 +1384,7 @@ type GachaBannerState struct {
 
 type GachaCatalogEntry struct {
 	GachaId                    int32
+	IsMamaBanner               bool
 	GachaLabelType             int32
 	GachaModeType              int32
 	GachaAutoResetType         int32

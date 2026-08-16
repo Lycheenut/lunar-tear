@@ -24,7 +24,7 @@ func (s *BannerServiceServer) GetMamaBanner(ctx context.Context, req *pb.GetMama
 	var termLimited []*pb.GachaBanner
 	var latestChapter *pb.GachaBanner
 	for _, entry := range catalog {
-		if !gachaActiveAt(entry, nowMillis) {
+		if !entry.IsMamaBanner || !gachaActiveAt(entry, nowMillis) {
 			continue
 		}
 		if entry.GachaLabelType == model.GachaLabelPortalCage || entry.GachaLabelType == model.GachaLabelRecycle {

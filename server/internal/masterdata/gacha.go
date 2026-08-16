@@ -135,6 +135,7 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 
 		entries = append(entries, store.GachaCatalogEntry{
 			GachaId:                   gachaId,
+			IsMamaBanner:              true,
 			GachaLabelType:            labelType,
 			GachaModeType:             modeType,
 			GachaAutoResetType:        model.GachaAutoResetNone,
@@ -193,6 +194,7 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 
 		entries = append(entries, store.GachaCatalogEntry{
 			GachaId:               gachaId,
+			IsMamaBanner:          true,
 			GachaLabelType:        model.GachaLabelPremium,
 			GachaModeType:         model.GachaModeStepup,
 			GachaAutoResetType:    model.GachaAutoResetNone,
