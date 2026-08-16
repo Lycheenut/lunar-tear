@@ -215,17 +215,31 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 	}
 
 	// The client opens the first active Gacha after sorting ascending. Keep the
-	// synthetic ticket pools behind every master-data-backed pool.
+	// synthetic ticket pools behind every master-data-backed pool and give them
+	// the catalog's permanent availability window instead of the Unix epoch.
 	maxSortOrder := int32(0)
+	var catalogStartDatetime int64
+	var catalogEndDatetime int64
 	for _, entry := range entries {
-		if !model.IsGuaranteedTicketGacha(entry.GachaId) && entry.SortOrder > maxSortOrder {
+		if model.IsGuaranteedTicketGacha(entry.GachaId) {
+			continue
+		}
+		if entry.SortOrder > maxSortOrder {
 			maxSortOrder = entry.SortOrder
+		}
+		if entry.StartDatetime > 0 && (catalogStartDatetime == 0 || entry.StartDatetime < catalogStartDatetime) {
+			catalogStartDatetime = entry.StartDatetime
+		}
+		if entry.EndDatetime > catalogEndDatetime {
+			catalogEndDatetime = entry.EndDatetime
 		}
 	}
 	for i := range entries {
 		if model.IsGuaranteedTicketGacha(entries[i].GachaId) {
 			maxSortOrder++
 			entries[i].SortOrder = maxSortOrder
+			entries[i].StartDatetime = catalogStartDatetime
+			entries[i].EndDatetime = catalogEndDatetime
 		}
 	}
 
@@ -248,7 +262,6 @@ func buildGuaranteedTicketGacha(gachaId, ticketId int32, assetName string, minim
 			PriceType:      model.PriceTypeConsumableItem,
 			PriceId:        ticketId,
 			Price:          1,
-			RegularPrice:   1,
 			DrawCount:      1,
 			FixedRarityMin: minimumRarity,
 			FixedCount:     1,

@@ -51,10 +51,21 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 	}
 	byId := make(map[int32]store.GachaCatalogEntry, len(entries))
 	maxMasterSortOrder := int32(0)
+	var catalogStartDatetime int64
+	var catalogEndDatetime int64
 	for _, entry := range entries {
 		byId[entry.GachaId] = entry
-		if !model.IsGuaranteedTicketGacha(entry.GachaId) && entry.SortOrder > maxMasterSortOrder {
+		if model.IsGuaranteedTicketGacha(entry.GachaId) {
+			continue
+		}
+		if entry.SortOrder > maxMasterSortOrder {
 			maxMasterSortOrder = entry.SortOrder
+		}
+		if entry.StartDatetime > 0 && (catalogStartDatetime == 0 || entry.StartDatetime < catalogStartDatetime) {
+			catalogStartDatetime = entry.StartDatetime
+		}
+		if entry.EndDatetime > catalogEndDatetime {
+			catalogEndDatetime = entry.EndDatetime
 		}
 	}
 	for _, tt := range tests {
@@ -71,6 +82,9 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 		if entry.SortOrder <= maxMasterSortOrder {
 			t.Fatalf("ticket-only Gacha %d sort order %d is not after master-data Gachas ending at %d", tt.gachaId, entry.SortOrder, maxMasterSortOrder)
 		}
+		if entry.StartDatetime != catalogStartDatetime || entry.EndDatetime != catalogEndDatetime {
+			t.Fatalf("ticket-only Gacha %d availability = %d..%d, want catalog availability %d..%d", tt.gachaId, entry.StartDatetime, entry.EndDatetime, catalogStartDatetime, catalogEndDatetime)
+		}
 		if len(entry.PricePhases) != 1 {
 			t.Fatalf("Gacha %d price phase count = %d, want 1", tt.gachaId, len(entry.PricePhases))
 		}
@@ -78,7 +92,7 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 		if phase.PhaseId != tt.gachaId*model.PhaseIdMultiplier+1 ||
 			phase.PriceType != model.PriceTypeConsumableItem ||
 			phase.PriceId != tt.ticketId ||
-			phase.Price != 1 || phase.DrawCount != 1 ||
+			phase.Price != 1 || phase.RegularPrice != 0 || phase.DrawCount != 1 ||
 			phase.FixedRarityMin != tt.minimumRarity || phase.FixedCount != 1 {
 			t.Fatalf("unexpected guaranteed Gacha %d price phase: %+v", tt.gachaId, phase)
 		}

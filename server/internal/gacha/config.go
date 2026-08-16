@@ -372,9 +372,7 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 		if model.IsGuaranteedTicketGacha(entries[i].GachaId) {
 			// The Japanese confirm_sr/confirm_ssr assets have no appeal image, and
 			// the client cannot initialize a Gacha with zero appeal parts.
-			if promotion, ok := guaranteedTicketPromotion(entries[i].GachaId, catalog.Banners[entries[i].GachaId]); ok {
-				entries[i].PromotionItems = []store.GachaPromotionItem{promotion}
-			}
+			entries[i].PromotionItems = guaranteedTicketPromotions(entries[i].GachaId, catalog.Banners[entries[i].GachaId])
 			continue
 		}
 		banner := catalog.Banners[entries[i].GachaId]
@@ -401,14 +399,26 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 	}
 }
 
-func guaranteedTicketPromotion(gachaId int32, banner *PremiumBannerPool) (store.GachaPromotionItem, bool) {
+var guaranteedFourStarPromotionWeaponIds = []int32{
+	320081, // Abstract Assassin / 形而上の剣客
+	350161, // Abstract Gunman / 形而上の射手
+	330001, // Abstract Hunter / 形而上の狩人
+}
+
+func guaranteedTicketPromotions(gachaId int32, banner *PremiumBannerPool) []store.GachaPromotionItem {
 	if banner == nil {
-		return store.GachaPromotionItem{}, false
+		return nil
+	}
+	if gachaId == model.GachaIdGuaranteedFourStar {
+		promotions := make([]store.GachaPromotionItem, 0, len(guaranteedFourStarPromotionWeaponIds))
+		for _, weaponId := range guaranteedFourStarPromotionWeaponIds {
+			if item, ok := banner.ItemsByWeaponId[weaponId]; ok {
+				promotions = append(promotions, promotionFromPoolItem(item))
+			}
+		}
+		return promotions
 	}
 	minimumRarity := model.RaritySRare
-	if gachaId == model.GachaIdGuaranteedFourStar {
-		minimumRarity = model.RaritySSRare
-	}
 	for _, group := range banner.Groups {
 		if group.Rarity != minimumRarity {
 			continue
@@ -422,19 +432,23 @@ func guaranteedTicketPromotion(gachaId int32, banner *PremiumBannerPool) (store.
 		default:
 			continue
 		}
-		promotion := store.GachaPromotionItem{IsTarget: true}
-		if item.CostumeId != 0 {
-			promotion.PossessionType = int32(model.PossessionTypeCostume)
-			promotion.PossessionId = item.CostumeId
-			promotion.BonusPossessionType = int32(model.PossessionTypeWeapon)
-			promotion.BonusPossessionId = item.WeaponId
-		} else {
-			promotion.PossessionType = int32(model.PossessionTypeWeapon)
-			promotion.PossessionId = item.WeaponId
-		}
-		return promotion, true
+		return []store.GachaPromotionItem{promotionFromPoolItem(item)}
 	}
-	return store.GachaPromotionItem{}, false
+	return nil
+}
+
+func promotionFromPoolItem(item PoolItem) store.GachaPromotionItem {
+	promotion := store.GachaPromotionItem{IsTarget: true}
+	if item.CostumeId != 0 {
+		promotion.PossessionType = int32(model.PossessionTypeCostume)
+		promotion.PossessionId = item.CostumeId
+		promotion.BonusPossessionType = int32(model.PossessionTypeWeapon)
+		promotion.BonusPossessionId = item.WeaponId
+	} else {
+		promotion.PossessionType = int32(model.PossessionTypeWeapon)
+		promotion.PossessionId = item.WeaponId
+	}
+	return promotion
 }
 
 func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entries []store.GachaCatalogEntry, options BuildOptions) error {
