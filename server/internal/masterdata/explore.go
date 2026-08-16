@@ -91,17 +91,23 @@ func LoadExploreCatalog() (*ExploreCatalog, error) {
 	return catalog, nil
 }
 
-// GradeForScore returns the AssetGradeIconId for the given explore and score.
+// GradeIdForScore returns the ExploreGradeId for the given explore and score.
 // Returns 0 if no matching grade is found.
-func (c *ExploreCatalog) GradeForScore(exploreId, score int32) int32 {
+func (c *ExploreCatalog) GradeIdForScore(exploreId, score int32) int32 {
 	rows, ok := c.GradeScores[exploreId]
 	if !ok {
 		return 0
 	}
 	for _, r := range rows {
 		if score >= r.NecessaryScore {
-			return c.GradeAssets[r.ExploreGradeId]
+			return r.ExploreGradeId
 		}
 	}
 	return 0
+}
+
+// GradeForScore returns the AssetGradeIconId for the given explore and score.
+// Returns 0 if no matching grade is found.
+func (c *ExploreCatalog) GradeForScore(exploreId, score int32) int32 {
+	return c.GradeAssets[c.GradeIdForScore(exploreId, score)]
 }
