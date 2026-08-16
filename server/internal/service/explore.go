@@ -16,13 +16,12 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-// The released master data does not contain Explore's reward pool. Keep the
-// existing compatibility rewards until a reliable source is available.
-const (
-	exploreStaminaRecovery  = 1000
-	exploreRewardMaterialId = 100001
-	exploreRewardBaseCount  = 1
-)
+const exploreStaminaMilliPerPoint int32 = 1000
+
+type exploreReward struct {
+	staminaCount int32
+	goldCount    int32
+}
 
 type ExploreServiceServer struct {
 	pb.UnimplementedExploreServiceServer
@@ -97,21 +96,22 @@ func (s *ExploreServiceServer) StartExplore(ctx context.Context, req *pb.StartEx
 func (s *ExploreServiceServer) FinishExplore(ctx context.Context, req *pb.FinishExploreRequest) (*pb.FinishExploreResponse, error) {
 	log.Printf("[ExploreService] FinishExplore: exploreId=%d score=%d", req.ExploreId, req.Score)
 
-	catalog := s.holder.Get().Explore
+	cats := s.holder.Get()
+	catalog := cats.Explore
 	explore, ok := catalog.Explores[req.ExploreId]
 	if !ok {
 		return nil, fmt.Errorf("explore id=%d not found", req.ExploreId)
 	}
 
-	assetGradeIconId := catalog.GradeForScore(req.ExploreId, req.Score)
-
-	userId := CurrentUserId(ctx, s.users, s.sessions)
-	nowMillis := gametime.NowMillis()
-
 	if req.Score < 0 {
 		return nil, status.Error(codes.InvalidArgument, "score must not be negative")
 	}
-	rewardCount := int32(exploreRewardBaseCount) * explore.RewardLotteryCount
+	assetGradeIconId := catalog.GradeForScore(req.ExploreId, req.Score)
+	reward := calculateExploreReward(catalog, explore, req.Score)
+	goldItemId := cats.GameConfig.ConsumableItemIdForGold
+
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
 
 	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
@@ -136,12 +136,13 @@ func (s *ExploreServiceServer) FinishExplore(ctx context.Context, req *pb.Finish
 			LatestVersion:      nowMillis,
 		}
 
-		user.Status.StaminaMilliValue += exploreStaminaRecovery
+		staminaMilliValue := reward.staminaCount * exploreStaminaMilliPerPoint
+		user.Status.StaminaMilliValue += staminaMilliValue
 		user.Status.StaminaUpdateDatetime = nowMillis
 		user.Status.LatestVersion = nowMillis
-		log.Printf("[ExploreService] FinishExplore: stamina +%d -> %d", exploreStaminaRecovery, user.Status.StaminaMilliValue)
+		log.Printf("[ExploreService] FinishExplore: stamina +%d -> %d", reward.staminaCount, user.Status.StaminaMilliValue)
 
-		user.Materials[exploreRewardMaterialId] += rewardCount
+		user.ConsumableItems[goldItemId] += reward.goldCount
 		store.AddMissionCount(user, int32(model.MissionClearConditionTypeExploreFinishByCount), 1, req.ExploreId, req.ExploreId)
 		// EXPLORE_SCORE is cumulative from mission start; unlike
 		// EXPLORE_HIGH_SCORE it is not a single-run maximum.
@@ -156,17 +157,36 @@ func (s *ExploreServiceServer) FinishExplore(ctx context.Context, req *pb.Finish
 
 	rewards := []*pb.ExploreReward{
 		{
-			PossessionType: int32(model.PossessionTypeMaterial),
-			PossessionId:   exploreRewardMaterialId,
-			Count:          rewardCount,
+			PossessionType: int32(model.PossessionTypeConsumableItem),
+			PossessionId:   goldItemId,
+			Count:          reward.goldCount,
 		},
 	}
 
 	return &pb.FinishExploreResponse{
-		AcquireStaminaCount: exploreStaminaRecovery,
+		AcquireStaminaCount: reward.staminaCount,
 		ExploreReward:       rewards,
 		AssetGradeIconId:    assetGradeIconId,
 	}, nil
+}
+
+func calculateExploreReward(catalog *masterdata.ExploreCatalog, explore masterdata.EntityMExplore, score int32) exploreReward {
+	var reward exploreReward
+	switch catalog.GradeIdForScore(explore.ExploreId, score) {
+	case 101, 102: // SS, S
+		reward = exploreReward{staminaCount: 50, goldCount: 100_000}
+	case 103: // A
+		reward = exploreReward{staminaCount: 40, goldCount: 80_000}
+	case 104: // B
+		reward = exploreReward{staminaCount: 30, goldCount: 60_000}
+	case 105: // C
+		reward = exploreReward{staminaCount: 20, goldCount: 40_000}
+	case 106: // D
+		reward = exploreReward{staminaCount: 10, goldCount: 20_000}
+	}
+	reward.staminaCount *= explore.RewardLotteryCount
+	reward.goldCount *= explore.RewardLotteryCount
+	return reward
 }
 
 func (s *ExploreServiceServer) RetireExplore(ctx context.Context, req *pb.RetireExploreRequest) (*pb.RetireExploreResponse, error) {
