@@ -259,7 +259,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 				GachaItem: &pb.GachaItem{
 					PossessionType: item.PossessionType,
 					PossessionId:   item.PossessionId,
-					Count:          1,
+					Count:          gachaItemCount(item),
 					IsNew:          isNew,
 				},
 				GachaItemBonus: &pb.GachaItem{},
@@ -270,7 +270,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 				GachaItem: &pb.GachaItem{
 					PossessionType: costumePT,
 					PossessionId:   item.PossessionId,
-					Count:          1,
+					Count:          gachaItemCount(item),
 					IsNew:          isNew,
 				},
 				GachaItemBonus: &pb.GachaItem{
@@ -285,7 +285,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 				GachaItem: &pb.GachaItem{
 					PossessionType: item.PossessionType,
 					PossessionId:   item.PossessionId,
-					Count:          1,
+					Count:          gachaItemCount(item),
 					IsNew:          isNew,
 				},
 				GachaItemBonus: &pb.GachaItem{},
@@ -431,7 +431,7 @@ func (s *GachaServiceServer) RewardDraw(ctx context.Context, req *pb.RewardDrawR
 		results = append(results, &pb.RewardGachaItem{
 			PossessionType: item.PossessionType,
 			PossessionId:   item.PossessionId,
-			Count:          1,
+			Count:          gachaItemCount(item),
 			IsNew:          !isOwnedByType(item, ownedCostumes, acquiredWeapons, updatedUser),
 		})
 	}
@@ -497,6 +497,9 @@ func gachaVisibleForUser(cat *runtime.Catalogs, user *store.UserState, entry sto
 
 func gachaForUser(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) store.GachaCatalogEntry {
 	entry.IsUserGachaUnlock = gachaUnlocked(cat, user, entry, nowMillis)
+	if entry.GachaAutoResetType == model.GachaAutoResetMonthly {
+		entry.NextAutoResetDatetime = gametime.StartOfNextBusinessMonthAtMillis(nowMillis)
+	}
 	return entry
 }
 
@@ -563,7 +566,7 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 
 	g.GachaPricePhase = buildProtoPricePhases(entry, bs)
 
-	promotionItems := buildProtoPromotionItems(entry)
+	promotionItems := buildProtoPromotionItems(entry, bs)
 
 	switch entry.GachaModeType {
 	case model.GachaModeBox:
@@ -670,7 +673,7 @@ func buildProtoPricePhases(entry store.GachaCatalogEntry, bs *store.GachaBannerS
 	return phases
 }
 
-func buildProtoPromotionItems(entry store.GachaCatalogEntry) []*pb.GachaOddsItem {
+func buildProtoPromotionItems(entry store.GachaCatalogEntry, bs *store.GachaBannerState) []*pb.GachaOddsItem {
 	if len(entry.PromotionItems) == 0 {
 		return nil
 	}
@@ -678,6 +681,18 @@ func buildProtoPromotionItems(entry store.GachaCatalogEntry) []*pb.GachaOddsItem
 
 	items := make([]*pb.GachaOddsItem, 0, len(entry.PromotionItems))
 	for i, pi := range entry.PromotionItems {
+		count := pi.Count
+		if count <= 0 {
+			count = 1
+		}
+		maxDrawableCount := pi.MaxDrawableCount
+		if maxDrawableCount <= 0 {
+			maxDrawableCount = 999
+		}
+		var drewCount int32
+		if bs != nil && (entry.GachaLabelType != model.GachaLabelChapter || bs.BoxDrewCounts[model.ChapterGachaMonthCounterId] == gametime.BusinessMonthKey(gametime.NowMillis())) {
+			drewCount = bs.BoxDrewCounts[pi.CounterId]
+		}
 		bonus := &pb.GachaItem{}
 		if !isMaterial && pi.BonusPossessionType != 0 {
 			bonus = &pb.GachaItem{
@@ -690,15 +705,23 @@ func buildProtoPromotionItems(entry store.GachaCatalogEntry) []*pb.GachaOddsItem
 			GachaItem: &pb.GachaItem{
 				PossessionType: pi.PossessionType,
 				PossessionId:   pi.PossessionId,
-				Count:          1,
+				Count:          count,
 				PromotionOrder: int32(i + 1),
 			},
 			GachaItemBonus:   bonus,
-			MaxDrawableCount: 999,
+			MaxDrawableCount: maxDrawableCount,
+			DrewCount:        drewCount,
 			IsTarget:         pi.IsTarget,
 		})
 	}
 	return items
+}
+
+func gachaItemCount(item gacha.DrawnItem) int32 {
+	if item.Count > 0 {
+		return item.Count
+	}
+	return 1
 }
 
 func toProtoConvertedGachaMedal(state store.ConvertedGachaMedalState) *pb.ConvertedGachaMedal {

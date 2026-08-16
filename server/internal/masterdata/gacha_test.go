@@ -1,6 +1,7 @@
 package masterdata
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -8,6 +9,71 @@ import (
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
+
+func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
+	entries := buildChapterGachaEntries()
+	wantChapterIds := [...]int32{2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13}
+	wantWeightTotals := [...]int32{9990, 9990, 10000, 9990, 9990, 10000, 10004, 10004, 10000, 10000, 10000}
+	if len(entries) != len(wantChapterIds) {
+		t.Fatalf("chapter Gacha count = %d, want %d", len(entries), len(wantChapterIds))
+	}
+
+	for i, entry := range entries {
+		chapterNumber := int32(i + 1)
+		if entry.GachaId != chapterGachaIdBase+chapterNumber ||
+			entry.BannerAssetName != fmt.Sprintf("chapter_%d", chapterNumber) ||
+			entry.RelatedMainQuestChapterId != wantChapterIds[i] ||
+			entry.GachaLabelType != model.GachaLabelChapter ||
+			entry.GachaModeType != model.GachaModeBox ||
+			entry.GachaAutoResetType != model.GachaAutoResetMonthly {
+			t.Fatalf("unexpected chapter %d catalog entry: %+v", chapterNumber, entry)
+		}
+		if len(entry.PricePhases) != 2 || entry.PricePhases[0].PriceId != 1008+int32(i) || entry.PricePhases[1].PriceId != 1008+int32(i) {
+			t.Fatalf("chapter %d price phases use the wrong ticket: %+v", chapterNumber, entry.PricePhases)
+		}
+		wantRows := 22
+		if chapterNumber == 7 || chapterNumber == 8 {
+			wantRows = 23
+		}
+		if len(entry.BoxItems) != wantRows {
+			t.Fatalf("chapter %d reward row count = %d, want %d", chapterNumber, len(entry.BoxItems), wantRows)
+		}
+		var weightTotal int32
+		for row, item := range entry.BoxItems {
+			weightTotal += item.Weight
+			if item.CounterId != int32(row+1) {
+				t.Fatalf("chapter %d row %d counter id = %d", chapterNumber, row, item.CounterId)
+			}
+		}
+		if weightTotal != wantWeightTotals[i] {
+			t.Fatalf("chapter %d weight total = %d, want %d", chapterNumber, weightTotal, wantWeightTotals[i])
+		}
+	}
+
+	first := entries[0].BoxItems[0]
+	if first.PossessionId != 100004 || first.Count != 5 || first.MaxCount != 20 || first.Weight != 200 {
+		t.Fatalf("unexpected first chapter reward row: %+v", first)
+	}
+}
+
+func TestChapterGachaUnlocksWhenPlayerReachesChapter(t *testing.T) {
+	entries := buildChapterGachaEntries()[:3]
+	quests := &QuestCatalog{
+		OrderedQuestIds:             []int32{20, 21, 30, 31},
+		MainQuestChapterIdByQuestId: map[int32]int32{20: 2, 21: 2, 30: 3, 31: 3},
+	}
+	EnrichGachaUnlockConditions(entries, quests)
+
+	if got := entries[0].UnlockConditions; len(got) != 1 || got[0].GachaUnlockConditionType != model.GachaUnlockNone {
+		t.Fatalf("chapter 1 unlock conditions = %+v, want unlocked", got)
+	}
+	if got := entries[1].UnlockConditions; len(got) != 1 || got[0].ConditionValue != 21 {
+		t.Fatalf("chapter 2 unlock conditions = %+v, want final quest 21 of chapter 1", got)
+	}
+	if got := entries[2].UnlockConditions; len(got) != 1 || got[0].ConditionValue != 31 {
+		t.Fatalf("chapter 3 unlock conditions = %+v, want final quest 31 of chapter 2", got)
+	}
+}
 
 func TestLoadGachaCatalogDoesNotSynthesizeEventBoxInventory(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {

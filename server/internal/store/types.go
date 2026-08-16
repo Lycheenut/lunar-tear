@@ -1400,6 +1400,9 @@ type GachaBonusEntry struct {
 type GachaPromotionItem struct {
 	PossessionType      int32
 	PossessionId        int32
+	Count               int32
+	MaxDrawableCount    int32
+	CounterId           int32
 	IsTarget            bool
 	BonusPossessionType int32
 	BonusPossessionId   int32
@@ -1453,6 +1456,8 @@ type GachaBoxItemEntry struct {
 	RarityType     int32
 	Count          int32
 	MaxCount       int32
+	CounterId      int32
+	Weight         int32
 }
 
 type GachaUnlockConditionEntry struct {

@@ -53,3 +53,18 @@ func TestBusinessWeeklyVersionUsesMondayUTC0800Boundary(t *testing.T) {
 		})
 	}
 }
+
+func TestBusinessMonthUsesUTC0800Boundary(t *testing.T) {
+	before := time.Date(2026, time.September, 1, 7, 59, 0, 0, time.UTC)
+	at := time.Date(2026, time.September, 1, 8, 0, 0, 0, time.UTC)
+	if got := BusinessMonthKey(before.UnixMilli()); got != 202608 {
+		t.Fatalf("month before boundary = %d, want 202608", got)
+	}
+	if got := BusinessMonthKey(at.UnixMilli()); got != 202609 {
+		t.Fatalf("month at boundary = %d, want 202609", got)
+	}
+	wantNext := time.Date(2026, time.October, 1, 8, 0, 0, 0, time.UTC).UnixMilli()
+	if got := StartOfNextBusinessMonthAtMillis(at.UnixMilli()); got != wantNext {
+		t.Fatalf("next month start = %d, want %d", got, wantNext)
+	}
+}

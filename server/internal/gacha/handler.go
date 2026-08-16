@@ -79,8 +79,8 @@ func (h *GachaHandler) HandleDraw(
 	if phase.LimitExecCount > 0 && execCount > phase.LimitExecCount {
 		return nil, fmt.Errorf("exec count %d exceeds phase limit %d", execCount, phase.LimitExecCount)
 	}
-	if entry.GachaLabelType == model.GachaLabelEvent && len(entry.BoxItems) == 0 {
-		return nil, fmt.Errorf("event gacha %d has no box catalog", entry.GachaId)
+	if (entry.GachaLabelType == model.GachaLabelEvent || entry.GachaLabelType == model.GachaLabelChapter) && len(entry.BoxItems) == 0 {
+		return nil, fmt.Errorf("box gacha %d has no catalog", entry.GachaId)
 	}
 	if entry.GachaLabelType == model.GachaLabelPremium {
 		if h.Premium == nil || h.Premium.Banners[entry.GachaId] == nil {
@@ -90,6 +90,13 @@ func (h *GachaHandler) HandleDraw(
 
 	bs := user.Gacha.BannerStates[entry.GachaId]
 	bs.GachaId = entry.GachaId
+	if bs.BoxDrewCounts != nil {
+		cloned := make(map[int32]int32, len(bs.BoxDrewCounts))
+		for counterId, drewCount := range bs.BoxDrewCounts {
+			cloned[counterId] = drewCount
+		}
+		bs.BoxDrewCounts = cloned
+	}
 	if entry.GachaModeType == model.GachaModeStepup {
 		currentStep := bs.StepNumber
 		if currentStep <= 0 {
@@ -125,7 +132,12 @@ func (h *GachaHandler) HandleDraw(
 		if err != nil {
 			return nil, err
 		}
-	case model.GachaLabelChapter, model.GachaLabelRecycle:
+	case model.GachaLabelChapter:
+		items, err = h.drawChapter(entry, &bs, drawCount, nowMillis)
+		if err != nil {
+			return nil, err
+		}
+	case model.GachaLabelRecycle:
 		items = h.drawMaterial(drawCount)
 	case model.GachaLabelEvent:
 		items = h.drawBox(entry, &bs, drawCount)
@@ -193,6 +205,9 @@ func (h *GachaHandler) HandleResetBox(
 	user *store.UserState,
 	entry store.GachaCatalogEntry,
 ) error {
+	if entry.GachaLabelType == model.GachaLabelChapter {
+		return fmt.Errorf("chapter Gacha resets automatically each month")
+	}
 	bs := user.Gacha.BannerStates[entry.GachaId]
 	bs.GachaId = entry.GachaId
 	bs.BoxDrewCounts = make(map[int32]int32)
@@ -244,7 +259,7 @@ func (h *GachaHandler) HandleRewardDraw(
 	items := DrawReward(h.Pool.Materials, int(clamped))
 
 	for _, item := range items {
-		store.GrantPossession(user, model.PossessionType(item.PossessionType), item.PossessionId, 1)
+		store.GrantPossession(user, model.PossessionType(item.PossessionType), item.PossessionId, positiveCount(item.Count))
 	}
 
 	user.Gacha.TodaysCurrentDrawCount = newCount
@@ -293,6 +308,13 @@ func (h *GachaHandler) drawMaterial(count int) []DrawnItem {
 	return DrawReward(h.Pool.Materials, count)
 }
 
+func (h *GachaHandler) drawChapter(entry store.GachaCatalogEntry, bs *store.GachaBannerState, count int, nowMillis int64) ([]DrawnItem, error) {
+	if bs.BoxDrewCounts == nil {
+		bs.BoxDrewCounts = make(map[int32]int32)
+	}
+	return drawChapterWithIntn(entry.BoxItems, bs.BoxDrewCounts, count, gametime.BusinessMonthKey(nowMillis), rand.Intn)
+}
+
 func (h *GachaHandler) drawBox(entry store.GachaCatalogEntry, bs *store.GachaBannerState, count int) []DrawnItem {
 	if bs.BoxDrewCounts == nil {
 		bs.BoxDrewCounts = make(map[int32]int32)
@@ -300,13 +322,13 @@ func (h *GachaHandler) drawBox(entry store.GachaCatalogEntry, bs *store.GachaBan
 
 	boxItems := h.buildBoxPool(entry)
 	for i := range boxItems {
-		boxItems[i].DrewCount = bs.BoxDrewCounts[boxItems[i].PossessionId]
+		boxItems[i].DrewCount = bs.BoxDrewCounts[boxItems[i].CounterId]
 	}
 
 	result := DrawBox(boxItems, count)
 
 	for _, item := range result {
-		bs.BoxDrewCounts[item.PossessionId]++
+		bs.BoxDrewCounts[item.CounterId]++
 	}
 
 	return result
@@ -314,8 +336,8 @@ func (h *GachaHandler) drawBox(entry store.GachaCatalogEntry, bs *store.GachaBan
 
 func availableBoxDrawCount(entry store.GachaCatalogEntry, bs store.GachaBannerState) int64 {
 	var available int64
-	for _, item := range entry.BoxItems {
-		remaining := int64(item.MaxCount) - int64(bs.BoxDrewCounts[item.PossessionId])
+	for i, item := range entry.BoxItems {
+		remaining := int64(item.MaxCount) - int64(bs.BoxDrewCounts[chapterCounterId(item, i)])
 		if remaining > 0 {
 			available += remaining
 		}
@@ -326,8 +348,8 @@ func availableBoxDrawCount(entry store.GachaCatalogEntry, bs store.GachaBannerSt
 func (h *GachaHandler) buildBoxPool(entry store.GachaCatalogEntry) []BoxItem {
 	if len(entry.BoxItems) > 0 {
 		items := make([]BoxItem, 0, len(entry.BoxItems))
-		for _, item := range entry.BoxItems {
-			items = append(items, BoxItem{PossessionType: item.PossessionType, PossessionId: item.PossessionId, RarityType: model.RarityType(item.RarityType), Count: item.Count, MaxCount: item.MaxCount})
+		for i, item := range entry.BoxItems {
+			items = append(items, BoxItem{PossessionType: item.PossessionType, PossessionId: item.PossessionId, RarityType: model.RarityType(item.RarityType), Count: item.Count, MaxCount: item.MaxCount, CounterId: chapterCounterId(item, i)})
 		}
 		return items
 	}
@@ -339,6 +361,7 @@ func (h *GachaHandler) buildBoxPool(entry store.GachaCatalogEntry) []BoxItem {
 			RarityType:     mat.RarityType,
 			Count:          1,
 			MaxCount:       model.BoxItemDefaultMax,
+			CounterId:      int32(len(items) + 1),
 		})
 		if len(items) >= model.BoxPoolMaxItems {
 			break
@@ -351,6 +374,7 @@ func (h *GachaHandler) buildBoxPool(entry store.GachaCatalogEntry) []BoxItem {
 			RarityType:     model.RarityNormal,
 			Count:          1,
 			MaxCount:       model.BoxFallbackItemMax,
+			CounterId:      int32(len(items) + 1),
 		})
 	}
 	return items
@@ -370,7 +394,7 @@ func (h *GachaHandler) grantItems(user *store.UserState, items []DrawnItem, nowM
 			h.grantWeaponOrGift(user, item, nowMillis)
 		default:
 			if item.PossessionType != 0 {
-				h.Granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, 1, nowMillis)
+				h.Granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, positiveCount(item.Count), nowMillis)
 			}
 		}
 	}
@@ -453,6 +477,7 @@ func (h *GachaHandler) generateBonusItems(entry store.GachaCatalogEntry, mainIte
 			PossessionType: w.PossessionType,
 			PossessionId:   w.PossessionId,
 			RarityType:     w.RarityType,
+			Count:          1,
 		}
 	}
 	return bonus

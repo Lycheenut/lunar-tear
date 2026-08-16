@@ -8,12 +8,35 @@ import (
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/database"
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
 	"lunar-tear/server/internal/store/sqlite"
 	"lunar-tear/server/migrations"
 )
+
+func TestChapterPromotionReportsConfiguredQuantityAndMonthlyProgress(t *testing.T) {
+	entry := store.GachaCatalogEntry{
+		GachaLabelType: model.GachaLabelChapter,
+		PromotionItems: []store.GachaPromotionItem{{
+			PossessionType:   int32(model.PossessionTypeMaterial),
+			PossessionId:     100004,
+			Count:            5,
+			MaxDrawableCount: 20,
+			CounterId:        1,
+			IsTarget:         true,
+		}},
+	}
+	bs := &store.GachaBannerState{BoxDrewCounts: map[int32]int32{
+		model.ChapterGachaMonthCounterId: gametime.BusinessMonthKey(gametime.NowMillis()),
+		1:                                3,
+	}}
+	items := buildProtoPromotionItems(entry, bs)
+	if len(items) != 1 || items[0].GachaItem.Count != 5 || items[0].MaxDrawableCount != 20 || items[0].DrewCount != 3 {
+		t.Fatalf("chapter promotion = %+v", items)
+	}
+}
 
 func TestGuaranteedFourStarGachaResponseMatchesConfirmBanner(t *testing.T) {
 	holder := newGachaResponseTestHolder(t)

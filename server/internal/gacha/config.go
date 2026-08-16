@@ -85,12 +85,14 @@ func (i PoolItem) DrawnItem() DrawnItem {
 			PossessionId:   i.CostumeId,
 			RarityType:     i.RarityType,
 			CharacterId:    i.CharacterId,
+			Count:          1,
 		}
 	}
 	return DrawnItem{
 		PossessionType: int32(model.PossessionTypeWeapon),
 		PossessionId:   i.WeaponId,
 		RarityType:     i.RarityType,
+		Count:          1,
 	}
 }
 

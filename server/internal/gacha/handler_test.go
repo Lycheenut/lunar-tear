@@ -193,6 +193,68 @@ func TestHandleResetBoxInitializesPersistentBannerIdentity(t *testing.T) {
 	}
 }
 
+func TestChapterDrawRenormalizesAfterMonthlyRewardCap(t *testing.T) {
+	items := []store.GachaBoxItemEntry{
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 5, MaxCount: 1, CounterId: 1, Weight: 10},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 2, CounterId: 2, Weight: 90},
+	}
+	drewCounts := make(map[int32]int32)
+	result, err := drawChapterWithIntn(items, drewCounts, 2, 202608, func(int) int { return 0 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 2 || result[0].PossessionId != 100 || result[0].Count != 5 || result[1].PossessionId != 200 || result[1].Count != 2 {
+		t.Fatalf("chapter draw result = %+v", result)
+	}
+	if drewCounts[1] != 1 || drewCounts[model.ChapterGachaMonthCounterId] != 202608 {
+		t.Fatalf("chapter counters = %v", drewCounts)
+	}
+}
+
+func TestChapterDrawResetsCapsInNewBusinessMonth(t *testing.T) {
+	items := []store.GachaBoxItemEntry{
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 1, CounterId: 1, Weight: 10},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 1, CounterId: 2, Weight: 90},
+	}
+	drewCounts := map[int32]int32{model.ChapterGachaMonthCounterId: 202607, 1: 1}
+	result, err := drawChapterWithIntn(items, drewCounts, 1, 202608, func(int) int { return 0 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].PossessionId != 100 || drewCounts[1] != 1 || drewCounts[model.ChapterGachaMonthCounterId] != 202608 {
+		t.Fatalf("new-month result=%+v counters=%v", result, drewCounts)
+	}
+}
+
+func TestHandleChapterDrawConsumesItsTicketAndGrantsConfiguredQuantity(t *testing.T) {
+	const ticketId int32 = 1008
+	h := &GachaHandler{Granter: &store.PossessionGranter{}}
+	entry := store.GachaCatalogEntry{
+		GachaId:        200001,
+		GachaLabelType: model.GachaLabelChapter,
+		GachaModeType:  model.GachaModeBox,
+		PricePhases: []store.GachaPricePhaseEntry{{
+			PhaseId: 2000011, PriceType: model.PriceTypeConsumableItem, PriceId: ticketId, Price: 1, DrawCount: 1,
+		}},
+		BoxItems: []store.GachaBoxItemEntry{{
+			PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100004, Count: 4, MaxCount: 30, CounterId: 1, Weight: 10000,
+		}},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.ConsumableItems[ticketId] = 1
+	result, err := h.HandleDraw(user, entry, entry.PricePhases[0].PhaseId, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Count != 4 || user.Materials[100004] != 4 || user.ConsumableItems[ticketId] != 0 {
+		t.Fatalf("result=%+v material=%d ticket=%d", result.Items, user.Materials[100004], user.ConsumableItems[ticketId])
+	}
+	if err := h.HandleResetBox(user, entry); err == nil {
+		t.Fatal("manual reset was accepted for Chapter Gacha")
+	}
+}
+
 func TestGrantItemsSendsWeaponsBeyondInventoryLimitToGiftBox(t *testing.T) {
 	const nowMillis = int64(1234)
 	granter := &store.PossessionGranter{}

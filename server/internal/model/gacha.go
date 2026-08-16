@@ -114,10 +114,13 @@ const PhaseIdMultiplier int32 = 10
 
 const (
 	ConsumableIdPremiumTicket                     int32 = 1
-	ConsumableIdChapterTicket                     int32 = 2
 	ConsumableIdGuaranteedThreeStarOrHigherTicket int32 = 1005
 	ConsumableIdGuaranteedFourStarTicket          int32 = 1006
 )
+
+// ChapterGachaMonthCounterId is reserved in a banner's box counters for the
+// UTC-8 business-month key. Reward rows use positive counter ids.
+const ChapterGachaMonthCounterId int32 = -1
 
 const (
 	GachaIdGuaranteedThreeStarOrHigher int32 = 60001
