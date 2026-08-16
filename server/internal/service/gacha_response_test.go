@@ -38,6 +38,35 @@ func TestChapterPromotionReportsConfiguredQuantityAndMonthlyProgress(t *testing.
 	}
 }
 
+func TestPremiumPickupPromotionPairsCostumeAndWeaponOrder(t *testing.T) {
+	entry := store.GachaCatalogEntry{
+		GachaLabelType: model.GachaLabelPremium,
+		PromotionItems: []store.GachaPromotionItem{
+			{
+				PossessionType:      int32(model.PossessionTypeCostume),
+				PossessionId:        32000,
+				BonusPossessionType: int32(model.PossessionTypeWeapon),
+				BonusPossessionId:   320081,
+			},
+			{
+				PossessionType: int32(model.PossessionTypeWeapon),
+				PossessionId:   320082,
+			},
+		},
+	}
+
+	items := buildProtoPromotionItems(entry, nil)
+	if len(items) != 2 {
+		t.Fatalf("promotion count = %d, want 2", len(items))
+	}
+	if items[0].GachaItem.PromotionOrder != 1 || items[0].GachaItemBonus.PromotionOrder != 1 {
+		t.Fatalf("paired promotion orders = %d/%d, want 1/1", items[0].GachaItem.PromotionOrder, items[0].GachaItemBonus.PromotionOrder)
+	}
+	if items[1].GachaItem.PromotionOrder != 2 || items[1].GachaItemBonus.PromotionOrder != 0 {
+		t.Fatalf("weapon-only promotion orders = %d/%d, want 2/0", items[1].GachaItem.PromotionOrder, items[1].GachaItemBonus.PromotionOrder)
+	}
+}
+
 func TestGuaranteedFourStarGachaResponseMatchesConfirmBanner(t *testing.T) {
 	holder := newGachaResponseTestHolder(t)
 

@@ -702,6 +702,7 @@ func buildProtoPromotionItems(entry store.GachaCatalogEntry, bs *store.GachaBann
 				PossessionType: pi.BonusPossessionType,
 				PossessionId:   pi.BonusPossessionId,
 				Count:          1,
+				PromotionOrder: int32(i + 1),
 			}
 		}
 		items = append(items, &pb.GachaOddsItem{
