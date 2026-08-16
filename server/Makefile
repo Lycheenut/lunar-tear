@@ -137,6 +137,9 @@ build-account-admin:
 build-dev:
 	$(GO) build -o bin/dev$(EXE) ./cmd/dev
 
+build-log-mcp:
+	$(GO) build -o bin/log-mcp$(EXE) ./cmd/log-mcp
+
 build-all:
 	go build -o bin/dev$(EXE) ./cmd/dev
 	go build -o bin/auth-server$(EXE) ./cmd/auth-server
@@ -273,4 +276,4 @@ ifndef PLAYER_ID
 endif
 	@$(GO) run ./cmd/export-snapshot --player-id "$(PLAYER_ID)" --db "$(SNAPSHOT_DB)"
 
-.PHONY: proto build build-cdn build-auth build-import build-export build-claim-account build-register-account build-account-admin build-dev build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-account prod-restart prod-deploy clean dev migrate restore import export
+.PHONY: proto build build-cdn build-auth build-import build-export build-claim-account build-register-account build-account-admin build-dev build-log-mcp build-all client-check client masterdata start stop restart prod-build prod-start prod-stop prod-account prod-restart prod-deploy clean dev migrate restore import export

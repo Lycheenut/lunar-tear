@@ -1,0 +1,5 @@
+[mcp_servers.production_logs]
+command = 'C:\Users\lychee\projects\lunar-tear\server\bin\log-mcp.exe'
+args = ["--project", "project-6eb3fc7e-50f4-4e71-ad3"]
+startup_timeout_sec = 20
+tool_timeout_sec = 45

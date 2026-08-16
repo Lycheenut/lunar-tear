@@ -144,6 +144,64 @@ It uses a 4 MB non-blocking buffer per container so a temporary logging outage
 does not block application stdout or stderr. When that buffer fills, Docker
 drops new log messages, so monitor ingestion and alert on sustained failures.
 
+### Query production logs through the local MCP server
+
+The repository includes a read-only STDIO MCP server. It uses local Application
+Default Credentials and calls Cloud Logging directly; it does not expose a
+network port and does not run in the production Compose stack.
+
+Build it locally from the `server` directory:
+
+```sh
+make build-log-mcp
+```
+
+If GNU Make is not installed, use PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .\bin | Out-Null
+go build -o .\bin\log-mcp.exe .\cmd\log-mcp
+```
+
+The credential used on the workstation needs `logging.logEntries.list`, which
+is included in `roles/logging.viewer`. Keep the project fixed in the MCP
+process configuration rather than accepting it as a tool argument. Add a
+project-level `.codex/config.toml` using absolute paths:
+
+```toml
+[mcp_servers.production_logs]
+command = '/absolute/path/to/lunar-tear/server/bin/log-mcp'
+args = ["--project", "your-google-cloud-project"]
+startup_timeout_sec = 20
+tool_timeout_sec = 45
+```
+
+On Windows, point `command` to the absolute `log-mcp.exe` path. Restart Codex
+after adding the configuration, then verify that these tools are available:
+
+- `list_services` lists the fixed production service allowlist.
+- `search_logs` searches one service, defaults to 15 minutes, and limits a
+  query to one hour and 200 entries.
+- `get_log_context` returns entries around an RFC3339 timestamp.
+
+Before starting Codex, verify the exact ADC identity used by the MCP process:
+
+```sh
+gcloud auth application-default print-access-token
+```
+
+This is separate from the credential used by a normal `gcloud logging read`
+command. If ADC impersonates a service account, the calling identity also
+needs `roles/iam.serviceAccountTokenCreator` on that service account. Do not
+put an access token in `.codex/config.toml`; let the Google client refresh ADC.
+
+Docker's `gcplogs` driver stores configured container labels inside the JSON
+payload. The MCP server therefore filters on
+`jsonPayload.container.metadata.environment` and
+`jsonPayload.container.metadata.service`, not `labels.environment` or
+`labels.service`. Returned messages are size-limited and common token-like
+values are redacted before they reach the MCP client.
+
 ## 4. Validate and start
 
 ```sh
