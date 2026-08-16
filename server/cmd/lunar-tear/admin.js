@@ -453,7 +453,7 @@
 
     if (!detailed) {
       const headerRow = document.createElement("tr");
-      (table.name === "m_mission_term" ? ["ID", "任务名称", "任务要求数"] : ["ID", "内容"])
+      (table.name === "m_mission_term" ? ["ID", "任务名称"] : ["ID", "内容"])
         .forEach((label) => headerRow.append(makeCell("th", label)));
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       ["状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
@@ -468,9 +468,12 @@
       if (hasMissionSource(table)) {
         const missionNameHeader = makeCell("th", "任务名称");
         missionNameHeader.dataset.field = "MissionName";
+        headerRow.append(missionNameHeader);
+      }
+      if (hasMissionSource(table) && state.mode === "detail") {
         const requirementHeader = makeCell("th", "任务要求数");
         requirementHeader.dataset.field = "RequirementCount";
-        headerRow.append(missionNameHeader, requirementHeader);
+        headerRow.append(requirementHeader);
       }
       displayedFields.forEach((field) => {
         const header = makeCell("th", field.name);
@@ -506,10 +509,13 @@
       missionName.className = "mission-source-cell";
       missionName.dataset.field = "MissionName";
       missionName.title = missionSources.map((source) => `MissionId=${source.missionId}`).join("\n");
+      tr.append(missionName);
+    }
+    if (hasMissionSource(table) && state.mode === "detail") {
       const requirement = makeCell("td", missionSources.map((source) => String(source.requirementCount)).join("\n") || "-");
       requirement.className = "mission-source-cell mission-requirement-cell";
       requirement.dataset.field = "RequirementCount";
-      tr.append(missionName, requirement);
+      tr.append(requirement);
     }
     fields.forEach((field) => {
       const td = document.createElement("td");
@@ -534,9 +540,7 @@
       const missionName = makeCell("td", missionSources.map((source) => localizedInlineText(source.names) || "-").join("\n") || "-");
       missionName.className = "content-cell mission-source-cell";
       missionName.title = missionSources.map((source) => `MissionId=${source.missionId}`).join("\n");
-      const requirement = makeCell("td", missionSources.map((source) => String(source.requirementCount)).join("\n") || "-");
-      requirement.className = "mission-source-cell mission-requirement-cell";
-      tr.append(missionName, requirement);
+      tr.append(missionName);
     } else {
       const contentCell = renderContentCell(table, row);
       contentCell.classList.add("content-cell");
