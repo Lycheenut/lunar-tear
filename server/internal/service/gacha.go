@@ -510,6 +510,9 @@ func gachaUnlocked(cat *runtime.Catalogs, user *store.UserState, entry store.Gac
 	if !entry.IsUserGachaUnlock {
 		return false
 	}
+	if !chapterGachaRouteSelected(cat, user, entry) {
+		return false
+	}
 	if entry.RequiredConsumableItemId != 0 && user.ConsumableItems[entry.RequiredConsumableItemId] <= 0 {
 		return false
 	}
@@ -540,6 +543,19 @@ func gachaUnlocked(cat *runtime.Catalogs, user *store.UserState, entry store.Gac
 		}
 	}
 	return true
+}
+
+func chapterGachaRouteSelected(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry) bool {
+	if entry.GachaLabelType != model.GachaLabelChapter || entry.RelatedMainQuestChapterId == 0 ||
+		cat.Quest == nil || cat.QuestHandler == nil {
+		return true
+	}
+	routeId := cat.Quest.MainQuestRouteIdByChapterId[entry.RelatedMainQuestChapterId]
+	seasonId := cat.Quest.SeasonIdByRouteId[routeId]
+	if routeId == 0 || seasonId <= 1 || len(cat.Quest.RoutesBySeason[seasonId]) <= 1 {
+		return true
+	}
+	return cat.QuestHandler.SeasonRoutesFor(user)[seasonId] == routeId
 }
 
 func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb.Gacha {

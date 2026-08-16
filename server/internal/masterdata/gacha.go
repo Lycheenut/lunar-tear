@@ -250,7 +250,7 @@ func EnrichGachaUnlockConditions(entries []store.GachaCatalogEntry, quests *Ques
 	for i := range entries {
 		mainQuestChapterId := entries[i].RelatedMainQuestChapterId
 		if entries[i].GachaLabelType == model.GachaLabelChapter {
-			mainQuestChapterId = chapterGachaPrerequisiteMainQuestChapterId(mainQuestChapterId)
+			mainQuestChapterId = chapterGachaPrerequisiteMainQuestChapterId(entries, i, quests)
 		}
 		if mainQuestChapterId != 0 {
 			if questId := lastQuestByChapter[mainQuestChapterId]; questId != 0 {

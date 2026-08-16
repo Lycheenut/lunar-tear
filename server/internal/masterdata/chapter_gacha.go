@@ -229,15 +229,41 @@ func chapterGachaItemRarity(possessionType, possessionId int32) int32 {
 	}
 }
 
-func chapterGachaPrerequisiteMainQuestChapterId(mainQuestChapterId int32) int32 {
-	for i, spec := range chapterGachaSpecs {
-		if spec.mainQuestChapterId != mainQuestChapterId {
+func chapterGachaPrerequisiteMainQuestChapterId(
+	entries []store.GachaCatalogEntry,
+	entryIndex int,
+	quests *QuestCatalog,
+) int32 {
+	if entryIndex < 0 || entryIndex >= len(entries) {
+		return 0
+	}
+	chapterId := entries[entryIndex].RelatedMainQuestChapterId
+	routeId := quests.MainQuestRouteIdByChapterId[chapterId]
+	seasonId := quests.SeasonIdByRouteId[routeId]
+	var fallbackChapterId int32
+	var previousSeasonChapterId int32
+	for i := entryIndex - 1; i >= 0; i-- {
+		previous := entries[i]
+		if previous.GachaLabelType != model.GachaLabelChapter || previous.RelatedMainQuestChapterId == 0 {
 			continue
 		}
-		if i == 0 {
-			return 0
+		if fallbackChapterId == 0 {
+			fallbackChapterId = previous.RelatedMainQuestChapterId
 		}
-		return chapterGachaSpecs[i-1].mainQuestChapterId
+		if routeId == 0 {
+			return fallbackChapterId
+		}
+		previousRouteId := quests.MainQuestRouteIdByChapterId[previous.RelatedMainQuestChapterId]
+		if previousRouteId == routeId {
+			return previous.RelatedMainQuestChapterId
+		}
+		previousSeasonId := quests.SeasonIdByRouteId[previousRouteId]
+		if previousSeasonChapterId == 0 && previousSeasonId > 0 && previousSeasonId < seasonId {
+			previousSeasonChapterId = previous.RelatedMainQuestChapterId
+		}
 	}
-	return 0
+	if previousSeasonChapterId != 0 {
+		return previousSeasonChapterId
+	}
+	return fallbackChapterId
 }

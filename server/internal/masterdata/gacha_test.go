@@ -117,6 +117,44 @@ func TestChapterGachaUnlocksWhenPlayerReachesChapter(t *testing.T) {
 	}
 }
 
+func TestChapterGachaBranchesUseTheirOwnPreviousChapter(t *testing.T) {
+	entries := []store.GachaCatalogEntry{
+		{GachaLabelType: model.GachaLabelChapter, RelatedMainQuestChapterId: 14},
+		{GachaLabelType: model.GachaLabelChapter, RelatedMainQuestChapterId: 17},
+		{GachaLabelType: model.GachaLabelChapter, RelatedMainQuestChapterId: 18},
+		{GachaLabelType: model.GachaLabelChapter, RelatedMainQuestChapterId: 25},
+		{GachaLabelType: model.GachaLabelChapter, RelatedMainQuestChapterId: 26},
+	}
+	quests := &QuestCatalog{
+		OrderedQuestIds: []int32{140, 170, 180, 250, 260},
+		MainQuestChapterIdByQuestId: map[int32]int32{
+			140: 14, 170: 17, 180: 18, 250: 25, 260: 26,
+		},
+		MainQuestRouteIdByChapterId: map[int32]int32{
+			14: 1, 17: 2, 18: 2, 25: 3, 26: 3,
+		},
+		SeasonIdByRouteId: map[int32]int32{1: 1, 2: 2, 3: 2},
+	}
+	EnrichGachaUnlockConditions(entries, quests)
+
+	wantPrerequisiteQuestIds := []int32{0, 140, 170, 140, 250}
+	for i, want := range wantPrerequisiteQuestIds {
+		conditions := entries[i].UnlockConditions
+		if len(conditions) != 1 {
+			t.Fatalf("chapter entry %d conditions = %+v, want one condition", i, conditions)
+		}
+		if want == 0 {
+			if conditions[0].GachaUnlockConditionType != model.GachaUnlockNone {
+				t.Fatalf("chapter entry %d condition = %+v, want unlocked", i, conditions[0])
+			}
+			continue
+		}
+		if conditions[0].GachaUnlockConditionType != model.GachaUnlockMainQuestClear || conditions[0].ConditionValue != want {
+			t.Fatalf("chapter entry %d condition = %+v, want quest %d", i, conditions[0], want)
+		}
+	}
+}
+
 func TestLoadGachaCatalogDoesNotSynthesizeEventBoxInventory(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
 		t.Fatal(err)

@@ -123,6 +123,7 @@ type QuestCatalog struct {
 	RouteCompletionQuestId             map[int32]int32
 	BattleOnlyTargetSceneByQuestId     map[int32]int32
 	MainQuestChapterIdByQuestId        map[int32]int32
+	MainQuestRouteIdByChapterId        map[int32]int32
 	EventQuestTypeByChapterId          map[int32]int32
 	EventChapterById                   map[int32]EntityMEventQuestChapter
 	EventQuestIdsByChapterId           map[int32][]int32
@@ -334,6 +335,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	chapters, err := utils.ReadTable[EntityMMainQuestChapter]("m_main_quest_chapter")
 	if err != nil {
 		return nil, fmt.Errorf("load main quest chapter table: %w", err)
+	}
+	mainQuestRouteIdByChapterId := make(map[int32]int32, len(chapters))
+	for _, chapter := range chapters {
+		mainQuestRouteIdByChapterId[chapter.MainQuestChapterId] = chapter.MainQuestRouteId
 	}
 
 	routes, err := utils.ReadTable[EntityMMainQuestRoute]("m_main_quest_route")
@@ -1028,6 +1033,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		RouteCompletionQuestId:             routeCompletionQuestId,
 		BattleOnlyTargetSceneByQuestId:     battleOnlyTargetSceneByQuestId,
 		MainQuestChapterIdByQuestId:        mainQuestChapterIdByQuestId,
+		MainQuestRouteIdByChapterId:        mainQuestRouteIdByChapterId,
 		EventQuestTypeByChapterId:          eventQuestTypeByChapterId,
 		EventChapterById:                   eventChapterById,
 		EventQuestIdsByChapterId:           eventQuestIdsByChapterId,
