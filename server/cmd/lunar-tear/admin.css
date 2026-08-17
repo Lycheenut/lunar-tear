@@ -639,15 +639,16 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .mission-reward-panel td:first-child,
 .mission-reward-panel th:first-child { min-width: 0; }
 .mission-reward-assignment-table th:nth-child(1) { width: 76px; }
-.mission-reward-assignment-table th:nth-child(3) { width: 52%; }
+.mission-reward-assignment-table:not(.mission-term-assignment-table) th:nth-child(3) { width: 40%; }
 .mission-reward-assignment-table td:first-child,
 .mission-reward-content-table td:first-child { color: var(--accent-strong); font-size: 12px; }
 .mission-reward-description { overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
-.mission-reward-content-table th:nth-child(1) { width: 76px; }
-.mission-reward-content-table th:nth-child(2) { width: 100px; }
+.mission-reward-content-table th:nth-child(1) { width: 12%; }
+.mission-reward-content-table th:nth-child(2) { width: 24%; }
+.mission-reward-content-table th:nth-child(3) { width: 46%; }
+.mission-reward-content-table th:nth-child(4) { width: 18%; }
 .mission-reward-content-table th:nth-child(2),
 .mission-reward-content-table td:nth-child(2) { padding-right: 8px; padding-left: 8px; }
-.mission-reward-content-table th:nth-child(4) { width: 75px; }
 .mission-term-content-table th:nth-child(1) { width: 86px; }
 .mission-term-content-table th:nth-child(2) { width: 104px; }
 .mission-term-content-table th:nth-child(3),
