@@ -135,9 +135,9 @@ var activityTableSpecs = []tableSpec{
 }
 
 // m_mission stays out of the general-purpose table catalog. The mission reward
-// editor exposes only this foreign key so assignments and reward definitions can
-// be changed independently without making the rest of m_mission editable.
+// and term editors expose only these foreign keys so assignments and definitions
+// can be changed independently without making the rest of m_mission editable.
 var editableTableSpecs = append(append([]tableSpec(nil), activityTableSpecs...),
 	activityTable("m_mission", "EntityMMission", 1, false,
-		field("MissionId", 0, "int"), field("MissionRewardId", 11, "int")),
+		field("MissionId", 0, "int"), field("MissionRewardId", 11, "int"), field("MissionTermId", 12, "int")),
 )

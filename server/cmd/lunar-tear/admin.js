@@ -20,6 +20,13 @@
     missionRewardContentPagePrevious: $("#mission-reward-content-page-previous"),
     missionRewardContentPageInfo: $("#mission-reward-content-page-info"),
     missionRewardContentPageNext: $("#mission-reward-content-page-next"),
+    missionTermEditor: $("#mission-term-editor"), missionTermAssignmentBody: $("#mission-term-assignment-body"),
+    missionTermAssignmentCount: $("#mission-term-assignment-count"), missionTermContentBody: $("#mission-term-content-body"),
+    missionTermContentSearch: $("#mission-term-content-search"), missionTermContentCount: $("#mission-term-content-count"),
+    missionTermContentPageSize: $("#mission-term-content-page-size"),
+    missionTermContentPagePrevious: $("#mission-term-content-page-previous"),
+    missionTermContentPageInfo: $("#mission-term-content-page-info"),
+    missionTermContentPageNext: $("#mission-term-content-page-next"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
@@ -83,6 +90,9 @@
     missionRewardContentPage: 1,
     missionRewardContentPageSize: 25,
     missionRewardContentPageCount: 1,
+    missionTermContentPage: 1,
+    missionTermContentPageSize: 25,
+    missionTermContentPageCount: 1,
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false,
@@ -243,8 +253,9 @@
     if (table.name === "m_login_bonus_stamp") {
       return table.fields.filter((field) => !["LoginBonusId", "LowerPageNumber"].includes(field.name));
     }
-    if (table.name === "m_mission_reward") {
-      return table.fields.filter((field) => field.name !== "MissionRewardId");
+    if (["m_mission_reward", "m_mission_term"].includes(table.name)) {
+      const idField = table.name === "m_mission_reward" ? "MissionRewardId" : "MissionTermId";
+      return table.fields.filter((field) => field.name !== idField);
     }
     return table.fields;
   }
@@ -397,20 +408,6 @@
     return sources.filter((mission) => groupIDs.has(String(mission.missionGroupId)));
   }
 
-  function hasMissionSource(table) {
-    return ["m_mission_reward", "m_mission_term"].includes(table.name);
-  }
-
-  function missionSourcesForRow(table, row, sources) {
-    if (table.name === "m_mission_reward") {
-      return sources.filter((source) => row.values.MissionRewardId === String(source.missionRewardId));
-    }
-    if (table.name === "m_mission_term") {
-      return sources.filter((source) => row.values.MissionTermId === String(source.missionTermId));
-    }
-    return [];
-  }
-
   function compareFieldValues(left, right) {
     const leftNumber = Number(left);
     const rightNumber = Number(right);
@@ -430,15 +427,18 @@
     const table = currentTable();
     if (!table) return;
     const detailed = !table.primary || state.mode === "detail";
+    const isMissionReward = table.name === "m_mission_reward";
+    const isMissionTerm = table.name === "m_mission_term";
+    const isMissionEditor = isMissionReward || isMissionTerm;
     elements.entityName.textContent = table.name;
     elements.tableName.textContent = tableDisplayName(table);
-    elements.modeControl.classList.toggle("hidden", !table.primary);
+    elements.modeControl.classList.toggle("hidden", !table.primary || isMissionEditor);
     elements.scheduleTable.classList.toggle("detail-mode", detailed);
-    elements.scheduleTable.classList.toggle("mission-source-table", hasMissionSource(table));
-    const isMissionReward = table.name === "m_mission_reward";
-    elements.scheduleTable.classList.toggle("hidden", isMissionReward);
+    elements.scheduleTable.classList.toggle("hidden", isMissionEditor);
     elements.missionRewardEditor.classList.toggle("hidden", !isMissionReward);
-    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionReward);
+    elements.missionTermEditor.classList.toggle("hidden", !isMissionTerm);
+    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionEditor);
+    elements.tableScroll.classList.toggle("mission-term-mode", isMissionTerm);
     syncModeToggle();
     elements.head.replaceChildren();
     elements.body.replaceChildren();
@@ -452,7 +452,7 @@
         || Object.keys(row.contentBody || {}).length > 0
         || (row.contentFootnotes || []).length > 0));
     const displayedFields = displayedTableFields(table);
-    const selectedSources = hasMissionSource(table) ? selectedMissionSources(table) : [];
+    const selectedSources = isMissionEditor ? selectedMissionSources(table) : [];
     elements.statusFilterLabel.classList.toggle("hidden", !hasSchedule);
     const typeFilters = [...elements.typeFilters.querySelectorAll("select")]
       .filter((select) => select.value !== "" && select.dataset.sourceFilter !== "mission")
@@ -461,10 +461,12 @@
       renderMissionRewardEditor(table, displayedFields, selectedSources, query);
       return;
     }
+    if (isMissionTerm) {
+      renderMissionTermEditor(table, displayedFields, selectedSources, query);
+      return;
+    }
     const visibleRows = table.rows.filter((row) => {
       if (hasSchedule && statusFilter !== "all" && rowStatus(table, row) !== statusFilter) return false;
-      const rowMissionSources = hasMissionSource(table) ? missionSourcesForRow(table, row, selectedSources) : [];
-      if (hasMissionSource(table) && rowMissionSources.length === 0) return false;
       if (typeFilters.some((filter) => effectiveValue(table.name, row, filter.field) !== filter.value)) return false;
       if (!query) return true;
       const relationValues = (row.shopRelations || []).flatMap((relation) => [
@@ -474,38 +476,24 @@
       const fieldValues = table.fields.flatMap((field) => [field.name, effectiveValue(table.name, row, field.name)]);
       const footnoteValues = (row.contentFootnotes || []).flatMap((footnote) => Object.values(footnote || {}));
       const artworkValues = (row.dokanImages || []).flatMap((image) => [image.contentIndex, image.imageId]);
-      const missionSourceValues = rowMissionSources.flatMap((source) => [
-        source.missionId, source.requirementCount, ...Object.values(source.names || {})
-      ]);
       const haystack = [...Object.values(row.titles || {}), ...Object.values(row.contentBody || {}),
       ...footnoteValues, ...artworkValues, ...relationValues, ...fieldValues].join(" ").toLocaleLowerCase();
-      return `${haystack} ${missionSourceValues.join(" ")}`.toLocaleLowerCase().includes(query);
+      return haystack.includes(query);
     });
 
     if (!detailed) {
       const headerRow = document.createElement("tr");
-      (table.name === "m_mission_term" ? ["ID", "任务名称"] : ["ID", "内容"])
-        .forEach((label) => headerRow.append(makeCell("th", label)));
+      ["ID", "内容"].forEach((label) => headerRow.append(makeCell("th", label)));
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       ["状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
       simpleTimeFields(table).forEach((field) => headerRow.append(makeCell("th", field.name)));
       elements.head.append(headerRow);
-      visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row, missionSourcesForRow(table, row, selectedSources))));
+      visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row)));
     } else {
       const headerRow = document.createElement("tr");
       if (hasContent) headerRow.append(makeCell("th", "内容"));
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       if (hasSchedule) headerRow.append(makeCell("th", "状态"));
-      if (hasMissionSource(table)) {
-        const missionNameHeader = makeCell("th", "任务名称");
-        missionNameHeader.dataset.field = "MissionName";
-        headerRow.append(missionNameHeader);
-      }
-      if (hasMissionSource(table) && state.mode === "detail") {
-        const requirementHeader = makeCell("th", "任务要求数");
-        requirementHeader.dataset.field = "RequirementCount";
-        headerRow.append(requirementHeader);
-      }
       displayedFields.forEach((field) => {
         const header = makeCell("th", field.name);
         header.dataset.field = field.name;
@@ -514,7 +502,7 @@
       });
       elements.head.append(headerRow);
       visibleRows.forEach((row) => elements.body.append(renderDetailedRow(
-        table, row, displayedFields, hasContent, hasArtwork, hasSchedule, missionSourcesForRow(table, row, selectedSources)
+        table, row, displayedFields, hasContent, hasArtwork, hasSchedule
       )));
     }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
@@ -710,7 +698,194 @@
     });
   }
 
-  function renderDetailedRow(table, row, fields, hasContent, hasArtwork, hasSchedule, missionSources) {
+  function renderMissionTermEditor(table, fields, sources, query) {
+    const statusFilter = elements.statusFilter.value;
+    const visibleSources = sources.filter((source) => {
+      const termRow = missionTermRow(table, effectiveMissionTermID(source));
+      if (statusFilter !== "all" && (!termRow || rowStatus(table, termRow) !== statusFilter)) return false;
+      if (!query) return true;
+      const termID = effectiveMissionTermID(source);
+      return [
+        source.missionId,
+        termID,
+        ...Object.values(source.names || {}),
+        missionTermOptionLabel(table, termID)
+      ].join(" ").toLocaleLowerCase().includes(query);
+    });
+    elements.missionTermAssignmentBody.replaceChildren();
+    visibleSources.forEach((source) => elements.missionTermAssignmentBody.append(renderMissionTermAssignmentRow(table, source)));
+    if (!visibleSources.length) elements.missionTermAssignmentBody.append(renderMissionRewardEmptyRow(3, "当前筛选条件下没有任务。"));
+
+    const termIDQuery = elements.missionTermContentSearch.value.trim().toLocaleLowerCase();
+    const visibleTermRows = table.rows.filter((row) => (
+      (statusFilter === "all" || rowStatus(table, row) === statusFilter)
+      && (!termIDQuery || String(row.values.MissionTermId).toLocaleLowerCase().includes(termIDQuery))
+    ));
+    const pageCount = Math.max(1, Math.ceil(visibleTermRows.length / state.missionTermContentPageSize));
+    state.missionTermContentPage = Math.min(Math.max(1, state.missionTermContentPage), pageCount);
+    state.missionTermContentPageCount = pageCount;
+    const pageStart = (state.missionTermContentPage - 1) * state.missionTermContentPageSize;
+    const pageEnd = Math.min(pageStart + state.missionTermContentPageSize, visibleTermRows.length);
+    elements.missionTermContentBody.replaceChildren();
+    visibleTermRows.slice(pageStart, pageEnd)
+      .forEach((row) => elements.missionTermContentBody.append(renderMissionTermContentRow(table, fields, row)));
+    if (!visibleTermRows.length) elements.missionTermContentBody.append(renderMissionRewardEmptyRow(
+      4, termIDQuery ? "没有匹配该 TermId 的期限定义。" : "当前没有期限定义。"
+    ));
+
+    elements.missionTermAssignmentCount.textContent = `${visibleSources.length.toLocaleString()} 个任务`;
+    const termRowCount = termIDQuery || statusFilter !== "all"
+      ? `${visibleTermRows.length.toLocaleString()} / ${table.rows.length.toLocaleString()} 行`
+      : `${table.rows.length.toLocaleString()} 行`;
+    elements.missionTermContentCount.textContent = visibleTermRows.length
+      ? `${termRowCount} · ${pageStart + 1}–${pageEnd}`
+      : termRowCount;
+    elements.missionTermContentPageInfo.textContent = `第 ${state.missionTermContentPage.toLocaleString()} / ${pageCount.toLocaleString()} 页`;
+    elements.missionTermContentPagePrevious.disabled = state.missionTermContentPage === 1;
+    elements.missionTermContentPageNext.disabled = state.missionTermContentPage === pageCount;
+    elements.visibleCount.textContent = `${visibleSources.length.toLocaleString()} 个任务 · ${termRowCount.replace(" 行", " 条期限定义")}`;
+    elements.empty.classList.add("hidden");
+  }
+
+  function renderMissionTermAssignmentRow(table, source) {
+    const tr = document.createElement("tr");
+    const missionID = document.createElement("td");
+    const missionIDValue = document.createElement("code");
+    missionIDValue.textContent = String(source.missionId);
+    missionID.append(missionIDValue);
+    const description = makeCell("td", localizedInlineText(source.names) || "未命名任务");
+    description.className = "mission-reward-description";
+    const term = document.createElement("td");
+    const editor = document.createElement("div");
+    editor.className = "mission-reward-assignment-editor mission-term-assignment-editor";
+    const termID = effectiveMissionTermID(source);
+    const preview = renderMissionTermInlinePreview(table, termID);
+    const select = document.createElement("select");
+    select.className = "mission-term-assignment-select";
+    populateMissionTermSelect(select, table, termID, false);
+    select.dataset.table = "m_mission";
+    select.dataset.row = String(source.row);
+    select.dataset.field = "MissionTermId";
+    select.setAttribute("aria-label", `${description.textContent} 的 TermId`);
+    select.classList.toggle("changed", state.dirty.has(changeKey("m_mission", source.row, "MissionTermId")));
+    const populate = () => populateMissionTermSelect(select, table, select.value, true);
+    select.addEventListener("focus", populate);
+    select.addEventListener("pointerdown", populate);
+    select.addEventListener("change", () => {
+      onFieldChange(
+        { name: "m_mission" },
+        { index: source.row, values: { MissionTermId: String(source.missionTermId) } },
+        { name: "MissionTermId", kind: "int32", datetime: false },
+        select
+      );
+      renderTable();
+    });
+    editor.append(preview, select);
+    term.append(editor);
+    tr.append(missionID, description, term);
+    return tr;
+  }
+
+  function renderMissionTermContentRow(table, fields, row) {
+    const tr = document.createElement("tr");
+    const termID = document.createElement("td");
+    const termIDValue = document.createElement("code");
+    termIDValue.textContent = row.values.MissionTermId;
+    termID.append(termIDValue);
+    const status = document.createElement("td");
+    const statusValue = renderStatus(rowStatus(table, row));
+    statusValue.dataset.missionTermStatusRow = String(row.index);
+    status.append(statusValue);
+    tr.append(termID, status);
+    fields.forEach((field) => {
+      const cell = document.createElement("td");
+      cell.append(renderFieldEditor(table, row, field));
+      tr.append(cell);
+    });
+    return tr;
+  }
+
+  function effectiveMissionTermID(source) {
+    return state.dirty.get(changeKey("m_mission", source.row, "MissionTermId"))?.value
+      ?? String(source.missionTermId);
+  }
+
+  function missionTermRow(table, termID) {
+    return table.rows.find((row) => row.values.MissionTermId === String(termID));
+  }
+
+  function missionTermIDs(table) {
+    return table.rows.map((row) => row.values.MissionTermId).sort(compareFieldValues);
+  }
+
+  function populateMissionTermSelect(select, table, selectedID, expanded) {
+    if (expanded && select.dataset.expanded === "true") return;
+    const termIDs = missionTermIDs(table);
+    const options = expanded ? termIDs : termIDs.includes(String(selectedID)) ? [String(selectedID)] : [];
+    select.replaceChildren();
+    options.forEach((termID) => {
+      const option = document.createElement("option");
+      option.value = termID;
+      option.textContent = missionTermOptionLabel(table, termID);
+      select.append(option);
+    });
+    if (!options.includes(String(selectedID))) {
+      const unknown = document.createElement("option");
+      unknown.value = String(selectedID);
+      unknown.textContent = `未知期限（${selectedID}）`;
+      select.append(unknown);
+    }
+    select.value = String(selectedID);
+    select.title = select.options[select.selectedIndex]?.textContent || "";
+    select.dataset.expanded = String(expanded);
+  }
+
+  function missionTermOptionLabel(table, termID) {
+    const row = missionTermRow(table, termID);
+    if (!row) return `未知期限（${termID}）`;
+    const start = previewChangeValue(effectiveValue(table.name, row, "StartDatetime"), true);
+    const end = previewChangeValue(effectiveValue(table.name, row, "EndDatetime"), true);
+    return `${start} → ${end}（${termID}）`;
+  }
+
+  function renderMissionTermInlinePreview(table, termID) {
+    const preview = document.createElement("div");
+    preview.className = "mission-reward-inline-preview mission-term-inline-preview";
+    preview.dataset.missionTermPreview = String(termID);
+    const row = missionTermRow(table, termID);
+    if (row) {
+      preview.append(renderStatus(rowStatus(table, row)));
+    } else {
+      const missing = document.createElement("span");
+      missing.className = "status disabled";
+      missing.textContent = "未定义";
+      preview.append(missing);
+    }
+    return preview;
+  }
+
+  function refreshMissionTermAssignmentDisplays(table, row) {
+    const termID = row.values.MissionTermId;
+    document.querySelectorAll(".mission-term-assignment-select").forEach((select) => {
+      const option = [...select.options].find((candidate) => candidate.value === String(termID));
+      if (option) {
+        option.textContent = missionTermOptionLabel(table, termID);
+        if (select.value === String(termID)) select.title = option.textContent;
+      }
+    });
+    document.querySelectorAll("[data-mission-term-preview]").forEach((preview) => {
+      if (preview.dataset.missionTermPreview !== String(termID)) return;
+      preview.replaceWith(renderMissionTermInlinePreview(table, termID));
+    });
+    const status = document.querySelector(`[data-mission-term-status-row="${row.index}"]`);
+    if (status) {
+      const replacement = renderStatus(rowStatus(table, row));
+      replacement.dataset.missionTermStatusRow = String(row.index);
+      status.replaceWith(replacement);
+    }
+  }
+
+  function renderDetailedRow(table, row, fields, hasContent, hasArtwork, hasSchedule) {
     const tr = document.createElement("tr");
     if (hasContent) {
       const contentCell = renderContentCell(table, row);
@@ -724,19 +899,6 @@
       statusCell.append(renderStatus(rowStatus(table, row)));
       tr.append(statusCell);
     }
-    if (hasMissionSource(table)) {
-      const missionName = makeCell("td", missionSources.map((source) => localizedInlineText(source.names) || "-").join("\n") || "-");
-      missionName.className = "mission-source-cell";
-      missionName.dataset.field = "MissionName";
-      missionName.title = missionSources.map((source) => `MissionId=${source.missionId}`).join("\n");
-      tr.append(missionName);
-    }
-    if (hasMissionSource(table) && state.mode === "detail") {
-      const requirement = makeCell("td", missionSources.map((source) => String(source.requirementCount)).join("\n") || "-");
-      requirement.className = "mission-source-cell mission-requirement-cell";
-      requirement.dataset.field = "RequirementCount";
-      tr.append(requirement);
-    }
     fields.forEach((field) => {
       const td = document.createElement("td");
       td.className = field.primaryKey ? "id-cell field-column" : "field-column";
@@ -747,7 +909,7 @@
     return tr;
   }
 
-  function renderSimpleRow(table, row, missionSources) {
+  function renderSimpleRow(table, row) {
     const tr = document.createElement("tr");
     const primary = row.identity[0];
 
@@ -756,16 +918,9 @@
     idCell.title = primary?.name || "ID";
     tr.append(idCell);
 
-    if (table.name === "m_mission_term") {
-      const missionName = makeCell("td", missionSources.map((source) => localizedInlineText(source.names) || "-").join("\n") || "-");
-      missionName.className = "content-cell mission-source-cell";
-      missionName.title = missionSources.map((source) => `MissionId=${source.missionId}`).join("\n");
-      tr.append(missionName);
-    } else {
-      const contentCell = renderContentCell(table, row);
-      contentCell.classList.add("content-cell");
-      tr.append(contentCell);
-    }
+    const contentCell = renderContentCell(table, row);
+    contentCell.classList.add("content-cell");
+    tr.append(contentCell);
 
     if (table.name === "m_dokan") tr.append(renderDokanImagesCell(row));
 
@@ -1441,6 +1596,9 @@
     storeFieldChange(table, row, field, value, input);
     if (table.name === "m_mission_reward") {
       refreshMissionRewardAssignmentDisplays(table, row.values.MissionRewardId);
+    }
+    if (table.name === "m_mission_term") {
+      refreshMissionTermAssignmentDisplays(table, row);
     }
   }
 
@@ -2715,6 +2873,7 @@
   elements.tableSelect.addEventListener("change", () => {
     state.tableSelections[state.section] = elements.tableSelect.value;
     state.missionRewardContentPage = 1;
+    state.missionTermContentPage = 1;
     renderTypeFilters(currentTable());
     renderTable();
   });
@@ -2771,6 +2930,26 @@
   elements.missionRewardContentPageNext.addEventListener("click", () => {
     if (state.missionRewardContentPage >= state.missionRewardContentPageCount) return;
     state.missionRewardContentPage += 1;
+    renderTable();
+  });
+  elements.missionTermContentPageSize.addEventListener("change", () => {
+    const pageSize = Number(elements.missionTermContentPageSize.value);
+    state.missionTermContentPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;
+    state.missionTermContentPage = 1;
+    renderTable();
+  });
+  elements.missionTermContentSearch.addEventListener("input", () => {
+    state.missionTermContentPage = 1;
+    renderTable();
+  });
+  elements.missionTermContentPagePrevious.addEventListener("click", () => {
+    if (state.missionTermContentPage <= 1) return;
+    state.missionTermContentPage -= 1;
+    renderTable();
+  });
+  elements.missionTermContentPageNext.addEventListener("click", () => {
+    if (state.missionTermContentPage >= state.missionTermContentPageCount) return;
+    state.missionTermContentPage += 1;
     renderTable();
   });
   elements.search.addEventListener("input", renderTable);

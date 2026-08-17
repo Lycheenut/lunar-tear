@@ -150,6 +150,53 @@
                 </div>
               </section>
             </div>
+            <div id="mission-term-editor" class="mission-reward-editor mission-term-editor hidden">
+              <section class="mission-reward-panel" aria-labelledby="mission-term-assignment-title">
+                <header class="mission-reward-panel-heading">
+                  <h3 id="mission-term-assignment-title">任务期限</h3>
+                  <span id="mission-term-assignment-count" class="row-badge">0 个任务</span>
+                </header>
+                <div class="mission-reward-panel-scroll">
+                  <table class="mission-reward-assignment-table mission-term-assignment-table">
+                    <thead>
+                      <tr><th>MissionId</th><th>Description</th><th>TermId</th></tr>
+                    </thead>
+                    <tbody id="mission-term-assignment-body"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section class="mission-reward-panel mission-reward-content-panel" aria-labelledby="mission-term-content-title">
+                <header class="mission-reward-panel-heading">
+                  <h3 id="mission-term-content-title">期限定义</h3>
+                  <div class="mission-reward-panel-heading-actions">
+                    <input id="mission-term-content-search" class="mission-reward-content-search" type="search" inputmode="numeric" placeholder="搜索 TermId" aria-label="按 TermId 搜索期限定义">
+                    <span id="mission-term-content-count" class="row-badge">0 行</span>
+                  </div>
+                </header>
+                <div class="mission-reward-panel-scroll">
+                  <table class="mission-reward-content-table mission-term-content-table">
+                    <thead>
+                      <tr><th>TermId</th><th>状态</th><th>StartDatetime</th><th>EndDatetime</th></tr>
+                    </thead>
+                    <tbody id="mission-term-content-body"></tbody>
+                  </table>
+                </div>
+                <div class="mission-reward-pagination">
+                  <label>每页
+                    <select id="mission-term-content-page-size">
+                      <option value="25" selected>25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </label>
+                  <div class="reward-page-navigation">
+                    <button id="mission-term-content-page-previous" class="button ghost" type="button">上一页</button>
+                    <span id="mission-term-content-page-info" aria-live="polite">第 1 / 1 页</span>
+                    <button id="mission-term-content-page-next" class="button ghost" type="button">下一页</button>
+                  </div>
+                </div>
+              </section>
+            </div>
           </div>
           <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
         </section>

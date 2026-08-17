@@ -980,6 +980,7 @@ func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, impact
 	fields["m_mission"] = map[string]Field{
 		"MissionId":       {Name: "MissionId", Type: "int", Kind: string(fieldKindInt32), PrimaryKey: true},
 		"MissionRewardId": {Name: "MissionRewardId", Type: "int", Kind: string(fieldKindInt32)},
+		"MissionTermId":   {Name: "MissionTermId", Type: "int", Kind: string(fieldKindInt32)},
 	}
 	for _, mission := range catalog.MissionSources.Missions {
 		rows[previewRecordKey(rowRef{table: "m_mission", row: mission.Row})] = Row{
@@ -988,6 +989,7 @@ func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, impact
 			Values: map[string]string{
 				"MissionId":       strconv.FormatInt(mission.MissionID, 10),
 				"MissionRewardId": strconv.FormatInt(mission.MissionRewardID, 10),
+				"MissionTermId":   strconv.FormatInt(mission.MissionTermID, 10),
 			},
 			Titles: cloneTitles(mission.Names),
 		}

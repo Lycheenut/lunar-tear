@@ -599,9 +599,8 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .field-editor > input, .field-editor > select, .field-editor > .readonly-field { flex: 1 1 auto; width: auto; min-width: 0; }
 .field-editor .changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
 .field-editor .invalid { border-color: var(--danger); }
-.mission-source-cell { color: var(--text); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-line; }
-.mission-requirement-cell { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
 .table-scroll.mission-reward-mode { overflow: hidden; padding: 12px; scrollbar-gutter: auto; }
+.table-scroll.mission-term-mode { height: clamp(520px, calc(100vh - 330px), 860px); max-height: none; }
 .mission-reward-editor {
   display: grid;
   grid-template-rows: repeat(2, minmax(0, 1fr));
@@ -649,6 +648,10 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .mission-reward-content-table th:nth-child(2),
 .mission-reward-content-table td:nth-child(2) { padding-right: 8px; padding-left: 8px; }
 .mission-reward-content-table th:nth-child(4) { width: 75px; }
+.mission-term-content-table th:nth-child(1) { width: 86px; }
+.mission-term-content-table th:nth-child(2) { width: 104px; }
+.mission-term-content-table th:nth-child(3),
+.mission-term-content-table th:nth-child(4) { width: auto; }
 .mission-reward-assignment-editor {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -656,9 +659,13 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   min-width: 0;
   gap: 9px;
 }
-.mission-reward-assignment-select { width: 100%; min-width: 0; min-height: 38px; font-size: 12px; }
-.mission-reward-assignment-select.changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
+.mission-reward-assignment-select,
+.mission-term-assignment-select { width: 100%; min-width: 0; min-height: 38px; font-size: 12px; }
+.mission-reward-assignment-select.changed,
+.mission-term-assignment-select.changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }
+.mission-term-assignment-editor { grid-template-columns: 82px minmax(0, 1fr); }
 .mission-reward-inline-preview { display: flex; flex-wrap: wrap; gap: 4px; max-width: 92px; }
+.mission-term-inline-preview { max-width: none; }
 .mission-reward-inline-icon {
   display: grid;
   place-items: center;
