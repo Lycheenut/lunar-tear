@@ -15,7 +15,7 @@
     tableScroll: $("#table-scroll"), scheduleTable: $("#schedule-table"), head: $("#schedule-head"), body: $("#schedule-body"),
     missionRewardEditor: $("#mission-reward-editor"), missionRewardAssignmentBody: $("#mission-reward-assignment-body"),
     missionRewardAssignmentCount: $("#mission-reward-assignment-count"), missionRewardContentBody: $("#mission-reward-content-body"),
-    missionRewardContentCount: $("#mission-reward-content-count"),
+    missionRewardContentSearch: $("#mission-reward-content-search"), missionRewardContentCount: $("#mission-reward-content-count"),
     missionRewardContentPageSize: $("#mission-reward-content-page-size"),
     missionRewardContentPagePrevious: $("#mission-reward-content-page-previous"),
     missionRewardContentPageInfo: $("#mission-reward-content-page-info"),
@@ -535,23 +535,31 @@
     elements.missionRewardAssignmentBody.replaceChildren();
     visibleSources.forEach((source) => elements.missionRewardAssignmentBody.append(renderMissionRewardAssignmentRow(table, source)));
     if (!visibleSources.length) elements.missionRewardAssignmentBody.append(renderMissionRewardEmptyRow(3, "当前筛选条件下没有任务。"));
-    const pageCount = Math.max(1, Math.ceil(table.rows.length / state.missionRewardContentPageSize));
+    const rewardIDQuery = elements.missionRewardContentSearch.value.trim().toLocaleLowerCase();
+    const visibleRewardRows = table.rows.filter((row) => !rewardIDQuery
+      || String(row.values.MissionRewardId).toLocaleLowerCase().includes(rewardIDQuery));
+    const pageCount = Math.max(1, Math.ceil(visibleRewardRows.length / state.missionRewardContentPageSize));
     state.missionRewardContentPage = Math.min(Math.max(1, state.missionRewardContentPage), pageCount);
     state.missionRewardContentPageCount = pageCount;
     const pageStart = (state.missionRewardContentPage - 1) * state.missionRewardContentPageSize;
-    const pageEnd = Math.min(pageStart + state.missionRewardContentPageSize, table.rows.length);
+    const pageEnd = Math.min(pageStart + state.missionRewardContentPageSize, visibleRewardRows.length);
     elements.missionRewardContentBody.replaceChildren();
-    table.rows.slice(pageStart, pageEnd)
+    visibleRewardRows.slice(pageStart, pageEnd)
       .forEach((row) => elements.missionRewardContentBody.append(renderMissionRewardContentRow(table, fields, row)));
-    if (!table.rows.length) elements.missionRewardContentBody.append(renderMissionRewardEmptyRow(4, "当前没有奖励内容。"));
+    if (!visibleRewardRows.length) elements.missionRewardContentBody.append(renderMissionRewardEmptyRow(
+      4, rewardIDQuery ? "没有匹配该 RewardId 的奖励内容。" : "当前没有奖励内容。"
+    ));
     elements.missionRewardAssignmentCount.textContent = `${visibleSources.length.toLocaleString()} 个任务`;
-    elements.missionRewardContentCount.textContent = table.rows.length
-      ? `${table.rows.length.toLocaleString()} 行 · ${pageStart + 1}–${pageEnd}`
-      : "0 行";
+    const rewardRowCount = rewardIDQuery
+      ? `${visibleRewardRows.length.toLocaleString()} / ${table.rows.length.toLocaleString()} 行`
+      : `${table.rows.length.toLocaleString()} 行`;
+    elements.missionRewardContentCount.textContent = visibleRewardRows.length
+      ? `${rewardRowCount} · ${pageStart + 1}–${pageEnd}`
+      : rewardRowCount;
     elements.missionRewardContentPageInfo.textContent = `第 ${state.missionRewardContentPage.toLocaleString()} / ${pageCount.toLocaleString()} 页`;
     elements.missionRewardContentPagePrevious.disabled = state.missionRewardContentPage === 1;
     elements.missionRewardContentPageNext.disabled = state.missionRewardContentPage === pageCount;
-    elements.visibleCount.textContent = `${visibleSources.length.toLocaleString()} 个任务 · ${table.rows.length.toLocaleString()} 条奖励内容`;
+    elements.visibleCount.textContent = `${visibleSources.length.toLocaleString()} 个任务 · ${rewardRowCount.replace(" 行", " 条奖励内容")}`;
     elements.empty.classList.add("hidden");
   }
 
@@ -2748,6 +2756,10 @@
   elements.missionRewardContentPageSize.addEventListener("change", () => {
     const pageSize = Number(elements.missionRewardContentPageSize.value);
     state.missionRewardContentPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;
+    state.missionRewardContentPage = 1;
+    renderTable();
+  });
+  elements.missionRewardContentSearch.addEventListener("input", () => {
     state.missionRewardContentPage = 1;
     renderTable();
   });
