@@ -20,6 +20,11 @@
     missionRewardContentPagePrevious: $("#mission-reward-content-page-previous"),
     missionRewardContentPageInfo: $("#mission-reward-content-page-info"),
     missionRewardContentPageNext: $("#mission-reward-content-page-next"),
+    missionRewardReferenceDialog: $("#mission-reward-reference-dialog"),
+    missionRewardReferenceTitle: $("#mission-reward-reference-title"),
+    missionRewardReferenceSummary: $("#mission-reward-reference-summary"),
+    missionRewardReferenceContent: $("#mission-reward-reference-content"),
+    missionRewardReferenceClose: $("#mission-reward-reference-close"),
     missionTermEditor: $("#mission-term-editor"), missionTermAssignmentBody: $("#mission-term-assignment-body"),
     missionTermAssignmentCount: $("#mission-term-assignment-count"), missionTermContentBody: $("#mission-term-content-body"),
     missionTermContentSearch: $("#mission-term-content-search"), missionTermContentCount: $("#mission-term-content-count"),
@@ -535,7 +540,7 @@
     visibleRewardRows.slice(pageStart, pageEnd)
       .forEach((row) => elements.missionRewardContentBody.append(renderMissionRewardContentRow(table, fields, row)));
     if (!visibleRewardRows.length) elements.missionRewardContentBody.append(renderMissionRewardEmptyRow(
-      4, rewardIDQuery ? "没有匹配该 RewardId 的奖励内容。" : "当前没有奖励内容。"
+      5, rewardIDQuery ? "没有匹配该 RewardId 的奖励内容。" : "当前没有奖励内容。"
     ));
     elements.missionRewardAssignmentCount.textContent = `${visibleSources.length.toLocaleString()} 个任务`;
     const rewardRowCount = rewardIDQuery
@@ -602,7 +607,76 @@
       cell.append(renderFieldEditor(table, row, field));
       tr.append(cell);
     });
+    const referenceCell = document.createElement("td");
+    const referenceButton = document.createElement("button");
+    referenceButton.type = "button";
+    referenceButton.className = "button ghost mission-reward-reference-button";
+    referenceButton.textContent = "查找引用";
+    referenceButton.setAttribute("aria-label", `查找 RewardId ${row.values.MissionRewardId} 的任务引用`);
+    referenceButton.addEventListener("click", () => showMissionRewardReferences(row.values.MissionRewardId));
+    referenceCell.append(referenceButton);
+    tr.append(referenceCell);
     return tr;
+  }
+
+  function showMissionRewardReferences(rewardID) {
+    const references = (state.catalog?.missionSources?.missions || [])
+      .filter((mission) => effectiveMissionRewardID(mission) === String(rewardID));
+    const groupByID = new Map((state.catalog?.missionSources?.groups || [])
+      .map((group) => [String(group.missionGroupId), group]));
+    const categories = new Map();
+    references.forEach((mission) => {
+      const group = groupByID.get(String(mission.missionGroupId));
+      const categoryType = String(group?.missionCategoryType ?? "unknown");
+      if (!categories.has(categoryType)) categories.set(categoryType, new Map());
+      const groups = categories.get(categoryType);
+      const groupID = String(mission.missionGroupId);
+      if (!groups.has(groupID)) groups.set(groupID, { group, missions: [] });
+      groups.get(groupID).missions.push(mission);
+    });
+
+    const groupCount = new Set(references.map((mission) => String(mission.missionGroupId))).size;
+    elements.missionRewardReferenceTitle.textContent = `RewardId ${rewardID} 的任务引用`;
+    elements.missionRewardReferenceSummary.textContent = references.length
+      ? `${references.length.toLocaleString()} 个任务 · ${categories.size.toLocaleString()} 个类型 · ${groupCount.toLocaleString()} 个任务组`
+      : "当前没有任务引用此奖励";
+    elements.missionRewardReferenceContent.replaceChildren();
+
+    if (!references.length) {
+      const empty = document.createElement("div");
+      empty.className = "impact-section impact-no-change";
+      empty.textContent = "没有找到引用该 RewardId 的任务。";
+      elements.missionRewardReferenceContent.append(empty);
+    } else {
+      categories.forEach((groups, categoryType) => {
+        const category = document.createElement("section");
+        category.className = "impact-group";
+        const categoryHeading = document.createElement("header");
+        const categoryTitle = document.createElement("strong");
+        categoryTitle.textContent = missionCategoryLabels[categoryType] || `任务类型 ${categoryType}`;
+        const categoryCount = document.createElement("span");
+        const missionCount = [...groups.values()].reduce((total, entry) => total + entry.missions.length, 0);
+        categoryCount.textContent = `${missionCount.toLocaleString()} 个任务 · ${groups.size.toLocaleString()} 个任务组`;
+        categoryHeading.append(categoryTitle, categoryCount);
+        category.append(categoryHeading);
+        groups.forEach(({ group, missions }, groupID) => {
+          const groupLabel = group ? missionGroupSourceLabel(group) : `未知任务组（${groupID}）`;
+          category.append(renderImpactSection(
+            `${groupLabel} · ${missions.length.toLocaleString()} 个任务`,
+            missions.map((mission) => ({
+              table: "m_mission",
+              tableLabel: "Mission",
+              row: mission.row,
+              identity: [{ name: "MissionId", value: String(mission.missionId) }],
+              titles: mission.names,
+              omitChanges: true
+            }))
+          ));
+        });
+        elements.missionRewardReferenceContent.append(category);
+      });
+    }
+    elements.missionRewardReferenceDialog.showModal();
   }
 
   function renderMissionRewardEmptyRow(columnCount, message) {
@@ -1478,7 +1552,7 @@
     const identity = document.createElement("span");
     identity.className = "impact-identity";
     const identityText = (record.identity || []).map((entry) => `${entry.name}=${entry.value}`).join(", ") || `row=${record.row}`;
-    identity.textContent = `${previewTableName(record.table)} · ${identityText}`;
+    identity.textContent = `${record.tableLabel || previewTableName(record.table)} · ${identityText}`;
     heading.append(identity);
     const titleText = previewLocalizedTitle(record.titles);
     if (titleText) {
@@ -1495,6 +1569,7 @@
       note.textContent = record.note;
       container.append(note);
     }
+    if (record.omitChanges) return container;
     const changes = document.createElement("div");
     changes.className = "impact-changes";
     if (!(record.changes || []).length) {
@@ -2932,6 +3007,7 @@
     state.missionRewardContentPage += 1;
     renderTable();
   });
+  elements.missionRewardReferenceClose.addEventListener("click", () => elements.missionRewardReferenceDialog.close());
   elements.missionTermContentPageSize.addEventListener("change", () => {
     const pageSize = Number(elements.missionTermContentPageSize.value);
     state.missionTermContentPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;

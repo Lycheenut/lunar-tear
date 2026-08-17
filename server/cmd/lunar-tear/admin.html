@@ -129,7 +129,7 @@
                 <div class="mission-reward-panel-scroll">
                   <table class="mission-reward-content-table">
                     <thead>
-                      <tr><th>RewardId</th><th>PossessionType</th><th>PossessionId</th><th>Count</th></tr>
+                      <tr><th>RewardId</th><th>PossessionType</th><th>PossessionId</th><th>Count</th><th>查找引用</th></tr>
                     </thead>
                     <tbody id="mission-reward-content-body"></tbody>
                   </table>
@@ -550,6 +550,20 @@
       </section>
     </section>
   </main>
+
+  <dialog id="mission-reward-reference-dialog" class="confirm-dialog impact-dialog" aria-labelledby="mission-reward-reference-title">
+    <div class="impact-dialog-heading">
+      <div>
+        <p class="eyebrow">MISSION REWARD REFERENCES</p>
+        <h2 id="mission-reward-reference-title">奖励引用</h2>
+      </div>
+      <p id="mission-reward-reference-summary" class="impact-summary"></p>
+    </div>
+    <div id="mission-reward-reference-content" class="impact-preview"></div>
+    <div class="save-actions">
+      <button id="mission-reward-reference-close" class="button ghost" type="button">关闭</button>
+    </div>
+  </dialog>
 
   <dialog id="master-update-dialog" class="confirm-dialog impact-dialog">
     <div class="impact-dialog-heading">
