@@ -49,7 +49,7 @@ func TestBuildEventQuestIndexesUsesSequenceSortOrder(t *testing.T) {
 		{EventQuestSequenceId: 30, SortOrder: 1, QuestId: 100},
 		{EventQuestSequenceId: 31, SortOrder: 1, QuestId: 100},
 	}
-	questsByChapter, questsBySortOrder := buildEventQuestIndexes(chapters, groups, sequences)
+	questsByChapter, questsBySortOrder, questsByDifficulty := buildEventQuestIndexes(chapters, groups, sequences)
 	if want := []int32{100, 200}; !reflect.DeepEqual(questsByChapter[10], want) {
 		t.Fatalf("chapter quests = %v, want %v", questsByChapter[10], want)
 	}
@@ -58,6 +58,44 @@ func TestBuildEventQuestIndexesUsesSequenceSortOrder(t *testing.T) {
 	}
 	if want := []int32{200}; !reflect.DeepEqual(questsBySortOrder[10][2], want) {
 		t.Fatalf("sort-order quests = %v, want %v", questsBySortOrder[10][2], want)
+	}
+	if want := []int32{100, 200}; !reflect.DeepEqual(questsByDifficulty[10][0], want) {
+		t.Fatalf("difficulty quests = %v, want %v", questsByDifficulty[10][0], want)
+	}
+}
+
+func TestBuildBossCountByQuestIdUsesEnemyTypes(t *testing.T) {
+	scenes := []EntityMQuestScene{{QuestSceneId: 1, QuestId: 10}, {QuestSceneId: 2, QuestId: 20}}
+	sceneBattles := []EntityMQuestSceneBattle{{QuestSceneId: 1, BattleGroupId: 100}, {QuestSceneId: 2, BattleGroupId: 200}}
+	battleGroups := []EntityMBattleGroup{
+		{BattleGroupId: 100, WaveNumber: 1, BattleId: 1000},
+		{BattleGroupId: 100, WaveNumber: 2, BattleId: 1001},
+		{BattleGroupId: 200, WaveNumber: 1, BattleId: 2000},
+	}
+	battles := []EntityMBattle{
+		{BattleId: 1000, BattleNpcId: 1, DeckType: 1, BattleNpcDeckNumber: 1},
+		{BattleId: 1001, BattleNpcId: 2, DeckType: 1, BattleNpcDeckNumber: 1},
+		{BattleId: 2000, BattleNpcId: 3, DeckType: 1, BattleNpcDeckNumber: 1},
+	}
+	decks := []EntityMBattleNpcDeck{
+		{BattleNpcId: 1, DeckType: 1, BattleNpcDeckNumber: 1, BattleNpcDeckCharacterUuid01: "normal", BattleNpcDeckCharacterUuid02: "boss-a"},
+		{BattleNpcId: 2, DeckType: 1, BattleNpcDeckNumber: 1, BattleNpcDeckCharacterUuid01: "boss-b", BattleNpcDeckCharacterUuid02: "boss-c"},
+		{BattleNpcId: 3, DeckType: 1, BattleNpcDeckNumber: 1, BattleNpcDeckCharacterUuid01: "normal-only"},
+	}
+	types := []EntityMBattleNpcDeckCharacterType{
+		{BattleNpcId: 1, BattleNpcDeckCharacterUuid: "normal", BattleEnemyType: 1},
+		{BattleNpcId: 1, BattleNpcDeckCharacterUuid: "boss-a", BattleEnemyType: 2},
+		{BattleNpcId: 2, BattleNpcDeckCharacterUuid: "boss-b", BattleEnemyType: 2},
+		{BattleNpcId: 2, BattleNpcDeckCharacterUuid: "boss-c", BattleEnemyType: 2},
+		{BattleNpcId: 3, BattleNpcDeckCharacterUuid: "normal-only", BattleEnemyType: 1},
+	}
+
+	got := buildBossCountByQuestId(scenes, sceneBattles, battleGroups, battles, decks, types)
+	if got[10] != 3 {
+		t.Fatalf("quest 10 boss count = %d, want 3", got[10])
+	}
+	if got[20] != 0 {
+		t.Fatalf("quest 20 boss count = %d, want 0", got[20])
 	}
 }
 

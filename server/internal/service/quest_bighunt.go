@@ -162,6 +162,18 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 		}
 
 		userScore := baseScore * int64(1000+difficultyBonusPermil+aliveBonusPermil+maxComboBonusPermil) / 1000
+		missionScore := int32(userScore)
+		if userScore > int64(^uint32(0)>>1) {
+			missionScore = int32(^uint32(0) >> 1)
+		}
+		user.PendingMissionEvents = append(user.PendingMissionEvents, store.MissionEvent{
+			ConditionType:    int32(model.MissionClearConditionTypeBigHuntHighScore),
+			Value:            missionScore,
+			IsValue:          true,
+			TargetId:         bossQuest.BigHuntBossId,
+			DeckCharacterIds: bigHuntDeckCharacterIds(cat.Costume, detail),
+			BigHuntWithDeck:  true,
+		})
 
 		if userScore > user.BigHuntMaxScores[bossQuest.BigHuntBossId].MaxScore {
 			user.BigHuntMaxScores[bossQuest.BigHuntBossId] = store.BigHuntMaxScore{
@@ -282,6 +294,23 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 		ScoreReward:  scoreRewards,
 		BattleReport: battleReport,
 	}, nil
+}
+
+func bigHuntDeckCharacterIds(catalog *masterdata.CostumeCatalog, detail store.BigHuntBattleDetail) []int32 {
+	if catalog == nil {
+		return nil
+	}
+	var result []int32
+	seen := make(map[int32]bool)
+	for _, info := range detail.CostumeBattleInfo {
+		characterId := catalog.Costumes[info.CostumeId].CharacterId
+		if characterId == 0 || seen[characterId] {
+			continue
+		}
+		seen[characterId] = true
+		result = append(result, characterId)
+	}
+	return result
 }
 
 func (s *BigHuntServiceServer) RestartBigHuntQuest(ctx context.Context, req *pb.RestartBigHuntQuestRequest) (*pb.RestartBigHuntQuestResponse, error) {

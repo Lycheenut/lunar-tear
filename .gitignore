@@ -1,6 +1,7 @@
 # IDE / Cursor
 .cursor/
 .codex/
+.vscode/
 
 # Build artifacts
 server/bin/
