@@ -106,6 +106,7 @@ type QuestCatalog struct {
 	PickupRewardIdsByGroupAndEffectId  map[int32]map[int32][]int32
 	BattleDropEffectIdByRewardId       map[int32]int32
 	BattleDropsByQuestId               map[int32][]BattleDropInfo
+	BossCountByQuestId                 map[int32]int32
 	QuestBonusById                     map[int32]EntityMQuestBonus
 	QuestBonusCharacterRowsByGroupId   map[int32][]EntityMQuestBonusCharacterGroup
 	QuestBonusWeaponRowsByGroupId      map[int32][]EntityMQuestBonusWeaponGroup
@@ -128,6 +129,7 @@ type QuestCatalog struct {
 	EventChapterById                   map[int32]EntityMEventQuestChapter
 	EventQuestIdsByChapterId           map[int32][]int32
 	EventQuestIdsByChapterSortOrder    map[int32]map[int32][]int32
+	EventQuestIdsByChapterDifficulty   map[int32]map[int32][]int32
 	LimitContentQuestIds               map[int32]bool
 	EventUnlockConditions              []EventQuestUnlockCondition
 	EventCharacterIdsByChapterId       map[int32]map[int32]bool
@@ -184,7 +186,7 @@ func buildEventQuestIndexes(
 	chapters []EntityMEventQuestChapter,
 	groups []EntityMEventQuestSequenceGroup,
 	sequences []EntityMEventQuestSequence,
-) (map[int32][]int32, map[int32]map[int32][]int32) {
+) (map[int32][]int32, map[int32]map[int32][]int32, map[int32]map[int32][]int32) {
 	sort.Slice(groups, func(i, j int) bool {
 		if groups[i].EventQuestSequenceGroupId != groups[j].EventQuestSequenceGroupId {
 			return groups[i].EventQuestSequenceGroupId < groups[j].EventQuestSequenceGroupId
@@ -204,9 +206,15 @@ func buildEventQuestIndexes(
 		return sequences[i].QuestId < sequences[j].QuestId
 	})
 
-	sequenceIdsByGroup := make(map[int32][]int32)
+	type sequenceRef struct {
+		id         int32
+		difficulty int32
+	}
+	sequencesByGroup := make(map[int32][]sequenceRef)
 	for _, row := range groups {
-		sequenceIdsByGroup[row.EventQuestSequenceGroupId] = append(sequenceIdsByGroup[row.EventQuestSequenceGroupId], row.EventQuestSequenceId)
+		sequencesByGroup[row.EventQuestSequenceGroupId] = append(sequencesByGroup[row.EventQuestSequenceGroupId], sequenceRef{
+			id: row.EventQuestSequenceId, difficulty: row.DifficultyType,
+		})
 	}
 	questRowsBySequence := make(map[int32][]EntityMEventQuestSequence)
 	for _, row := range sequences {
@@ -215,15 +223,25 @@ func buildEventQuestIndexes(
 
 	questIdsByChapter := make(map[int32][]int32)
 	questIdsByChapterSortOrder := make(map[int32]map[int32][]int32)
+	questIdsByChapterDifficulty := make(map[int32]map[int32][]int32)
 	for _, chapter := range chapters {
 		seen := make(map[int32]bool)
 		seenBySortOrder := make(map[int32]map[int32]bool)
 		bySortOrder := make(map[int32][]int32)
-		for _, sequenceId := range sequenceIdsByGroup[chapter.EventQuestSequenceGroupId] {
-			for _, row := range questRowsBySequence[sequenceId] {
+		seenByDifficulty := make(map[int32]map[int32]bool)
+		byDifficulty := make(map[int32][]int32)
+		for _, sequence := range sequencesByGroup[chapter.EventQuestSequenceGroupId] {
+			for _, row := range questRowsBySequence[sequence.id] {
 				if !seen[row.QuestId] {
 					seen[row.QuestId] = true
 					questIdsByChapter[chapter.EventQuestChapterId] = append(questIdsByChapter[chapter.EventQuestChapterId], row.QuestId)
+				}
+				if seenByDifficulty[sequence.difficulty] == nil {
+					seenByDifficulty[sequence.difficulty] = make(map[int32]bool)
+				}
+				if !seenByDifficulty[sequence.difficulty][row.QuestId] {
+					seenByDifficulty[sequence.difficulty][row.QuestId] = true
+					byDifficulty[sequence.difficulty] = append(byDifficulty[sequence.difficulty], row.QuestId)
 				}
 				if seenBySortOrder[row.SortOrder] == nil {
 					seenBySortOrder[row.SortOrder] = make(map[int32]bool)
@@ -235,8 +253,75 @@ func buildEventQuestIndexes(
 			}
 		}
 		questIdsByChapterSortOrder[chapter.EventQuestChapterId] = bySortOrder
+		questIdsByChapterDifficulty[chapter.EventQuestChapterId] = byDifficulty
 	}
-	return questIdsByChapter, questIdsByChapterSortOrder
+	return questIdsByChapter, questIdsByChapterSortOrder, questIdsByChapterDifficulty
+}
+
+func buildBossCountByQuestId(
+	scenes []EntityMQuestScene,
+	sceneBattles []EntityMQuestSceneBattle,
+	battleGroups []EntityMBattleGroup,
+	battles []EntityMBattle,
+	npcDecks []EntityMBattleNpcDeck,
+	npcCharacterTypes []EntityMBattleNpcDeckCharacterType,
+) map[int32]int32 {
+	const battleEnemyTypeBoss int32 = 2
+
+	type npcDeckKey struct {
+		battleNpcId int64
+		deckType    int32
+		deckNumber  int32
+	}
+	type npcCharacterKey struct {
+		battleNpcId int64
+		uuid        string
+	}
+
+	questIdBySceneId := make(map[int32]int32, len(scenes))
+	for _, scene := range scenes {
+		questIdBySceneId[scene.QuestSceneId] = scene.QuestId
+	}
+	battleIdsByGroupId := make(map[int32][]int32)
+	for _, group := range battleGroups {
+		battleIdsByGroupId[group.BattleGroupId] = append(battleIdsByGroupId[group.BattleGroupId], group.BattleId)
+	}
+	battleById := make(map[int32]EntityMBattle, len(battles))
+	for _, battle := range battles {
+		battleById[battle.BattleId] = battle
+	}
+	deckByKey := make(map[npcDeckKey]EntityMBattleNpcDeck, len(npcDecks))
+	for _, deck := range npcDecks {
+		deckByKey[npcDeckKey{deck.BattleNpcId, deck.DeckType, deck.BattleNpcDeckNumber}] = deck
+	}
+	enemyTypeByCharacter := make(map[npcCharacterKey]int32, len(npcCharacterTypes))
+	for _, characterType := range npcCharacterTypes {
+		enemyTypeByCharacter[npcCharacterKey{characterType.BattleNpcId, characterType.BattleNpcDeckCharacterUuid}] = characterType.BattleEnemyType
+	}
+
+	counts := make(map[int32]int32)
+	for _, sceneBattle := range sceneBattles {
+		questId := questIdBySceneId[sceneBattle.QuestSceneId]
+		if questId == 0 {
+			continue
+		}
+		for _, battleId := range battleIdsByGroupId[sceneBattle.BattleGroupId] {
+			battle, ok := battleById[battleId]
+			if !ok {
+				continue
+			}
+			deck, ok := deckByKey[npcDeckKey{battle.BattleNpcId, battle.DeckType, battle.BattleNpcDeckNumber}]
+			if !ok {
+				continue
+			}
+			for _, uuid := range []string{deck.BattleNpcDeckCharacterUuid01, deck.BattleNpcDeckCharacterUuid02, deck.BattleNpcDeckCharacterUuid03} {
+				if uuid != "" && enemyTypeByCharacter[npcCharacterKey{battle.BattleNpcId, uuid}] == battleEnemyTypeBoss {
+					counts[questId]++
+				}
+			}
+		}
+	}
+	return counts
 }
 
 func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionResolver) (*QuestCatalog, error) {
@@ -517,6 +602,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load battle npc drop category table: %w", err)
 	}
+	npcCharacterTypes, err := utils.ReadTable[EntityMBattleNpcDeckCharacterType]("m_battle_npc_deck_character_type")
+	if err != nil {
+		return nil, fmt.Errorf("load battle npc character type table: %w", err)
+	}
 
 	rentalDecks, err := utils.ReadTable[EntityMBattleRentalDeck]("m_battle_rental_deck")
 	if err != nil {
@@ -728,7 +817,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load event quest sequences: %w", err)
 	}
-	eventQuestIdsByChapterId, eventQuestIdsByChapterSortOrder := buildEventQuestIndexes(eventChapters, eventSequenceGroups, eventSequences)
+	eventQuestIdsByChapterId, eventQuestIdsByChapterSortOrder, eventQuestIdsByChapterDifficulty := buildEventQuestIndexes(eventChapters, eventSequenceGroups, eventSequences)
 	limitContentQuestIds := make(map[int32]bool)
 	for _, relation := range eventLimitRelations {
 		for _, questId := range eventQuestIdsByChapterId[relation.EventQuestChapterId] {
@@ -979,6 +1068,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 			battleDropsByQuestId[questId] = drops
 		}
 	}
+	bossCountByQuestId := buildBossCountByQuestId(scenes, sceneBattles, battleGroups, battles, npcDecks, npcCharacterTypes)
 
 	rentalBattleGroups := make(map[int32]bool, len(rentalDecks))
 	for _, rd := range rentalDecks {
@@ -1016,6 +1106,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		PickupRewardIdsByGroupAndEffectId:  pickupRewardIdsByGroupAndEffectId,
 		BattleDropEffectIdByRewardId:       battleDropEffectIdByRewardId,
 		BattleDropsByQuestId:               battleDropsByQuestId,
+		BossCountByQuestId:                 bossCountByQuestId,
 		QuestBonusById:                     questBonusById,
 		QuestBonusCharacterRowsByGroupId:   questBonusCharacterRowsByGroupId,
 		QuestBonusWeaponRowsByGroupId:      questBonusWeaponRowsByGroupId,
@@ -1038,6 +1129,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		EventChapterById:                   eventChapterById,
 		EventQuestIdsByChapterId:           eventQuestIdsByChapterId,
 		EventQuestIdsByChapterSortOrder:    eventQuestIdsByChapterSortOrder,
+		EventQuestIdsByChapterDifficulty:   eventQuestIdsByChapterDifficulty,
 		LimitContentQuestIds:               limitContentQuestIds,
 		EventUnlockConditions:              eventUnlockConditions,
 		EventCharacterIdsByChapterId:       eventCharacterIdsByChapterId,

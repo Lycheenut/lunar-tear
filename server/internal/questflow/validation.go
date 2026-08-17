@@ -210,7 +210,7 @@ func validateDailyClearLimit(state store.UserQuestState, quest masterdata.Entity
 	return nil
 }
 
-func recordQuestClears(user *store.UserState, state *store.UserQuestState, questId, count int32, withoutSkip bool, nowMillis int64) {
+func (h *QuestHandler) recordQuestClears(user *store.UserState, state *store.UserQuestState, questId, count int32, withoutSkip bool, nowMillis int64) {
 	if state.LastClearDatetime < gametime.StartOfBusinessDayAtMillis(nowMillis) {
 		state.DailyClearCount = 0
 	}
@@ -218,7 +218,21 @@ func recordQuestClears(user *store.UserState, state *store.UserQuestState, quest
 	state.DailyClearCount += count
 	state.LastClearDatetime = nowMillis
 	if withoutSkip {
-		store.AddMissionCount(user, int32(model.MissionClearConditionTypeQuestClearByCountWithoutSkip), count, questId, 0)
+		deckCharacterIds, deckCostumeIds := h.questDeckMissionContext(user, state.UserDeckNumber)
+		user.PendingMissionEvents = append(user.PendingMissionEvents, store.MissionEvent{
+			ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
+			Count:              count,
+			TargetId:           questId,
+			DeckCharacterIds:   deckCharacterIds,
+			DeckCostumeIds:     deckCostumeIds,
+			QuestClearWithDeck: true,
+		})
+		user.PendingMissionEvents = append(user.PendingMissionEvents, store.MissionEvent{
+			ConditionType:    int32(model.MissionClearConditionTypeQuestClearByCountWithoutSkip),
+			Count:            count,
+			TargetId:         questId,
+			DeckCharacterIds: deckCharacterIds,
+		})
 	}
 }
 

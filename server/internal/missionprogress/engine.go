@@ -39,10 +39,12 @@ const (
 	eventQuestTypeTower                     = int32(10)
 	eventQuestTypeLimitContent              = int32(11)
 	eventQuestTypeLabyrinth                 = int32(12)
+	eventQuestTypeCharacterQuest            = int32(7)
 	gachaOptionChapterSummon                = int32(100001)
 	gachaOptionDailySummon                  = int32(100026)
 	shopOptionItemShop                      = int32(2)
 	mainFunctionTypeExploration             = int32(4)
+	missionLinkDestinationQuest             = int32(4)
 )
 
 // Apply reconciles state-derived conditions and applies transaction-local
@@ -374,6 +376,44 @@ func applyEvent(catalogs *runtime.Catalogs, user *store.UserState, event store.M
 }
 
 func eventMatches(catalogs *runtime.Catalogs, mission masterdata.EntityMMission, event store.MissionEvent) bool {
+	conditionType := model.MissionClearConditionType(mission.MissionClearConditionType)
+	if conditionType == model.MissionClearConditionTypeQuestClearByCount ||
+		conditionType == model.MissionClearConditionTypeQuestClearByCountWithoutSkip {
+		if !questMissionMatches(catalogs, mission, event.TargetId) {
+			return false
+		}
+		if conditionType == model.MissionClearConditionTypeQuestClearByCount {
+			requiredCharacterId := requiredDeckCharacterByOption[mission.MissionClearConditionOptionGroupId]
+			if requiredCharacterId != 0 {
+				if !event.QuestClearWithDeck || !containsTarget(event.DeckCharacterIds, requiredCharacterId) {
+					return false
+				}
+			}
+			if requiredCostumeId := requiredDeckCostumeByOption[mission.MissionClearConditionOptionGroupId]; requiredCostumeId != 0 {
+				if !event.QuestClearWithDeck || !containsTarget(event.DeckCostumeIds, requiredCostumeId) {
+					return false
+				}
+			}
+			// Deck-context clear events exist only for conditions that snapshots
+			// cannot reconstruct. Ordinary clear-count missions are reconciled
+			// from UserQuestState and must not be incremented a second time.
+			if event.QuestClearWithDeck && requiredCharacterId == 0 && requiredDeckCostumeByOption[mission.MissionClearConditionOptionGroupId] == 0 {
+				return false
+			}
+		}
+		if requiredCharacterId := requiredSoloCharacterByDetail[mission.MissionClearConditionOptionDetailGroupId]; requiredCharacterId != 0 {
+			return len(event.DeckCharacterIds) == 1 && event.DeckCharacterIds[0] == requiredCharacterId
+		}
+		return true
+	}
+	if conditionType == model.MissionClearConditionTypeBigHuntHighScore {
+		if requiredCharacterIds := requiredBigHuntCharactersByDetail[mission.MissionClearConditionOptionDetailGroupId]; len(requiredCharacterIds) != 0 {
+			return event.BigHuntWithDeck && bigHuntBossId(catalogs, mission) == event.TargetId && containsAllTargets(event.DeckCharacterIds, requiredCharacterIds)
+		}
+		if mission.MissionClearConditionOptionGroupId >= 300001 && mission.MissionClearConditionOptionGroupId <= 300005 {
+			return bigHuntBossId(catalogs, mission) == event.TargetId
+		}
+	}
 	if detail := mission.MissionClearConditionOptionDetailGroupId; detail != 0 {
 		return detail == event.OptionDetailGroupId || detail == event.TargetId
 	}
@@ -381,14 +421,14 @@ func eventMatches(catalogs *runtime.Catalogs, mission masterdata.EntityMMission,
 	if option == 0 {
 		return true
 	}
-	conditionType := model.MissionClearConditionType(mission.MissionClearConditionType)
-	if conditionType == model.MissionClearConditionTypeQuestClearByCount ||
-		conditionType == model.MissionClearConditionTypeQuestClearByCountWithoutSkip {
-		return questOptionMatches(catalogs, option, event.TargetId)
-	}
 	if conditionType == model.MissionClearConditionTypeGachaDrawByCount && option == gachaOptionChapterSummon {
 		entry := gachaEntry(catalogs, event.TargetId)
 		return entry != nil && entry.GachaLabelType == model.GachaLabelChapter
+	}
+	if conditionType == model.MissionClearConditionTypeGachaDrawByCount {
+		if targetIds, ok := gachaTargetsByOption[option]; ok {
+			return containsTarget(targetIds, event.TargetId)
+		}
 	}
 	if conditionType == model.MissionClearConditionTypeShopBuyByCount && option == shopOptionItemShop {
 		return catalogs.Shop != nil && containsTarget(catalogs.Shop.ItemShopPool, event.TargetId)
@@ -453,8 +493,6 @@ func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *st
 			add(model.MissionClearConditionTypeCostumeEnhanceByCount, 1, current.CostumeId)
 		}
 		add(model.MissionClearConditionTypeCostumeLimitBreakByCount, current.LimitBreakCount-old.LimitBreakCount, current.CostumeId)
-		add(model.MissionClearConditionTypeCostumeAwakenCount, current.AwakenCount-old.AwakenCount, current.CostumeId)
-		add(model.MissionClearConditionTypeCostumeLotteryEffectSlotUnlockCount, current.CostumeLotteryEffectUnlockedSlotCount-old.CostumeLotteryEffectUnlockedSlotCount, current.CostumeId)
 	}
 	for uuid, current := range after.CostumeActiveSkills {
 		if old, existed := before.CostumeActiveSkills[uuid]; existed && current.Level > old.Level {
@@ -494,11 +532,6 @@ func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *st
 	}
 	if delta := after.Login.TotalLoginCount - before.Login.TotalLoginCount; delta > 0 {
 		add(model.MissionClearConditionTypeUserLoginByCountFromUnlock, delta, 0)
-	}
-	for uuid, current := range after.WeaponAwakens {
-		if _, existed := before.WeaponAwakens[uuid]; !existed && current.UserWeaponUuid != "" {
-			add(model.MissionClearConditionTypeWeaponAwakenCount, 1, after.Weapons[uuid].WeaponId)
-		}
 	}
 	for key, current := range after.CostumeLotteryEffects {
 		if old, existed := before.CostumeLotteryEffects[key]; !existed || old.OddsNumber != current.OddsNumber {
@@ -553,6 +586,12 @@ func missionTargetId(mission masterdata.EntityMMission) int32 {
 }
 
 func questClearCount(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission, missionState store.UserMissionState) int32 {
+	if requiredDeckCharacterByOption[mission.MissionClearConditionOptionGroupId] != 0 ||
+		requiredDeckCostumeByOption[mission.MissionClearConditionOptionGroupId] != 0 {
+		// Historical deck composition is not persisted per clear. These
+		// missions are advanced only by transaction-local clear events.
+		return 0
+	}
 	var count int32
 	for questId, state := range user.Quests {
 		if !questMissionMatches(catalogs, mission, questId) {
@@ -578,10 +617,48 @@ func questClearedForMission(catalogs *runtime.Catalogs, quest store.UserQuestSta
 }
 
 func questMissionMatches(catalogs *runtime.Catalogs, mission masterdata.EntityMMission, questId int32) bool {
-	if mission.MissionClearConditionOptionDetailGroupId != 0 {
-		return mission.MissionClearConditionOptionDetailGroupId == questId
+	if mission.MissionClearConditionOptionGroupId == 0 && mission.MissionClearConditionOptionDetailGroupId == 0 {
+		return true
+	}
+	if catalogs == nil || catalogs.Quest == nil {
+		return false
+	}
+	if detail := mission.MissionClearConditionOptionDetailGroupId; detail != 0 {
+		if targetIds, ok := mainQuestTargetsByDetail[detail]; ok {
+			return containsTarget(targetIds, questId)
+		}
+		if detail == 500013 {
+			return eventQuestSelectorMatchesAnyChapter(catalogs.Quest, eventQuestSelector{
+				difficulty: eventQuestDifficultyExHard, ordinal: 3,
+			}, questId)
+		}
+		return false
 	}
 	option := mission.MissionClearConditionOptionGroupId
+	if targetIds, ok := specificEventQuestTargetsByOption[option]; ok {
+		return containsTarget(targetIds, questId)
+	}
+	if directQuestOptions[option] {
+		return option == questId
+	}
+	if requiredDeckCharacterByOption[option] != 0 || requiredDeckCostumeByOption[option] != 0 {
+		return true
+	}
+	if targetIds, ok := mainQuestTargetsByOption[option]; ok {
+		return containsTarget(targetIds, questId)
+	}
+	if selector, ok := eventSelectorForOption(option); ok {
+		chapterIds, anyChapter := eventQuestChapterIds(catalogs, mission)
+		if anyChapter {
+			return eventQuestSelectorMatchesAnyChapter(catalogs.Quest, selector, questId)
+		}
+		for _, chapterId := range chapterIds {
+			if eventQuestSelectorMatches(catalogs.Quest, chapterId, selector, questId) {
+				return true
+			}
+		}
+		return false
+	}
 	return option == 0 || questOptionMatches(catalogs, option, questId)
 }
 
@@ -603,6 +680,8 @@ func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool 
 		return catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId] == mainQuestDifficultyVeryHard
 	case eventQuestTypeCharacter, questClearOptionDarkMemory:
 		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeCharacter, questId)
+	case 421, 540:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeCharacter, questId)
 	case eventQuestTypeTower, questClearOptionAbyssTower:
 		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeTower, questId)
 	case eventQuestTypeLimitContent:
@@ -613,15 +692,86 @@ func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool 
 		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeDayOfTheWeek, questId)
 	case questClearOptionGuerrilla:
 		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeGuerrilla, questId)
-	case questClearOptionDungeon:
+	case questClearOptionDungeon, 500072:
 		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeDungeon, questId)
 	case questClearOptionDailyChallenge:
 		return eventDailyQuestMatches(catalogs.Quest, questId)
+	case 85:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeCharacterQuest, questId)
+	case 86:
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeLimitContent, questId)
+	}
+	if characterId := limitContentCharacterByOption[option]; characterId != 0 {
+		return eventQuestCharacterMatches(catalogs.Quest, eventQuestTypeLimitContent, characterId, questId)
+	}
+	if characterId := darkMemoryCharacterByOption[option]; characterId != 0 {
+		return eventQuestCharacterMatches(catalogs.Quest, eventQuestTypeCharacter, characterId, questId)
 	}
 	if ids, isEventChapter := catalogs.Quest.EventQuestIdsByChapterId[option]; isEventChapter {
 		return containsTarget(ids, questId)
 	}
-	return option == questId
+	return false
+}
+
+func eventQuestChapterIds(catalogs *runtime.Catalogs, mission masterdata.EntityMMission) ([]int32, bool) {
+	if catalogs.Mission == nil || catalogs.Quest == nil {
+		return nil, false
+	}
+	option := mission.MissionClearConditionOptionGroupId
+	if link, ok := catalogs.Mission.LinkById[mission.MissionLinkId]; ok && link.DestinationDomainType == missionLinkDestinationQuest {
+		if link.DestinationDomainId == 0 && genericEventOptionsWithoutChapter[option] {
+			return nil, true
+		}
+		if len(catalogs.Quest.EventQuestIdsByChapterId[link.DestinationDomainId]) != 0 {
+			return []int32{link.DestinationDomainId}, false
+		}
+	}
+
+	seen := make(map[int32]bool)
+	var chapterIds []int32
+	add := func(chapterId int32) {
+		if chapterId == 0 || seen[chapterId] || len(catalogs.Quest.EventQuestIdsByChapterId[chapterId]) == 0 {
+			return
+		}
+		seen[chapterId] = true
+		chapterIds = append(chapterIds, chapterId)
+	}
+	for _, chapterId := range catalogs.Mission.QuestChapterIdsByClearOption[option] {
+		add(chapterId)
+	}
+	for _, chapterId := range fallbackEventChapterIdsByOption[option] {
+		add(chapterId)
+	}
+	if len(chapterIds) == 0 && genericEventOptionsWithoutChapter[option] {
+		return nil, true
+	}
+	return chapterIds, false
+}
+
+func eventQuestSelectorMatchesAnyChapter(catalog *masterdata.QuestCatalog, selector eventQuestSelector, questId int32) bool {
+	for chapterId := range catalog.EventQuestIdsByChapterId {
+		if eventQuestSelectorMatches(catalog, chapterId, selector, questId) {
+			return true
+		}
+	}
+	return false
+}
+
+func eventQuestSelectorMatches(catalog *masterdata.QuestCatalog, chapterId int32, selector eventQuestSelector, questId int32) bool {
+	if selector.all {
+		return catalog.EventQuestBelongsToChapter(chapterId, questId)
+	}
+	if selector.sortOrder != 0 {
+		return containsTarget(catalog.EventQuestIdsByChapterSortOrder[chapterId][selector.sortOrder], questId)
+	}
+	questIds := catalog.EventQuestIdsByChapterDifficulty[chapterId][selector.difficulty]
+	if selector.last {
+		return len(questIds) != 0 && questIds[len(questIds)-1] == questId
+	}
+	if selector.ordinal <= 0 || int(selector.ordinal) > len(questIds) {
+		return false
+	}
+	return questIds[selector.ordinal-1] == questId
 }
 
 func eventQuestMatches(catalog *masterdata.QuestCatalog, questId int32) bool {
@@ -636,6 +786,16 @@ func eventQuestMatches(catalog *masterdata.QuestCatalog, questId int32) bool {
 func eventQuestTypeMatches(catalog *masterdata.QuestCatalog, eventQuestType, questId int32) bool {
 	for chapterId, candidateType := range catalog.EventQuestTypeByChapterId {
 		if candidateType == eventQuestType && catalog.EventQuestBelongsToChapter(chapterId, questId) {
+			return true
+		}
+	}
+	return false
+}
+
+func eventQuestCharacterMatches(catalog *masterdata.QuestCatalog, eventQuestType, characterId, questId int32) bool {
+	for chapterId, candidateType := range catalog.EventQuestTypeByChapterId {
+		if candidateType == eventQuestType && catalog.EventCharacterIdsByChapterId[chapterId][characterId] &&
+			catalog.EventQuestBelongsToChapter(chapterId, questId) {
 			return true
 		}
 	}
@@ -673,6 +833,12 @@ func libraryElementCount(user *store.UserState) int32 {
 	for _, row := range user.Weapons {
 		weapons[row.WeaponId] = true
 	}
+	for id, row := range user.WeaponNotes {
+		if row.WeaponId != 0 {
+			id = row.WeaponId
+		}
+		weapons[id] = true
+	}
 	companions := make(map[int32]bool)
 	for _, row := range user.Companions {
 		companions[row.CompanionId] = true
@@ -681,7 +847,14 @@ func libraryElementCount(user *store.UserState) int32 {
 	for _, row := range user.Thoughts {
 		thoughts[row.ThoughtId] = true
 	}
-	return clampInt(len(costumes) + len(weapons) + len(companions) + len(thoughts))
+	memories := make(map[int32]bool)
+	for id, row := range user.PartsGroupNotes {
+		if row.PartsGroupId != 0 {
+			id = row.PartsGroupId
+		}
+		memories[id] = true
+	}
+	return clampInt(len(costumes) + len(weapons) + len(companions) + len(memories) + len(thoughts))
 }
 
 func maxCostumeLevel(user *store.UserState, mission masterdata.EntityMMission) int32 {
@@ -821,6 +994,10 @@ func hasPossession(user *store.UserState, possessionType model.PossessionType, i
 }
 
 func bigHuntHighScore(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission) int32 {
+	if len(requiredBigHuntCharactersByDetail[mission.MissionClearConditionOptionDetailGroupId]) != 0 {
+		// Historical score state does not retain the decks used for that score.
+		return 0
+	}
 	var value int64
 	if bossId := bigHuntBossId(catalogs, mission); bossId != 0 {
 		value = user.BigHuntMaxScores[bossId].MaxScore
@@ -872,6 +1049,15 @@ var bigHuntBossIdByMissionDetail = map[int32]int32{
 	500102: 4, // Bright
 	500108: 2, // Soggy
 	500109: 4, // Bright
+}
+
+func containsAllTargets(actual, required []int32) bool {
+	for _, target := range required {
+		if !containsTarget(actual, target) {
+			return false
+		}
+	}
+	return true
 }
 
 func releasedPanelCount(catalogs *runtime.Catalogs, user *store.UserState, mission masterdata.EntityMMission) int32 {

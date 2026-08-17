@@ -158,6 +158,10 @@ type MissionEvent struct {
 	TargetId            int32
 	OptionGroupId       int32
 	OptionDetailGroupId int32
+	DeckCharacterIds    []int32
+	DeckCostumeIds      []int32
+	QuestClearWithDeck  bool
+	BigHuntWithDeck     bool
 }
 
 func ResetMissionValue(user *UserState, conditionType, targetId, optionGroupId int32) {

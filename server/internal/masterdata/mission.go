@@ -22,6 +22,8 @@ type MissionCatalog struct {
 	TermById                       map[int32]EntityMMissionTerm
 	UnlockById                     map[int32]EntityMMissionUnlockCondition
 	GroupById                      map[int32]EntityMMissionGroup
+	LinkById                       map[int32]EntityMMissionLink
+	QuestChapterIdsByClearOption   map[int32][]int32
 	CompletePossessionsByMissionId map[int32][]EntityMCompleteMissionGroup
 	WebviewPageNumberByPageId      map[int32]int32
 	PassById                       map[int32]MissionPassCatalog
@@ -65,6 +67,10 @@ func LoadMissionCatalog() (*MissionCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load mission groups: %w", err)
 	}
+	links, err := utils.ReadTable[EntityMMissionLink]("m_mission_link")
+	if err != nil {
+		return nil, fmt.Errorf("load mission links: %w", err)
+	}
 	completePossessions, err := utils.ReadTable[EntityMCompleteMissionGroup]("m_complete_mission_group")
 	if err != nil {
 		return nil, fmt.Errorf("load complete mission groups: %w", err)
@@ -79,6 +85,8 @@ func LoadMissionCatalog() (*MissionCatalog, error) {
 		MissionIdsByType: make(map[int32][]int32), MeasurableMissionIdsByType: make(map[int32][]int32),
 		RewardsById: make(map[int32][]EntityMMissionReward), TermById: make(map[int32]EntityMMissionTerm),
 		UnlockById: make(map[int32]EntityMMissionUnlockCondition), GroupById: make(map[int32]EntityMMissionGroup),
+		LinkById:                       make(map[int32]EntityMMissionLink),
+		QuestChapterIdsByClearOption:   make(map[int32][]int32),
 		CompletePossessionsByMissionId: make(map[int32][]EntityMCompleteMissionGroup),
 		WebviewPageNumberByPageId:      make(map[int32]int32), PassById: make(map[int32]MissionPassCatalog),
 		PassIdByMissionId: make(map[int32]int32),
@@ -103,6 +111,24 @@ func LoadMissionCatalog() (*MissionCatalog, error) {
 	}
 	for _, row := range groups {
 		c.GroupById[row.MissionGroupId] = row
+	}
+	for _, row := range links {
+		c.LinkById[row.MissionLinkId] = row
+	}
+	seenQuestChaptersByOption := make(map[int32]map[int32]bool)
+	for _, mission := range missions {
+		link, ok := c.LinkById[mission.MissionLinkId]
+		if !ok || link.DestinationDomainType != 4 || link.DestinationDomainId == 0 || mission.MissionClearConditionOptionGroupId == 0 {
+			continue
+		}
+		option := mission.MissionClearConditionOptionGroupId
+		if seenQuestChaptersByOption[option] == nil {
+			seenQuestChaptersByOption[option] = make(map[int32]bool)
+		}
+		if !seenQuestChaptersByOption[option][link.DestinationDomainId] {
+			seenQuestChaptersByOption[option][link.DestinationDomainId] = true
+			c.QuestChapterIdsByClearOption[option] = append(c.QuestChapterIdsByClearOption[option], link.DestinationDomainId)
+		}
 	}
 	for _, row := range completePossessions {
 		c.CompletePossessionsByMissionId[row.MissionId] = append(c.CompletePossessionsByMissionId[row.MissionId], row)

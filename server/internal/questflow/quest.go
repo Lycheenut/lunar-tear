@@ -117,7 +117,7 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 		questState.LatestStartDatetime = nowMillis
 	} else {
 		questState.QuestStateType = model.UserQuestStateTypeCleared
-		recordQuestClears(user, &questState, questId, 1, true, nowMillis)
+		h.recordQuestClears(user, &questState, questId, 1, true, nowMillis)
 		if sceneIds := h.SceneIdsByQuestId[questId]; len(sceneIds) > 0 {
 			firstSceneId := sceneIds[0]
 			prevSceneId := user.MainQuest.CurrentQuestSceneId
@@ -163,7 +163,7 @@ func (h *QuestHandler) applyReplayStart(user *store.UserState, quest masterdata.
 	} else {
 		if questState.QuestStateType != model.UserQuestStateTypeCleared {
 			questState.QuestStateType = model.UserQuestStateTypeCleared
-			recordQuestClears(user, &questState, questId, 1, true, nowMillis)
+			h.recordQuestClears(user, &questState, questId, 1, true, nowMillis)
 		}
 		user.Quests[questId] = questState
 		if sceneIds := h.SceneIdsByQuestId[questId]; len(sceneIds) > 0 {
@@ -233,7 +233,7 @@ func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, t
 		}
 	}
 	questState.QuestStateType = model.UserQuestStateTypeCleared
-	recordQuestClears(user, &questState, questId, 1, true, nowMillis)
+	h.recordQuestClears(user, &questState, questId, 1, true, nowMillis)
 	questState.IsBattleOnly = false
 	user.Quests[questId] = questState
 }
@@ -252,7 +252,7 @@ func (h *QuestHandler) finalizeChainPreviousQuest(user *store.UserState, questId
 		questState.IsRewardGranted = true
 	}
 	questState.QuestStateType = model.UserQuestStateTypeCleared
-	recordQuestClears(user, &questState, questId, 1, true, nowMillis)
+	h.recordQuestClears(user, &questState, questId, 1, true, nowMillis)
 	questState.IsBattleOnly = false
 	user.Quests[questId] = questState
 	log.Printf("[HandleMainQuestSceneProgress] finalized chain-previous quest %d (cleared)", questId)
@@ -296,7 +296,7 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 		target := h.targetForMain(questId)
 		outcome = h.evaluateFinishOutcome(user, questId, target, nowMillis)
 		h.applyQuestVictory(user, questId, target, &outcome, nowMillis, wasReplay)
-		store.AddMissionCount(user, int32(model.MissionClearConditionTypeDefeatBossCount), 1, questId, 0)
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeDefeatBossCount), h.BossCountByQuestId[questId], questId, 0)
 
 		// A replay-flow finish must NOT move the MainFlow scene pointer: the
 		// finished quest is a replay-variant (30000+) with no chapter, so a
@@ -405,7 +405,7 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 	}
 
 	questState := user.Quests[questId]
-	recordQuestClears(user, &questState, questId, skipCount, false, nowMillis)
+	h.recordQuestClears(user, &questState, questId, skipCount, false, nowMillis)
 	user.Quests[questId] = questState
 
 	log.Printf("[HandleQuestSkip] questId=%d skipCount=%d drops=%d gold=%d", questId, skipCount, len(allDrops), goldPerSkip*skipCount)

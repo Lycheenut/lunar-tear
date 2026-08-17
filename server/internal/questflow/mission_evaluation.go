@@ -11,6 +11,31 @@ type questDeckUnit struct {
 	weapon  masterdata.EntityMWeapon
 }
 
+func (h *QuestHandler) questDeckMissionContext(user *store.UserState, userDeckNumber int32) ([]int32, []int32) {
+	deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: userDeckNumber}]
+	if !ok {
+		return nil, nil
+	}
+	var characterIds []int32
+	var costumeIds []int32
+	for _, id := range []string{deck.UserDeckCharacterUuid01, deck.UserDeckCharacterUuid02, deck.UserDeckCharacterUuid03} {
+		dc, ok := user.DeckCharacters[id]
+		if !ok {
+			continue
+		}
+		costumeState, ok := user.Costumes[dc.UserCostumeUuid]
+		if !ok {
+			continue
+		}
+		costume, ok := h.CostumeById[costumeState.CostumeId]
+		if ok {
+			characterIds = append(characterIds, costume.CharacterId)
+			costumeIds = append(costumeIds, costume.CostumeId)
+		}
+	}
+	return characterIds, costumeIds
+}
+
 func (h *QuestHandler) questDeckUnits(user *store.UserState, questId int32) []questDeckUnit {
 	deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: user.Quests[questId].UserDeckNumber}]
 	if !ok {

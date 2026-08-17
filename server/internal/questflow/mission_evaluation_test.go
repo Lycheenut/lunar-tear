@@ -98,6 +98,23 @@ func TestQuestMissionPowerBonusPersistsMissionsAndGrantsRewards(t *testing.T) {
 	}
 }
 
+func TestQuestFinishCountsBossesFromQuestMaster(t *testing.T) {
+	h := questMissionPowerBonusTestHandler(false, 0)
+	h.BossCountByQuestId = map[int32]int32{10: 2}
+	user := questMissionPowerBonusTestUser(model.DeckTypeQuest, 100000)
+
+	h.HandleQuestFinish(user, 10, false, false, 12)
+	for _, event := range user.PendingMissionEvents {
+		if event.ConditionType == int32(model.MissionClearConditionTypeDefeatBossCount) {
+			if event.Count != 2 || event.TargetId != 10 {
+				t.Fatalf("boss mission event = %+v, want count 2 for quest 10", event)
+			}
+			return
+		}
+	}
+	t.Fatal("quest finish did not emit a boss mission event")
+}
+
 func questMissionPowerBonusTestHandler(isBigWinTarget bool, restrictionGroup int32) *QuestHandler {
 	return &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
 		QuestById: map[int32]masterdata.EntityMQuest{10: {
@@ -182,5 +199,35 @@ func TestReplayRewardGroupIsClaimedOnce(t *testing.T) {
 	second := h.evaluateFinishOutcome(user, 10, campaign.QuestTarget{}, 3)
 	if second.ReplayRewardGroupId != 0 || len(second.ReplayFlowFirstClearRewards) != 0 {
 		t.Fatal("replay reward was produced twice")
+	}
+}
+
+func TestRecordQuestClearCapturesDeckCharacters(t *testing.T) {
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		CostumeById: map[int32]masterdata.EntityMCostume{900: {CostumeId: 900, CharacterId: 1015}},
+	}}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 7}] = store.DeckState{
+		DeckType: model.DeckTypeQuest, UserDeckNumber: 7, UserDeckCharacterUuid01: "dc",
+	}
+	user.DeckCharacters["dc"] = store.DeckCharacterState{UserDeckCharacterUuid: "dc", UserCostumeUuid: "costume"}
+	user.Costumes["costume"] = store.CostumeState{UserCostumeUuid: "costume", CostumeId: 900}
+	state := store.UserQuestState{QuestId: 20034, UserDeckNumber: 7}
+
+	h.recordQuestClears(user, &state, 20034, 1, true, 100)
+	if len(user.PendingMissionEvents) != 2 {
+		t.Fatalf("mission event count = %d, want 2", len(user.PendingMissionEvents))
+	}
+	contextEvent := user.PendingMissionEvents[0]
+	if contextEvent.ConditionType != int32(model.MissionClearConditionTypeQuestClearByCount) || !contextEvent.QuestClearWithDeck {
+		t.Fatalf("contextual quest-clear event = %+v", contextEvent)
+	}
+	if len(contextEvent.DeckCostumeIds) != 1 || contextEvent.DeckCostumeIds[0] != 900 {
+		t.Fatalf("recorded quest-clear costume context = %+v", contextEvent)
+	}
+	event := user.PendingMissionEvents[1]
+	if event.TargetId != 20034 || len(event.DeckCharacterIds) != 1 || event.DeckCharacterIds[0] != 1015 {
+		t.Fatalf("recorded quest-clear context = %+v", event)
 	}
 }
