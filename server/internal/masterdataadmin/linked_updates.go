@@ -46,13 +46,21 @@ type UpdateImpactPreview struct {
 	Downstream []RecordPreview `json:"downstream,omitempty"`
 }
 
+type TableReplacementPreview struct {
+	Table       string `json:"table"`
+	BeforeRows  int    `json:"beforeRows"`
+	AfterRows   int    `json:"afterRows"`
+	ChangedRows int    `json:"changedRows"`
+}
+
 type UpdatePreview struct {
-	Impacts          []UpdateImpactPreview `json:"impacts,omitempty"`
-	OtherChanges     []RecordPreview       `json:"otherChanges,omitempty"`
-	RequestedChanges int                   `json:"requestedChanges"`
-	GeneratedChanges int                   `json:"generatedChanges"`
-	TotalChanges     int                   `json:"totalChanges"`
-	ChangedRows      int                   `json:"changedRows"`
+	Impacts           []UpdateImpactPreview     `json:"impacts,omitempty"`
+	OtherChanges      []RecordPreview           `json:"otherChanges,omitempty"`
+	TableReplacements []TableReplacementPreview `json:"tableReplacements,omitempty"`
+	RequestedChanges  int                       `json:"requestedChanges"`
+	GeneratedChanges  int                       `json:"generatedChanges"`
+	TotalChanges      int                       `json:"totalChanges"`
+	ChangedRows       int                       `json:"changedRows"`
 }
 
 type rowRef struct {
@@ -127,14 +135,29 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 	if err != nil {
 		return UpdatePreview{}, err
 	}
-	return assembleUpdatePreview(catalog, request.Changes, planned, impacts, generated, result), nil
+	preview := assembleUpdatePreview(catalog, request.Changes, planned, impacts, generated, result)
+	if request.ShopItemCellGroups != nil {
+		current, _, readErr := file.TableRows(shopItemCellGroupTable)
+		if readErr != nil {
+			return UpdatePreview{}, readErr
+		}
+		_, changedRows, replacementErr := buildShopItemCellGroupReplacement(file, request.ShopItemCellGroups)
+		if replacementErr != nil {
+			return UpdatePreview{}, replacementErr
+		}
+		preview.TableReplacements = append(preview.TableReplacements, TableReplacementPreview{
+			Table: shopItemCellGroupTable, BeforeRows: len(current),
+			AfterRows: len(*request.ShopItemCellGroups), ChangedRows: changedRows,
+		})
+	}
+	return preview, nil
 }
 
 func validateUpdateEnvelope(request UpdateRequest) error {
 	if request.ExpectedVersion == "" {
 		return fmt.Errorf("expectedVersion is required")
 	}
-	if len(request.Changes) == 0 {
+	if len(request.Changes) == 0 && request.ShopItemCellGroups == nil {
 		return fmt.Errorf("at least one change is required")
 	}
 	if len(request.Changes) > 10000 {
@@ -1060,6 +1083,46 @@ func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, impact
 				"MissionTermId":   strconv.FormatInt(mission.MissionTermID, 10),
 			},
 			Titles: cloneTitles(mission.Names),
+		}
+	}
+	fields["m_shop_item_cell"] = map[string]Field{
+		"ShopItemCellId": {Name: "ShopItemCellId", Type: "int", Kind: string(fieldKindInt32), PrimaryKey: true},
+		"StepNumber":     {Name: "StepNumber", Type: "int", Kind: string(fieldKindInt32), PrimaryKey: true},
+		"ShopItemId":     {Name: "ShopItemId", Type: "int", Kind: string(fieldKindInt32)},
+	}
+	for _, cell := range catalog.ShopEditor.Cells {
+		rows[previewRecordKey(rowRef{table: "m_shop_item_cell", row: int(cell.Row)})] = Row{
+			Index: int(cell.Row),
+			Identity: []FieldValue{
+				{Name: "ShopItemCellId", Value: strconv.FormatInt(cell.ShopItemCellID, 10)},
+				{Name: "StepNumber", Value: strconv.FormatInt(cell.StepNumber, 10)},
+			},
+			Values: map[string]string{
+				"ShopItemCellId": strconv.FormatInt(cell.ShopItemCellID, 10),
+				"StepNumber":     strconv.FormatInt(cell.StepNumber, 10),
+				"ShopItemId":     strconv.FormatInt(cell.ShopItemID, 10),
+			},
+		}
+	}
+	fields["m_shop_item"] = map[string]Field{
+		"ShopItemId":   {Name: "ShopItemId", Type: "int", Kind: string(fieldKindInt32), PrimaryKey: true},
+		"PriceType":    {Name: "PriceType", Type: "PriceType", Kind: string(fieldKindInt32)},
+		"PriceId":      {Name: "PriceId", Type: "int", Kind: string(fieldKindInt32)},
+		"Price":        {Name: "Price", Type: "int", Kind: string(fieldKindInt32)},
+		"RegularPrice": {Name: "RegularPrice", Type: "int", Kind: string(fieldKindInt32)},
+	}
+	for _, item := range catalog.ShopEditor.Items {
+		rows[previewRecordKey(rowRef{table: "m_shop_item", row: int(item.Row)})] = Row{
+			Index:    int(item.Row),
+			Identity: []FieldValue{{Name: "ShopItemId", Value: strconv.FormatInt(item.ShopItemID, 10)}},
+			Values: map[string]string{
+				"ShopItemId":   strconv.FormatInt(item.ShopItemID, 10),
+				"PriceType":    strconv.FormatInt(item.PriceType, 10),
+				"PriceId":      strconv.FormatInt(item.PriceID, 10),
+				"Price":        strconv.FormatInt(item.Price, 10),
+				"RegularPrice": strconv.FormatInt(item.RegularPrice, 10),
+			},
+			Titles: cloneTitles(item.Names),
 		}
 	}
 	requestedByRecord := changesByRecord(requested)

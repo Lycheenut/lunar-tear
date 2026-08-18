@@ -36,6 +36,15 @@ func (r *titleResolver) loadShopRelations(file *memorydb.File) {
 
 	byShop := make(map[int64]map[int64]*ShopRelation)
 	byTerm := make(map[int64]map[int64]*ShopRelation)
+	byItem := make(map[int64]map[int64]*ShopRelation)
+	itemsByCell := make(map[int64]int64)
+	for _, row := range readRows(file, "m_shop_item_cell") {
+		cellID, cellOK := integerAt(row, 0)
+		itemID, itemOK := integerAt(row, 2)
+		if cellOK && itemOK && cellID != 0 && itemID != 0 {
+			itemsByCell[cellID] = itemID
+		}
+	}
 	for _, row := range readRows(file, "m_shop_item_cell_group") {
 		cellGroupID, groupOK := integerAt(row, 0)
 		cellID, cellOK := integerAt(row, 1)
@@ -45,6 +54,9 @@ func (r *titleResolver) loadShopRelations(file *memorydb.File) {
 		}
 		for _, shop := range shopsByGroup[cellGroupID] {
 			r.addShopRelation(byShop, shop.shopID, shop, cellID)
+			if itemID := itemsByCell[cellID]; itemID != 0 {
+				r.addShopRelation(byItem, itemID, shop, cellID)
+			}
 			if termOK && termID != 0 {
 				r.addShopRelation(byTerm, termID, shop, cellID)
 			}
@@ -52,6 +64,7 @@ func (r *titleResolver) loadShopRelations(file *memorydb.File) {
 	}
 	r.shopRelationsByShop = freezeShopRelations(byShop)
 	r.shopRelationsByTerm = freezeShopRelations(byTerm)
+	r.shopRelationsByItem = freezeShopRelations(byItem)
 }
 
 func (r *titleResolver) addShopRelation(target map[int64]map[int64]*ShopRelation, ownerID int64, shop shopReference, cellID int64) {
@@ -114,6 +127,10 @@ func (r *titleResolver) resolveShopRelations(table string, row []interface{}) []
 	case "m_shop_item_cell_term":
 		if termID, ok := integerAt(row, 0); ok {
 			relations = r.shopRelationsByTerm[termID]
+		}
+	case "m_shop_item_content_possession":
+		if itemID, ok := integerAt(row, 0); ok {
+			relations = r.shopRelationsByItem[itemID]
 		}
 	}
 	return cloneShopRelations(relations)

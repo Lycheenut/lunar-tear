@@ -12,7 +12,7 @@ import (
 )
 
 func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
-	if got, want := len(activityTableSpecs), 39; got != want {
+	if got, want := len(activityTableSpecs), 40; got != want {
 		t.Fatalf("activity spec count = %d, want %d", got, want)
 	}
 	wantPrimary := map[string]bool{
@@ -40,7 +40,10 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_pvp_grade_group":                   true, "m_quest_campaign_target_group": true,
 		"m_quest_campaign_effect_group": true, "m_shop_item_cell_group": true,
 	}
-	wantDelivery := map[string]bool{"m_login_bonus_stamp": true, "m_mission_reward": true}
+	wantDelivery := map[string]bool{
+		"m_login_bonus_stamp": true, "m_mission_reward": true,
+		"m_shop_item_content_possession": true,
+	}
 	seen := make(map[string]bool, len(activityTableSpecs))
 	primaryCount := 0
 	for _, spec := range activityTableSpecs {
@@ -89,8 +92,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 21 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 2 {
-		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 21/16/2", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
+	if catalog.PrimaryCount != 21 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 3 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 21/16/3", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")
@@ -318,6 +321,144 @@ func TestMissionRewardIsDeliveryTableWithLocalizedSources(t *testing.T) {
 	}
 	if got, err := valueAsInt64(rows[row.Index][3]); err != nil || got != count+1 {
 		t.Fatalf("Count = %d, %v; want %d", got, err, count+1)
+	}
+}
+
+func TestShopContentPossessionIsLocalizedDeliveryTableAndEditable(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := findCatalogTable(catalog, "m_shop_item_content_possession")
+	if !table.Delivery || table.Primary || len(table.Rows) == 0 {
+		t.Fatalf("unexpected shop content table: delivery=%v primary=%v rows=%d", table.Delivery, table.Primary, len(table.Rows))
+	}
+	for index, field := range table.Fields {
+		if field.PrimaryKey != (index == 0) {
+			t.Fatalf("field %s primaryKey = %v, want %v", field.Name, field.PrimaryKey, index == 0)
+		}
+	}
+	if table.Fields[1].Name != "PossessionType" || table.Fields[1].Type != "PossessionType" || table.Fields[2].Name != "PossessionId" {
+		t.Fatalf("shop content fields do not expose the shared reward editor pair: %+v", table.Fields)
+	}
+
+	var row Row
+	for _, candidate := range table.Rows {
+		if candidate.Titles["en"] != "" && len(candidate.ShopRelations) != 0 && len(candidate.ContentFootnotes) != 0 {
+			row = candidate
+			break
+		}
+	}
+	if row.Values == nil {
+		t.Fatal("no shop content row has a localized item name and shop relation")
+	}
+	count, err := strconv.ParseInt(row.Values["Count"], 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, _, err := BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes:         []Change{{Table: table.Name, Row: row.Index, Field: "Count", Value: count + 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := rebuilt.TableRows(table.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := valueAsInt64(rows[row.Index][4]); err != nil || got != count+1 {
+		t.Fatalf("Count = %d, %v; want %d", got, err, count+1)
+	}
+}
+
+func TestShopEditorCatalogAndCompleteCellGroupReplacement(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.ShopEditor.Shops) == 0 || len(catalog.ShopEditor.CellGroups) < 2 ||
+		len(catalog.ShopEditor.Cells) == 0 || len(catalog.ShopEditor.Items) < 2 {
+		t.Fatalf("incomplete shop editor catalog: shops=%d groups=%d cells=%d items=%d",
+			len(catalog.ShopEditor.Shops), len(catalog.ShopEditor.CellGroups),
+			len(catalog.ShopEditor.Cells), len(catalog.ShopEditor.Items))
+	}
+	if catalog.ShopEditor.Cells[0].Row < 0 || catalog.ShopEditor.Items[0].Row < 0 {
+		t.Fatal("shop editor rows must retain their physical table indexes")
+	}
+
+	groups := append([]ShopItemCellGroupInput(nil), catalog.ShopEditor.CellGroups[1:]...)
+	cell := catalog.ShopEditor.Cells[0]
+	priceItem := catalog.ShopEditor.Items[0]
+	updatedPrice := priceItem.Price + 1
+	replacementItem := catalog.ShopEditor.Items[0].ShopItemID
+	if replacementItem == cell.ShopItemID {
+		replacementItem = catalog.ShopEditor.Items[1].ShopItemID
+	}
+	request := UpdateRequest{
+		ExpectedVersion:    catalog.Version,
+		ShopItemCellGroups: &groups,
+		Changes: []Change{
+			{Table: "m_shop_item_cell", Row: int(cell.Row), Field: "ShopItemId", Value: replacementItem},
+			{Table: "m_shop_item", Row: int(priceItem.Row), Field: "Price", Value: updatedPrice},
+		},
+	}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.TableReplacements) != 1 || preview.TableReplacements[0].Table != shopItemCellGroupTable ||
+		preview.TableReplacements[0].AfterRows != len(groups) {
+		t.Fatalf("unexpected replacement preview: %+v", preview.TableReplacements)
+	}
+
+	candidate, result, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedCells < 3 || result.ChangedRows < 3 {
+		t.Fatalf("unexpected update result: %+v", result)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupRows, _, err := rebuilt.TableRows(shopItemCellGroupTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groupRows) != len(groups) {
+		t.Fatalf("cell group row count = %d, want %d", len(groupRows), len(groups))
+	}
+	cellRows, _, err := rebuilt.TableRows("m_shop_item_cell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := valueAsInt64(cellRows[cell.Row][2]); err != nil || got != replacementItem {
+		t.Fatalf("ShopItemId = %d, %v; want %d", got, err, replacementItem)
+	}
+	itemRows, _, err := rebuilt.TableRows("m_shop_item")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := valueAsInt64(itemRows[priceItem.Row][6]); err != nil || got != updatedPrice {
+		t.Fatalf("Price = %d, %v; want %d", got, err, updatedPrice)
 	}
 }
 

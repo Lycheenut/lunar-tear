@@ -60,6 +60,33 @@ func TestLoadAddsShopCellRelations(t *testing.T) {
 	t.Fatal("no shop item cell term has a shop relation")
 }
 
+func TestLoadAddsShopRelationsToShopContent(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master data is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contents := findCatalogTable(catalog, "m_shop_item_content_possession")
+	for _, row := range contents.Rows {
+		if len(row.ShopRelations) == 0 {
+			continue
+		}
+		for _, relation := range row.ShopRelations {
+			if relation.ShopID == 0 || relation.ShopItemCellGroupID == 0 || len(relation.ShopItemCellIDs) == 0 {
+				t.Fatalf("incomplete shop content relation: %+v", relation)
+			}
+		}
+		return
+	}
+	t.Fatal("no shop content row has a shop relation")
+}
+
 func findCatalogTable(catalog *Catalog, name string) Table {
 	for _, table := range catalog.Tables {
 		if table.Name == name {

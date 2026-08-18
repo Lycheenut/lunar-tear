@@ -113,6 +113,55 @@ func TestFileRebuildScalarCells(t *testing.T) {
 	}
 }
 
+func TestFileRebuildTablesReplacesCompleteRowList(t *testing.T) {
+	for _, compressed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "plain", true: "compressed"}[compressed], func(t *testing.T) {
+			table, err := msgpack.Marshal([][]interface{}{{int32(1), int32(10)}, {int32(1), int32(20)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if compressed {
+				table, err = encodeCompressedTable(table)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			untouched, err := msgpack.Marshal([][]interface{}{{int32(99)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			file, err := OpenBytes(buildEditorTestFile(t, map[string][]byte{
+				"m_group": table, "m_untouched": untouched,
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			candidate, err := file.RebuildTables(nil, map[string][][]interface{}{
+				"m_group": {{int32(1), int32(20)}, {int32(1), int32(30)}, {int32(2), int32(40)}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rebuilt, err := OpenBytes(candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, _, err := rebuilt.TableRows("m_group")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 3 || testInt64(t, rows[0][1]) != 20 || testInt64(t, rows[2][0]) != 2 {
+				t.Fatalf("replaced rows = %#v", rows)
+			}
+			rows, _, err = rebuilt.TableRows("m_untouched")
+			if err != nil || len(rows) != 1 || testInt64(t, rows[0][0]) != 99 {
+				t.Fatalf("untouched rows = %#v, err = %v", rows, err)
+			}
+		})
+	}
+}
+
 func TestFileRebuildScalarCellsRejectsStorageTypeMismatch(t *testing.T) {
 	table, err := msgpack.Marshal([][]interface{}{{int32(7), "value"}})
 	if err != nil {

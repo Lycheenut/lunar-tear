@@ -200,7 +200,7 @@ func (r *titleResolver) resolveContentFootnotes(table string, row []interface{},
 				footnotes = append(footnotes, titles)
 			}
 		}
-	case "m_shop_item_cell_term":
+	case "m_shop_item_cell_term", "m_shop_item_content_possession":
 		var shops []map[string]string
 		for _, relation := range relations {
 			shops = append(shops, relation.ShopTitles)

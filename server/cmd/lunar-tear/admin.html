@@ -197,6 +197,74 @@
                 </div>
               </section>
             </div>
+            <div id="shop-editor" class="shop-editor hidden">
+              <section class="mission-reward-panel shop-cell-group-panel" aria-labelledby="shop-cell-group-title">
+                <header class="mission-reward-panel-heading">
+                  <div>
+                    <h3 id="shop-cell-group-title">L0 · CellGroup</h3>
+                    <p id="shop-cell-group-references" class="shop-panel-note"></p>
+                  </div>
+                  <div class="mission-reward-panel-heading-actions">
+                    <span id="shop-cell-group-count" class="row-badge">0 条</span>
+                    <button id="shop-cell-group-add" class="button ghost" type="button">添加 Cell</button>
+                  </div>
+                </header>
+                <div class="mission-reward-panel-scroll">
+                  <table class="shop-cell-group-table">
+                    <thead><tr><th>CellGroupId</th><th>ShopItemCellId</th><th>SortOrder</th><th>TermId / 时间区间</th><th>操作</th></tr></thead>
+                    <tbody id="shop-cell-group-body"></tbody>
+                  </table>
+                </div>
+              </section>
+              <div class="shop-secondary-grid">
+                <section class="mission-reward-panel mission-reward-content-panel" aria-labelledby="shop-cell-title">
+                  <header class="mission-reward-panel-heading">
+                    <h3 id="shop-cell-title">L1 · Cell</h3>
+                    <div class="mission-reward-panel-heading-actions">
+                      <input id="shop-cell-search" class="mission-reward-content-search" type="search" inputmode="numeric" placeholder="搜索 CellId" aria-label="按 CellId 搜索">
+                      <span id="shop-cell-count" class="row-badge">0 行</span>
+                    </div>
+                  </header>
+                  <div class="mission-reward-panel-scroll">
+                    <table class="shop-cell-table">
+                      <thead><tr><th>CellId</th><th>StepNumber</th><th>ShopItemId</th></tr></thead>
+                      <tbody id="shop-cell-body"></tbody>
+                    </table>
+                  </div>
+                  <div class="mission-reward-pagination">
+                    <label>每页 <select id="shop-cell-page-size"><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
+                    <div class="reward-page-navigation">
+                      <button id="shop-cell-page-previous" class="button ghost" type="button">上一页</button>
+                      <span id="shop-cell-page-info">第 1 / 1 页</span>
+                      <button id="shop-cell-page-next" class="button ghost" type="button">下一页</button>
+                    </div>
+                  </div>
+                </section>
+                <section class="mission-reward-panel mission-reward-content-panel" aria-labelledby="shop-item-title">
+                  <header class="mission-reward-panel-heading">
+                    <h3 id="shop-item-title">L2 · ShopItem</h3>
+                    <div class="mission-reward-panel-heading-actions">
+                      <input id="shop-item-search" class="mission-reward-content-search" type="search" inputmode="numeric" placeholder="搜索 ShopItemId" aria-label="按 ShopItemId 搜索">
+                      <span id="shop-item-count" class="row-badge">0 行</span>
+                    </div>
+                  </header>
+                  <div class="mission-reward-panel-scroll">
+                    <table class="shop-item-table">
+                      <thead><tr><th>ShopItem</th><th>价格</th><th>库存（只读）</th><th>发放内容</th></tr></thead>
+                      <tbody id="shop-item-body"></tbody>
+                    </table>
+                  </div>
+                  <div class="mission-reward-pagination">
+                    <label>每页 <select id="shop-item-page-size"><option value="10" selected>10</option><option value="25">25</option><option value="50">50</option></select></label>
+                    <div class="reward-page-navigation">
+                      <button id="shop-item-page-previous" class="button ghost" type="button">上一页</button>
+                      <span id="shop-item-page-info">第 1 / 1 页</span>
+                      <button id="shop-item-page-next" class="button ghost" type="button">下一页</button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
           </div>
           <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
         </section>

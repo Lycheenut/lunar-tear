@@ -113,6 +113,13 @@ func (f *File) Rebuild(edits []Int64Edit) ([]byte, error) {
 // MessagePack value byte-for-byte, rebuilds the table-of-contents, and
 // encrypts a new master-data file.
 func (f *File) RebuildCells(edits []CellEdit) ([]byte, error) {
+	return f.RebuildTables(edits, nil)
+}
+
+// RebuildTables applies scalar edits and replaces the complete row list of the
+// named tables. A table cannot be edited cell-by-cell and replaced in the same
+// rebuild.
+func (f *File) RebuildTables(edits []CellEdit, tableRows map[string][][]interface{}) ([]byte, error) {
 	grouped := make(map[string][]CellEdit)
 	seen := make(map[[3]interface{}]struct{}, len(edits))
 	for _, edit := range edits {
@@ -124,8 +131,11 @@ func (f *File) RebuildCells(edits []CellEdit) ([]byte, error) {
 		grouped[edit.Table] = append(grouped[edit.Table], edit)
 	}
 
-	replacements := make(map[string][]byte, len(grouped))
+	replacements := make(map[string][]byte, len(grouped)+len(tableRows))
 	for name, tableEdits := range grouped {
+		if _, replacing := tableRows[name]; replacing {
+			return nil, fmt.Errorf("table %q cannot be patched and replaced together", name)
+		}
 		offLen, ok := f.toc[name]
 		if !ok {
 			return nil, fmt.Errorf("table %q not found", name)
@@ -147,6 +157,27 @@ func (f *File) RebuildCells(edits []CellEdit) ([]byte, error) {
 		} else {
 			replacements[name] = patched
 		}
+	}
+	for name, rows := range tableRows {
+		offLen, ok := f.toc[name]
+		if !ok {
+			return nil, fmt.Errorf("table %q not found", name)
+		}
+		encoded, err := msgpack.Marshal(rows)
+		if err != nil {
+			return nil, fmt.Errorf("encode table %q: %w", name, err)
+		}
+		_, compressed, err := decodeTableBlob(f.dataBlob[offLen[0] : offLen[0]+offLen[1]])
+		if err != nil {
+			return nil, fmt.Errorf("decode table %q: %w", name, err)
+		}
+		if compressed {
+			encoded, err = encodeCompressedTable(encoded)
+			if err != nil {
+				return nil, fmt.Errorf("compress table %q: %w", name, err)
+			}
+		}
+		replacements[name] = encoded
 	}
 
 	type tableEntry struct {

@@ -68,6 +68,7 @@ type Catalog struct {
 	RowCount        int                  `json:"rowCount"`
 	Tables          []Table              `json:"tables"`
 	MissionSources  MissionSourceCatalog `json:"missionSources"`
+	ShopEditor      ShopEditorCatalog    `json:"shopEditor"`
 }
 
 type Change struct {
@@ -78,8 +79,9 @@ type Change struct {
 }
 
 type UpdateRequest struct {
-	ExpectedVersion string   `json:"expectedVersion"`
-	Changes         []Change `json:"changes"`
+	ExpectedVersion    string                    `json:"expectedVersion"`
+	Changes            []Change                  `json:"changes"`
+	ShopItemCellGroups *[]ShopItemCellGroupInput `json:"shopItemCellGroups,omitempty"`
 }
 
 type UpdateResult struct {
@@ -119,9 +121,6 @@ func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, erro
 func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResult, error) {
 	if request.ExpectedVersion == "" {
 		return nil, UpdateResult{}, fmt.Errorf("expectedVersion is required")
-	}
-	if len(request.Changes) == 0 {
-		return nil, UpdateResult{}, fmt.Errorf("at least one change is required")
 	}
 	if len(request.Changes) > 10000 {
 		return nil, UpdateResult{}, fmt.Errorf("too many changes")
@@ -200,10 +199,6 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 		edits = append(edits, memorydb.CellEdit{Table: change.Table, Row: change.Row, Column: field.Index, Value: value})
 		changedRows[fmt.Sprintf("%s\x00%d", change.Table, change.Row)] = struct{}{}
 	}
-	if len(edits) == 0 {
-		return nil, UpdateResult{}, fmt.Errorf("the submitted values are unchanged")
-	}
-
 	for tableName, rowOverrides := range overrides {
 		spec := specByName[tableName]
 		rows := rowsByTable[tableName]
@@ -225,7 +220,19 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 		}
 	}
 
-	candidate, err := file.RebuildCells(edits)
+	replacements := make(map[string][][]interface{})
+	structuralCells, structuralRows, err := buildShopItemCellGroupReplacement(file, request.ShopItemCellGroups)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	if structuralRows != 0 {
+		replacements[shopItemCellGroupTable] = shopItemCellGroupRows(*request.ShopItemCellGroups)
+	}
+	if len(edits) == 0 && structuralRows == 0 {
+		return nil, UpdateResult{}, fmt.Errorf("the submitted values are unchanged")
+	}
+
+	candidate, err := file.RebuildTables(edits, replacements)
 	if err != nil {
 		return nil, UpdateResult{}, err
 	}
@@ -235,8 +242,8 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	}
 	return candidate, UpdateResult{
 		Version:      candidateFile.Version(),
-		ChangedCells: len(edits),
-		ChangedRows:  len(changedRows),
+		ChangedCells: len(edits) + structuralCells,
+		ChangedRows:  len(changedRows) + structuralRows,
 	}, nil
 }
 
@@ -246,6 +253,7 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 		DefaultLanguage: "en",
 		Languages:       append([]string(nil), supportedLanguages...),
 		MissionSources:  loadMissionSources(file, resolver),
+		ShopEditor:      loadShopEditor(file, resolver),
 	}
 	for _, spec := range activityTableSpecs {
 		rows, exists, err := file.TableRows(spec.Name)

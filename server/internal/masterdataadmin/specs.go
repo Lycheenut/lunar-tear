@@ -129,10 +129,11 @@ var activityTableSpecs = []tableSpec{
 	activityTable("m_pvp_grade_group", "EntityMPvpGradeGroup", 2, false, field("PvpGradeGroupId", 0, "int"), field("PvpGradeId", 1, "int"), field("NecessaryPvpPoint", 2, "int"), field("IconAssetId", 3, "int"), field("PvpGradeWeeklyRewardGroupId", 4, "int"), field("PvpGradeOneMatchRewardGroupId", 5, "int")),
 	activityTable("m_quest_campaign_target_group", "EntityMQuestCampaignTargetGroup", 2, false, field("QuestCampaignTargetGroupId", 0, "int"), field("QuestCampaignTargetIndex", 1, "int"), field("QuestCampaignTargetType", 2, "QuestCampaignTargetType"), field("QuestCampaignTargetValue", 3, "int")),
 	activityTable("m_quest_campaign_effect_group", "EntityMQuestCampaignEffectGroup", 1, false, field("QuestCampaignEffectGroupId", 0, "int"), field("QuestCampaignEffectType", 1, "QuestCampaignEffectType"), field("QuestCampaignEffectValue", 2, "int"), field("QuestCampaignTargetItemGroupId", 3, "int")),
-	activityTable("m_shop_item_cell_group", "EntityMShopItemCellGroup", 2, false, field("ShopItemCellGroupId", 0, "int"), field("ShopItemCellId", 1, "int"), field("SortOrder", 2, "int"), field("ShopItemCellTermId", 3, "int")),
+	activityTable("m_shop_item_cell_group", "EntityMShopItemCellGroup", 4, false, field("ShopItemCellGroupId", 0, "int"), field("ShopItemCellId", 1, "int"), field("SortOrder", 2, "int"), field("ShopItemCellTermId", 3, "int")),
 
 	deliveryTable("m_login_bonus_stamp", "EntityMLoginBonusStamp", 3, field("LoginBonusId", 0, "int"), field("LowerPageNumber", 1, "int"), field("StampNumber", 2, "int"), field("RewardPossessionType", 3, "PossessionType"), field("RewardPossessionId", 4, "int"), field("RewardCount", 5, "int")),
 	deliveryTable("m_mission_reward", "EntityMMissionReward", 1, field("MissionRewardId", 0, "int"), field("PossessionType", 1, "PossessionType"), field("PossessionId", 2, "int"), field("Count", 3, "int")),
+	deliveryTable("m_shop_item_content_possession", "EntityMShopItemContentPossession", 1, field("ShopItemId", 0, "int"), field("PossessionType", 1, "PossessionType"), field("PossessionId", 2, "int"), field("SortOrder", 3, "int"), field("Count", 4, "int")),
 }
 
 // m_mission stays out of the general-purpose table catalog. The mission reward
@@ -141,4 +142,9 @@ var activityTableSpecs = []tableSpec{
 var editableTableSpecs = append(append([]tableSpec(nil), activityTableSpecs...),
 	activityTable("m_mission", "EntityMMission", 1, false,
 		field("MissionId", 0, "int"), field("MissionRewardId", 11, "int"), field("MissionTermId", 12, "int")),
+	activityTable("m_shop_item_cell", "EntityMShopItemCell", 2, false,
+		field("ShopItemCellId", 0, "int"), field("StepNumber", 1, "int"), field("ShopItemId", 2, "int")),
+	activityTable("m_shop_item", "EntityMShopItem", 1, false,
+		field("ShopItemId", 0, "int"), field("PriceType", 4, "PriceType"), field("PriceId", 5, "int"),
+		field("Price", 6, "int"), field("RegularPrice", 7, "int")),
 )

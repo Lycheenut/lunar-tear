@@ -54,11 +54,13 @@ type titleResolver struct {
 	missionTermTextIDs   map[int64]int64
 	shopTermTextIDs      map[int64]int64
 	shopTextIDs          map[int64]int64
+	shopItemTextIDs      map[int64]int64
 	consumableTermKeys   map[int64][]string
 	importantEffectTexts map[int64]int64
 	maintenanceAPIs      map[int64][]string
 	shopRelationsByShop  map[int64][]ShopRelation
 	shopRelationsByTerm  map[int64][]ShopRelation
+	shopRelationsByItem  map[int64][]ShopRelation
 	dokanGroupTexts      map[int64][]dokanContentText
 	naviCutInGroupTexts  map[int64][]naviCutInContentText
 	enhanceTargets       map[int64][]campaignTarget
@@ -89,6 +91,7 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		missionTermTextIDs:   make(map[int64]int64),
 		shopTermTextIDs:      make(map[int64]int64),
 		shopTextIDs:          make(map[int64]int64),
+		shopItemTextIDs:      make(map[int64]int64),
 		consumableTermKeys:   make(map[int64][]string),
 		importantEffectTexts: make(map[int64]int64),
 		maintenanceAPIs:      make(map[int64][]string),
@@ -151,15 +154,14 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 	for _, row := range readRows(file, "m_shop_item_cell") {
 		resolver.putPair(cellItems, row, 0, 2)
 	}
-	itemTextIDs := make(map[int64]int64)
 	for _, row := range readRows(file, "m_shop_item") {
-		resolver.putPair(itemTextIDs, row, 0, 1)
+		resolver.putPair(resolver.shopItemTextIDs, row, 0, 1)
 	}
 	for _, row := range readRows(file, "m_shop_item_cell_group") {
 		termID, termOK := integerAt(row, 3)
 		cellID, cellOK := integerAt(row, 1)
 		itemID, itemOK := cellItems[cellID]
-		textID, textOK := itemTextIDs[itemID]
+		textID, textOK := resolver.shopItemTextIDs[itemID]
 		if termOK && cellOK && itemOK && textOK {
 			if _, exists := resolver.shopTermTextIDs[termID]; !exists {
 				resolver.shopTermTextIDs[termID] = textID
@@ -291,6 +293,10 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 	case "m_shop_item_cell_term":
 		if termID, ok := integerAt(row, 0); ok {
 			key = fmt.Sprintf("shop.item.name.%d", r.shopTermTextIDs[termID])
+		}
+	case "m_shop_item_content_possession":
+		if itemID, ok := integerAt(row, 0); ok {
+			key = fmt.Sprintf("shop.item.name.%d", r.shopItemTextIDs[itemID])
 		}
 	case "m_tip":
 		key = integerKey(row, 1, "tip.%d")
