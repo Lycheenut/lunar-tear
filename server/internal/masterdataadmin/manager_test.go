@@ -12,7 +12,7 @@ import (
 )
 
 func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
-	if got, want := len(activityTableSpecs), 38; got != want {
+	if got, want := len(activityTableSpecs), 39; got != want {
 		t.Fatalf("activity spec count = %d, want %d", got, want)
 	}
 	wantPrimary := map[string]bool{
@@ -20,6 +20,7 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_comeback_campaign": true, "m_consumable_item_term": true,
 		"m_dokan": true, "m_enhance_campaign": true, "m_event_quest_chapter": true,
 		"m_event_quest_daily_group": true, "m_event_quest_labyrinth_season": true,
+		"m_gacha_medal": true,
 		"m_login_bonus": true, "m_maintenance": true, "m_mission_term": true, "m_mom_banner": true,
 		"m_navi_cut_in": true,
 		"m_omikuji":     true, "m_pvp_season": true, "m_quest_campaign": true,
@@ -58,8 +59,8 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		}
 		if spec.Primary {
 			primaryCount++
-			if len(spec.pairs()) == 0 {
-				t.Errorf("primary table %q has no start/end pair", spec.Name)
+			if len(spec.Times) == 0 {
+				t.Errorf("primary table %q has no datetime field", spec.Name)
 			}
 		}
 		if len(spec.Fields) == 0 || !spec.Fields[0].PrimaryKey {
@@ -88,8 +89,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 2 {
-		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/16/2", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
+	if catalog.PrimaryCount != 21 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 2 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 21/16/2", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")
@@ -148,6 +149,28 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if got != updated {
 		t.Fatalf("rebuilt value = %d, want %d", got, updated)
 	}
+}
+
+func TestGachaMedalActivityTableCanUpdateGachaLink(t *testing.T) {
+	path, catalog := linkedUpdateTestCatalog(t)
+	medal := catalogRowByID(t, catalog, "m_gacha_medal", "GachaMedalId", "8193")
+	candidate, result, err := BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes: []Change{{
+			Table: "m_gacha_medal", Row: medal.Index, Field: "ShopTransitionGachaId", Value: "543",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedCells != 1 || result.ChangedRows != 1 {
+		t.Fatalf("Gacha Medal link update result = %+v, want one changed cell", result)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRawTimeByID(t, rebuilt, "m_gacha_medal", 0, 8193, 3, 543)
 }
 
 func TestLoginBonusStampIsDeliveryTableAndEditable(t *testing.T) {

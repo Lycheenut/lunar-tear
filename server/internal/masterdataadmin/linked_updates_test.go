@@ -15,6 +15,7 @@ func TestGachaMomBannerPreviewCascadesToMedalShopAndCurrencyTerm(t *testing.T) {
 	banner := catalogRowByID(t, catalog, "m_mom_banner", "MomBannerId", "4")
 	oldStart := mustParseInt64(t, banner.Values["StartDatetime"])
 	end := mustParseInt64(t, banner.Values["EndDatetime"])
+	redemptionEnd := end + 48*60*60*1000
 	preview, err := PreviewUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
 		Changes: []Change{{
@@ -26,10 +27,9 @@ func TestGachaMomBannerPreviewCascadesToMedalShopAndCurrencyTerm(t *testing.T) {
 		t.Fatal(err)
 	}
 	impact := impactByKind(t, preview, "Gacha")
+	targetByIdentity(t, impact, "m_gacha_medal", "GachaMedalId", "8003")
 	assertGeneratedTarget(t, impact, "m_shop", "ShopId", "8003", "StartDatetime")
-	assertGeneratedTarget(t, impact, "m_shop", "ShopId", "8003", "EndDatetime")
 	assertGeneratedTarget(t, impact, "m_consumable_item_term", "ConsumableItemTermId", "8003", "StartDatetime")
-	assertGeneratedTarget(t, impact, "m_consumable_item_term", "ConsumableItemTermId", "8003", "EndDatetime")
 
 	candidate, result, err := BuildUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
@@ -41,17 +41,62 @@ func TestGachaMomBannerPreviewCascadesToMedalShopAndCurrencyTerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ChangedCells != 5 || result.ChangedRows != 3 {
-		t.Fatalf("Gacha cascade result = %+v, want 5 cells across 3 rows", result)
+	if result.ChangedCells != 3 || result.ChangedRows != 3 {
+		t.Fatalf("Gacha cascade result = %+v, want 3 cells across 3 rows", result)
 	}
 	rebuilt, err := memorydb.OpenBytes(candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertRawTimeByID(t, rebuilt, "m_shop", 0, 8003, 9, oldStart+3600000)
-	assertRawTimeByID(t, rebuilt, "m_shop", 0, 8003, 10, end)
+	assertRawTimeByID(t, rebuilt, "m_shop", 0, 8003, 10, redemptionEnd)
 	assertRawTimeByID(t, rebuilt, "m_consumable_item_term", 0, 8003, 1, oldStart+3600000)
-	assertRawTimeByID(t, rebuilt, "m_consumable_item_term", 0, 8003, 2, end)
+	assertRawTimeByID(t, rebuilt, "m_consumable_item_term", 0, 8003, 2, redemptionEnd)
+	assertRawTimeByID(t, rebuilt, "m_gacha_medal", 0, 8003, 4, redemptionEnd)
+}
+
+func TestGachaMomBannerEndCascadeAddsFortyEightHourRedemptionWindow(t *testing.T) {
+	path, catalog := linkedUpdateTestCatalog(t)
+	banner := catalogRowByID(t, catalog, "m_mom_banner", "MomBannerId", "4")
+	newEnd := mustParseInt64(t, banner.Values["EndDatetime"]) + 3600000
+	redemptionEnd := newEnd + 48*60*60*1000
+	request := UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		Changes: []Change{{
+			Table: "m_mom_banner", Row: banner.Index, Field: "EndDatetime",
+			Value: strconv.FormatInt(newEnd, 10),
+		}},
+	}
+
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	impact := impactByKind(t, preview, "Gacha")
+	assertGeneratedChangeValue(t,
+		targetByIdentity(t, impact, "m_gacha_medal", "GachaMedalId", "8003"),
+		"AutoConvertDatetime", strconv.FormatInt(redemptionEnd, 10))
+	assertGeneratedChangeValue(t,
+		targetByIdentity(t, impact, "m_shop", "ShopId", "8003"),
+		"EndDatetime", strconv.FormatInt(redemptionEnd, 10))
+	assertGeneratedChangeValue(t,
+		targetByIdentity(t, impact, "m_consumable_item_term", "ConsumableItemTermId", "8003"),
+		"EndDatetime", strconv.FormatInt(redemptionEnd, 10))
+
+	candidate, result, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedCells != 4 || result.ChangedRows != 4 {
+		t.Fatalf("Gacha end cascade result = %+v, want 4 cells across 4 rows", result)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRawTimeByID(t, rebuilt, "m_gacha_medal", 0, 8003, 4, redemptionEnd)
+	assertRawTimeByID(t, rebuilt, "m_shop", 0, 8003, 10, redemptionEnd)
+	assertRawTimeByID(t, rebuilt, "m_consumable_item_term", 0, 8003, 2, redemptionEnd)
 }
 
 func TestEventQuestPreviewIncludesAllCertainDownstreamTypes(t *testing.T) {

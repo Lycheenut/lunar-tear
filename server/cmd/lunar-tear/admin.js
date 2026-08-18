@@ -20,11 +20,9 @@
     missionRewardContentPagePrevious: $("#mission-reward-content-page-previous"),
     missionRewardContentPageInfo: $("#mission-reward-content-page-info"),
     missionRewardContentPageNext: $("#mission-reward-content-page-next"),
-    missionRewardReferenceDialog: $("#mission-reward-reference-dialog"),
-    missionRewardReferenceTitle: $("#mission-reward-reference-title"),
-    missionRewardReferenceSummary: $("#mission-reward-reference-summary"),
-    missionRewardReferenceContent: $("#mission-reward-reference-content"),
-    missionRewardReferenceClose: $("#mission-reward-reference-close"),
+    missionReferenceDialog: $("#mission-reference-dialog"), missionReferenceEyebrow: $("#mission-reference-eyebrow"),
+    missionReferenceTitle: $("#mission-reference-title"), missionReferenceSummary: $("#mission-reference-summary"),
+    missionReferenceContent: $("#mission-reference-content"), missionReferenceClose: $("#mission-reference-close"),
     missionTermEditor: $("#mission-term-editor"), missionTermAssignmentBody: $("#mission-term-assignment-body"),
     missionTermAssignmentCount: $("#mission-term-assignment-count"), missionTermContentBody: $("#mission-term-content-body"),
     missionTermContentSearch: $("#mission-term-content-search"), missionTermContentCount: $("#mission-term-content-count"),
@@ -610,18 +608,22 @@
     const referenceCell = document.createElement("td");
     const referenceButton = document.createElement("button");
     referenceButton.type = "button";
-    referenceButton.className = "button ghost mission-reward-reference-button";
+    referenceButton.className = "button ghost mission-reference-button";
     referenceButton.textContent = "查找引用";
     referenceButton.setAttribute("aria-label", `查找 RewardId ${row.values.MissionRewardId} 的任务引用`);
-    referenceButton.addEventListener("click", () => showMissionRewardReferences(row.values.MissionRewardId));
+    referenceButton.addEventListener("click", () => showMissionReferences("reward", row.values.MissionRewardId));
     referenceCell.append(referenceButton);
     tr.append(referenceCell);
     return tr;
   }
 
-  function showMissionRewardReferences(rewardID) {
+  function showMissionReferences(referenceType, referenceID) {
+    const isTerm = referenceType === "term";
+    const idLabel = isTerm ? "TermId" : "RewardId";
+    const referenceLabel = isTerm ? "期限" : "奖励";
+    const effectiveReferenceID = isTerm ? effectiveMissionTermID : effectiveMissionRewardID;
     const references = (state.catalog?.missionSources?.missions || [])
-      .filter((mission) => effectiveMissionRewardID(mission) === String(rewardID));
+      .filter((mission) => effectiveReferenceID(mission) === String(referenceID));
     const groupByID = new Map((state.catalog?.missionSources?.groups || [])
       .map((group) => [String(group.missionGroupId), group]));
     const categories = new Map();
@@ -636,17 +638,18 @@
     });
 
     const groupCount = new Set(references.map((mission) => String(mission.missionGroupId))).size;
-    elements.missionRewardReferenceTitle.textContent = `RewardId ${rewardID} 的任务引用`;
-    elements.missionRewardReferenceSummary.textContent = references.length
+    elements.missionReferenceEyebrow.textContent = isTerm ? "MISSION TERM REFERENCES" : "MISSION REWARD REFERENCES";
+    elements.missionReferenceTitle.textContent = `${idLabel} ${referenceID} 的任务引用`;
+    elements.missionReferenceSummary.textContent = references.length
       ? `${references.length.toLocaleString()} 个任务 · ${categories.size.toLocaleString()} 个类型 · ${groupCount.toLocaleString()} 个任务组`
-      : "当前没有任务引用此奖励";
-    elements.missionRewardReferenceContent.replaceChildren();
+      : `当前没有任务引用此${referenceLabel}`;
+    elements.missionReferenceContent.replaceChildren();
 
     if (!references.length) {
       const empty = document.createElement("div");
       empty.className = "impact-section impact-no-change";
-      empty.textContent = "没有找到引用该 RewardId 的任务。";
-      elements.missionRewardReferenceContent.append(empty);
+      empty.textContent = `没有找到引用该 ${idLabel} 的任务。`;
+      elements.missionReferenceContent.append(empty);
     } else {
       categories.forEach((groups, categoryType) => {
         const category = document.createElement("section");
@@ -673,10 +676,10 @@
             }))
           ));
         });
-        elements.missionRewardReferenceContent.append(category);
+        elements.missionReferenceContent.append(category);
       });
     }
-    elements.missionRewardReferenceDialog.showModal();
+    elements.missionReferenceDialog.showModal();
   }
 
   function renderMissionRewardEmptyRow(columnCount, message) {
@@ -804,7 +807,7 @@
     visibleTermRows.slice(pageStart, pageEnd)
       .forEach((row) => elements.missionTermContentBody.append(renderMissionTermContentRow(table, fields, row)));
     if (!visibleTermRows.length) elements.missionTermContentBody.append(renderMissionRewardEmptyRow(
-      4, termIDQuery ? "没有匹配该 TermId 的期限定义。" : "当前没有期限定义。"
+      5, termIDQuery ? "没有匹配该 TermId 的期限定义。" : "当前没有期限定义。"
     ));
 
     elements.missionTermAssignmentCount.textContent = `${visibleSources.length.toLocaleString()} 个任务`;
@@ -876,6 +879,15 @@
       cell.append(renderFieldEditor(table, row, field));
       tr.append(cell);
     });
+    const referenceCell = document.createElement("td");
+    const referenceButton = document.createElement("button");
+    referenceButton.type = "button";
+    referenceButton.className = "button ghost mission-reference-button";
+    referenceButton.textContent = "查找引用";
+    referenceButton.setAttribute("aria-label", `查找 TermId ${row.values.MissionTermId} 的任务引用`);
+    referenceButton.addEventListener("click", () => showMissionReferences("term", row.values.MissionTermId));
+    referenceCell.append(referenceButton);
+    tr.append(referenceCell);
     return tr;
   }
 
@@ -3007,7 +3019,7 @@
     state.missionRewardContentPage += 1;
     renderTable();
   });
-  elements.missionRewardReferenceClose.addEventListener("click", () => elements.missionRewardReferenceDialog.close());
+  elements.missionReferenceClose.addEventListener("click", () => elements.missionReferenceDialog.close());
   elements.missionTermContentPageSize.addEventListener("change", () => {
     const pageSize = Number(elements.missionTermContentPageSize.value);
     state.missionTermContentPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;

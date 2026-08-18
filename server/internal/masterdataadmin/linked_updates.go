@@ -11,14 +11,15 @@ import (
 )
 
 const (
-	momBannerDomainLoginBonus int64 = 21
-	momBannerDomainMission    int64 = 22
-	momBannerDomainEvent      int64 = 23
-	eventLinkDomainShop       int64 = 3
-	missionLinkDomainEvent    int64 = 4
-	naviCutInFunctionEvent    int64 = 2
-	mamaMedalItemType         int64 = 110
-	mamaMedalAssetCategory    int64 = 117
+	momBannerDomainLoginBonus  int64 = 21
+	momBannerDomainMission     int64 = 22
+	momBannerDomainEvent       int64 = 23
+	eventLinkDomainShop        int64 = 3
+	missionLinkDomainEvent     int64 = 4
+	naviCutInFunctionEvent     int64 = 2
+	mamaMedalItemType          int64 = 110
+	mamaMedalAssetCategory     int64 = 117
+	gachaRedemptionGraceMillis       = int64(48 * 60 * 60 * 1000)
 )
 
 type CellChangePreview struct {
@@ -78,6 +79,7 @@ type relationIndex struct {
 	termsByID                      map[int64]rowRef
 	termByCurrency                 map[int64]rowRef
 	gachaCurrencies                map[int64][]int64
+	gachaMedalsByGacha             map[int64][]rowRef
 	eventLinks                     map[int64][]interface{}
 	missionTermsByChapter          map[int64][]rowRef
 	missionTermsByCurrency         map[int64][]rowRef
@@ -258,6 +260,24 @@ func (p *linkedUpdatePlanner) planGachaMomBanner(ref rowRef) error {
 	}
 	seen := make(map[string]bool)
 	for _, gachaID := range ids {
+		for _, medal := range index.gachaMedalsByGacha[gachaID] {
+			key := previewRecordKey(medal)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			note := ""
+			cascade := stable && gachaID == oldGachaID
+			if !stable {
+				note = "Gacha 关联字段发生变化，本次仅展示关联 Medal，不自动调整截止时间。"
+			}
+			target := p.addTarget(impact, medal, "Gacha Medal", note)
+			if cascade {
+				if err := p.cascadeEndWithOffset(ref, target, "AutoConvertDatetime", gachaRedemptionGraceMillis); err != nil {
+					return err
+				}
+			}
+		}
 		for _, currencyID := range index.gachaCurrencies[gachaID] {
 			for _, shop := range index.shopsByCurrency[currencyID] {
 				key := previewRecordKey(shop)
@@ -279,7 +299,7 @@ func (p *linkedUpdatePlanner) planGachaMomBanner(ref rowRef) error {
 				}
 				target := p.addTarget(impact, shop, "天井兑换商店", note)
 				if cascade {
-					if err := p.cascadePair(ref, target); err != nil {
+					if err := p.cascadePairWithEndOffset(ref, target, gachaRedemptionGraceMillis); err != nil {
 						return err
 					}
 				}
@@ -304,7 +324,7 @@ func (p *linkedUpdatePlanner) planGachaMomBanner(ref rowRef) error {
 				}
 				target := p.addTarget(impact, term, "天井币有效期", note)
 				if cascade {
-					if err := p.cascadePair(ref, target); err != nil {
+					if err := p.cascadePairWithEndOffset(ref, target, gachaRedemptionGraceMillis); err != nil {
 						return err
 					}
 				}
@@ -512,6 +532,10 @@ func (p *linkedUpdatePlanner) addTarget(impact *linkedImpact, ref rowRef, relati
 }
 
 func (p *linkedUpdatePlanner) cascadePair(source rowRef, target linkedTarget) error {
+	return p.cascadePairWithEndOffset(source, target, 0)
+}
+
+func (p *linkedUpdatePlanner) cascadePairWithEndOffset(source rowRef, target linkedTarget, endOffset int64) error {
 	sourceSpec, _ := findActivitySpec(source.table)
 	targetSpec, _ := findActivitySpec(target.ref.table)
 	sourcePairs := sourceSpec.pairs()
@@ -519,28 +543,9 @@ func (p *linkedUpdatePlanner) cascadePair(source rowRef, target linkedTarget) er
 	if len(sourcePairs) == 0 || len(targetPairs) == 0 {
 		return nil
 	}
-	sourceRows, err := p.tableRows(source.table)
+	timeChanged, err := p.sourceTimeChanged(source)
 	if err != nil {
 		return err
-	}
-	timeChanged := false
-	for _, field := range sourceSpec.Times {
-		value, changed := p.effective[previewCellKey(source.table, source.row, field.Name)]
-		if !changed {
-			continue
-		}
-		original, err := valueAsInt64(sourceRows[source.row][field.Index])
-		if err != nil {
-			return err
-		}
-		effective, err := valueAsInt64(value)
-		if err != nil {
-			return err
-		}
-		if original != effective {
-			timeChanged = true
-			break
-		}
 	}
 	if !timeChanged {
 		return nil
@@ -553,10 +558,71 @@ func (p *linkedUpdatePlanner) cascadePair(source rowRef, target linkedTarget) er
 	if err != nil {
 		return err
 	}
+	end, err = datetimeWithOffset(end, endOffset)
+	if err != nil {
+		return err
+	}
 	if err := p.setCascadeTime(target, targetPairs[0].Start, start); err != nil {
 		return err
 	}
 	return p.setCascadeTime(target, targetPairs[0].End, end)
+}
+
+func (p *linkedUpdatePlanner) cascadeEndWithOffset(source rowRef, target linkedTarget, targetField string, endOffset int64) error {
+	sourceSpec, _ := findActivitySpec(source.table)
+	sourcePairs := sourceSpec.pairs()
+	if len(sourcePairs) == 0 {
+		return nil
+	}
+	timeChanged, err := p.sourceTimeChanged(source)
+	if err != nil || !timeChanged {
+		return err
+	}
+	end, err := p.effectiveInt(source, sourcePairs[0].End)
+	if err != nil {
+		return err
+	}
+	end, err = datetimeWithOffset(end, endOffset)
+	if err != nil {
+		return err
+	}
+	return p.setCascadeTime(target, targetField, end)
+}
+
+func (p *linkedUpdatePlanner) sourceTimeChanged(source rowRef) (bool, error) {
+	sourceSpec, _ := findActivitySpec(source.table)
+	sourceRows, err := p.tableRows(source.table)
+	if err != nil {
+		return false, err
+	}
+	for _, field := range sourceSpec.Times {
+		value, changed := p.effective[previewCellKey(source.table, source.row, field.Name)]
+		if !changed {
+			continue
+		}
+		original, err := valueAsInt64(sourceRows[source.row][field.Index])
+		if err != nil {
+			return false, err
+		}
+		effective, err := valueAsInt64(value)
+		if err != nil {
+			return false, err
+		}
+		if original != effective {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func datetimeWithOffset(value, offset int64) (int64, error) {
+	if value == 0 || offset == 0 {
+		return value, nil
+	}
+	if offset < 0 || value > maxDatetimeMillis-offset {
+		return 0, fmt.Errorf("级联更新时间加偏移后超出支持的日期范围")
+	}
+	return value + offset, nil
 }
 
 func (p *linkedUpdatePlanner) setCascadeTime(target linkedTarget, targetField string, value int64) error {
@@ -708,6 +774,7 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 		termsByID:                      make(map[int64]rowRef),
 		termByCurrency:                 make(map[int64]rowRef),
 		gachaCurrencies:                make(map[int64][]int64),
+		gachaMedalsByGacha:             make(map[int64][]rowRef),
 		eventLinks:                     make(map[int64][]interface{}),
 		missionTermsByChapter:          make(map[int64][]rowRef),
 		missionTermsByCurrency:         make(map[int64][]rowRef),
@@ -806,10 +873,11 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range gachaMedalRows {
+	for rowIndex, row := range gachaMedalRows {
 		currencyID, _ := integerAt(row, 2)
 		gachaID, _ := integerAt(row, 3)
 		index.gachaCurrencies[gachaID] = appendUniqueInt64(index.gachaCurrencies[gachaID], currencyID)
+		index.gachaMedalsByGacha[gachaID] = append(index.gachaMedalsByGacha[gachaID], rowRef{table: "m_gacha_medal", row: rowIndex})
 	}
 	eventLinkRows, err := p.tableRows("m_event_quest_link")
 	if err != nil {
