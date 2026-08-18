@@ -109,6 +109,7 @@
     shopCellGroupDraft: [],
     shopCellGroupBaseline: "[]",
     shopCellGroupDirty: false,
+    shopCellGroupSelection: "",
     shopCellPage: 1,
     shopCellPageSize: 25,
     shopCellPageCount: 1,
@@ -327,8 +328,171 @@
     elements.typeFilters.classList.toggle("hidden", fields.length === 0);
   }
 
+  const searchableSelectControllers = new WeakMap();
+
+  function createSearchableSelect(select, config = {}) {
+    let controller = searchableSelectControllers.get(select);
+    if (!controller) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "searchable-select";
+      const input = document.createElement("input");
+      input.type = "search";
+      input.autocomplete = "off";
+      input.setAttribute("role", "combobox");
+      input.setAttribute("aria-autocomplete", "list");
+      input.setAttribute("aria-expanded", "false");
+      const list = document.createElement("div");
+      list.className = "searchable-select-options hidden";
+      list.setAttribute("role", "listbox");
+
+      const nativeParent = select.parentNode;
+      if (nativeParent) nativeParent.insertBefore(wrapper, select);
+      select.classList.add("searchable-select-source");
+      wrapper.append(input, list, select);
+
+      const close = () => {
+        list.classList.add("hidden");
+        input.setAttribute("aria-expanded", "false");
+      };
+      const selectedOption = () => [...select.options].find((option) => option.value === select.value);
+      const restoreSelection = () => {
+        const option = selectedOption();
+        input.value = option?.textContent?.trim() || "";
+        input.title = input.value;
+      };
+      const matchingOptions = (query = "") => {
+        const normalized = query.trim().toLocaleLowerCase();
+        return [...select.options]
+          .map((option, index) => {
+            const value = option.value.toLocaleLowerCase();
+            const label = option.textContent?.trim() || option.value;
+            const searchText = `${option.dataset.searchText || ""} ${value} ${label}`.toLocaleLowerCase();
+            const rank = value === normalized ? 0 : value.startsWith(normalized) ? 1 : label.toLocaleLowerCase().startsWith(normalized) ? 2 : 3;
+            return { option, index, label, searchText, rank };
+          })
+          .filter((entry) => !entry.option.disabled && (!normalized || entry.searchText.includes(normalized)))
+          .sort((left, right) => normalized ? left.rank - right.rank || left.index - right.index : left.index - right.index);
+      };
+      const choose = (option) => {
+        select.value = option.value;
+        restoreSelection();
+        close();
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      const renderOptions = (query = "") => {
+        const matches = matchingOptions(query);
+        const limit = controller.config.limit || 100;
+        list.replaceChildren();
+        matches.slice(0, limit).forEach(({ option, label }) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "searchable-select-option";
+          button.setAttribute("role", "option");
+          button.setAttribute("aria-selected", String(option.value === select.value));
+          button.textContent = label;
+          button.title = label;
+          button.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            choose(option);
+          });
+          list.append(button);
+        });
+        if (!matches.length || matches.length > limit) {
+          const note = document.createElement("div");
+          note.className = "searchable-select-empty";
+          note.textContent = matches.length
+            ? `匹配 ${matches.length.toLocaleString()} 项，请继续输入以缩小范围。`
+            : controller.config.emptyText || "没有匹配项。";
+          list.append(note);
+        }
+        return matches;
+      };
+
+      input.addEventListener("focus", () => {
+        input.select();
+        renderOptions();
+        list.classList.remove("hidden");
+        input.setAttribute("aria-expanded", "true");
+      });
+      input.addEventListener("input", () => {
+        renderOptions(input.value);
+        list.classList.remove("hidden");
+        input.setAttribute("aria-expanded", "true");
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          restoreSelection();
+          close();
+        }
+        if (event.key === "Enter") {
+          const match = matchingOptions(input.value)[0];
+          if (match) {
+            event.preventDefault();
+            choose(match.option);
+          }
+        }
+      });
+      input.addEventListener("blur", () => {
+        restoreSelection();
+        close();
+      });
+      select.addEventListener("change", restoreSelection);
+
+      controller = {
+        wrapper,
+        input,
+        config: {},
+        sync() {
+          input.placeholder = controller.config.placeholder || "搜索并选择";
+          input.setAttribute("aria-label", controller.config.ariaLabel || input.placeholder);
+          input.disabled = select.disabled || select.options.length === 0;
+          restoreSelection();
+          close();
+        }
+      };
+      searchableSelectControllers.set(select, controller);
+    }
+    controller.config = config;
+    controller.sync();
+    return controller.wrapper;
+  }
+
   function renderShopContentFilter(table, previous) {
     const editor = state.catalog?.shopEditor || { shops: [], cellGroups: [] };
+    const options = shopCellGroupSearchOptions(editor);
+    const optionIDs = new Set(options.map((option) => option.id));
+    const previousID = previous.get("ShopItemCellGroupId");
+    if (!optionIDs.has(state.shopCellGroupSelection)) {
+      state.shopCellGroupSelection = optionIDs.has(previousID) ? previousID : options[0]?.id || "";
+    }
+
+    const label = document.createElement("label");
+    label.className = "shop-group-filter";
+    label.textContent = "CellGroup";
+    const select = document.createElement("select");
+    select.dataset.field = "ShopItemCellGroupId";
+    select.dataset.sourceFilter = "shop-group";
+    options.forEach((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.label;
+      option.dataset.searchText = entry.searchText;
+      select.append(option);
+    });
+    select.value = state.shopCellGroupSelection;
+    select.addEventListener("change", () => {
+      state.shopCellGroupSelection = select.value;
+      renderTable();
+    });
+    label.append(createSearchableSelect(select, {
+      placeholder: "搜索 CellGroup、商店 ID 或名称",
+      emptyText: "没有匹配的 CellGroup。"
+    }));
+    elements.typeFilters.append(label);
+  }
+
+  function shopCellGroupSearchOptions(editor) {
     const shopsByGroup = new Map();
     editor.shops.forEach((shop) => {
       const groupID = String(shop.shopItemCellGroupId);
@@ -339,27 +503,19 @@
       ...editor.cellGroups.map((row) => String(row.shopItemCellGroupId)),
       ...editor.shops.map((shop) => String(shop.shopItemCellGroupId))
     ])].sort(compareFieldValues);
-    const label = document.createElement("label");
-    label.textContent = "CellGroup";
-    const select = document.createElement("select");
-    select.dataset.field = "ShopItemCellGroupId";
-    select.dataset.sourceFilter = "shop-group";
-    select.setAttribute("aria-label", "选择要配置的 ShopItemCellGroup");
-    groupIDs.forEach((groupID) => {
-      const option = document.createElement("option");
-      option.value = groupID;
+    return groupIDs.map((groupID) => {
       const references = (shopsByGroup.get(groupID) || []).map((shop) => (
         `${localizedInlineText(shop.names) || "未命名商店"}（${shop.shopId}）`
       ));
-      option.textContent = references.length
+      const label = references.length
         ? `${references.join("、")} · Group ${groupID}`
         : `未被商店引用 · Group ${groupID}`;
-      select.append(option);
+      return {
+        id: groupID,
+        label,
+        searchText: `${groupID} ${label}`.toLocaleLowerCase()
+      };
     });
-    if (groupIDs.includes(previous.get("ShopItemCellGroupId"))) select.value = previous.get("ShopItemCellGroupId");
-    select.addEventListener("change", renderTable);
-    label.append(select);
-    elements.typeFilters.append(label);
   }
 
   function renderLoginBonusStampFilters(table, previous) {
@@ -382,7 +538,9 @@
       const preferred = previous.get(definition.field) || definition.defaultValue;
       if (values.includes(preferred)) select.value = preferred;
       select.addEventListener("change", renderTable);
-      label.append(select);
+      label.append(definition.field === "LoginBonusId"
+        ? createSearchableSelect(select, { placeholder: "搜索 LoginBonusId 或名称" })
+        : select);
       elements.typeFilters.append(label);
     });
   }
@@ -417,7 +575,8 @@
       appendMissionSourceFilter(
         "任务组", "MissionGroupId", groupValues,
         (value) => missionGroupSourceLabel(groupByID.get(value)),
-        previous.get("MissionGroupId"), renderTable
+        previous.get("MissionGroupId"), renderTable,
+        table.name === "m_mission_reward" ? { placeholder: "搜索任务组 ID 或名称" } : null
       );
     }
   }
@@ -431,7 +590,7 @@
     )));
   }
 
-  function appendMissionSourceFilter(labelText, field, values, optionLabel, previous, onChange) {
+  function appendMissionSourceFilter(labelText, field, values, optionLabel, previous, onChange, searchableConfig = null) {
     if (!values.length) return null;
     const label = document.createElement("label");
     label.textContent = labelText;
@@ -446,7 +605,7 @@
     });
     if (values.includes(previous)) select.value = previous;
     select.addEventListener("change", onChange);
-    label.append(select);
+    label.append(searchableConfig ? createSearchableSelect(select, searchableConfig) : select);
     elements.typeFilters.append(label);
     return select;
   }
@@ -583,6 +742,10 @@
     state.shopCellGroupDraft = (state.catalog?.shopEditor?.cellGroups || []).map((row) => ({ ...row }));
     state.shopCellGroupBaseline = JSON.stringify(state.shopCellGroupDraft.map(shopCellGroupPayload));
     state.shopCellGroupDirty = false;
+    const options = shopCellGroupSearchOptions(state.catalog?.shopEditor || { shops: [], cellGroups: [] });
+    if (!options.some((option) => option.id === state.shopCellGroupSelection)) {
+      state.shopCellGroupSelection = options[0]?.id || "";
+    }
     state.shopCellPage = 1;
     state.shopItemPage = 1;
   }
@@ -603,8 +766,7 @@
   }
 
   function selectedShopCellGroupID() {
-    return elements.typeFilters
-      .querySelector('select[data-field="ShopItemCellGroupId"][data-source-filter="shop-group"]')?.value || "";
+    return state.shopCellGroupSelection;
   }
 
   function renderShopEditor(contentTable, query) {
@@ -617,13 +779,15 @@
 
     const groupRows = state.shopCellGroupDraft.map((row, draftIndex) => ({ row, draftIndex }))
       .filter(({ row }) => String(row.shopItemCellGroupId) === groupID)
-      .filter(({ row }) => !query || [row.shopItemCellId, row.sortOrder, row.shopItemCellTermId]
-        .join(" ").toLocaleLowerCase().includes(query));
+      .filter(({ row }) => !query || shopCellGroupSearchText(row).includes(query));
     elements.shopCellGroupBody.replaceChildren();
-    groupRows.forEach(({ row, draftIndex }) => elements.shopCellGroupBody.append(renderShopCellGroupRow(row, draftIndex)));
-    if (!groupRows.length) elements.shopCellGroupBody.append(renderMissionRewardEmptyRow(
-      5, query ? "当前 CellGroup 中没有匹配项。" : "当前 CellGroup 尚无 Cell。"
-    ));
+    groupRows.forEach(({ row, draftIndex }) => elements.shopCellGroupBody.append(renderShopCellGroupCard(row, draftIndex, contentTable)));
+    if (!groupRows.length) {
+      const empty = document.createElement("div");
+      empty.className = "shop-cell-group-empty";
+      empty.textContent = query ? "当前 CellGroup 中没有匹配项。" : "当前 CellGroup 尚无 Cell。";
+      elements.shopCellGroupBody.append(empty);
+    }
     elements.shopCellGroupCount.textContent = `${groupRows.length.toLocaleString()} 条`;
     elements.shopCellGroupAdd.disabled = !groupID || !editor.cells.length;
 
@@ -634,14 +798,36 @@
     elements.empty.classList.add("hidden");
   }
 
-  function renderShopCellGroupRow(row, draftIndex) {
-    const tr = document.createElement("tr");
-    const groupID = document.createElement("td");
-    const groupCode = document.createElement("code");
-    groupCode.textContent = String(row.shopItemCellGroupId);
-    groupID.append(groupCode);
+  function shopCellGroupSearchText(row) {
+    const cell = (state.catalog?.shopEditor?.cells || [])
+      .find((candidate) => String(candidate.shopItemCellId) === String(row.shopItemCellId));
+    return [row.shopItemCellId, row.sortOrder, row.shopItemCellTermId, cell ? shopCellOptionLabel(cell) : ""]
+      .join(" ").toLocaleLowerCase();
+  }
 
-    const cell = document.createElement("td");
+  function renderShopCellGroupCard(row, draftIndex, contentTable) {
+    const card = document.createElement("article");
+    card.className = "shop-cell-card";
+    const cellDefinition = (state.catalog?.shopEditor?.cells || [])
+      .find((candidate) => String(candidate.shopItemCellId) === String(row.shopItemCellId));
+    const itemID = cellDefinition ? effectiveShopCellItemID(cellDefinition) : "";
+    const itemDefinition = (state.catalog?.shopEditor?.items || [])
+      .find((candidate) => String(candidate.shopItemId) === itemID);
+    card.append(renderShopCellGroupIcon(itemID, contentTable));
+
+    const heading = document.createElement("div");
+    heading.className = "shop-cell-card-heading";
+    const title = document.createElement("strong");
+    title.textContent = itemDefinition
+      ? `${localizedInlineText(itemDefinition.names) || "未命名商品"}（${itemID}）`
+      : `未知商品（${itemID || "—"}）`;
+    title.title = title.textContent;
+    const subtitle = document.createElement("span");
+    subtitle.textContent = `Cell ${row.shopItemCellId} · Group ${row.shopItemCellGroupId}`;
+    heading.append(title, subtitle);
+
+    const selectSlot = document.createElement("div");
+    selectSlot.className = "shop-cell-card-select";
     const cellSelect = document.createElement("select");
     populateShopCellSelect(cellSelect, row.shopItemCellId, false);
     cellSelect.classList.toggle("changed", state.shopCellGroupDirty);
@@ -653,21 +839,16 @@
       markShopCellGroupDirty();
       renderTable();
     });
-    cell.append(cellSelect);
+    selectSlot.append(cellSelect);
 
-    const sortOrder = makeCell("td", String(row.sortOrder));
-    sortOrder.className = "shop-readonly";
-    const term = document.createElement("td");
-    const termStack = document.createElement("div");
-    termStack.className = "shop-stack shop-readonly";
-    const termID = document.createElement("code");
-    termID.textContent = `Term ${row.shopItemCellTermId}`;
-    const interval = document.createElement("span");
-    interval.textContent = `${shopReadonlyTime(row.startDatetime)} → ${shopReadonlyTime(row.endDatetime)}`;
-    termStack.append(termID, interval);
-    term.append(termStack);
+    const meta = document.createElement("div");
+    meta.className = "shop-cell-card-meta";
+    meta.append(
+      makeCell("span", `SortOrder ${row.sortOrder}`),
+      makeCell("code", `Term ${row.shopItemCellTermId}`),
+      makeCell("span", `${shopReadonlyTime(row.startDatetime)} → ${shopReadonlyTime(row.endDatetime)}`)
+    );
 
-    const actions = document.createElement("td");
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "button ghost shop-remove-cell";
@@ -677,9 +858,28 @@
       markShopCellGroupDirty();
       renderTable();
     });
-    actions.append(remove);
-    tr.append(groupID, cell, sortOrder, term, actions);
-    return tr;
+    card.append(heading, selectSlot, meta, remove);
+    return card;
+  }
+
+  function renderShopCellGroupIcon(itemID, contentTable) {
+    const rows = contentTable.rows
+      .filter((row) => row.values.ShopItemId === String(itemID))
+      .sort((left, right) => Number(effectiveValue(contentTable.name, left, "SortOrder"))
+        - Number(effectiveValue(contentTable.name, right, "SortOrder")) || left.index - right.index);
+    const row = rows[0];
+    if (!row) {
+      const missing = document.createElement("div");
+      missing.className = "shop-cell-card-icon";
+      missing.textContent = "商";
+      return missing;
+    }
+    const possessionType = effectiveValue(contentTable.name, row, "PossessionType");
+    const possessionID = effectiveValue(contentTable.name, row, "PossessionId");
+    const definition = rewardDefinitionForPossessionType(possessionType);
+    const reference = rewardReferencesForPossessionType(possessionType)
+      .find((candidate) => String(candidate.possessionId) === possessionID);
+    return renderRewardIcon(reference, definition, "shop-cell-card-icon");
   }
 
   function shopReadonlyTime(milliseconds) {
@@ -886,7 +1086,7 @@
     const stack = document.createElement("div");
     stack.className = "shop-stack";
     const typeAndID = document.createElement("div");
-    typeAndID.className = "shop-inline-fields";
+    typeAndID.className = "shop-inline-fields shop-price-identifiers";
     const priceType = renderShopPriceTypeSelect(item);
     const priceID = renderShopPriceIDSelect(item);
     typeAndID.append(shopLabeledControl("PriceType", priceType), shopLabeledControl("PriceId", priceID));
@@ -1938,6 +2138,7 @@
       const nextIcon = renderRewardIcon(reference, definition, "reward-field-icon");
       icon.replaceWith(nextIcon);
       icon = nextIcon;
+      if (table.name === "m_shop_item_content_possession") renderTable();
     });
     const selectSlot = document.createElement("div");
     selectSlot.className = "reward-field-select";
@@ -2827,6 +3028,7 @@
       elements.gachaBannerSelect.append(option);
     });
     if (state.gachaCatalog.banners.some((banner) => String(banner.gachaId) === previous)) elements.gachaBannerSelect.value = previous;
+    createSearchableSelect(elements.gachaBannerSelect, { placeholder: "搜索卡池 ID 或名称" });
     elements.gachaBannerCount.textContent = state.gachaCatalog.banners.length.toLocaleString();
   }
 
@@ -3116,6 +3318,7 @@
       elements.boxGachaBannerSelect.append(option);
     });
     if (banners.some((banner) => String(banner.gachaId) === previousBanner)) elements.boxGachaBannerSelect.value = previousBanner;
+    createSearchableSelect(elements.boxGachaBannerSelect, { placeholder: "搜索卡池 ID 或名称" });
 
     const banner = currentBoxBanner();
     const event = state.gachaKind === "event";
@@ -3484,6 +3687,7 @@
     state.shopCellGroupDraft = [];
     state.shopCellGroupBaseline = "[]";
     state.shopCellGroupDirty = false;
+    state.shopCellGroupSelection = "";
     sessionStorage.removeItem("lunar-admin-token");
     showLogin();
   });
