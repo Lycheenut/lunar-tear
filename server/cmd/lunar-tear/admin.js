@@ -505,7 +505,7 @@
     ])].sort(compareFieldValues);
     return groupIDs.map((groupID) => {
       const references = (shopsByGroup.get(groupID) || []).map((shop) => (
-        `${localizedInlineText(shop.names) || "未命名商店"}（${shop.shopId}）`
+        idNameLabel(shop.shopId, localizedInlineText(shop.names) || "未命名商店")
       ));
       const label = references.length
         ? `${references.join("、")} · Group ${groupID}`
@@ -549,7 +549,7 @@
     const loginBonusTable = state.catalog?.tables.find((table) => table.name === "m_login_bonus");
     const loginBonus = loginBonusTable?.rows.find((row) => row.values.LoginBonusId === loginBonusID);
     const name = localizedText(loginBonus?.titles) || loginBonus?.values.LoginBonusAssetName;
-    return name ? `${name}（${loginBonusID}）` : `${loginBonusID}`;
+    return name ? idNameLabel(loginBonusID, name) : `${loginBonusID}`;
   }
 
   function renderMissionSourceFilters(table, previous) {
@@ -561,7 +561,7 @@
     categoryValues.sort(compareFieldValues);
     const categorySelect = appendMissionSourceFilter(
       "任务类别", "MissionCategoryType", categoryValues,
-      (value) => `${missionCategoryLabels[value] || `任务类别 ${value}`}（${value}）`,
+      (value) => idNameLabel(value, missionCategoryLabels[value] || "未知任务类别"),
       previous.get("MissionCategoryType"), () => {
         renderTypeFilters(table);
         renderTable();
@@ -613,7 +613,7 @@
   function missionGroupSourceLabel(group) {
     if (!group) return "未知任务组";
     const name = localizedText(group.names) || "未命名任务组";
-    return `${name}（${group.missionGroupId}）`;
+    return idNameLabel(group.missionGroupId, name);
   }
 
   function selectedMissionSources(table) {
@@ -640,7 +640,7 @@
   function typeOptionLabel(tableName, fieldName, value) {
     if (fieldName.endsWith("PossessionType")) {
       const definition = rewardDefinitionForPossessionType(value);
-      if (definition) return `${definition.label}（${value}）`;
+      if (definition) return idNameLabel(value, definition.label);
     }
     return value;
   }
@@ -774,7 +774,7 @@
     const groupID = selectedShopCellGroupID();
     const references = editor.shops.filter((shop) => String(shop.shopItemCellGroupId) === groupID);
     elements.shopCellGroupReferences.textContent = references.length
-      ? `引用商店：${references.map((shop) => `${localizedInlineText(shop.names) || "未命名商店"}（${shop.shopId}）`).join("、")}`
+      ? `引用商店：${references.map((shop) => idNameLabel(shop.shopId, localizedInlineText(shop.names) || "未命名商店")).join("、")}`
       : "引用商店：无";
 
     const groupRows = state.shopCellGroupDraft.map((row, draftIndex) => ({ row, draftIndex }))
@@ -813,18 +813,21 @@
     const itemID = cellDefinition ? effectiveShopCellItemID(cellDefinition) : "";
     const itemDefinition = (state.catalog?.shopEditor?.items || [])
       .find((candidate) => String(candidate.shopItemId) === itemID);
-    card.append(renderShopCellGroupIcon(itemID, contentTable));
+    const visual = document.createElement("div");
+    visual.className = "shop-cell-card-visual";
+    const cellID = document.createElement("code");
+    cellID.className = "shop-cell-card-id";
+    cellID.textContent = String(row.shopItemCellId);
+    visual.append(renderShopCellGroupIcon(itemID, contentTable), cellID);
 
     const heading = document.createElement("div");
     heading.className = "shop-cell-card-heading";
     const title = document.createElement("strong");
     title.textContent = itemDefinition
-      ? `${localizedInlineText(itemDefinition.names) || "未命名商品"}（${itemID}）`
-      : `未知商品（${itemID || "—"}）`;
+      ? idNameLabel(itemID, localizedInlineText(itemDefinition.names) || "未命名商品")
+      : idNameLabel(itemID || "—", "未知商品");
     title.title = title.textContent;
-    const subtitle = document.createElement("span");
-    subtitle.textContent = `Cell ${row.shopItemCellId} · Group ${row.shopItemCellGroupId}`;
-    heading.append(title, subtitle);
+    heading.append(title);
 
     const selectSlot = document.createElement("div");
     selectSlot.className = "shop-cell-card-select";
@@ -858,7 +861,7 @@
       markShopCellGroupDirty();
       renderTable();
     });
-    card.append(heading, selectSlot, meta, remove);
+    card.append(visual, heading, selectSlot, meta, remove);
     return card;
   }
 
@@ -902,7 +905,7 @@
     if (![...select.options].some((option) => option.value === selected)) {
       const option = document.createElement("option");
       option.value = selected;
-      option.textContent = `未知 Cell（${selected}）`;
+      option.textContent = idNameLabel(selected, "未知 Cell");
       select.append(option);
     }
     select.value = selected;
@@ -914,7 +917,7 @@
     const itemID = effectiveShopCellItemID(cell);
     const item = (state.catalog?.shopEditor?.items || []).find((candidate) => String(candidate.shopItemId) === itemID);
     const name = localizedInlineText(item?.names) || "未命名商品";
-    return `Cell ${cell.shopItemCellId} · ${name}（Item ${itemID}）`;
+    return idNameLabel(cell.shopItemCellId, name);
   }
 
   function effectiveShopCellItemID(cell) {
@@ -1001,13 +1004,13 @@
     options.forEach((item) => {
       const option = document.createElement("option");
       option.value = String(item.shopItemId);
-      option.textContent = `${localizedInlineText(item.names) || "未命名商品"}（${item.shopItemId}）`;
+      option.textContent = idNameLabel(item.shopItemId, localizedInlineText(item.names) || "未命名商品");
       select.append(option);
     });
     if (![...select.options].some((option) => option.value === selected)) {
       const option = document.createElement("option");
       option.value = selected;
-      option.textContent = `未知商品（${selected}）`;
+      option.textContent = idNameLabel(selected, "未知商品");
       select.append(option);
     }
     select.value = selected;
@@ -1017,11 +1020,15 @@
 
   function renderShopItemPanel(editor, contentTable) {
     const query = elements.shopItemSearch.value.trim().toLocaleLowerCase();
-    const rows = editor.items.filter((item) => !query || String(item.shopItemId).toLocaleLowerCase().includes(query));
+    const rows = editor.items.filter((item) => !query || [
+      item.shopItemId,
+      localizedInlineText(item.names),
+      ...Object.values(item.names || {})
+    ].join(" ").toLocaleLowerCase().includes(query));
     const page = shopPage(rows.length, "shopItemPage", state.shopItemPageSize);
     elements.shopItemBody.replaceChildren();
     rows.slice(page.start, page.end).forEach((item) => elements.shopItemBody.append(renderShopItemRow(item, contentTable)));
-    if (!rows.length) elements.shopItemBody.append(renderMissionRewardEmptyRow(4, query ? "没有匹配该 ShopItemId 的商品。" : "没有 ShopItem。"));
+    if (!rows.length) elements.shopItemBody.append(renderMissionRewardEmptyRow(3, query ? "没有匹配该 ShopItemId 或名称的商品。" : "没有 ShopItem。"));
     elements.shopItemCount.textContent = shopPageCountLabel(rows.length, editor.items.length, page);
     syncShopPagination("shopItem", page);
   }
@@ -1036,24 +1043,12 @@
     name.textContent = localizedInlineText(item.names) || "未命名商品";
     identity.append(code, name);
 
-    const price = document.createElement("td");
-    price.append(renderShopPriceEditor(item));
-
-    const stock = document.createElement("td");
-    const stockInfo = document.createElement("div");
-    stockInfo.className = "shop-stack shop-readonly";
-    if (Number(item.shopItemLimitedStockId)) {
-      stockInfo.append(
-        makeCell("code", `Stock ${item.shopItemLimitedStockId}`),
-        makeCell("span", `上限 ${item.stockMaxCount}`),
-        makeCell("span", `重置类型 ${item.stockAutoResetType} · 周期 ${item.stockAutoResetPeriod}`)
-      );
-    } else {
-      stockInfo.textContent = "不限库存";
-    }
-    stock.append(stockInfo);
-
-    const contents = document.createElement("td");
+    const transaction = document.createElement("td");
+    const transactionStack = document.createElement("div");
+    transactionStack.className = "shop-transaction-stack";
+    const contentSection = document.createElement("section");
+    contentSection.className = "shop-transaction-section";
+    contentSection.append(makeCell("h4", "发放内容"));
     const contentStack = document.createElement("div");
     contentStack.className = "shop-stack";
     const rows = contentTable.rows.filter((row) => row.values.ShopItemId === String(item.shopItemId));
@@ -1077,46 +1072,64 @@
       empty.textContent = "无 Possession 发放内容";
       contentStack.append(empty);
     }
-    contents.append(contentStack);
-    tr.append(identity, price, stock, contents);
+    contentSection.append(contentStack);
+    const priceSection = document.createElement("section");
+    priceSection.className = "shop-transaction-section shop-price-section";
+    priceSection.append(makeCell("h4", "价格"), renderShopPriceEditor(item));
+    transactionStack.append(contentSection, priceSection);
+    transaction.append(transactionStack);
+
+    const stock = document.createElement("td");
+    const stockInfo = document.createElement("div");
+    stockInfo.className = "shop-stack shop-readonly";
+    if (Number(item.shopItemLimitedStockId)) {
+      stockInfo.append(
+        makeCell("code", `Stock ${item.shopItemLimitedStockId}`),
+        makeCell("span", `上限 ${item.stockMaxCount}`),
+        makeCell("span", `重置类型 ${item.stockAutoResetType}`),
+        makeCell("span", `重置周期 ${item.stockAutoResetPeriod}`)
+      );
+    } else {
+      stockInfo.textContent = "不限库存";
+    }
+    stock.append(stockInfo);
+
+    tr.append(identity, transaction, stock);
     return tr;
   }
 
   function renderShopPriceEditor(item) {
     const stack = document.createElement("div");
     stack.className = "shop-stack";
-    const typeAndID = document.createElement("div");
-    typeAndID.className = "shop-inline-fields shop-price-identifiers";
-    const priceType = renderShopPriceTypeSelect(item);
-    const priceID = renderShopPriceIDSelect(item);
-    typeAndID.append(shopLabeledControl("PriceType", priceType), shopLabeledControl("PriceId", priceID));
-    const amounts = document.createElement("div");
-    amounts.className = "shop-inline-fields";
-    amounts.append(
-      shopLabeledControl("Price", renderShopItemInput(item, "Price", item.price, "价格")),
-      shopLabeledControl("RegularPrice", renderShopItemInput(item, "RegularPrice", item.regularPrice, "原价"))
+    const header = document.createElement("div");
+    header.className = "shop-content-row shop-content-header shop-price-row";
+    ["PriceType", "PriceId", "Price", "RegularPrice"].forEach((label) => header.append(makeCell("span", label)));
+    const fields = document.createElement("div");
+    fields.className = "shop-content-row shop-price-row";
+    fields.append(
+      renderShopPriceTypeSelect(item),
+      renderShopPriceIDEditor(item),
+      renderShopItemInput(item, "Price", item.price, "价格"),
+      renderShopItemInput(item, "RegularPrice", item.regularPrice, "原价")
     );
-    stack.append(typeAndID, amounts);
+    stack.append(header, fields);
     return stack;
   }
 
-  function shopLabeledControl(labelText, control) {
-    const label = document.createElement("label");
-    label.className = "shop-labeled-field";
-    const caption = document.createElement("span");
-    caption.textContent = labelText;
-    label.append(caption, control);
-    return label;
-  }
+  const shopPriceTypeDisplays = {
+    "1": { name: "消耗品", glyph: "消" },
+    "2": { name: "免费宝石", glyph: "石" },
+    "3": { name: "付费宝石", glyph: "石" },
+    "4": { name: "平台支付", glyph: "￥" }
+  };
 
   function renderShopPriceTypeSelect(item) {
     const select = document.createElement("select");
     const current = effectiveShopItemValue(item, "PriceType", item.priceType);
-    const labels = { "1": "消耗品", "2": "免费宝石", "3": "付费宝石", "4": "平台支付" };
     [...new Set(["1", "2", "3", "4", current])].sort(compareFieldValues).forEach((value) => {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = `${labels[value] || "未知类型"}（${value}）`;
+      option.textContent = idNameLabel(value, shopPriceTypeDisplays[value]?.name || "未知类型");
       select.append(option);
     });
     select.value = current;
@@ -1124,7 +1137,35 @@
     return select;
   }
 
-  function renderShopPriceIDSelect(item) {
+  function renderShopPriceIDEditor(item) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "field-editor reward-id-field-editor";
+    const priceType = effectiveShopItemValue(item, "PriceType", item.priceType);
+    let icon = renderShopPriceIcon(priceType, effectiveShopItemValue(item, "PriceId", item.priceId));
+    const select = renderShopPriceIDSelect(item, () => {
+      const nextIcon = renderShopPriceIcon(priceType, select.value);
+      icon.replaceWith(nextIcon);
+      icon = nextIcon;
+    });
+    const selectSlot = document.createElement("div");
+    selectSlot.className = "reward-field-select";
+    selectSlot.append(select);
+    wrapper.append(icon, selectSlot);
+    return wrapper;
+  }
+
+  function renderShopPriceIcon(priceType, priceID) {
+    if (priceType === "1") {
+      const definition = rewardDefinitionForPossessionType("6");
+      const reference = rewardReferencesForPossessionType("6")
+        .find((candidate) => String(candidate.possessionId) === String(priceID));
+      return renderRewardIcon(reference, definition, "reward-field-icon");
+    }
+    const display = shopPriceTypeDisplays[priceType] || { name: "未知价格类型", glyph: "价" };
+    return renderRewardIcon(null, { fallbackName: display.name, glyph: display.glyph }, "reward-field-icon");
+  }
+
+  function renderShopPriceIDSelect(item, afterChange) {
     const select = document.createElement("select");
     const priceType = effectiveShopItemValue(item, "PriceType", item.priceType);
     const current = effectiveShopItemValue(item, "PriceId", item.priceId);
@@ -1140,17 +1181,17 @@
     } else {
       const option = document.createElement("option");
       option.value = "0";
-      option.textContent = "不使用 PriceId（0）";
+      option.textContent = idNameLabel(0, "不使用 PriceId");
       select.append(option);
     }
     if (![...select.options].some((option) => option.value === current)) {
       const option = document.createElement("option");
       option.value = current;
-      option.textContent = `当前 PriceId（${current}）`;
+      option.textContent = idNameLabel(current, "当前 PriceId");
       select.append(option);
     }
     select.value = current;
-    configureShopItemSelect(select, item, "PriceId", item.priceId);
+    configureShopItemSelect(select, item, "PriceId", item.priceId, afterChange);
     return select;
   }
 
@@ -1357,7 +1398,7 @@
         categoryHeading.append(categoryTitle, categoryCount);
         category.append(categoryHeading);
         groups.forEach(({ group, missions }, groupID) => {
-          const groupLabel = group ? missionGroupSourceLabel(group) : `未知任务组（${groupID}）`;
+          const groupLabel = group ? missionGroupSourceLabel(group) : idNameLabel(groupID, "未知任务组");
           category.append(renderImpactSection(
             `${groupLabel} · ${missions.length.toLocaleString()} 个任务`,
             missions.map((mission) => ({
@@ -1412,7 +1453,7 @@
     if (!options.includes(String(selectedID))) {
       const unknown = document.createElement("option");
       unknown.value = String(selectedID);
-      unknown.textContent = `未知奖励（${selectedID}）`;
+      unknown.textContent = idNameLabel(selectedID, "未知奖励");
       select.append(unknown);
     }
     select.value = String(selectedID);
@@ -1430,7 +1471,7 @@
         .find((candidate) => String(candidate.possessionId) === possessionID);
       return `${rewardReferenceName(reference, definition).replace(/\s*\n\s*/g, " ")} ×${count}`;
     });
-    return `${summaries.join(" + ") || "未定义奖励"}（${rewardID}）`;
+    return idNameLabel(rewardID, summaries.join(" + ") || "未定义奖励");
   }
 
   function renderMissionRewardInlinePreview(table, rewardID) {
@@ -1612,7 +1653,7 @@
     if (!options.includes(String(selectedID))) {
       const unknown = document.createElement("option");
       unknown.value = String(selectedID);
-      unknown.textContent = `未知期限（${selectedID}）`;
+      unknown.textContent = idNameLabel(selectedID, "未知期限");
       select.append(unknown);
     }
     select.value = String(selectedID);
@@ -1622,10 +1663,10 @@
 
   function missionTermOptionLabel(table, termID) {
     const row = missionTermRow(table, termID);
-    if (!row) return `未知期限（${termID}）`;
+    if (!row) return idNameLabel(termID, "未知期限");
     const start = previewChangeValue(effectiveValue(table.name, row, "StartDatetime"), true);
     const end = previewChangeValue(effectiveValue(table.name, row, "EndDatetime"), true);
-    return `${start} → ${end}（${termID}）`;
+    return idNameLabel(termID, `${start} → ${end}`);
   }
 
   function renderMissionTermInlinePreview(table, termID) {
@@ -2090,13 +2131,13 @@
       if (!rewardReferencesForPossessionType(definition.possessionType).length) return;
       const option = document.createElement("option");
       option.value = definition.possessionType;
-      option.textContent = `${definition.label}（${definition.possessionType}）`;
+      option.textContent = idNameLabel(definition.possessionType, definition.label);
       select.append(option);
     });
     if (![...select.options].some((option) => option.value === currentType)) {
       const unknown = document.createElement("option");
       unknown.value = currentType;
-      unknown.textContent = `未知类型（${currentType}）`;
+      unknown.textContent = idNameLabel(currentType, "未知类型");
       select.append(unknown);
     }
     select.value = currentType;
@@ -2161,7 +2202,7 @@
     if (!selected) {
       const unknown = document.createElement("option");
       unknown.value = selectedID;
-      unknown.textContent = `未知奖励（ID ${selectedID}）`;
+      unknown.textContent = idNameLabel(selectedID, "未知奖励");
       select.append(unknown);
     }
     select.value = selectedID;
@@ -2183,6 +2224,10 @@
 
   function localizedInlineText(titles) {
     return localizedText(titles).replace(/\s*\n\s*/g, " ");
+  }
+
+  function idNameLabel(id, name) {
+    return `${id}. ${name}`;
   }
 
   function displayContentText(value) {
@@ -2564,7 +2609,7 @@
     [...new Set(values.map(Number).filter(Number.isFinite))].sort((left, right) => left - right).forEach((value) => {
       const option = document.createElement("option");
       option.value = String(value);
-      option.textContent = `${labelForValue(value)}（${value}）`;
+      option.textContent = idNameLabel(value, labelForValue(value));
       select.append(option);
     });
     if ([...select.options].some((option) => option.value === previous)) select.value = previous;
@@ -2585,7 +2630,7 @@
 
   function rewardReferenceOptionLabel(reference, definition) {
     const name = rewardReferenceName(reference, definition).replace(/\s*\n\s*/g, " ");
-    return `${name}（${reference.possessionId}）`;
+    return idNameLabel(reference.possessionId, name);
   }
 
   function renderAssetIcon(iconPath, alt, glyph, className) {
@@ -3024,7 +3069,7 @@
       const option = document.createElement("option");
       option.value = String(banner.gachaId);
       const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || "未命名卡池";
-      option.textContent = `${banner.gachaId} · ${name}`;
+      option.textContent = idNameLabel(banner.gachaId, name);
       elements.gachaBannerSelect.append(option);
     });
     if (state.gachaCatalog.banners.some((banner) => String(banner.gachaId) === previous)) elements.gachaBannerSelect.value = previous;
@@ -3079,7 +3124,7 @@
         pruneBannerPickups(banner.gachaId);
         markGachaDirty();
       });
-      label.append(input, document.createTextNode(`${definition.displayName} · ${id}`));
+      label.append(input, document.createTextNode(idNameLabel(id, definition.displayName)));
       elements.gachaBannerLimitedSets.append(label);
     });
   }
@@ -3314,7 +3359,7 @@
       const option = document.createElement("option");
       option.value = String(banner.gachaId);
       const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || (state.gachaKind === "chapter" ? `Chapter ${banner.relatedMainQuestChapterId}` : `Event ${banner.relatedEventQuestChapterId}`);
-      option.textContent = `${banner.gachaId} · ${name}`;
+      option.textContent = idNameLabel(banner.gachaId, name);
       elements.boxGachaBannerSelect.append(option);
     });
     if (banners.some((banner) => String(banner.gachaId) === previousBanner)) elements.boxGachaBannerSelect.value = previousBanner;
@@ -3413,7 +3458,10 @@
       references.forEach((reference) => {
         const option = document.createElement("option");
         option.value = String(reference.possessionId);
-        option.textContent = `${reference.possessionId || "—"} · ${gachaLocalizedText(reference.names) || rewardDefinitionForPossessionType(reference.possessionType)?.fallbackName || "未命名奖励"}`;
+        option.textContent = idNameLabel(
+          reference.possessionId || "—",
+          gachaLocalizedText(reference.names) || rewardDefinitionForPossessionType(reference.possessionType)?.fallbackName || "未命名奖励"
+        );
         itemSelect.append(option);
       });
       itemSelect.value = String(reward.possessionId || 0);

@@ -49,6 +49,61 @@ func TestAdminShopEditorUsesSearchableCardLayout(t *testing.T) {
 	}
 }
 
+func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`placeholder="搜索 ShopItemId 或名称"`,
+		`<th>ShopItem</th><th>交易内容</th><th>库存（只读）</th>`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("ShopItem HTML is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		".shop-cell-card-visual", ".shop-cell-card-id", ".shop-transaction-stack", ".shop-price-row",
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("ShopItem CSS is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		"...Object.values(item.names || {})",
+		`cellID.textContent = String(row.shopItemCellId)`,
+		`transactionStack.append(contentSection, priceSection)`,
+		`tr.append(identity, transaction, stock)`,
+		"makeCell(\"span\", `重置周期 ${item.stockAutoResetPeriod}`)",
+		`renderShopPriceIDEditor(item)`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("ShopItem JavaScript is missing %s", required)
+		}
+	}
+	if strings.Contains(javascript, "Cell ${row.shopItemCellId} · Group ${row.shopItemCellGroupId}") {
+		t.Fatal("CellGroup card still renders the removed Cell/Group subtitle")
+	}
+}
+
+func TestAdminEntityLabelsUseIDFirstFormat(t *testing.T) {
+	javascript := adminAssetBody(t, "/admin/admin.js")
+	if !strings.Contains(javascript, "return `${id}. ${name}`;") {
+		t.Fatal("admin JavaScript is missing the ID-first entity label formatter")
+	}
+	for _, obsolete := range []string{
+		"${name}（${reference.possessionId}）",
+		"${definition.label}（${definition.possessionType}）",
+		"${banner.gachaId} · ${name}",
+		"${definition.displayName} · ${id}",
+		"未命名商品\"}（${item.shopItemId}）",
+	} {
+		if strings.Contains(javascript, obsolete) {
+			t.Fatalf("admin JavaScript still uses a name-first entity label: %s", obsolete)
+		}
+	}
+}
+
 func TestAdminSearchableSelectAppliedToRequestedFilters(t *testing.T) {
 	css := adminAssetBody(t, "/admin/admin.css")
 	javascript := adminAssetBody(t, "/admin/admin.js")
