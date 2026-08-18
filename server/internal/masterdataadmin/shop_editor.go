@@ -8,12 +8,25 @@ import (
 )
 
 const shopItemCellGroupTable = "m_shop_item_cell_group"
+const shopItemTable = "m_shop_item"
+
+var shopItemReferenceTables = []struct {
+	name   string
+	column int
+}{
+	{name: "m_shop_item_cell", column: 2},
+	{name: "m_shop_item_content_possession", column: 0},
+	{name: "m_shop_item_content_effect", column: 0},
+	{name: "m_shop_item_content_mission", column: 0},
+	{name: "m_shop_item_user_level_condition", column: 0},
+}
 
 type ShopEditorCatalog struct {
 	Shops      []ShopEditorShop         `json:"shops"`
 	CellGroups []ShopItemCellGroupInput `json:"cellGroups"`
 	Cells      []ShopEditorCell         `json:"cells"`
 	Items      []ShopEditorItem         `json:"items"`
+	Stocks     []ShopEditorStock        `json:"stocks"`
 }
 
 type ShopEditorShop struct {
@@ -38,24 +51,56 @@ type ShopEditorCell struct {
 	ShopItemID     int64 `json:"shopItemId"`
 }
 
+type ShopItemInput struct {
+	ShopItemID             int32 `json:"shopItemId"`
+	NameShopTextID         int32 `json:"nameShopTextId"`
+	DescriptionShopTextID  int32 `json:"descriptionShopTextId"`
+	ShopItemContentType    int32 `json:"shopItemContentType"`
+	PriceType              int32 `json:"priceType"`
+	PriceID                int32 `json:"priceId"`
+	Price                  int32 `json:"price"`
+	RegularPrice           int32 `json:"regularPrice"`
+	ShopPromotionType      int32 `json:"shopPromotionType"`
+	ShopItemLimitedStockID int32 `json:"shopItemLimitedStockId"`
+	AssetCategoryID        int32 `json:"assetCategoryId"`
+	AssetVariationID       int32 `json:"assetVariationId"`
+	ShopItemDecorationType int32 `json:"shopItemDecorationType"`
+}
+
+type ShopItemStructuralUpdate struct {
+	Copies    []ShopItemCopyInput `json:"copies,omitempty"`
+	DeleteIDs []int32             `json:"deleteIds,omitempty"`
+}
+
+type ShopItemCopyInput struct {
+	SourceShopItemID int32 `json:"sourceShopItemId"`
+	ShopItemInput
+}
+
 type ShopEditorItem struct {
 	Row                    int64             `json:"row"`
 	ShopItemID             int64             `json:"shopItemId"`
+	NameShopTextID         int64             `json:"nameShopTextId"`
+	DescriptionShopTextID  int64             `json:"descriptionShopTextId"`
+	ShopItemContentType    int64             `json:"shopItemContentType"`
 	PriceType              int64             `json:"priceType"`
 	PriceID                int64             `json:"priceId"`
 	Price                  int64             `json:"price"`
 	RegularPrice           int64             `json:"regularPrice"`
+	ShopPromotionType      int64             `json:"shopPromotionType"`
 	ShopItemLimitedStockID int64             `json:"shopItemLimitedStockId"`
-	StockMaxCount          int64             `json:"stockMaxCount,omitempty"`
-	StockAutoResetType     int64             `json:"stockAutoResetType,omitempty"`
-	StockAutoResetPeriod   int64             `json:"stockAutoResetPeriod,omitempty"`
+	AssetCategoryID        int64             `json:"assetCategoryId"`
+	AssetVariationID       int64             `json:"assetVariationId"`
+	ShopItemDecorationType int64             `json:"shopItemDecorationType"`
 	Names                  map[string]string `json:"names,omitempty"`
+	DeleteBlockers         []string          `json:"deleteBlockers,omitempty"`
 }
 
-type shopEditorStock struct {
-	maxCount        int64
-	autoResetType   int64
-	autoResetPeriod int64
+type ShopEditorStock struct {
+	ShopItemLimitedStockID int64 `json:"shopItemLimitedStockId"`
+	MaxCount               int64 `json:"maxCount"`
+	AutoResetType          int64 `json:"autoResetType"`
+	AutoResetPeriod        int64 `json:"autoResetPeriod"`
 }
 
 func loadShopEditor(file *memorydb.File, resolver *titleResolver) ShopEditorCatalog {
@@ -107,40 +152,210 @@ func loadShopEditor(file *memorydb.File, resolver *titleResolver) ShopEditorCata
 		}
 	}
 
-	stocks := make(map[int64]shopEditorStock)
 	for _, row := range readRows(file, "m_shop_item_limited_stock") {
 		stockID, idOK := integerAt(row, 0)
 		maxCount, maxOK := integerAt(row, 1)
 		resetType, typeOK := integerAt(row, 2)
 		resetPeriod, periodOK := integerAt(row, 3)
 		if idOK && maxOK && typeOK && periodOK {
-			stocks[stockID] = shopEditorStock{maxCount: maxCount, autoResetType: resetType, autoResetPeriod: resetPeriod}
+			stock := ShopEditorStock{
+				ShopItemLimitedStockID: stockID, MaxCount: maxCount,
+				AutoResetType: resetType, AutoResetPeriod: resetPeriod,
+			}
+			result.Stocks = append(result.Stocks, stock)
 		}
 	}
+	deleteBlockers := loadShopItemDeleteBlockerIndex(file)
 	for rowIndex, row := range readRows(file, "m_shop_item") {
-		itemID, itemOK := integerAt(row, 0)
-		priceType, typeOK := integerAt(row, 4)
-		priceID, priceIDOK := integerAt(row, 5)
-		price, priceOK := integerAt(row, 6)
-		regularPrice, regularOK := integerAt(row, 7)
-		stockID, stockOK := integerAt(row, 9)
-		if !itemOK || !typeOK || !priceIDOK || !priceOK || !regularOK || !stockOK {
+		item, ok := shopItemInputAt(row)
+		if !ok {
 			continue
 		}
-		stock := stocks[stockID]
 		result.Items = append(result.Items, ShopEditorItem{
-			Row: int64(rowIndex), ShopItemID: itemID, PriceType: priceType, PriceID: priceID,
-			Price: price, RegularPrice: regularPrice, ShopItemLimitedStockID: stockID,
-			StockMaxCount: stock.maxCount, StockAutoResetType: stock.autoResetType,
-			StockAutoResetPeriod: stock.autoResetPeriod,
-			Names:                resolver.byKey(fmt.Sprintf("shop.item.name.%d", resolver.shopItemTextIDs[itemID])),
+			Row: int64(rowIndex), ShopItemID: int64(item.ShopItemID), NameShopTextID: int64(item.NameShopTextID),
+			DescriptionShopTextID: int64(item.DescriptionShopTextID), ShopItemContentType: int64(item.ShopItemContentType),
+			PriceType: int64(item.PriceType), PriceID: int64(item.PriceID), Price: int64(item.Price),
+			RegularPrice: int64(item.RegularPrice), ShopPromotionType: int64(item.ShopPromotionType),
+			ShopItemLimitedStockID: int64(item.ShopItemLimitedStockID), AssetCategoryID: int64(item.AssetCategoryID),
+			AssetVariationID: int64(item.AssetVariationID), ShopItemDecorationType: int64(item.ShopItemDecorationType),
+			Names:          resolver.byKey(fmt.Sprintf("shop.item.name.%d", resolver.shopItemTextIDs[int64(item.ShopItemID)])),
+			DeleteBlockers: deleteBlockers[int64(item.ShopItemID)],
 		})
 	}
 
 	sort.SliceStable(result.Shops, func(i, j int) bool { return result.Shops[i].ShopID < result.Shops[j].ShopID })
 	sort.SliceStable(result.Cells, func(i, j int) bool { return result.Cells[i].ShopItemCellID < result.Cells[j].ShopItemCellID })
 	sort.SliceStable(result.Items, func(i, j int) bool { return result.Items[i].ShopItemID < result.Items[j].ShopItemID })
+	sort.SliceStable(result.Stocks, func(i, j int) bool {
+		return result.Stocks[i].ShopItemLimitedStockID < result.Stocks[j].ShopItemLimitedStockID
+	})
 	return result
+}
+
+func shopItemInputAt(row []interface{}) (ShopItemInput, bool) {
+	values := make([]int64, 13)
+	for column := range values {
+		value, ok := integerAt(row, column)
+		if !ok {
+			return ShopItemInput{}, false
+		}
+		values[column] = value
+	}
+	return ShopItemInput{
+		ShopItemID: int32(values[0]), NameShopTextID: int32(values[1]), DescriptionShopTextID: int32(values[2]),
+		ShopItemContentType: int32(values[3]), PriceType: int32(values[4]), PriceID: int32(values[5]),
+		Price: int32(values[6]), RegularPrice: int32(values[7]), ShopPromotionType: int32(values[8]),
+		ShopItemLimitedStockID: int32(values[9]), AssetCategoryID: int32(values[10]),
+		AssetVariationID: int32(values[11]), ShopItemDecorationType: int32(values[12]),
+	}, true
+}
+
+func shopItemRows(rows []ShopItemInput) [][]interface{} {
+	result := make([][]interface{}, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, []interface{}{
+			row.ShopItemID, row.NameShopTextID, row.DescriptionShopTextID, row.ShopItemContentType,
+			row.PriceType, row.PriceID, row.Price, row.RegularPrice, row.ShopPromotionType,
+			row.ShopItemLimitedStockID, row.AssetCategoryID, row.AssetVariationID, row.ShopItemDecorationType,
+		})
+	}
+	return result
+}
+
+func loadShopItemDeleteBlockerIndex(file *memorydb.File) map[int64][]string {
+	result := make(map[int64][]string)
+	for _, reference := range shopItemReferenceTables {
+		seen := make(map[int64]bool)
+		for _, row := range readRows(file, reference.name) {
+			itemID, ok := integerAt(row, reference.column)
+			if !ok || seen[itemID] {
+				continue
+			}
+			seen[itemID] = true
+			result[itemID] = append(result[itemID], reference.name)
+		}
+	}
+	return result
+}
+
+func shopItemDeleteBlockers(file *memorydb.File, shopItemID int64) ([]string, error) {
+	var result []string
+	for _, reference := range shopItemReferenceTables {
+		rows, exists, err := file.TableRows(reference.name)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			continue
+		}
+		for _, row := range rows {
+			itemID, ok := integerAt(row, reference.column)
+			if !ok {
+				return nil, fmt.Errorf("table %q contains a malformed row", reference.name)
+			}
+			if itemID == shopItemID {
+				result = append(result, reference.name)
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+func buildShopItemReplacement(file *memorydb.File, update *ShopItemStructuralUpdate, edits []memorydb.CellEdit) ([][]interface{}, int, int, bool, error) {
+	if update == nil || len(update.Copies) == 0 && len(update.DeleteIDs) == 0 {
+		return nil, 0, 0, false, nil
+	}
+	current, exists, err := file.TableRows(shopItemTable)
+	if err != nil {
+		return nil, 0, 0, false, err
+	}
+	if !exists {
+		return nil, 0, 0, false, fmt.Errorf("table %q is absent from the current master data", shopItemTable)
+	}
+	rows := make([][]interface{}, len(current))
+	existingIDs := make(map[int64]bool, len(current))
+	existingItems := make(map[int64]ShopItemInput, len(current))
+	for index, row := range current {
+		item, ok := shopItemInputAt(row)
+		if !ok {
+			return nil, 0, 0, false, fmt.Errorf("table %q contains a malformed row", shopItemTable)
+		}
+		if existingIDs[int64(item.ShopItemID)] {
+			return nil, 0, 0, false, fmt.Errorf("table %q contains duplicate ShopItemId %d", shopItemTable, item.ShopItemID)
+		}
+		existingIDs[int64(item.ShopItemID)] = true
+		existingItems[int64(item.ShopItemID)] = item
+		rows[index] = append([]interface{}(nil), row...)
+	}
+	for _, edit := range edits {
+		if edit.Table == shopItemTable {
+			rows[edit.Row][edit.Column] = edit.Value
+		}
+	}
+
+	deleteIDs := make(map[int64]bool, len(update.DeleteIDs))
+	for _, value := range update.DeleteIDs {
+		itemID := int64(value)
+		if deleteIDs[itemID] {
+			return nil, 0, 0, false, fmt.Errorf("duplicate ShopItemId %d in deleteIds", itemID)
+		}
+		if !existingIDs[itemID] {
+			return nil, 0, 0, false, fmt.Errorf("ShopItemId %d does not exist", itemID)
+		}
+		blockers, blockerErr := shopItemDeleteBlockers(file, itemID)
+		if blockerErr != nil {
+			return nil, 0, 0, false, blockerErr
+		}
+		if len(blockers) != 0 {
+			return nil, 0, 0, false, fmt.Errorf("ShopItemId %d is still referenced by %v", itemID, blockers)
+		}
+		deleteIDs[itemID] = true
+	}
+
+	copyIDs := make(map[int64]bool, len(update.Copies))
+	for _, copied := range update.Copies {
+		itemID := int64(copied.ShopItemID)
+		if itemID <= 0 {
+			return nil, 0, 0, false, fmt.Errorf("copied ShopItemId must be positive")
+		}
+		if existingIDs[itemID] || copyIDs[itemID] {
+			return nil, 0, 0, false, fmt.Errorf("ShopItemId %d already exists", itemID)
+		}
+		source, sourceExists := existingItems[int64(copied.SourceShopItemID)]
+		if !sourceExists {
+			return nil, 0, 0, false, fmt.Errorf("source ShopItemId %d does not exist", copied.SourceShopItemID)
+		}
+		if !shopItemReadOnlyFieldsEqual(source, copied.ShopItemInput) {
+			return nil, 0, 0, false, fmt.Errorf("copied ShopItemId %d changes fields outside the ShopItem editor", itemID)
+		}
+		copyIDs[itemID] = true
+	}
+
+	replacement := make([][]interface{}, 0, len(rows)-len(deleteIDs)+len(update.Copies))
+	for _, row := range rows {
+		itemID, _ := integerAt(row, 0)
+		if !deleteIDs[itemID] {
+			replacement = append(replacement, row)
+		}
+	}
+	copies := make([]ShopItemInput, 0, len(update.Copies))
+	for _, copied := range update.Copies {
+		copies = append(copies, copied.ShopItemInput)
+	}
+	replacement = append(replacement, shopItemRows(copies)...)
+	changedRows := len(update.Copies) + len(update.DeleteIDs)
+	return replacement, changedRows * 13, changedRows, true, nil
+}
+
+func shopItemReadOnlyFieldsEqual(left, right ShopItemInput) bool {
+	return left.NameShopTextID == right.NameShopTextID &&
+		left.DescriptionShopTextID == right.DescriptionShopTextID &&
+		left.ShopItemContentType == right.ShopItemContentType &&
+		left.ShopPromotionType == right.ShopPromotionType &&
+		left.AssetCategoryID == right.AssetCategoryID &&
+		left.AssetVariationID == right.AssetVariationID &&
+		left.ShopItemDecorationType == right.ShopItemDecorationType
 }
 
 func buildShopItemCellGroupReplacement(file *memorydb.File, replacement *[]ShopItemCellGroupInput) (int, int, error) {

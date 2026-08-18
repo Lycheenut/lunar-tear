@@ -82,6 +82,7 @@ type UpdateRequest struct {
 	ExpectedVersion    string                    `json:"expectedVersion"`
 	Changes            []Change                  `json:"changes"`
 	ShopItemCellGroups *[]ShopItemCellGroupInput `json:"shopItemCellGroups,omitempty"`
+	ShopItems          *ShopItemStructuralUpdate `json:"shopItems,omitempty"`
 }
 
 type UpdateResult struct {
@@ -228,7 +229,24 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	if structuralRows != 0 {
 		replacements[shopItemCellGroupTable] = shopItemCellGroupRows(*request.ShopItemCellGroups)
 	}
-	if len(edits) == 0 && structuralRows == 0 {
+	originalEditCount := len(edits)
+	shopItemRows, shopItemCells, shopItemChangedRows, replaceShopItems, err := buildShopItemReplacement(file, request.ShopItems, edits)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	if replaceShopItems {
+		replacements[shopItemTable] = shopItemRows
+		filtered := edits[:0]
+		for _, edit := range edits {
+			if edit.Table != shopItemTable {
+				filtered = append(filtered, edit)
+			}
+		}
+		edits = filtered
+	}
+	structuralCells += shopItemCells
+	structuralRows += shopItemChangedRows
+	if originalEditCount == 0 && structuralRows == 0 {
 		return nil, UpdateResult{}, fmt.Errorf("the submitted values are unchanged")
 	}
 
@@ -242,7 +260,7 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	}
 	return candidate, UpdateResult{
 		Version:      candidateFile.Version(),
-		ChangedCells: len(edits) + structuralCells,
+		ChangedCells: originalEditCount + structuralCells,
 		ChangedRows:  len(changedRows) + structuralRows,
 	}, nil
 }

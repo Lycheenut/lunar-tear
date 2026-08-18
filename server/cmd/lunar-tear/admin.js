@@ -116,6 +116,8 @@
     shopItemPage: 1,
     shopItemPageSize: 10,
     shopItemPageCount: 1,
+    shopItemCopies: [],
+    shopItemDeleteIDs: new Set(),
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false,
@@ -748,6 +750,8 @@
     }
     state.shopCellPage = 1;
     state.shopItemPage = 1;
+    state.shopItemCopies = [];
+    state.shopItemDeleteIDs = new Set();
   }
 
   function shopCellGroupPayload(row) {
@@ -757,6 +761,13 @@
       sortOrder: Number(row.sortOrder),
       shopItemCellTermId: Number(row.shopItemCellTermId)
     };
+  }
+
+  function shopEditorItems(editor = state.catalog?.shopEditor || { items: [] }) {
+    return [
+      ...editor.items.filter((item) => !state.shopItemDeleteIDs.has(Number(item.shopItemId))),
+      ...state.shopItemCopies
+    ].sort((left, right) => Number(left.shopItemId) - Number(right.shopItemId));
   }
 
   function markShopCellGroupDirty() {
@@ -771,6 +782,7 @@
 
   function renderShopEditor(contentTable, query) {
     const editor = state.catalog?.shopEditor || { shops: [], cells: [], items: [] };
+    const items = shopEditorItems(editor);
     const groupID = selectedShopCellGroupID();
     const references = editor.shops.filter((shop) => String(shop.shopItemCellGroupId) === groupID);
     elements.shopCellGroupReferences.textContent = references.length
@@ -793,7 +805,7 @@
 
     renderShopCellPanel(editor);
     renderShopItemPanel(editor, contentTable);
-    elements.visibleCount.textContent = `${groupRows.length.toLocaleString()} 条 CellGroup 配置 · ${editor.cells.length.toLocaleString()} 个 Cell · ${editor.items.length.toLocaleString()} 个 ShopItem`;
+    elements.visibleCount.textContent = `${groupRows.length.toLocaleString()} 条 CellGroup 配置 · ${editor.cells.length.toLocaleString()} 个 Cell · ${items.length.toLocaleString()} 个 ShopItem`;
     elements.statusFilterLabel.classList.add("hidden");
     elements.empty.classList.add("hidden");
   }
@@ -811,7 +823,7 @@
     const cellDefinition = (state.catalog?.shopEditor?.cells || [])
       .find((candidate) => String(candidate.shopItemCellId) === String(row.shopItemCellId));
     const itemID = cellDefinition ? effectiveShopCellItemID(cellDefinition) : "";
-    const itemDefinition = (state.catalog?.shopEditor?.items || [])
+    const itemDefinition = shopEditorItems()
       .find((candidate) => String(candidate.shopItemId) === itemID);
     const visual = document.createElement("div");
     visual.className = "shop-cell-card-visual";
@@ -915,7 +927,7 @@
 
   function shopCellOptionLabel(cell) {
     const itemID = effectiveShopCellItemID(cell);
-    const item = (state.catalog?.shopEditor?.items || []).find((candidate) => String(candidate.shopItemId) === itemID);
+    const item = shopEditorItems().find((candidate) => String(candidate.shopItemId) === itemID);
     const name = localizedInlineText(item?.names) || "未命名商品";
     return idNameLabel(cell.shopItemCellId, name);
   }
@@ -997,7 +1009,7 @@
 
   function populateShopItemSelect(select, selectedID, expanded) {
     if (expanded && select.dataset.expanded === "true") return;
-    const items = state.catalog?.shopEditor?.items || [];
+    const items = shopEditorItems();
     const selected = String(selectedID);
     const options = expanded ? items : items.filter((item) => String(item.shopItemId) === selected);
     select.replaceChildren();
@@ -1020,7 +1032,8 @@
 
   function renderShopItemPanel(editor, contentTable) {
     const query = elements.shopItemSearch.value.trim().toLocaleLowerCase();
-    const rows = editor.items.filter((item) => !query || [
+    const allItems = shopEditorItems(editor);
+    const rows = allItems.filter((item) => !query || [
       item.shopItemId,
       localizedInlineText(item.names),
       ...Object.values(item.names || {})
@@ -1029,7 +1042,7 @@
     elements.shopItemBody.replaceChildren();
     rows.slice(page.start, page.end).forEach((item) => elements.shopItemBody.append(renderShopItemRow(item, contentTable)));
     if (!rows.length) elements.shopItemBody.append(renderMissionRewardEmptyRow(3, query ? "没有匹配该 ShopItemId 或名称的商品。" : "没有 ShopItem。"));
-    elements.shopItemCount.textContent = shopPageCountLabel(rows.length, editor.items.length, page);
+    elements.shopItemCount.textContent = shopPageCountLabel(rows.length, allItems.length, page);
     syncShopPagination("shopItem", page);
   }
 
@@ -1041,7 +1054,23 @@
     const name = document.createElement("span");
     name.className = "shop-item-name";
     name.textContent = localizedInlineText(item.names) || "未命名商品";
-    identity.append(code, name);
+    const actions = document.createElement("div");
+    actions.className = "shop-item-actions";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "button ghost";
+    copy.textContent = "复制";
+    copy.addEventListener("click", () => copyShopItem(item));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button ghost shop-item-delete";
+    remove.textContent = item.isNew ? "取消新增" : "删除";
+    const blockers = item.deleteBlockers || [];
+    remove.disabled = !item.isNew && blockers.length !== 0;
+    if (remove.disabled) remove.title = `无法删除：仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用`;
+    remove.addEventListener("click", () => deleteShopItem(item));
+    actions.append(copy, remove);
+    identity.append(code, name, actions);
 
     const transaction = document.createElement("td");
     const transactionStack = document.createElement("div");
@@ -1063,7 +1092,17 @@
     rows.forEach((row) => {
       const content = document.createElement("div");
       content.className = "shop-content-row";
-      fields.forEach((field) => content.append(renderFieldEditor(contentTable, row, field)));
+      fields.forEach((field) => {
+        if (field.name !== "SortOrder") {
+          content.append(renderFieldEditor(contentTable, row, field));
+          return;
+        }
+        const sortOrder = document.createElement("code");
+        sortOrder.className = "shop-content-sort-order";
+        sortOrder.textContent = effectiveValue(contentTable.name, row, field.name);
+        sortOrder.title = "SortOrder（只读）";
+        content.append(sortOrder);
+      });
       contentStack.append(content);
     });
     if (!rows.length) {
@@ -1080,38 +1119,89 @@
     transaction.append(transactionStack);
 
     const stock = document.createElement("td");
-    const stockInfo = document.createElement("div");
-    stockInfo.className = "shop-stack shop-readonly";
-    if (Number(item.shopItemLimitedStockId)) {
-      stockInfo.append(
-        makeCell("code", `Stock ${item.shopItemLimitedStockId}`),
-        makeCell("span", `上限 ${item.stockMaxCount}`),
-        makeCell("span", `重置类型 ${item.stockAutoResetType}`),
-        makeCell("span", `重置周期 ${item.stockAutoResetPeriod}`)
-      );
-    } else {
-      stockInfo.textContent = "不限库存";
-    }
-    stock.append(stockInfo);
+    stock.append(renderShopStockEditor(item));
 
     tr.append(identity, transaction, stock);
     return tr;
   }
 
+  const shopItemBlockerLabels = {
+    m_shop_item_cell: "Cell",
+    m_shop_item_content_possession: "Possession 发放内容",
+    m_shop_item_content_effect: "Effect 发放内容",
+    m_shop_item_content_mission: "Mission 发放内容",
+    m_shop_item_user_level_condition: "等级附加内容"
+  };
+
+  function shopItemBlockerLabel(tableName) {
+    return shopItemBlockerLabels[tableName] || tableName;
+  }
+
+  function renderShopStockEditor(item) {
+    const stack = document.createElement("div");
+    stack.className = "shop-stack";
+    const select = document.createElement("select");
+    const current = effectiveShopItemValue(item, "ShopItemLimitedStockId", item.shopItemLimitedStockId);
+    const unlimited = document.createElement("option");
+    unlimited.value = "0";
+    unlimited.textContent = idNameLabel(0, "不限库存");
+    select.append(unlimited);
+    (state.catalog?.shopEditor?.stocks || []).forEach((stock) => {
+      const option = document.createElement("option");
+      option.value = String(stock.shopItemLimitedStockId);
+      option.textContent = `${stock.shopItemLimitedStockId}. 上限 ${stock.maxCount}`;
+      select.append(option);
+    });
+    if (![...select.options].some((option) => option.value === current)) {
+      const option = document.createElement("option");
+      option.value = current;
+      option.textContent = idNameLabel(current, "未知库存配置");
+      select.append(option);
+    }
+    select.value = current;
+    configureShopItemSelect(select, item, "ShopItemLimitedStockId", item.shopItemLimitedStockId, () => renderTable());
+    stack.append(select);
+
+    const detail = document.createElement("div");
+    detail.className = "shop-stack shop-readonly shop-stock-detail";
+    const stock = (state.catalog?.shopEditor?.stocks || [])
+      .find((candidate) => String(candidate.shopItemLimitedStockId) === current);
+    if (stock) {
+      detail.append(
+        makeCell("span", `上限 ${stock.maxCount}`),
+        makeCell("span", `重置类型 ${stock.autoResetType}`),
+        makeCell("span", `重置周期 ${stock.autoResetPeriod}`)
+      );
+    } else {
+      detail.textContent = current === "0" ? "不限库存" : "库存配置不存在";
+    }
+    stack.append(detail);
+    return stack;
+  }
+
   function renderShopPriceEditor(item) {
     const stack = document.createElement("div");
     stack.className = "shop-stack";
+    const includesPriceID = effectiveShopItemValue(item, "PriceType", item.priceType) === "1";
     const header = document.createElement("div");
     header.className = "shop-content-row shop-content-header shop-price-row";
-    ["PriceType", "PriceId", "Price", "RegularPrice"].forEach((label) => header.append(makeCell("span", label)));
+    const labels = includesPriceID
+      ? ["PriceType", "PriceId", "Price", "RegularPrice"]
+      : ["PriceType", "Price", "RegularPrice"];
+    labels.forEach((label) => header.append(makeCell("span", label)));
     const fields = document.createElement("div");
     fields.className = "shop-content-row shop-price-row";
-    fields.append(
-      renderShopPriceTypeSelect(item),
-      renderShopPriceIDEditor(item),
+    const controls = [renderShopPriceTypeSelect(item)];
+    if (includesPriceID) controls.push(renderShopPriceIDEditor(item));
+    controls.push(
       renderShopItemInput(item, "Price", item.price, "价格"),
       renderShopItemInput(item, "RegularPrice", item.regularPrice, "原价")
     );
+    if (!includesPriceID) {
+      header.classList.add("without-price-id");
+      fields.classList.add("without-price-id");
+    }
+    fields.append(...controls);
     stack.append(header, fields);
     return stack;
   }
@@ -1195,7 +1285,112 @@
     return select;
   }
 
+  const shopItemFieldProperties = {
+    PriceType: "priceType",
+    PriceId: "priceId",
+    Price: "price",
+    RegularPrice: "regularPrice",
+    ShopItemLimitedStockId: "shopItemLimitedStockId"
+  };
+
+  function copyShopItem(source) {
+    const existing = [...(state.catalog?.shopEditor?.items || []), ...state.shopItemCopies];
+    const suggested = existing.reduce((maximum, item) => Math.max(maximum, Number(item.shopItemId)), 0) + 1;
+    const input = prompt(`复制 ShopItem ${source.shopItemId}。请输入新 ShopItemId：`, String(suggested));
+    if (input === null) return;
+    const itemID = Number(input.trim());
+    if (!Number.isInteger(itemID) || itemID <= 0 || itemID > 2147483647) {
+      showNotice("ShopItemId 必须是有效的正 32 位整数。", true);
+      return;
+    }
+    if (existing.some((item) => Number(item.shopItemId) === itemID)) {
+      showNotice(`ShopItemId ${itemID} 已存在。`, true);
+      return;
+    }
+    const copied = {
+      ...source,
+      row: -1,
+      sourceShopItemId: Number(source.sourceShopItemId || source.shopItemId),
+      shopItemId: itemID,
+      priceType: Number(effectiveShopItemValue(source, "PriceType", source.priceType)),
+      priceId: Number(effectiveShopItemValue(source, "PriceId", source.priceId)),
+      price: Number(effectiveShopItemValue(source, "Price", source.price)),
+      regularPrice: Number(effectiveShopItemValue(source, "RegularPrice", source.regularPrice)),
+      shopItemLimitedStockId: Number(effectiveShopItemValue(source, "ShopItemLimitedStockId", source.shopItemLimitedStockId)),
+      names: { ...(source.names || {}) },
+      deleteBlockers: [],
+      isNew: true
+    };
+    state.shopItemCopies.push(copied);
+    elements.shopItemSearch.value = String(itemID);
+    state.shopItemPage = 1;
+    updateDirtyUI();
+    renderTable();
+    showNotice(`已复制为 ShopItem ${itemID}；仅复制 ShopItem 本行，不复制发放内容。`);
+  }
+
+  function deleteShopItem(item) {
+    if (item.isNew) {
+      if (!confirm(`取消新增 ShopItem ${item.shopItemId}？`)) return;
+      state.shopItemCopies = state.shopItemCopies.filter((candidate) => candidate !== item);
+      updateDirtyUI();
+      renderTable();
+      return;
+    }
+    const blockers = item.deleteBlockers || [];
+    if (blockers.length) {
+      showNotice(`ShopItem ${item.shopItemId} 仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用，无法删除。`, true);
+      return;
+    }
+    if (!confirm(`删除孤立 ShopItem ${item.shopItemId}？此操作会在应用变更时再次检查引用。`)) return;
+    state.shopItemDeleteIDs.add(Number(item.shopItemId));
+    const prefix = `m_shop_item\u0000${Number(item.row)}\u0000`;
+    [...state.dirty.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => state.dirty.delete(key));
+    updateDirtyUI();
+    renderTable();
+    showNotice(`已将孤立 ShopItem ${item.shopItemId} 标记为删除。`);
+  }
+
+  function shopItemPayload(item) {
+    return {
+      sourceShopItemId: Number(item.sourceShopItemId),
+      shopItemId: Number(item.shopItemId),
+      nameShopTextId: Number(item.nameShopTextId),
+      descriptionShopTextId: Number(item.descriptionShopTextId),
+      shopItemContentType: Number(item.shopItemContentType),
+      priceType: Number(effectiveShopItemValue(item, "PriceType", item.priceType)),
+      priceId: Number(effectiveShopItemValue(item, "PriceId", item.priceId)),
+      price: Number(effectiveShopItemValue(item, "Price", item.price)),
+      regularPrice: Number(effectiveShopItemValue(item, "RegularPrice", item.regularPrice)),
+      shopPromotionType: Number(item.shopPromotionType),
+      shopItemLimitedStockId: Number(effectiveShopItemValue(item, "ShopItemLimitedStockId", item.shopItemLimitedStockId)),
+      assetCategoryId: Number(item.assetCategoryId),
+      assetVariationId: Number(item.assetVariationId),
+      shopItemDecorationType: Number(item.shopItemDecorationType)
+    };
+  }
+
+  function shopItemStructuralPayload() {
+    return {
+      copies: state.shopItemCopies.map(shopItemPayload),
+      deleteIds: [...state.shopItemDeleteIDs].sort((left, right) => left - right)
+    };
+  }
+
+  function shopItemStructuralDirty() {
+    return state.shopItemCopies.length !== 0 || state.shopItemDeleteIDs.size !== 0;
+  }
+
   function configureShopItemSelect(select, item, fieldName, original, afterChange) {
+    if (item.isNew) {
+      select.classList.add("changed");
+      select.addEventListener("change", () => {
+        item[shopItemFieldProperties[fieldName]] = Number(select.value);
+        updateDirtyUI();
+        afterChange?.();
+      });
+      return;
+    }
     const key = changeKey("m_shop_item", Number(item.row), fieldName);
     select.classList.toggle("changed", state.dirty.has(key));
     select.addEventListener("change", () => {
@@ -1215,16 +1410,32 @@
     input.value = effectiveShopItemValue(item, fieldName, original);
     input.placeholder = label;
     input.setAttribute("aria-label", `${item.shopItemId} ${label}`);
-    input.classList.toggle("changed", state.dirty.has(changeKey("m_shop_item", Number(item.row), fieldName)));
-    input.addEventListener("input", () => onFieldChange(
-      { name: "m_shop_item" },
-      { index: Number(item.row), values: { [fieldName]: String(original) } },
-      { name: fieldName, kind: "int32", datetime: false }, input
-    ));
+    input.classList.toggle("changed", item.isNew || state.dirty.has(changeKey("m_shop_item", Number(item.row), fieldName)));
+    if (item.isNew) {
+      input.addEventListener("input", () => {
+        const value = input.value.trim();
+        if (!/^-?\d+$/.test(value) || BigInt(value) < -2147483648n || BigInt(value) > 2147483647n
+          || ["Price", "RegularPrice"].includes(fieldName) && Number(value) < 0) {
+          input.classList.add("invalid");
+          showNotice(`${fieldName} 必须是有效的非负 32 位整数。`, true);
+          return;
+        }
+        input.classList.remove("invalid");
+        item[shopItemFieldProperties[fieldName]] = Number(value);
+        updateDirtyUI();
+      });
+    } else {
+      input.addEventListener("input", () => onFieldChange(
+        { name: "m_shop_item" },
+        { index: Number(item.row), values: { [fieldName]: String(original) } },
+        { name: fieldName, kind: "int32", datetime: false }, input
+      ));
+    }
     return input;
   }
 
   function effectiveShopItemValue(item, fieldName, original) {
+    if (item.isNew) return String(item[shopItemFieldProperties[fieldName]]);
     return state.dirty.get(changeKey("m_shop_item", Number(item.row), fieldName))?.value ?? String(original);
   }
 
@@ -2524,13 +2735,16 @@
     const count = masterDirtyCount();
     elements.dirtyCount.textContent = count.toLocaleString();
     const groupSummary = state.shopCellGroupDirty ? "，含 1 张 CellGroup 完整列表" : "";
-    elements.saveSummary.textContent = count ? `${state.dirty.size} 个字段等待应用${groupSummary}` : "没有待应用的修改";
+    const itemSummary = shopItemStructuralDirty()
+      ? `，含 ${state.shopItemCopies.length} 个复制、${state.shopItemDeleteIDs.size} 个删除`
+      : "";
+    elements.saveSummary.textContent = count ? `${state.dirty.size} 个字段等待应用${groupSummary}${itemSummary}` : "没有待应用的修改";
     elements.save.disabled = count === 0;
     elements.discard.disabled = count === 0;
   }
 
   function masterDirtyCount() {
-    return state.dirty.size + (state.shopCellGroupDirty ? 1 : 0);
+    return state.dirty.size + (state.shopCellGroupDirty ? 1 : 0) + (shopItemStructuralDirty() ? 1 : 0);
   }
 
   function makeCell(tag, text) {
@@ -3736,6 +3950,8 @@
     state.shopCellGroupBaseline = "[]";
     state.shopCellGroupDirty = false;
     state.shopCellGroupSelection = "";
+    state.shopItemCopies = [];
+    state.shopItemDeleteIDs = new Set();
     sessionStorage.removeItem("lunar-admin-token");
     showLogin();
   });
@@ -3894,11 +4110,12 @@
   });
   elements.save.addEventListener("click", async () => {
     const changes = [...state.dirty.values()];
-    if (!changes.length && !state.shopCellGroupDirty) return;
+    if (!changes.length && !state.shopCellGroupDirty && !shopItemStructuralDirty()) return;
     const request = { expectedVersion: state.catalog.version, changes };
     if (state.shopCellGroupDirty) {
       request.shopItemCellGroups = state.shopCellGroupDraft.map(shopCellGroupPayload);
     }
+    if (shopItemStructuralDirty()) request.shopItems = shopItemStructuralPayload();
     setBusy(true, "正在计算确定链路及变更预览…");
     try {
       const preview = await api("/api/admin/master-data/schedules/preview", {
@@ -3931,7 +4148,7 @@
   });
   elements.masterUpdateConfirm.addEventListener("click", async () => {
     const request = state.pendingMasterChanges;
-    if (!request || (!request.changes?.length && !request.shopItemCellGroups)) return;
+    if (!request || (!request.changes?.length && !request.shopItemCellGroups && !request.shopItems)) return;
     elements.masterUpdateDialog.returnValue = "confirm";
     elements.masterUpdateDialog.close();
     state.pendingMasterChanges = null;
@@ -4044,7 +4261,7 @@
   });
 
   window.addEventListener("beforeunload", (event) => {
-    if (!state.dirty.size && !state.gachaDirty) return;
+    if (!masterDirtyCount() && !state.gachaDirty) return;
     event.preventDefault();
     event.returnValue = "";
   });

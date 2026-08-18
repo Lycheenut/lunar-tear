@@ -56,14 +56,15 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 
 	for _, required := range []string{
 		`placeholder="搜索 ShopItemId 或名称"`,
-		`<th>ShopItem</th><th>交易内容</th><th>库存（只读）</th>`,
+		`<th>ShopItem</th><th>交易内容</th><th>库存配置</th>`,
 	} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("ShopItem HTML is missing %s", required)
 		}
 	}
 	for _, required := range []string{
-		".shop-cell-card-visual", ".shop-cell-card-id", ".shop-transaction-stack", ".shop-price-row",
+		".shop-cell-card-visual", ".shop-cell-card-id", ".shop-transaction-stack", ".shop-price-row.without-price-id",
+		".shop-content-sort-order",
 	} {
 		if !strings.Contains(css, required) {
 			t.Fatalf("ShopItem CSS is missing %s", required)
@@ -74,8 +75,16 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 		`cellID.textContent = String(row.shopItemCellId)`,
 		`transactionStack.append(contentSection, priceSection)`,
 		`tr.append(identity, transaction, stock)`,
-		"makeCell(\"span\", `重置周期 ${item.stockAutoResetPeriod}`)",
+		"makeCell(\"span\", `重置周期 ${stock.autoResetPeriod}`)",
+		`const includesPriceID = effectiveShopItemValue(item, "PriceType", item.priceType) === "1"`,
+		`if (includesPriceID) controls.push(renderShopPriceIDEditor(item))`,
 		`renderShopPriceIDEditor(item)`,
+		`if (field.name !== "SortOrder")`,
+		`sortOrder.title = "SortOrder（只读）"`,
+		`configureShopItemSelect(select, item, "ShopItemLimitedStockId"`,
+		`function copyShopItem(source)`,
+		`function deleteShopItem(item)`,
+		`shopItems = shopItemStructuralPayload()`,
 	} {
 		if !strings.Contains(javascript, required) {
 			t.Fatalf("ShopItem JavaScript is missing %s", required)

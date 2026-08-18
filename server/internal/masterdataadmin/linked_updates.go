@@ -150,6 +150,19 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 			AfterRows: len(*request.ShopItemCellGroups), ChangedRows: changedRows,
 		})
 	}
+	if request.ShopItems != nil && (len(request.ShopItems.Copies) != 0 || len(request.ShopItems.DeleteIDs) != 0) {
+		current, _, readErr := file.TableRows(shopItemTable)
+		if readErr != nil {
+			return UpdatePreview{}, readErr
+		}
+		replacement, _, changedRows, _, replacementErr := buildShopItemReplacement(file, request.ShopItems, nil)
+		if replacementErr != nil {
+			return UpdatePreview{}, replacementErr
+		}
+		preview.TableReplacements = append(preview.TableReplacements, TableReplacementPreview{
+			Table: shopItemTable, BeforeRows: len(current), AfterRows: len(replacement), ChangedRows: changedRows,
+		})
+	}
 	return preview, nil
 }
 
@@ -157,7 +170,7 @@ func validateUpdateEnvelope(request UpdateRequest) error {
 	if request.ExpectedVersion == "" {
 		return fmt.Errorf("expectedVersion is required")
 	}
-	if len(request.Changes) == 0 && request.ShopItemCellGroups == nil {
+	if len(request.Changes) == 0 && request.ShopItemCellGroups == nil && request.ShopItems == nil {
 		return fmt.Errorf("at least one change is required")
 	}
 	if len(request.Changes) > 10000 {
@@ -1105,22 +1118,24 @@ func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, impact
 		}
 	}
 	fields["m_shop_item"] = map[string]Field{
-		"ShopItemId":   {Name: "ShopItemId", Type: "int", Kind: string(fieldKindInt32), PrimaryKey: true},
-		"PriceType":    {Name: "PriceType", Type: "PriceType", Kind: string(fieldKindInt32)},
-		"PriceId":      {Name: "PriceId", Type: "int", Kind: string(fieldKindInt32)},
-		"Price":        {Name: "Price", Type: "int", Kind: string(fieldKindInt32)},
-		"RegularPrice": {Name: "RegularPrice", Type: "int", Kind: string(fieldKindInt32)},
+		"ShopItemId":             {Name: "ShopItemId", Type: "int", Kind: string(fieldKindInt32), PrimaryKey: true},
+		"PriceType":              {Name: "PriceType", Type: "PriceType", Kind: string(fieldKindInt32)},
+		"PriceId":                {Name: "PriceId", Type: "int", Kind: string(fieldKindInt32)},
+		"Price":                  {Name: "Price", Type: "int", Kind: string(fieldKindInt32)},
+		"RegularPrice":           {Name: "RegularPrice", Type: "int", Kind: string(fieldKindInt32)},
+		"ShopItemLimitedStockId": {Name: "ShopItemLimitedStockId", Type: "int", Kind: string(fieldKindInt32)},
 	}
 	for _, item := range catalog.ShopEditor.Items {
 		rows[previewRecordKey(rowRef{table: "m_shop_item", row: int(item.Row)})] = Row{
 			Index:    int(item.Row),
 			Identity: []FieldValue{{Name: "ShopItemId", Value: strconv.FormatInt(item.ShopItemID, 10)}},
 			Values: map[string]string{
-				"ShopItemId":   strconv.FormatInt(item.ShopItemID, 10),
-				"PriceType":    strconv.FormatInt(item.PriceType, 10),
-				"PriceId":      strconv.FormatInt(item.PriceID, 10),
-				"Price":        strconv.FormatInt(item.Price, 10),
-				"RegularPrice": strconv.FormatInt(item.RegularPrice, 10),
+				"ShopItemId":             strconv.FormatInt(item.ShopItemID, 10),
+				"PriceType":              strconv.FormatInt(item.PriceType, 10),
+				"PriceId":                strconv.FormatInt(item.PriceID, 10),
+				"Price":                  strconv.FormatInt(item.Price, 10),
+				"RegularPrice":           strconv.FormatInt(item.RegularPrice, 10),
+				"ShopItemLimitedStockId": strconv.FormatInt(item.ShopItemLimitedStockID, 10),
 			},
 			Titles: cloneTitles(item.Names),
 		}

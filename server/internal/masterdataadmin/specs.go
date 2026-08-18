@@ -146,5 +146,5 @@ var editableTableSpecs = append(append([]tableSpec(nil), activityTableSpecs...),
 		field("ShopItemCellId", 0, "int"), field("StepNumber", 1, "int"), field("ShopItemId", 2, "int")),
 	activityTable("m_shop_item", "EntityMShopItem", 1, false,
 		field("ShopItemId", 0, "int"), field("PriceType", 4, "PriceType"), field("PriceId", 5, "int"),
-		field("Price", 6, "int"), field("RegularPrice", 7, "int")),
+		field("Price", 6, "int"), field("RegularPrice", 7, "int"), field("ShopItemLimitedStockId", 9, "int")),
 )

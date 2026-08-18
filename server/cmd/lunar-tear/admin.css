@@ -789,10 +789,10 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .shop-cell-table th:nth-child(2) { width: 110px; }
 .shop-cell-table th:nth-child(3) { width: auto; }
 .shop-cell-table td:nth-child(3) { padding-right: 16px; }
-.shop-item-table { min-width: 1040px !important; }
-.shop-item-table th:nth-child(1) { width: 180px; }
+.shop-item-table { min-width: 1100px !important; }
+.shop-item-table th:nth-child(1) { width: 200px; }
 .shop-item-table th:nth-child(2) { width: 680px; }
-.shop-item-table th:nth-child(3) { width: 180px; }
+.shop-item-table th:nth-child(3) { width: 220px; }
 .shop-item-table td { padding-top: 14px; padding-bottom: 14px; vertical-align: top; }
 .shop-editor select, .shop-editor input { width: 100%; min-width: 0; font-size: 12px; }
 .shop-editor .mission-reward-content-search { width: 280px; }
@@ -803,10 +803,17 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .shop-price-section { margin-top: 12px; padding-top: 11px; border-top: 1px solid rgba(45, 61, 69, .8); }
 .shop-readonly { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .shop-item-name { display: block; margin-top: 5px; overflow-wrap: anywhere; color: var(--text); font-size: 12px; line-height: 1.4; }
+.shop-item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.shop-item-actions .button { width: auto; min-height: 28px; padding: 4px 8px; }
+.shop-item-delete { color: var(--danger); }
+.shop-item-delete:disabled { color: var(--muted); }
+.shop-stock-detail { padding: 2px 3px 0; }
 .shop-content-row { display: grid; grid-template-columns: minmax(116px, .85fr) minmax(210px, 1.45fr) 86px 76px; align-items: center; gap: 8px; }
 .shop-price-row { grid-template-columns: minmax(116px, .85fr) minmax(210px, 1.45fr) 86px 86px; }
+.shop-price-row.without-price-id { grid-template-columns: minmax(116px, 1fr) 86px 86px; }
 .shop-content-row + .shop-content-row { padding-top: 7px; border-top: 1px solid rgba(45, 61, 69, .65); }
 .shop-content-header { color: var(--muted); font-size: 9px; font-weight: 750; }
+.shop-content-sort-order { color: var(--muted); font-size: 11px; text-align: center; }
 .shop-content-empty { color: var(--muted); font-size: 11px; }
 .shop-remove-cell { width: 100%; min-height: 32px; padding: 6px 8px; color: var(--danger); white-space: nowrap; }
 .shop-editor .changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }

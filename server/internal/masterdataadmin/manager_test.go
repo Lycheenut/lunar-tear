@@ -2,6 +2,7 @@ package masterdataadmin
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -394,7 +395,7 @@ func TestShopEditorCatalogAndCompleteCellGroupReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(catalog.ShopEditor.Shops) == 0 || len(catalog.ShopEditor.CellGroups) < 2 ||
-		len(catalog.ShopEditor.Cells) == 0 || len(catalog.ShopEditor.Items) < 2 {
+		len(catalog.ShopEditor.Cells) == 0 || len(catalog.ShopEditor.Items) < 2 || len(catalog.ShopEditor.Stocks) == 0 {
 		t.Fatalf("incomplete shop editor catalog: shops=%d groups=%d cells=%d items=%d",
 			len(catalog.ShopEditor.Shops), len(catalog.ShopEditor.CellGroups),
 			len(catalog.ShopEditor.Cells), len(catalog.ShopEditor.Items))
@@ -407,6 +408,10 @@ func TestShopEditorCatalogAndCompleteCellGroupReplacement(t *testing.T) {
 	cell := catalog.ShopEditor.Cells[0]
 	priceItem := catalog.ShopEditor.Items[0]
 	updatedPrice := priceItem.Price + 1
+	updatedStockID := int64(0)
+	if priceItem.ShopItemLimitedStockID == 0 {
+		updatedStockID = catalog.ShopEditor.Stocks[0].ShopItemLimitedStockID
+	}
 	replacementItem := catalog.ShopEditor.Items[0].ShopItemID
 	if replacementItem == cell.ShopItemID {
 		replacementItem = catalog.ShopEditor.Items[1].ShopItemID
@@ -417,6 +422,7 @@ func TestShopEditorCatalogAndCompleteCellGroupReplacement(t *testing.T) {
 		Changes: []Change{
 			{Table: "m_shop_item_cell", Row: int(cell.Row), Field: "ShopItemId", Value: replacementItem},
 			{Table: "m_shop_item", Row: int(priceItem.Row), Field: "Price", Value: updatedPrice},
+			{Table: "m_shop_item", Row: int(priceItem.Row), Field: "ShopItemLimitedStockId", Value: updatedStockID},
 		},
 	}
 	preview, err := PreviewUpdate(path, request)
@@ -459,6 +465,122 @@ func TestShopEditorCatalogAndCompleteCellGroupReplacement(t *testing.T) {
 	}
 	if got, err := valueAsInt64(itemRows[priceItem.Row][6]); err != nil || got != updatedPrice {
 		t.Fatalf("Price = %d, %v; want %d", got, err, updatedPrice)
+	}
+	if got, err := valueAsInt64(itemRows[priceItem.Row][9]); err != nil || got != updatedStockID {
+		t.Fatalf("ShopItemLimitedStockId = %d, %v; want %d", got, err, updatedStockID)
+	}
+}
+
+func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.ShopEditor.Items) == 0 || len(catalog.ShopEditor.Cells) == 0 {
+		t.Fatal("shop editor catalog is empty")
+	}
+	source := catalog.ShopEditor.Items[0]
+	newID := int64(1)
+	for _, item := range catalog.ShopEditor.Items {
+		if item.ShopItemID >= newID {
+			newID = item.ShopItemID + 1
+		}
+	}
+	if newID > math.MaxInt32 {
+		t.Fatal("cannot allocate a test ShopItemId")
+	}
+	copied := ShopItemInput{
+		ShopItemID: int32(newID), NameShopTextID: int32(source.NameShopTextID),
+		DescriptionShopTextID: int32(source.DescriptionShopTextID), ShopItemContentType: int32(source.ShopItemContentType),
+		PriceType: int32(source.PriceType), PriceID: int32(source.PriceID), Price: int32(source.Price),
+		RegularPrice: int32(source.RegularPrice), ShopPromotionType: int32(source.ShopPromotionType),
+		ShopItemLimitedStockID: int32(source.ShopItemLimitedStockID), AssetCategoryID: int32(source.AssetCategoryID),
+		AssetVariationID: int32(source.AssetVariationID), ShopItemDecorationType: int32(source.ShopItemDecorationType),
+	}
+	request := UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		ShopItems: &ShopItemStructuralUpdate{Copies: []ShopItemCopyInput{{
+			SourceShopItemID: int32(source.ShopItemID), ShopItemInput: copied,
+		}}},
+	}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.TableReplacements) != 1 || preview.TableReplacements[0].Table != shopItemTable ||
+		preview.TableReplacements[0].BeforeRows+1 != preview.TableReplacements[0].AfterRows {
+		t.Fatalf("unexpected ShopItem replacement preview: %+v", preview.TableReplacements)
+	}
+	candidate, result, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedCells != 13 || result.ChangedRows != 1 {
+		t.Fatalf("copy result = %+v, want 13 cells and 1 row", result)
+	}
+	candidateFile, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := candidateFile.TableRows(shopItemTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != len(catalog.ShopEditor.Items)+1 {
+		t.Fatalf("copied row count = %d, want %d", len(rows), len(catalog.ShopEditor.Items)+1)
+	}
+	last, ok := shopItemInputAt(rows[len(rows)-1])
+	if !ok || last != copied {
+		t.Fatalf("copied row = %+v, %v; want %+v", last, ok, copied)
+	}
+
+	blockedID := catalog.ShopEditor.Cells[0].ShopItemID
+	_, _, err = BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		ShopItems:       &ShopItemStructuralUpdate{DeleteIDs: []int32{int32(blockedID)}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "still referenced") {
+		t.Fatalf("referenced delete error = %v, want reference rejection", err)
+	}
+	forged := copied
+	forged.ShopItemID++
+	forged.NameShopTextID++
+	_, _, err = BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		ShopItems: &ShopItemStructuralUpdate{Copies: []ShopItemCopyInput{{
+			SourceShopItemID: int32(source.ShopItemID), ShopItemInput: forged,
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside the ShopItem editor") {
+		t.Fatalf("non-copy add error = %v, want restricted-field rejection", err)
+	}
+
+	deleted, deleteResult, err := buildUpdate(candidateFile, UpdateRequest{
+		ExpectedVersion: candidateFile.Version(),
+		ShopItems:       &ShopItemStructuralUpdate{DeleteIDs: []int32{int32(newID)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleteResult.ChangedCells != 13 || deleteResult.ChangedRows != 1 {
+		t.Fatalf("delete result = %+v, want 13 cells and 1 row", deleteResult)
+	}
+	deletedFile, err := memorydb.OpenBytes(deleted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedRows, _, err := deletedFile.TableRows(shopItemTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deletedRows) != len(catalog.ShopEditor.Items) {
+		t.Fatalf("deleted row count = %d, want %d", len(deletedRows), len(catalog.ShopEditor.Items))
 	}
 }
 
