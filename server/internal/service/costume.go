@@ -233,13 +233,15 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 			return
 		}
 		isGreatSuccess = greatSuccess
+		consumedMaterialCount := totalMaterialCount
 		if expCap, hasCap := enhancementExpCap(thresholds, maxLevel); greatSuccess && hasCap {
-			effectiveExp, _, surplus := consumeEnhancementMaterials(
+			effectiveExp, consumedCount, surplus := consumeEnhancementMaterials(
 				selections,
 				int64(expCap)-int64(costume.Exp),
 				greatSuccessExpMultiplier,
 			)
 			finalExp = int32(effectiveExp)
+			consumedMaterialCount = consumedCount
 			surplusEnhanceMaterial = surplus
 		}
 
@@ -249,10 +251,10 @@ func (s *CostumeServiceServer) Enhance(ctx context.Context, req *pb.EnhanceReque
 				costs = append(costs, materialCost(selection.materialId, selection.count))
 			}
 		}
-		if costFunc, ok := catalog.EnhanceCostByRarity[cm.RarityType]; ok && totalMaterialCount > 0 {
-			goldCost := costFunc.Evaluate(totalMaterialCount)
+		if costFunc, ok := catalog.EnhanceCostByRarity[cm.RarityType]; ok && consumedMaterialCount > 0 {
+			goldCost := costFunc.Evaluate(consumedMaterialCount)
 			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
-			log.Printf("[CostumeService] Enhance: gold cost=%d (materials=%d)", goldCost, totalMaterialCount)
+			log.Printf("[CostumeService] Enhance: gold cost=%d (materials=%d)", goldCost, consumedMaterialCount)
 		}
 		if err := deductUpgradeCosts(user, "costume enhancement cost", costs); err != nil {
 			validationErr = err
