@@ -152,13 +152,15 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 			return
 		}
 		isGreatSuccess = greatSuccess
+		consumedMaterialCount := totalMaterialCount
 		if expCap, hasCap := enhancementExpCap(thresholds, maxLevel); greatSuccess && hasCap {
-			effectiveExp, _, surplus := consumeEnhancementMaterials(
+			effectiveExp, consumedCount, surplus := consumeEnhancementMaterials(
 				selections,
 				int64(expCap)-int64(weapon.Exp),
 				greatSuccessExpMultiplier,
 			)
 			finalExp = int32(effectiveExp)
+			consumedMaterialCount = consumedCount
 			surplusEnhanceMaterial = surplus
 		}
 
@@ -168,10 +170,10 @@ func (s *WeaponServiceServer) EnhanceByMaterial(ctx context.Context, req *pb.Enh
 				costs = append(costs, materialCost(selection.materialId, selection.count))
 			}
 		}
-		if costFunc, ok := catalog.GoldCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && totalMaterialCount > 0 {
-			goldCost := costFunc.Evaluate(totalMaterialCount)
+		if costFunc, ok := catalog.GoldCostByEnhanceId[wm.WeaponSpecificEnhanceId]; ok && consumedMaterialCount > 0 {
+			goldCost := costFunc.Evaluate(consumedMaterialCount)
 			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, goldCost))
-			log.Printf("[WeaponService] EnhanceByMaterial: gold cost=%d (materials=%d)", goldCost, totalMaterialCount)
+			log.Printf("[WeaponService] EnhanceByMaterial: gold cost=%d (materials=%d)", goldCost, consumedMaterialCount)
 		}
 		if err := deductUpgradeCosts(user, "weapon enhancement cost", costs); err != nil {
 			validationErr = err
@@ -846,6 +848,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 				}
 			}
 			materialUUIDs = consumedUUIDs
+			consumedCount = count
 			finalExp = int32(effectiveExp)
 		}
 
