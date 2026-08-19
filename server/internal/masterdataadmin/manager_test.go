@@ -513,6 +513,11 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	if source.ShopItemID == 0 || emptySource.ShopItemID == 0 {
 		t.Fatal("need ShopItems with and without Possession content")
 	}
+	for _, blocker := range source.DeleteBlockers {
+		if blocker == shopItemContentPossessionTable {
+			t.Fatalf("Possession content must not be reported as a ShopItem delete blocker: %+v", source.DeleteBlockers)
+		}
+	}
 	newID := int64(1)
 	for _, item := range catalog.ShopEditor.Items {
 		if item.ShopItemID >= newID {
@@ -612,11 +617,34 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 		t.Fatalf("non-copy add error = %v, want restricted-field rejection", err)
 	}
 
-	_, _, err = buildUpdate(candidateFile, UpdateRequest{
+	deletedWithPossessions, deleteWithPossessionsResult, err := buildUpdate(candidateFile, UpdateRequest{
 		ExpectedVersion: candidateFile.Version(), ShopItems: &ShopItemStructuralUpdate{DeleteIDs: []int32{int32(newID)}},
 	})
-	if err == nil || !strings.Contains(err.Error(), shopItemContentPossessionTable) {
-		t.Fatalf("copied content delete error = %v, want Possession reference rejection", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDeletedCells := 13 + len(copiedPossessions)*5
+	wantDeletedRows := 1 + len(copiedPossessions)
+	if deleteWithPossessionsResult.ChangedCells != wantDeletedCells || deleteWithPossessionsResult.ChangedRows != wantDeletedRows {
+		t.Fatalf("delete with Possessions result = %+v, want %d cells and %d rows", deleteWithPossessionsResult, wantDeletedCells, wantDeletedRows)
+	}
+	deletedWithPossessionsFile, err := memorydb.OpenBytes(deletedWithPossessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedWithPossessionItemRows, _, err := deletedWithPossessionsFile.TableRows(shopItemTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deletedWithPossessionItemRows) != len(catalog.ShopEditor.Items) {
+		t.Fatalf("deleted ShopItem row count = %d, want %d", len(deletedWithPossessionItemRows), len(catalog.ShopEditor.Items))
+	}
+	deletedPossessionRows, _, err := deletedWithPossessionsFile.TableRows(shopItemContentPossessionTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deletedPossessionRows) != len(contentRows) {
+		t.Fatalf("deleted Possession row count = %d, want %d", len(deletedPossessionRows), len(contentRows))
 	}
 
 	emptyID := newID + 1

@@ -1243,7 +1243,7 @@
     remove.type = "button";
     remove.className = "button ghost shop-item-delete";
     remove.textContent = item.isNew ? "取消新增" : "删除";
-    const blockers = shopItemEffectiveBlockers(item, !item.isNew);
+    const blockers = shopItemEffectiveBlockers(item);
     remove.disabled = blockers.length !== 0;
     if (remove.disabled) remove.title = `无法删除：仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用`;
     remove.addEventListener("click", () => deleteShopItem(item));
@@ -1301,7 +1301,6 @@
 
   const shopItemBlockerLabels = {
     m_shop_item_cell: "Cell",
-    m_shop_item_content_possession: "Possession 发放内容",
     m_shop_item_content_effect: "Effect 发放内容",
     m_shop_item_content_mission: "Mission 发放内容",
     m_shop_item_user_level_condition: "等级附加内容",
@@ -1312,20 +1311,17 @@
     return shopItemBlockerLabels[tableName] || tableName;
   }
 
-  function shopItemEffectiveBlockers(item, includeOwnPossessions = true, referencedItemIDs = null) {
+  function shopItemEffectiveBlockers(item, referencedItemIDs = null) {
     const blockers = [...(item.deleteBlockers || [])];
     const referencedByCell = referencedItemIDs
       ? referencedItemIDs.has(String(item.shopItemId))
       : shopEditorCells().some((cell) => Number(effectiveShopCellItemID(cell)) === Number(item.shopItemId));
     if (referencedByCell && !blockers.includes("m_shop_item_cell")) blockers.push("shop_item_cell_draft");
-    if (includeOwnPossessions && item.isNew && item.possessions?.length && !blockers.includes("m_shop_item_content_possession")) {
-      blockers.push("m_shop_item_content_possession");
-    }
     return blockers;
   }
 
   function shopItemHasReferences(item, referencedItemIDs = null) {
-    return shopItemEffectiveBlockers(item, true, referencedItemIDs).length !== 0;
+    return shopItemEffectiveBlockers(item, referencedItemIDs).length !== 0;
   }
 
   function renderShopStockEditor(item) {
@@ -1616,7 +1612,7 @@
   }
 
   function deleteShopItem(item) {
-    const blockers = shopItemEffectiveBlockers(item, !item.isNew);
+    const blockers = shopItemEffectiveBlockers(item);
     if (blockers.length) {
       showNotice(`ShopItem ${item.shopItemId} 仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用，无法删除。`, true);
       return;
@@ -1632,6 +1628,13 @@
     state.shopItemDeleteIDs.add(Number(item.shopItemId));
     const prefix = `m_shop_item\u0000${Number(item.row)}\u0000`;
     [...state.dirty.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => state.dirty.delete(key));
+    const possessionTable = state.catalog?.tables?.find((table) => table.name === "m_shop_item_content_possession");
+    (possessionTable?.rows || [])
+      .filter((row) => Number(row.values.ShopItemId) === Number(item.shopItemId))
+      .forEach((row) => {
+        const possessionPrefix = `m_shop_item_content_possession\u0000${Number(row.index)}\u0000`;
+        [...state.dirty.keys()].filter((key) => key.startsWith(possessionPrefix)).forEach((key) => state.dirty.delete(key));
+      });
     updateDirtyUI();
     renderTable();
     showNotice(`已将孤立 ShopItem ${item.shopItemId} 标记为删除。`);

@@ -83,6 +83,8 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 		`configureShopItemSelect(select, item, "ShopItemLimitedStockId"`,
 		`function copyShopItem(source, contentTable)`,
 		`function deleteShopItem(item)`,
+		`function shopItemEffectiveBlockers(item, referencedItemIDs = null)`,
+		`const possessionPrefix = `,
 		`shopItems = shopItemStructuralPayload()`,
 	} {
 		if !strings.Contains(javascript, required) {
@@ -91,6 +93,9 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 	}
 	if strings.Contains(javascript, "Cell ${row.shopItemCellId} · Group ${row.shopItemCellGroupId}") {
 		t.Fatal("CellGroup card still renders the removed Cell/Group subtitle")
+	}
+	if strings.Contains(javascript, `blockers.push("m_shop_item_content_possession")`) {
+		t.Fatal("ShopItem Possession content is still treated as a delete blocker")
 	}
 	for _, removed := range []string{"shop-content-sort-order", `"类型", "对象", "数量", "排序"`} {
 		if strings.Contains(javascript, removed) || strings.Contains(css, removed) {

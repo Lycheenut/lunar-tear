@@ -25,7 +25,6 @@ var shopItemReferenceTables = []struct {
 	column int
 }{
 	{name: "m_shop_item_cell", column: 2},
-	{name: "m_shop_item_content_possession", column: 0},
 	{name: "m_shop_item_content_effect", column: 0},
 	{name: "m_shop_item_content_mission", column: 0},
 	{name: "m_shop_item_user_level_condition", column: 0},
@@ -461,7 +460,7 @@ func shopItemDeleteBlockers(file *memorydb.File, shopItemID int64) ([]string, er
 }
 
 func buildShopItemReplacement(file *memorydb.File, update *ShopItemStructuralUpdate, edits []memorydb.CellEdit) ([][]interface{}, int, int, bool, error) {
-	if update == nil || len(update.Copies) == 0 && len(update.DeleteIDs) == 0 {
+	if update == nil || (len(update.Copies) == 0 && len(update.DeleteIDs) == 0) {
 		return nil, 0, 0, false, nil
 	}
 	current, exists, err := file.TableRows(shopItemTable)
@@ -557,7 +556,7 @@ func shopItemReadOnlyFieldsEqual(left, right ShopItemInput) bool {
 }
 
 func buildShopItemContentPossessionReplacement(file *memorydb.File, update *ShopItemStructuralUpdate, edits []memorydb.CellEdit) ([][]interface{}, int, int, bool, error) {
-	if update == nil || len(update.Copies) == 0 {
+	if update == nil || len(update.Copies) == 0 && len(update.DeleteIDs) == 0 {
 		return nil, 0, 0, false, nil
 	}
 	current, exists, err := file.TableRows(shopItemContentPossessionTable)
@@ -596,11 +595,26 @@ func buildShopItemContentPossessionReplacement(file *memorydb.File, update *Shop
 			added = append(added, possession)
 		}
 	}
-	if len(added) == 0 {
+	deleteIDs := make(map[int64]bool, len(update.DeleteIDs))
+	for _, shopItemID := range update.DeleteIDs {
+		deleteIDs[int64(shopItemID)] = true
+	}
+	replacement := make([][]interface{}, 0, len(rows)+len(added))
+	removed := 0
+	for _, row := range rows {
+		shopItemID, _ := integerAt(row, 0)
+		if deleteIDs[shopItemID] {
+			removed++
+			continue
+		}
+		replacement = append(replacement, row)
+	}
+	changedRows := removed + len(added)
+	if changedRows == 0 {
 		return nil, 0, 0, false, nil
 	}
-	replacement := append(rows, shopItemContentPossessionRows(added)...)
-	return replacement, len(added) * 5, len(added), true, nil
+	replacement = append(replacement, shopItemContentPossessionRows(added)...)
+	return replacement, changedRows * 5, changedRows, true, nil
 }
 
 func buildShopItemCellGroupReplacement(file *memorydb.File, replacement *[]ShopItemCellGroupInput) (int, int, error) {
