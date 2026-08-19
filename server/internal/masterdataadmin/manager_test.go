@@ -2,7 +2,6 @@ package masterdataadmin
 
 import (
 	"errors"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -405,6 +404,9 @@ func TestShopEditorCatalogAndCompleteCellGroupReplacement(t *testing.T) {
 	}
 
 	groups := append([]ShopItemCellGroupInput(nil), catalog.ShopEditor.CellGroups[1:]...)
+	for left, right := 0, len(groups)-1; left < right; left, right = left+1, right-1 {
+		groups[left], groups[right] = groups[right], groups[left]
+	}
 	cell := catalog.ShopEditor.Cells[0]
 	priceItem := catalog.ShopEditor.Items[0]
 	updatedPrice := priceItem.Price + 1
@@ -452,6 +454,7 @@ func TestShopEditorCatalogAndCompleteCellGroupReplacement(t *testing.T) {
 	if len(groupRows) != len(groups) {
 		t.Fatalf("cell group row count = %d, want %d", len(groupRows), len(groups))
 	}
+	assertRowsSortedByIntegerColumns(t, groupRows, 0, 1)
 	cellRows, _, err := rebuilt.TableRows("m_shop_item_cell")
 	if err != nil {
 		t.Fatal(err)
@@ -518,14 +521,20 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 			t.Fatalf("Possession content must not be reported as a ShopItem delete blocker: %+v", source.DeleteBlockers)
 		}
 	}
-	newID := int64(1)
+	usedItemIDs := make(map[int64]bool, len(catalog.ShopEditor.Items))
+	maxItemID := int64(0)
 	for _, item := range catalog.ShopEditor.Items {
-		if item.ShopItemID >= newID {
-			newID = item.ShopItemID + 1
+		usedItemIDs[item.ShopItemID] = true
+		if item.ShopItemID > maxItemID {
+			maxItemID = item.ShopItemID
 		}
 	}
-	if newID > math.MaxInt32 {
-		t.Fatal("cannot allocate a test ShopItemId")
+	newID := int64(1)
+	for usedItemIDs[newID] {
+		newID++
+	}
+	if newID >= maxItemID {
+		t.Fatal("test master data has no ShopItemId gap below the current maximum")
 	}
 	itemCopy := func(source ShopEditorItem, itemID int64) ShopItemInput {
 		return ShopItemInput{
@@ -578,9 +587,20 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	if len(rows) != len(catalog.ShopEditor.Items)+1 {
 		t.Fatalf("copied row count = %d, want %d", len(rows), len(catalog.ShopEditor.Items)+1)
 	}
-	last, ok := shopItemInputAt(rows[len(rows)-1])
-	if !ok || last != copied {
-		t.Fatalf("copied row = %+v, %v; want %+v", last, ok, copied)
+	assertRowsSortedByIntegerColumns(t, rows, 0)
+	foundCopy := false
+	for _, row := range rows {
+		item, ok := shopItemInputAt(row)
+		if ok && item.ShopItemID == copied.ShopItemID {
+			foundCopy = true
+			if item != copied {
+				t.Fatalf("copied row = %+v; want %+v", item, copied)
+			}
+			break
+		}
+	}
+	if !foundCopy {
+		t.Fatalf("copied ShopItemId %d is absent", copied.ShopItemID)
 	}
 	candidateContentRows, _, err := candidateFile.TableRows(shopItemContentPossessionTable)
 	if err != nil {
@@ -589,10 +609,23 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	if len(candidateContentRows) != len(contentRows)+len(copiedPossessions) {
 		t.Fatalf("copied Possession row count = %d, want %d", len(candidateContentRows), len(contentRows)+len(copiedPossessions))
 	}
+	assertRowsSortedByIntegerColumns(t, candidateContentRows, 0, 3)
+	gotCopiedPossessions := make([]ShopItemContentPossessionInput, 0, len(copiedPossessions))
+	for _, row := range candidateContentRows {
+		content, parsed := shopItemContentPossessionInputAt(row)
+		if !parsed {
+			t.Fatal("malformed copied Possession row")
+		}
+		if content.ShopItemID == copied.ShopItemID {
+			gotCopiedPossessions = append(gotCopiedPossessions, content)
+		}
+	}
+	if len(gotCopiedPossessions) != len(copiedPossessions) {
+		t.Fatalf("copied Possession count = %d, want %d", len(gotCopiedPossessions), len(copiedPossessions))
+	}
 	for index, want := range copiedPossessions {
-		got, parsed := shopItemContentPossessionInputAt(candidateContentRows[len(contentRows)+index])
-		if !parsed || got != want {
-			t.Fatalf("copied Possession %d = %+v, %v; want %+v", index, got, parsed, want)
+		if got := gotCopiedPossessions[index]; got != want {
+			t.Fatalf("copied Possession %d = %+v; want %+v", index, got, want)
 		}
 	}
 
@@ -606,6 +639,9 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	}
 	forged := copied
 	forged.ShopItemID++
+	for usedItemIDs[int64(forged.ShopItemID)] || forged.ShopItemID == copied.ShopItemID {
+		forged.ShopItemID++
+	}
 	forged.NameShopTextID++
 	_, _, err = BuildUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
@@ -648,6 +684,9 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	}
 
 	emptyID := newID + 1
+	for usedItemIDs[emptyID] || emptyID == newID {
+		emptyID++
+	}
 	emptyCopy := itemCopy(emptySource, emptyID)
 	emptyCandidate, _, err := BuildUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
@@ -699,14 +738,20 @@ func TestShopItemCellAdditionAndRestrictedDelete(t *testing.T) {
 	if len(catalog.ShopEditor.Cells) == 0 || len(catalog.ShopEditor.Items) == 0 || len(catalog.ShopEditor.CellGroups) == 0 {
 		t.Fatal("shop editor catalog is incomplete")
 	}
-	newCellID := int64(1)
+	usedCellIDs := make(map[int64]bool, len(catalog.ShopEditor.Cells))
+	maxCellID := int64(0)
 	for _, cell := range catalog.ShopEditor.Cells {
-		if cell.ShopItemCellID >= newCellID {
-			newCellID = cell.ShopItemCellID + 1
+		usedCellIDs[cell.ShopItemCellID] = true
+		if cell.ShopItemCellID > maxCellID {
+			maxCellID = cell.ShopItemCellID
 		}
 	}
-	if newCellID > math.MaxInt32 {
-		t.Fatal("cannot allocate a test CellId")
+	newCellID := int64(1)
+	for usedCellIDs[newCellID] {
+		newCellID++
+	}
+	if newCellID >= maxCellID {
+		t.Fatal("test master data has no CellId gap below the current maximum")
 	}
 	added := ShopItemCellInput{
 		ShopItemCellID: int32(newCellID), StepNumber: 1,
@@ -739,9 +784,17 @@ func TestShopItemCellAdditionAndRestrictedDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	last, ok := shopItemCellInputAt(rows[len(rows)-1])
-	if !ok || last != added {
-		t.Fatalf("added Cell = %+v, %v; want %+v", last, ok, added)
+	assertRowsSortedByIntegerColumns(t, rows, 0, 1)
+	foundAdded := false
+	for _, row := range rows {
+		cell, ok := shopItemCellInputAt(row)
+		if ok && cell == added {
+			foundAdded = true
+			break
+		}
+	}
+	if !foundAdded {
+		t.Fatalf("added Cell %+v is absent", added)
 	}
 
 	referencedCellID := int64(catalog.ShopEditor.CellGroups[0].ShopItemCellID)
@@ -787,6 +840,28 @@ func TestShopItemCellAdditionAndRestrictedDelete(t *testing.T) {
 	}
 	if len(deletedRows) != len(catalog.ShopEditor.Cells) {
 		t.Fatalf("Cell row count after delete = %d, want %d", len(deletedRows), len(catalog.ShopEditor.Cells))
+	}
+}
+
+func assertRowsSortedByIntegerColumns(t *testing.T, rows [][]interface{}, columns ...int) {
+	t.Helper()
+	for rowIndex := 1; rowIndex < len(rows); rowIndex++ {
+		for _, column := range columns {
+			previous, err := valueAsInt64(rows[rowIndex-1][column])
+			if err != nil {
+				t.Fatalf("row %d column %d: %v", rowIndex-1, column, err)
+			}
+			current, err := valueAsInt64(rows[rowIndex][column])
+			if err != nil {
+				t.Fatalf("row %d column %d: %v", rowIndex, column, err)
+			}
+			if previous < current {
+				break
+			}
+			if previous > current {
+				t.Fatalf("rows are not sorted at indexes %d and %d by columns %v", rowIndex-1, rowIndex, columns)
+			}
+		}
 	}
 }
 

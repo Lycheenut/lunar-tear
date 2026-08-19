@@ -415,6 +415,14 @@ func buildShopItemCellReplacement(file *memorydb.File, update *ShopItemCellStruc
 		}
 	}
 	replacement = append(replacement, shopItemCellRows(update.Additions)...)
+	sort.SliceStable(replacement, func(i, j int) bool {
+		left, _ := shopItemCellInputAt(replacement[i])
+		right, _ := shopItemCellInputAt(replacement[j])
+		if left.ShopItemCellID != right.ShopItemCellID {
+			return left.ShopItemCellID < right.ShopItemCellID
+		}
+		return left.StepNumber < right.StepNumber
+	})
 	changedRows := len(update.Additions) + len(update.Deletes)
 	return replacement, changedRows * 3, changedRows, true, nil
 }
@@ -541,6 +549,11 @@ func buildShopItemReplacement(file *memorydb.File, update *ShopItemStructuralUpd
 		copies = append(copies, copied.ShopItemInput)
 	}
 	replacement = append(replacement, shopItemRows(copies)...)
+	sort.SliceStable(replacement, func(i, j int) bool {
+		left, _ := integerAt(replacement[i], 0)
+		right, _ := integerAt(replacement[j], 0)
+		return left < right
+	})
 	changedRows := len(update.Copies) + len(update.DeleteIDs)
 	return replacement, changedRows * 13, changedRows, true, nil
 }
@@ -614,6 +627,14 @@ func buildShopItemContentPossessionReplacement(file *memorydb.File, update *Shop
 		return nil, 0, 0, false, nil
 	}
 	replacement = append(replacement, shopItemContentPossessionRows(added)...)
+	sort.SliceStable(replacement, func(i, j int) bool {
+		left, _ := shopItemContentPossessionInputAt(replacement[i])
+		right, _ := shopItemContentPossessionInputAt(replacement[j])
+		if left.ShopItemID != right.ShopItemID {
+			return left.ShopItemID < right.ShopItemID
+		}
+		return left.SortOrder < right.SortOrder
+	})
 	return replacement, changedRows * 5, changedRows, true, nil
 }
 
@@ -668,8 +689,15 @@ func shopItemCellGroupKey(row []interface{}) ([4]int64, bool) {
 }
 
 func shopItemCellGroupRows(rows []ShopItemCellGroupInput) [][]interface{} {
-	result := make([][]interface{}, 0, len(rows))
-	for _, row := range rows {
+	ordered := append([]ShopItemCellGroupInput(nil), rows...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].ShopItemCellGroupID != ordered[j].ShopItemCellGroupID {
+			return ordered[i].ShopItemCellGroupID < ordered[j].ShopItemCellGroupID
+		}
+		return ordered[i].ShopItemCellID < ordered[j].ShopItemCellID
+	})
+	result := make([][]interface{}, 0, len(ordered))
+	for _, row := range ordered {
 		result = append(result, []interface{}{
 			row.ShopItemCellGroupID, row.ShopItemCellID, row.SortOrder, row.ShopItemCellTermID,
 		})
