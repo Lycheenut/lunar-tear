@@ -485,7 +485,34 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	if len(catalog.ShopEditor.Items) == 0 || len(catalog.ShopEditor.Cells) == 0 {
 		t.Fatal("shop editor catalog is empty")
 	}
-	source := catalog.ShopEditor.Items[0]
+	originalFile, err := memorydb.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentRows, _, err := originalFile.TableRows(shopItemContentPossessionTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentsByItemID := make(map[int64][]ShopItemContentPossessionInput)
+	for _, row := range contentRows {
+		content, ok := shopItemContentPossessionInputAt(row)
+		if !ok {
+			t.Fatal("malformed ShopItem Possession row")
+		}
+		contentsByItemID[int64(content.ShopItemID)] = append(contentsByItemID[int64(content.ShopItemID)], content)
+	}
+	var source, emptySource ShopEditorItem
+	for _, item := range catalog.ShopEditor.Items {
+		if source.ShopItemID == 0 && len(contentsByItemID[item.ShopItemID]) != 0 {
+			source = item
+		}
+		if emptySource.ShopItemID == 0 && len(contentsByItemID[item.ShopItemID]) == 0 {
+			emptySource = item
+		}
+	}
+	if source.ShopItemID == 0 || emptySource.ShopItemID == 0 {
+		t.Fatal("need ShopItems with and without Possession content")
+	}
 	newID := int64(1)
 	for _, item := range catalog.ShopEditor.Items {
 		if item.ShopItemID >= newID {
@@ -495,25 +522,34 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	if newID > math.MaxInt32 {
 		t.Fatal("cannot allocate a test ShopItemId")
 	}
-	copied := ShopItemInput{
-		ShopItemID: int32(newID), NameShopTextID: int32(source.NameShopTextID),
-		DescriptionShopTextID: int32(source.DescriptionShopTextID), ShopItemContentType: int32(source.ShopItemContentType),
-		PriceType: int32(source.PriceType), PriceID: int32(source.PriceID), Price: int32(source.Price),
-		RegularPrice: int32(source.RegularPrice), ShopPromotionType: int32(source.ShopPromotionType),
-		ShopItemLimitedStockID: int32(source.ShopItemLimitedStockID), AssetCategoryID: int32(source.AssetCategoryID),
-		AssetVariationID: int32(source.AssetVariationID), ShopItemDecorationType: int32(source.ShopItemDecorationType),
+	itemCopy := func(source ShopEditorItem, itemID int64) ShopItemInput {
+		return ShopItemInput{
+			ShopItemID: int32(itemID), NameShopTextID: int32(source.NameShopTextID),
+			DescriptionShopTextID: int32(source.DescriptionShopTextID), ShopItemContentType: int32(source.ShopItemContentType),
+			PriceType: int32(source.PriceType), PriceID: int32(source.PriceID), Price: int32(source.Price),
+			RegularPrice: int32(source.RegularPrice), ShopPromotionType: int32(source.ShopPromotionType),
+			ShopItemLimitedStockID: int32(source.ShopItemLimitedStockID), AssetCategoryID: int32(source.AssetCategoryID),
+			AssetVariationID: int32(source.AssetVariationID), ShopItemDecorationType: int32(source.ShopItemDecorationType),
+		}
 	}
+	copied := itemCopy(source, newID)
+	copiedPossessions := append([]ShopItemContentPossessionInput(nil), contentsByItemID[source.ShopItemID]...)
+	for index := range copiedPossessions {
+		copiedPossessions[index].ShopItemID = int32(newID)
+	}
+	copiedPossessions[0].Count++
 	request := UpdateRequest{
 		ExpectedVersion: catalog.Version,
 		ShopItems: &ShopItemStructuralUpdate{Copies: []ShopItemCopyInput{{
-			SourceShopItemID: int32(source.ShopItemID), ShopItemInput: copied,
+			SourceShopItemID: int32(source.ShopItemID), ShopItemInput: copied, Possessions: copiedPossessions,
 		}}},
 	}
 	preview, err := PreviewUpdate(path, request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(preview.TableReplacements) != 1 || preview.TableReplacements[0].Table != shopItemTable ||
+	if len(preview.TableReplacements) != 2 || preview.TableReplacements[0].Table != shopItemTable ||
+		preview.TableReplacements[1].Table != shopItemContentPossessionTable ||
 		preview.TableReplacements[0].BeforeRows+1 != preview.TableReplacements[0].AfterRows {
 		t.Fatalf("unexpected ShopItem replacement preview: %+v", preview.TableReplacements)
 	}
@@ -521,8 +557,10 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ChangedCells != 13 || result.ChangedRows != 1 {
-		t.Fatalf("copy result = %+v, want 13 cells and 1 row", result)
+	wantChangedCells := 13 + len(copiedPossessions)*5
+	wantChangedRows := 1 + len(copiedPossessions)
+	if result.ChangedCells != wantChangedCells || result.ChangedRows != wantChangedRows {
+		t.Fatalf("copy result = %+v, want %d cells and %d rows", result, wantChangedCells, wantChangedRows)
 	}
 	candidateFile, err := memorydb.OpenBytes(candidate)
 	if err != nil {
@@ -539,6 +577,19 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	if !ok || last != copied {
 		t.Fatalf("copied row = %+v, %v; want %+v", last, ok, copied)
 	}
+	candidateContentRows, _, err := candidateFile.TableRows(shopItemContentPossessionTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidateContentRows) != len(contentRows)+len(copiedPossessions) {
+		t.Fatalf("copied Possession row count = %d, want %d", len(candidateContentRows), len(contentRows)+len(copiedPossessions))
+	}
+	for index, want := range copiedPossessions {
+		got, parsed := shopItemContentPossessionInputAt(candidateContentRows[len(contentRows)+index])
+		if !parsed || got != want {
+			t.Fatalf("copied Possession %d = %+v, %v; want %+v", index, got, parsed, want)
+		}
+	}
 
 	blockedID := catalog.ShopEditor.Cells[0].ShopItemID
 	_, _, err = BuildUpdate(path, UpdateRequest{
@@ -554,16 +605,38 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	_, _, err = BuildUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
 		ShopItems: &ShopItemStructuralUpdate{Copies: []ShopItemCopyInput{{
-			SourceShopItemID: int32(source.ShopItemID), ShopItemInput: forged,
+			SourceShopItemID: int32(source.ShopItemID), ShopItemInput: forged, Possessions: copiedPossessions,
 		}}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "outside the ShopItem editor") {
 		t.Fatalf("non-copy add error = %v, want restricted-field rejection", err)
 	}
 
-	deleted, deleteResult, err := buildUpdate(candidateFile, UpdateRequest{
-		ExpectedVersion: candidateFile.Version(),
-		ShopItems:       &ShopItemStructuralUpdate{DeleteIDs: []int32{int32(newID)}},
+	_, _, err = buildUpdate(candidateFile, UpdateRequest{
+		ExpectedVersion: candidateFile.Version(), ShopItems: &ShopItemStructuralUpdate{DeleteIDs: []int32{int32(newID)}},
+	})
+	if err == nil || !strings.Contains(err.Error(), shopItemContentPossessionTable) {
+		t.Fatalf("copied content delete error = %v, want Possession reference rejection", err)
+	}
+
+	emptyID := newID + 1
+	emptyCopy := itemCopy(emptySource, emptyID)
+	emptyCandidate, _, err := BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		ShopItems: &ShopItemStructuralUpdate{Copies: []ShopItemCopyInput{{
+			SourceShopItemID: int32(emptySource.ShopItemID), ShopItemInput: emptyCopy, Possessions: []ShopItemContentPossessionInput{},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyCandidateFile, err := memorydb.OpenBytes(emptyCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, deleteResult, err := buildUpdate(emptyCandidateFile, UpdateRequest{
+		ExpectedVersion: emptyCandidateFile.Version(),
+		ShopItems:       &ShopItemStructuralUpdate{DeleteIDs: []int32{int32(emptyID)}},
 	})
 	if err != nil {
 		t.Fatal(err)

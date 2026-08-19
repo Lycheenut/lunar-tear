@@ -808,12 +808,11 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .shop-item-delete { color: var(--danger); }
 .shop-item-delete:disabled { color: var(--muted); }
 .shop-stock-detail { padding: 2px 3px 0; }
-.shop-content-row { display: grid; grid-template-columns: minmax(116px, .85fr) minmax(210px, 1.45fr) 86px 76px; align-items: center; gap: 8px; }
+.shop-content-row { display: grid; grid-template-columns: minmax(116px, .85fr) minmax(210px, 1.45fr) 86px; align-items: center; gap: 8px; }
 .shop-price-row { grid-template-columns: minmax(116px, .85fr) minmax(210px, 1.45fr) 86px 86px; }
 .shop-price-row.without-price-id { grid-template-columns: minmax(116px, 1fr) 86px 86px; }
 .shop-content-row + .shop-content-row { padding-top: 7px; border-top: 1px solid rgba(45, 61, 69, .65); }
 .shop-content-header { color: var(--muted); font-size: 9px; font-weight: 750; }
-.shop-content-sort-order { color: var(--muted); font-size: 11px; text-align: center; }
 .shop-content-empty { color: var(--muted); font-size: 11px; }
 .shop-remove-cell { width: 100%; min-height: 32px; padding: 6px 8px; color: var(--danger); white-space: nowrap; }
 .shop-editor .changed { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(243, 200, 107, .1); }

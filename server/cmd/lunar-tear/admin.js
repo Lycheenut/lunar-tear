@@ -878,6 +878,14 @@
   }
 
   function renderShopCellGroupIcon(itemID, contentTable) {
+    const copied = state.shopItemCopies.find((item) => String(item.shopItemId) === String(itemID));
+    if (copied?.possessions?.length) {
+      const possession = [...copied.possessions].sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder))[0];
+      const definition = rewardDefinitionForPossessionType(possession.possessionType);
+      const reference = rewardReferencesForPossessionType(possession.possessionType)
+        .find((candidate) => String(candidate.possessionId) === String(possession.possessionId));
+      return renderRewardIcon(reference, definition, "shop-cell-card-icon");
+    }
     const rows = contentTable.rows
       .filter((row) => row.values.ShopItemId === String(itemID))
       .sort((left, right) => Number(effectiveValue(contentTable.name, left, "SortOrder"))
@@ -1060,7 +1068,7 @@
     copy.type = "button";
     copy.className = "button ghost";
     copy.textContent = "复制";
-    copy.addEventListener("click", () => copyShopItem(item));
+    copy.addEventListener("click", () => copyShopItem(item, contentTable));
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "button ghost shop-item-delete";
@@ -1080,28 +1088,24 @@
     contentSection.append(makeCell("h4", "发放内容"));
     const contentStack = document.createElement("div");
     contentStack.className = "shop-stack";
-    const rows = contentTable.rows.filter((row) => row.values.ShopItemId === String(item.shopItemId));
-    const fields = ["PossessionType", "PossessionId", "Count", "SortOrder"]
+    const rows = item.isNew
+      ? item.possessions || []
+      : contentTable.rows.filter((row) => row.values.ShopItemId === String(item.shopItemId));
+    const fields = ["PossessionType", "PossessionId", "Count"]
       .map((name) => contentTable.fields.find((field) => field.name === name));
     if (rows.length) {
       const contentHeader = document.createElement("div");
       contentHeader.className = "shop-content-row shop-content-header";
-      ["类型", "对象", "数量", "排序"].forEach((label) => contentHeader.append(makeCell("span", label)));
+      ["类型", "对象", "数量"].forEach((label) => contentHeader.append(makeCell("span", label)));
       contentStack.append(contentHeader);
     }
-    rows.forEach((row) => {
+    rows.forEach((row, rowIndex) => {
       const content = document.createElement("div");
       content.className = "shop-content-row";
       fields.forEach((field) => {
-        if (field.name !== "SortOrder") {
-          content.append(renderFieldEditor(contentTable, row, field));
-          return;
-        }
-        const sortOrder = document.createElement("code");
-        sortOrder.className = "shop-content-sort-order";
-        sortOrder.textContent = effectiveValue(contentTable.name, row, field.name);
-        sortOrder.title = "SortOrder（只读）";
-        content.append(sortOrder);
+        content.append(item.isNew
+          ? renderShopDraftPossessionField(item, row, rowIndex, field.name)
+          : renderFieldEditor(contentTable, row, field));
       });
       contentStack.append(content);
     });
@@ -1293,7 +1297,101 @@
     ShopItemLimitedStockId: "shopItemLimitedStockId"
   };
 
-  function copyShopItem(source) {
+  function renderShopDraftPossessionField(item, possession, rowIndex, fieldName) {
+    if (fieldName === "PossessionType") {
+      const wrapper = document.createElement("div");
+      wrapper.className = "field-editor reward-type-field-editor";
+      const select = document.createElement("select");
+      const current = String(possession.possessionType);
+      rewardDefinitions.forEach((definition) => {
+        if (!rewardReferencesForPossessionType(definition.possessionType).length) return;
+        const option = document.createElement("option");
+        option.value = definition.possessionType;
+        option.textContent = idNameLabel(definition.possessionType, definition.label);
+        select.append(option);
+      });
+      if (![...select.options].some((option) => option.value === current)) {
+        const option = document.createElement("option");
+        option.value = current;
+        option.textContent = idNameLabel(current, "未知类型");
+        select.append(option);
+      }
+      select.value = current;
+      select.classList.add("changed");
+      select.addEventListener("change", () => {
+        possession.possessionType = Number(select.value);
+        const references = rewardReferencesForPossessionType(select.value);
+        if (!references.some((reference) => Number(reference.possessionId) === Number(possession.possessionId)) && references.length) {
+          possession.possessionId = Number(references[0].possessionId);
+        }
+        renderTable();
+      });
+      wrapper.append(select);
+      return wrapper;
+    }
+    if (fieldName === "PossessionId") {
+      const wrapper = document.createElement("div");
+      wrapper.className = "field-editor reward-id-field-editor";
+      const select = document.createElement("select");
+      const possessionType = String(possession.possessionType);
+      const current = String(possession.possessionId);
+      const definition = rewardDefinitionForPossessionType(possessionType);
+      const references = rewardReferencesForPossessionType(possessionType);
+      const reference = references.find((candidate) => String(candidate.possessionId) === current);
+      populateRewardIDSelect(select, references, current, definition, false);
+      select.classList.add("changed");
+      const populate = () => populateRewardIDSelect(select, references, select.value, definition, true);
+      select.addEventListener("focus", populate);
+      select.addEventListener("pointerdown", populate);
+      select.addEventListener("change", () => {
+        possession.possessionId = Number(select.value);
+        renderTable();
+      });
+      const selectSlot = document.createElement("div");
+      selectSlot.className = "reward-field-select";
+      selectSlot.append(select);
+      wrapper.append(renderRewardIcon(reference, definition, "reward-field-icon"), selectSlot);
+      return wrapper;
+    }
+    const wrapper = document.createElement("div");
+    wrapper.className = "field-editor";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.value = String(possession.count);
+    input.classList.add("changed");
+    input.setAttribute("aria-label", `${item.shopItemId} 发放内容 ${rowIndex + 1} 数量`);
+    input.addEventListener("input", () => {
+      const value = input.value.trim();
+      if (!/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 2147483647n) {
+        input.classList.add("invalid");
+        showNotice("Count 必须是有效的正 32 位整数。", true);
+        return;
+      }
+      input.classList.remove("invalid");
+      possession.count = Number(value);
+      updateDirtyUI();
+    });
+    wrapper.append(input);
+    return wrapper;
+  }
+
+  function shopItemPossessionsForCopy(source, contentTable, shopItemID) {
+    if (source.isNew) {
+      return (source.possessions || []).map((row) => ({ ...row, shopItemId: shopItemID }));
+    }
+    return contentTable.rows
+      .filter((row) => row.values.ShopItemId === String(source.shopItemId))
+      .map((row) => ({
+        shopItemId: shopItemID,
+        possessionType: Number(effectiveValue(contentTable.name, row, "PossessionType")),
+        possessionId: Number(effectiveValue(contentTable.name, row, "PossessionId")),
+        sortOrder: Number(row.values.SortOrder),
+        count: Number(effectiveValue(contentTable.name, row, "Count"))
+      }));
+  }
+
+  function copyShopItem(source, contentTable) {
     const existing = [...(state.catalog?.shopEditor?.items || []), ...state.shopItemCopies];
     const suggested = existing.reduce((maximum, item) => Math.max(maximum, Number(item.shopItemId)), 0) + 1;
     const input = prompt(`复制 ShopItem ${source.shopItemId}。请输入新 ShopItemId：`, String(suggested));
@@ -1317,6 +1415,7 @@
       price: Number(effectiveShopItemValue(source, "Price", source.price)),
       regularPrice: Number(effectiveShopItemValue(source, "RegularPrice", source.regularPrice)),
       shopItemLimitedStockId: Number(effectiveShopItemValue(source, "ShopItemLimitedStockId", source.shopItemLimitedStockId)),
+      possessions: shopItemPossessionsForCopy(source, contentTable, itemID),
       names: { ...(source.names || {}) },
       deleteBlockers: [],
       isNew: true
@@ -1366,7 +1465,14 @@
       shopItemLimitedStockId: Number(effectiveShopItemValue(item, "ShopItemLimitedStockId", item.shopItemLimitedStockId)),
       assetCategoryId: Number(item.assetCategoryId),
       assetVariationId: Number(item.assetVariationId),
-      shopItemDecorationType: Number(item.shopItemDecorationType)
+      shopItemDecorationType: Number(item.shopItemDecorationType),
+      possessions: (item.possessions || []).map((row) => ({
+        shopItemId: Number(item.shopItemId),
+        possessionType: Number(row.possessionType),
+        possessionId: Number(row.possessionId),
+        sortOrder: Number(row.sortOrder),
+        count: Number(row.count)
+      }))
     };
   }
 

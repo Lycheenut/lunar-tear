@@ -64,7 +64,6 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 	}
 	for _, required := range []string{
 		".shop-cell-card-visual", ".shop-cell-card-id", ".shop-transaction-stack", ".shop-price-row.without-price-id",
-		".shop-content-sort-order",
 	} {
 		if !strings.Contains(css, required) {
 			t.Fatalf("ShopItem CSS is missing %s", required)
@@ -79,10 +78,10 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 		`const includesPriceID = effectiveShopItemValue(item, "PriceType", item.priceType) === "1"`,
 		`if (includesPriceID) controls.push(renderShopPriceIDEditor(item))`,
 		`renderShopPriceIDEditor(item)`,
-		`if (field.name !== "SortOrder")`,
-		`sortOrder.title = "SortOrder（只读）"`,
+		`possessions: shopItemPossessionsForCopy(source, contentTable, itemID)`,
+		`renderShopDraftPossessionField(item, row, rowIndex, field.name)`,
 		`configureShopItemSelect(select, item, "ShopItemLimitedStockId"`,
-		`function copyShopItem(source)`,
+		`function copyShopItem(source, contentTable)`,
 		`function deleteShopItem(item)`,
 		`shopItems = shopItemStructuralPayload()`,
 	} {
@@ -92,6 +91,11 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 	}
 	if strings.Contains(javascript, "Cell ${row.shopItemCellId} · Group ${row.shopItemCellGroupId}") {
 		t.Fatal("CellGroup card still renders the removed Cell/Group subtitle")
+	}
+	for _, removed := range []string{"shop-content-sort-order", `"类型", "对象", "数量", "排序"`} {
+		if strings.Contains(javascript, removed) || strings.Contains(css, removed) {
+			t.Fatalf("ShopItem still renders removed SortOrder content: %s", removed)
+		}
 	}
 }
 

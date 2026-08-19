@@ -236,16 +236,29 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	}
 	if replaceShopItems {
 		replacements[shopItemTable] = shopItemRows
-		filtered := edits[:0]
-		for _, edit := range edits {
-			if edit.Table != shopItemTable {
-				filtered = append(filtered, edit)
-			}
-		}
-		edits = filtered
 	}
 	structuralCells += shopItemCells
 	structuralRows += shopItemChangedRows
+	possessionRows, possessionCells, possessionChangedRows, replacePossessions, err := buildShopItemContentPossessionReplacement(file, request.ShopItems, edits)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	if replacePossessions {
+		replacements[shopItemContentPossessionTable] = possessionRows
+	}
+	if replaceShopItems || replacePossessions {
+		filtered := edits[:0]
+		for _, edit := range edits {
+			if replaceShopItems && edit.Table == shopItemTable ||
+				replacePossessions && edit.Table == shopItemContentPossessionTable {
+				continue
+			}
+			filtered = append(filtered, edit)
+		}
+		edits = filtered
+	}
+	structuralCells += possessionCells
+	structuralRows += possessionChangedRows
 	if originalEditCount == 0 && structuralRows == 0 {
 		return nil, UpdateResult{}, fmt.Errorf("the submitted values are unchanged")
 	}

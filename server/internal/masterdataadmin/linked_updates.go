@@ -162,6 +162,21 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 		preview.TableReplacements = append(preview.TableReplacements, TableReplacementPreview{
 			Table: shopItemTable, BeforeRows: len(current), AfterRows: len(replacement), ChangedRows: changedRows,
 		})
+		possessionCurrent, _, possessionReadErr := file.TableRows(shopItemContentPossessionTable)
+		if possessionReadErr != nil {
+			return UpdatePreview{}, possessionReadErr
+		}
+		possessionReplacement, _, possessionChangedRows, replacePossessions, possessionReplacementErr :=
+			buildShopItemContentPossessionReplacement(file, request.ShopItems, nil)
+		if possessionReplacementErr != nil {
+			return UpdatePreview{}, possessionReplacementErr
+		}
+		if replacePossessions {
+			preview.TableReplacements = append(preview.TableReplacements, TableReplacementPreview{
+				Table: shopItemContentPossessionTable, BeforeRows: len(possessionCurrent),
+				AfterRows: len(possessionReplacement), ChangedRows: possessionChangedRows,
+			})
+		}
 	}
 	return preview, nil
 }
