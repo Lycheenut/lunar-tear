@@ -30,6 +30,7 @@ func TestCanSellWeapon(t *testing.T) {
 }
 
 func TestValidateMaterialWeaponsRejectsUnsafeWeapons(t *testing.T) {
+	catalog := &masterdata.WeaponCatalog{}
 	newUser := func() *store.UserState {
 		user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
 		user.Weapons["target"] = store.WeaponState{UserWeaponUuid: "target", WeaponId: 10}
@@ -61,7 +62,7 @@ func TestValidateMaterialWeaponsRejectsUnsafeWeapons(t *testing.T) {
 		{name: "too many", uuids: []string{"same", "other"}, code: codes.FailedPrecondition, max: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := validateMaterialWeapons(newUser(), "target", tc.uuids, true, tc.max)
+			_, err := validateMaterialWeapons(catalog, newUser(), "target", tc.uuids, true, tc.max)
 			if status.Code(err) != tc.code {
 				t.Fatalf("status = %v, want %v (err=%v)", status.Code(err), tc.code, err)
 			}
@@ -70,11 +71,30 @@ func TestValidateMaterialWeaponsRejectsUnsafeWeapons(t *testing.T) {
 }
 
 func TestValidateMaterialWeaponsAllowsEligibleCopies(t *testing.T) {
+	catalog := &masterdata.WeaponCatalog{}
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
 	user.Weapons["target"] = store.WeaponState{UserWeaponUuid: "target", WeaponId: 10}
 	user.Weapons["copy"] = store.WeaponState{UserWeaponUuid: "copy", WeaponId: 10}
 
-	validated, err := validateMaterialWeapons(user, "target", []string{"copy"}, true, 1)
+	validated, err := validateMaterialWeapons(catalog, user, "target", []string{"copy"}, true, 1)
+	if err != nil || len(validated) != 1 || validated[0] != "copy" {
+		t.Fatalf("validated = %v, err=%v", validated, err)
+	}
+}
+
+func TestValidateMaterialWeaponsAllowsUnawakenedCopyOfAwakenedTarget(t *testing.T) {
+	catalog := &masterdata.WeaponCatalog{
+		EvolutionGroupByWeaponId: map[int32]int32{
+			310001: 31000,
+			310002: 31000,
+		},
+	}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Weapons["target"] = store.WeaponState{UserWeaponUuid: "target", WeaponId: 310002}
+	user.Weapons["copy"] = store.WeaponState{UserWeaponUuid: "copy", WeaponId: 310001}
+	user.WeaponAwakens["target"] = store.WeaponAwakenState{UserWeaponUuid: "target"}
+
+	validated, err := validateMaterialWeapons(catalog, user, "target", []string{"copy"}, true, 1)
 	if err != nil || len(validated) != 1 || validated[0] != "copy" {
 		t.Fatalf("validated = %v, err=%v", validated, err)
 	}
