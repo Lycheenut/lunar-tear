@@ -24,6 +24,7 @@ type WeaponCatalog struct {
 	SellPriceByEnhanceId                map[int32]NumericalFunc
 	MedalsByWeaponId                    map[int32]map[int32]int32 // WeaponId -> ConsumableItemId -> Count
 	EvolutionNextWeaponId               map[int32]int32
+	EvolutionGroupByWeaponId            map[int32]int32
 	EvolutionOrder                      map[int32]int32                                 // WeaponId -> 0-based position in evolution chain
 	EvolutionMaterials                  map[int32][]EntityMWeaponEvolutionMaterialGroup // WeaponEvolutionMaterialGroupId -> materials
 	EvolutionCostByEnhanceId            map[int32]NumericalFunc
@@ -70,6 +71,15 @@ func (c *WeaponCatalog) LimitBreakMaterialOptions(weaponId, currentLimitBreakCou
 	}
 	options = append(options, c.RarityLimitBreakByRarity[weapon.RarityType]...)
 	return uniqueMaterialOptions(options)
+}
+
+func (c *WeaponCatalog) IsSameWeapon(firstWeaponId, secondWeaponId int32) bool {
+	if firstWeaponId == secondWeaponId {
+		return true
+	}
+	firstGroupId, firstFound := c.EvolutionGroupByWeaponId[firstWeaponId]
+	secondGroupId, secondFound := c.EvolutionGroupByWeaponId[secondWeaponId]
+	return firstFound && secondFound && firstGroupId == secondGroupId
 }
 
 func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
@@ -158,6 +168,7 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 		SellPriceByEnhanceId:                make(map[int32]NumericalFunc, len(enhanceRows)),
 		MedalsByWeaponId:                    make(map[int32]map[int32]int32),
 		EvolutionNextWeaponId:               make(map[int32]int32),
+		EvolutionGroupByWeaponId:            make(map[int32]int32),
 		EvolutionOrder:                      make(map[int32]int32),
 		EvolutionMaterials:                  make(map[int32][]EntityMWeaponEvolutionMaterialGroup),
 		EvolutionCostByEnhanceId:            make(map[int32]NumericalFunc, len(enhanceRows)),
@@ -262,6 +273,7 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 	grouped := make(map[int32][]EntityMWeaponEvolutionGroup)
 	for _, row := range evoGroupRows {
 		grouped[row.WeaponEvolutionGroupId] = append(grouped[row.WeaponEvolutionGroupId], row)
+		catalog.EvolutionGroupByWeaponId[row.WeaponId] = row.WeaponEvolutionGroupId
 	}
 	for _, rows := range grouped {
 		sort.Slice(rows, func(i, j int) bool {

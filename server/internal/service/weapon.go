@@ -702,7 +702,7 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 
 		remaining := config.WeaponLimitBreakAvailableCount - weapon.LimitBreakCount
 
-		materialUUIDs, materialErr := validateMaterialWeapons(user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, true, remaining)
+		materialUUIDs, materialErr := validateMaterialWeapons(catalog, user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, true, remaining)
 		if materialErr != nil {
 			validationErr = materialErr
 			return
@@ -792,7 +792,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 		}, enhancementCampaignFilter(cat.Campaign, user, nowMillis))
 
 		totalExp := int64(0)
-		materialUUIDs, materialErr := validateMaterialWeapons(user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, false, 0)
+		materialUUIDs, materialErr := validateMaterialWeapons(catalog, user, req.UserWeaponUuid, req.MaterialUserWeaponUuids, false, 0)
 		if materialErr != nil {
 			validationErr = materialErr
 			return
@@ -906,7 +906,7 @@ func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.Enhan
 	}, nil
 }
 
-func validateMaterialWeapons(user *store.UserState, targetUUID string, materialUUIDs []string, requireSameWeapon bool, maxCount int32) ([]string, error) {
+func validateMaterialWeapons(catalog *masterdata.WeaponCatalog, user *store.UserState, targetUUID string, materialUUIDs []string, requireSameWeapon bool, maxCount int32) ([]string, error) {
 	if len(materialUUIDs) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "material weapons are required")
 	}
@@ -933,7 +933,7 @@ func validateMaterialWeapons(user *store.UserState, targetUUID string, materialU
 		if isWeaponEquipped(user, uuid) {
 			return nil, status.Errorf(codes.FailedPrecondition, "material weapon %s is equipped", uuid)
 		}
-		if requireSameWeapon && weapon.WeaponId != target.WeaponId {
+		if requireSameWeapon && !catalog.IsSameWeapon(weapon.WeaponId, target.WeaponId) {
 			return nil, status.Errorf(codes.FailedPrecondition, "material weapon %s is not a duplicate of the target", uuid)
 		}
 		seen[uuid] = true
