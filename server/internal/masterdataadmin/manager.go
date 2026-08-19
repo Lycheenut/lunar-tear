@@ -79,10 +79,11 @@ type Change struct {
 }
 
 type UpdateRequest struct {
-	ExpectedVersion    string                    `json:"expectedVersion"`
-	Changes            []Change                  `json:"changes"`
-	ShopItemCellGroups *[]ShopItemCellGroupInput `json:"shopItemCellGroups,omitempty"`
-	ShopItems          *ShopItemStructuralUpdate `json:"shopItems,omitempty"`
+	ExpectedVersion    string                        `json:"expectedVersion"`
+	Changes            []Change                      `json:"changes"`
+	ShopItemCellGroups *[]ShopItemCellGroupInput     `json:"shopItemCellGroups,omitempty"`
+	ShopItemCells      *ShopItemCellStructuralUpdate `json:"shopItemCells,omitempty"`
+	ShopItems          *ShopItemStructuralUpdate     `json:"shopItems,omitempty"`
 }
 
 type UpdateResult struct {
@@ -230,6 +231,15 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 		replacements[shopItemCellGroupTable] = shopItemCellGroupRows(*request.ShopItemCellGroups)
 	}
 	originalEditCount := len(edits)
+	cellRows, cellCells, cellChangedRows, replaceCells, err := buildShopItemCellReplacement(file, request.ShopItemCells, edits)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	if replaceCells {
+		replacements[shopItemCellTable] = cellRows
+	}
+	structuralCells += cellCells
+	structuralRows += cellChangedRows
 	shopItemRows, shopItemCells, shopItemChangedRows, replaceShopItems, err := buildShopItemReplacement(file, request.ShopItems, edits)
 	if err != nil {
 		return nil, UpdateResult{}, err
@@ -246,11 +256,12 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	if replacePossessions {
 		replacements[shopItemContentPossessionTable] = possessionRows
 	}
-	if replaceShopItems || replacePossessions {
+	if replaceCells || replaceShopItems || replacePossessions {
 		filtered := edits[:0]
 		for _, edit := range edits {
-			if replaceShopItems && edit.Table == shopItemTable ||
-				replacePossessions && edit.Table == shopItemContentPossessionTable {
+			if (replaceCells && edit.Table == shopItemCellTable) ||
+				(replaceShopItems && edit.Table == shopItemTable) ||
+				(replacePossessions && edit.Table == shopItemContentPossessionTable) {
 				continue
 			}
 			filtered = append(filtered, edit)

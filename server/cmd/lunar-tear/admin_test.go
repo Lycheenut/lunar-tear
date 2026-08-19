@@ -99,6 +99,40 @@ func TestAdminShopItemUsesNamedSearchAndTransactionLayout(t *testing.T) {
 	}
 }
 
+func TestAdminShopCellStructureLazySelectorsAndUnreferencedFilters(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`id="shop-cell-add"`, `id="shop-cell-unreferenced"`, `id="shop-item-unreferenced"`,
+		`<th>CellId</th><th>StepNumber</th><th>ShopItemId</th><th>操作</th>`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("Shop Cell HTML is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`function createLazySearchSelect(`,
+		`options,`,
+		`limit: config.limit || 50`,
+		`function createShopCellSelector(`,
+		`function createShopItemSelector(`,
+		`function shopItemCellStructuralPayload()`,
+		`request.shopItemCells = shopItemCellStructuralPayload()`,
+		`elements.shopCellUnreferenced.checked`,
+		`elements.shopItemUnreferenced.checked`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("Shop Cell JavaScript is missing %s", required)
+		}
+	}
+	for _, obsolete := range []string{"populateShopCellSelect", "populateShopItemSelect"} {
+		if strings.Contains(javascript, obsolete) {
+			t.Fatalf("Shop selectors still eagerly populate native options through %s", obsolete)
+		}
+	}
+}
+
 func TestAdminEntityLabelsUseIDFirstFormat(t *testing.T) {
 	javascript := adminAssetBody(t, "/admin/admin.js")
 	if !strings.Contains(javascript, "return `${id}. ${name}`;") {

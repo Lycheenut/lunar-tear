@@ -657,6 +657,111 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	}
 }
 
+func TestShopItemCellAdditionAndRestrictedDelete(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.ShopEditor.Cells) == 0 || len(catalog.ShopEditor.Items) == 0 || len(catalog.ShopEditor.CellGroups) == 0 {
+		t.Fatal("shop editor catalog is incomplete")
+	}
+	newCellID := int64(1)
+	for _, cell := range catalog.ShopEditor.Cells {
+		if cell.ShopItemCellID >= newCellID {
+			newCellID = cell.ShopItemCellID + 1
+		}
+	}
+	if newCellID > math.MaxInt32 {
+		t.Fatal("cannot allocate a test CellId")
+	}
+	added := ShopItemCellInput{
+		ShopItemCellID: int32(newCellID), StepNumber: 1,
+		ShopItemID: int32(catalog.ShopEditor.Items[0].ShopItemID),
+	}
+	request := UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		ShopItemCells:   &ShopItemCellStructuralUpdate{Additions: []ShopItemCellInput{added}},
+	}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.TableReplacements) != 1 || preview.TableReplacements[0].Table != shopItemCellTable ||
+		preview.TableReplacements[0].BeforeRows+1 != preview.TableReplacements[0].AfterRows {
+		t.Fatalf("unexpected Cell replacement preview: %+v", preview.TableReplacements)
+	}
+	candidate, result, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedCells != 3 || result.ChangedRows != 1 {
+		t.Fatalf("Cell addition result = %+v, want 3 cells and 1 row", result)
+	}
+	candidateFile, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := candidateFile.TableRows(shopItemCellTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, ok := shopItemCellInputAt(rows[len(rows)-1])
+	if !ok || last != added {
+		t.Fatalf("added Cell = %+v, %v; want %+v", last, ok, added)
+	}
+
+	referencedCellID := int64(catalog.ShopEditor.CellGroups[0].ShopItemCellID)
+	var referencedCell ShopEditorCell
+	for _, cell := range catalog.ShopEditor.Cells {
+		if cell.ShopItemCellID == referencedCellID {
+			referencedCell = cell
+			break
+		}
+	}
+	if referencedCell.ShopItemCellID == 0 || len(referencedCell.DeleteBlockers) == 0 {
+		t.Fatal("CellGroup-referenced Cell must expose delete blockers")
+	}
+	_, _, err = BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: catalog.Version,
+		ShopItemCells: &ShopItemCellStructuralUpdate{Deletes: []ShopItemCellKey{{
+			ShopItemCellID: int32(referencedCell.ShopItemCellID), StepNumber: int32(referencedCell.StepNumber),
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "still referenced") {
+		t.Fatalf("referenced Cell delete error = %v, want reference rejection", err)
+	}
+
+	deleted, deleteResult, err := buildUpdate(candidateFile, UpdateRequest{
+		ExpectedVersion: candidateFile.Version(),
+		ShopItemCells: &ShopItemCellStructuralUpdate{Deletes: []ShopItemCellKey{{
+			ShopItemCellID: added.ShopItemCellID, StepNumber: added.StepNumber,
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleteResult.ChangedCells != 3 || deleteResult.ChangedRows != 1 {
+		t.Fatalf("Cell delete result = %+v, want 3 cells and 1 row", deleteResult)
+	}
+	deletedFile, err := memorydb.OpenBytes(deleted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedRows, _, err := deletedFile.TableRows(shopItemCellTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deletedRows) != len(catalog.ShopEditor.Cells) {
+		t.Fatalf("Cell row count after delete = %d, want %d", len(deletedRows), len(catalog.ShopEditor.Cells))
+	}
+}
+
 func TestMissionRewardAssignmentCanBeUpdatedWithoutExposingMissionTable(t *testing.T) {
 	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {

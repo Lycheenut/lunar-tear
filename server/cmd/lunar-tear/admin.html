@@ -207,7 +207,7 @@
                     </div>
                     <div class="mission-reward-panel-heading-actions">
                       <span id="shop-cell-group-count" class="row-badge">0 条</span>
-                      <button id="shop-cell-group-add" class="button ghost" type="button">添加 Cell</button>
+                      <button id="shop-cell-group-add" class="button ghost" type="button">添加到组</button>
                     </div>
                   </header>
                   <div class="mission-reward-panel-scroll shop-cell-group-scroll">
@@ -219,12 +219,14 @@
                     <h3 id="shop-cell-title">Cell</h3>
                     <div class="mission-reward-panel-heading-actions">
                       <input id="shop-cell-search" class="mission-reward-content-search" type="search" inputmode="numeric" placeholder="搜索 CellId" aria-label="按 CellId 搜索">
+                      <label class="shop-unreferenced-filter"><input id="shop-cell-unreferenced" type="checkbox">仅展示无引用</label>
                       <span id="shop-cell-count" class="row-badge">0 行</span>
+                      <button id="shop-cell-add" class="button ghost" type="button">新增 Cell</button>
                     </div>
                   </header>
                   <div class="mission-reward-panel-scroll">
                     <table class="shop-cell-table">
-                      <thead><tr><th>CellId</th><th>StepNumber</th><th>ShopItemId</th></tr></thead>
+                      <thead><tr><th>CellId</th><th>StepNumber</th><th>ShopItemId</th><th>操作</th></tr></thead>
                       <tbody id="shop-cell-body"></tbody>
                     </table>
                   </div>
@@ -243,6 +245,7 @@
                   <h3 id="shop-item-title">ShopItem</h3>
                   <div class="mission-reward-panel-heading-actions">
                     <input id="shop-item-search" class="mission-reward-content-search" type="search" placeholder="搜索 ShopItemId 或名称" aria-label="按 ShopItemId 或名称搜索">
+                    <label class="shop-unreferenced-filter"><input id="shop-item-unreferenced" type="checkbox">仅展示无引用</label>
                     <span id="shop-item-count" class="row-badge">0 行</span>
                   </div>
                 </header>

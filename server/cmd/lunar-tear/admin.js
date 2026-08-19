@@ -33,10 +33,12 @@
     shopEditor: $("#shop-editor"), shopCellGroupReferences: $("#shop-cell-group-references"),
     shopCellGroupCount: $("#shop-cell-group-count"), shopCellGroupAdd: $("#shop-cell-group-add"),
     shopCellGroupBody: $("#shop-cell-group-body"), shopCellSearch: $("#shop-cell-search"),
-    shopCellCount: $("#shop-cell-count"), shopCellBody: $("#shop-cell-body"),
+    shopCellUnreferenced: $("#shop-cell-unreferenced"), shopCellCount: $("#shop-cell-count"),
+    shopCellAdd: $("#shop-cell-add"), shopCellBody: $("#shop-cell-body"),
     shopCellPageSize: $("#shop-cell-page-size"), shopCellPagePrevious: $("#shop-cell-page-previous"),
     shopCellPageInfo: $("#shop-cell-page-info"), shopCellPageNext: $("#shop-cell-page-next"),
-    shopItemSearch: $("#shop-item-search"), shopItemCount: $("#shop-item-count"),
+    shopItemSearch: $("#shop-item-search"), shopItemUnreferenced: $("#shop-item-unreferenced"),
+    shopItemCount: $("#shop-item-count"),
     shopItemBody: $("#shop-item-body"), shopItemPageSize: $("#shop-item-page-size"),
     shopItemPagePrevious: $("#shop-item-page-previous"), shopItemPageInfo: $("#shop-item-page-info"),
     shopItemPageNext: $("#shop-item-page-next"),
@@ -113,6 +115,8 @@
     shopCellPage: 1,
     shopCellPageSize: 25,
     shopCellPageCount: 1,
+    shopCellAdditions: [],
+    shopCellDeleteKeys: new Map(),
     shopItemPage: 1,
     shopItemPageSize: 10,
     shopItemPageCount: 1,
@@ -362,21 +366,48 @@
         input.value = option?.textContent?.trim() || "";
         input.title = input.value;
       };
+      const availableOptions = () => {
+        const configured = typeof controller.config.options === "function"
+          ? controller.config.options()
+          : controller.config.options;
+        if (configured) {
+          if (controller.optionSource !== configured) {
+            controller.optionSource = configured;
+            controller.optionEntries = configured.map((entry, index) => ({
+              value: String(entry.value), label: String(entry.label),
+              searchText: String(entry.searchText || ""), disabled: Boolean(entry.disabled), index
+            }));
+          }
+          return controller.optionEntries;
+        }
+        return [...select.options].map((option, index) => ({
+          option, value: option.value, label: option.textContent?.trim() || option.value,
+          searchText: option.dataset.searchText || "", disabled: option.disabled, index
+        }));
+      };
       const matchingOptions = (query = "") => {
         const normalized = query.trim().toLocaleLowerCase();
-        return [...select.options]
-          .map((option, index) => {
-            const value = option.value.toLocaleLowerCase();
-            const label = option.textContent?.trim() || option.value;
-            const searchText = `${option.dataset.searchText || ""} ${value} ${label}`.toLocaleLowerCase();
-            const rank = value === normalized ? 0 : value.startsWith(normalized) ? 1 : label.toLocaleLowerCase().startsWith(normalized) ? 2 : 3;
-            return { option, index, label, searchText, rank };
-          })
-          .filter((entry) => !entry.option.disabled && (!normalized || entry.searchText.includes(normalized)))
-          .sort((left, right) => normalized ? left.rank - right.rank || left.index - right.index : left.index - right.index);
+        const available = availableOptions();
+        if (!normalized) return available.filter((entry) => !entry.disabled);
+        const matches = [];
+        available.forEach((entry) => {
+          if (entry.disabled) return;
+          const value = entry.value.toLocaleLowerCase();
+          const searchText = `${entry.searchText} ${value} ${entry.label}`.toLocaleLowerCase();
+          if (!searchText.includes(normalized)) return;
+          const rank = value === normalized ? 0 : value.startsWith(normalized) ? 1 : entry.label.toLocaleLowerCase().startsWith(normalized) ? 2 : 3;
+          matches.push({ ...entry, rank });
+        });
+        return matches.sort((left, right) => left.rank - right.rank || left.index - right.index);
       };
-      const choose = (option) => {
-        select.value = option.value;
+      const choose = (entry) => {
+        if (!entry.option) {
+          const option = document.createElement("option");
+          option.value = entry.value;
+          option.textContent = entry.label;
+          select.replaceChildren(option);
+        }
+        select.value = entry.value;
         restoreSelection();
         close();
         select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -385,17 +416,17 @@
         const matches = matchingOptions(query);
         const limit = controller.config.limit || 100;
         list.replaceChildren();
-        matches.slice(0, limit).forEach(({ option, label }) => {
+        matches.slice(0, limit).forEach((entry) => {
           const button = document.createElement("button");
           button.type = "button";
           button.className = "searchable-select-option";
           button.setAttribute("role", "option");
-          button.setAttribute("aria-selected", String(option.value === select.value));
-          button.textContent = label;
-          button.title = label;
+          button.setAttribute("aria-selected", String(entry.value === select.value));
+          button.textContent = entry.label;
+          button.title = entry.label;
           button.addEventListener("pointerdown", (event) => {
             event.preventDefault();
-            choose(option);
+            choose(entry);
           });
           list.append(button);
         });
@@ -431,7 +462,7 @@
           const match = matchingOptions(input.value)[0];
           if (match) {
             event.preventDefault();
-            choose(match.option);
+            choose(match);
           }
         }
       });
@@ -445,10 +476,12 @@
         wrapper,
         input,
         config: {},
+        optionSource: null,
+        optionEntries: [],
         sync() {
           input.placeholder = controller.config.placeholder || "搜索并选择";
           input.setAttribute("aria-label", controller.config.ariaLabel || input.placeholder);
-          input.disabled = select.disabled || select.options.length === 0;
+          input.disabled = select.disabled || (!controller.config.options && select.options.length === 0);
           restoreSelection();
           close();
         }
@@ -458,6 +491,24 @@
     controller.config = config;
     controller.sync();
     return controller.wrapper;
+  }
+
+  function createLazySearchSelect(value, label, options, onChange, config = {}) {
+    const select = document.createElement("select");
+    const selected = document.createElement("option");
+    selected.value = String(value);
+    selected.textContent = label;
+    select.append(selected);
+    select.value = String(value);
+    select.addEventListener("change", () => onChange(select.value, select));
+    let cachedOptions;
+    const optionSource = typeof options === "function" ? () => (cachedOptions ||= options()) : options;
+    const wrapper = createSearchableSelect(select, {
+      ...config,
+      options: optionSource,
+      limit: config.limit || 50
+    });
+    return { wrapper, select, input: wrapper.querySelector("input") };
   }
 
   function renderShopContentFilter(table, previous) {
@@ -752,6 +803,8 @@
     state.shopItemPage = 1;
     state.shopItemCopies = [];
     state.shopItemDeleteIDs = new Set();
+    state.shopCellAdditions = [];
+    state.shopCellDeleteKeys = new Map();
   }
 
   function shopCellGroupPayload(row) {
@@ -770,6 +823,18 @@
     ].sort((left, right) => Number(left.shopItemId) - Number(right.shopItemId));
   }
 
+  function shopCellKey(cell) {
+    return `${Number(cell.shopItemCellId)}:${Number(cell.stepNumber)}`;
+  }
+
+  function shopEditorCells(editor = state.catalog?.shopEditor || { cells: [] }) {
+    return [
+      ...editor.cells.filter((cell) => !state.shopCellDeleteKeys.has(shopCellKey(cell))),
+      ...state.shopCellAdditions
+    ].sort((left, right) => Number(left.shopItemCellId) - Number(right.shopItemCellId)
+      || Number(left.stepNumber) - Number(right.stepNumber));
+  }
+
   function markShopCellGroupDirty() {
     state.shopCellGroupDirty = JSON.stringify(state.shopCellGroupDraft.map(shopCellGroupPayload))
       !== state.shopCellGroupBaseline;
@@ -783,6 +848,7 @@
   function renderShopEditor(contentTable, query) {
     const editor = state.catalog?.shopEditor || { shops: [], cells: [], items: [] };
     const items = shopEditorItems(editor);
+    const cells = shopEditorCells(editor);
     const groupID = selectedShopCellGroupID();
     const references = editor.shops.filter((shop) => String(shop.shopItemCellGroupId) === groupID);
     elements.shopCellGroupReferences.textContent = references.length
@@ -801,17 +867,17 @@
       elements.shopCellGroupBody.append(empty);
     }
     elements.shopCellGroupCount.textContent = `${groupRows.length.toLocaleString()} 条`;
-    elements.shopCellGroupAdd.disabled = !groupID || !editor.cells.length;
+    elements.shopCellGroupAdd.disabled = !groupID || !cells.length;
 
     renderShopCellPanel(editor);
     renderShopItemPanel(editor, contentTable);
-    elements.visibleCount.textContent = `${groupRows.length.toLocaleString()} 条 CellGroup 配置 · ${editor.cells.length.toLocaleString()} 个 Cell · ${items.length.toLocaleString()} 个 ShopItem`;
+    elements.visibleCount.textContent = `${groupRows.length.toLocaleString()} 条 CellGroup 配置 · ${cells.length.toLocaleString()} 个 Cell · ${items.length.toLocaleString()} 个 ShopItem`;
     elements.statusFilterLabel.classList.add("hidden");
     elements.empty.classList.add("hidden");
   }
 
   function shopCellGroupSearchText(row) {
-    const cell = (state.catalog?.shopEditor?.cells || [])
+    const cell = shopEditorCells()
       .find((candidate) => String(candidate.shopItemCellId) === String(row.shopItemCellId));
     return [row.shopItemCellId, row.sortOrder, row.shopItemCellTermId, cell ? shopCellOptionLabel(cell) : ""]
       .join(" ").toLocaleLowerCase();
@@ -820,7 +886,7 @@
   function renderShopCellGroupCard(row, draftIndex, contentTable) {
     const card = document.createElement("article");
     card.className = "shop-cell-card";
-    const cellDefinition = (state.catalog?.shopEditor?.cells || [])
+    const cellDefinition = shopEditorCells()
       .find((candidate) => String(candidate.shopItemCellId) === String(row.shopItemCellId));
     const itemID = cellDefinition ? effectiveShopCellItemID(cellDefinition) : "";
     const itemDefinition = shopEditorItems()
@@ -843,18 +909,13 @@
 
     const selectSlot = document.createElement("div");
     selectSlot.className = "shop-cell-card-select";
-    const cellSelect = document.createElement("select");
-    populateShopCellSelect(cellSelect, row.shopItemCellId, false);
-    cellSelect.classList.toggle("changed", state.shopCellGroupDirty);
-    const populate = () => populateShopCellSelect(cellSelect, cellSelect.value, true);
-    cellSelect.addEventListener("focus", populate);
-    cellSelect.addEventListener("pointerdown", populate);
-    cellSelect.addEventListener("change", () => {
-      state.shopCellGroupDraft[draftIndex].shopItemCellId = Number(cellSelect.value);
+    const cellPicker = createShopCellSelector(row.shopItemCellId, (value) => {
+      state.shopCellGroupDraft[draftIndex].shopItemCellId = Number(value);
       markShopCellGroupDirty();
       renderTable();
     });
-    selectSlot.append(cellSelect);
+    cellPicker.input.classList.toggle("changed", state.shopCellGroupDirty);
+    selectSlot.append(cellPicker.wrapper);
 
     const meta = document.createElement("div");
     meta.className = "shop-cell-card-meta";
@@ -910,27 +971,26 @@
     return value ? previewChangeValue(String(value), true) : "不限";
   }
 
-  function populateShopCellSelect(select, selectedID, expanded) {
-    if (expanded && select.dataset.expanded === "true") return;
-    const cells = state.catalog?.shopEditor?.cells || [];
-    const selected = String(selectedID);
-    const options = expanded ? cells : cells.filter((cell) => String(cell.shopItemCellId) === selected);
-    select.replaceChildren();
-    options.forEach((cell) => {
-      const option = document.createElement("option");
-      option.value = String(cell.shopItemCellId);
-      option.textContent = shopCellOptionLabel(cell);
-      select.append(option);
+  function shopCellSelectorOptions() {
+    const options = new Map();
+    const itemsByID = new Map(shopEditorItems().map((item) => [String(item.shopItemId), item]));
+    shopEditorCells().forEach((cell) => {
+      const value = String(cell.shopItemCellId);
+      if (options.has(value)) return;
+      const item = itemsByID.get(effectiveShopCellItemID(cell));
+      const label = idNameLabel(cell.shopItemCellId, localizedInlineText(item?.names) || "未命名商品");
+      options.set(value, { value, label, searchText: `${value} ${label}` });
     });
-    if (![...select.options].some((option) => option.value === selected)) {
-      const option = document.createElement("option");
-      option.value = selected;
-      option.textContent = idNameLabel(selected, "未知 Cell");
-      select.append(option);
-    }
-    select.value = selected;
-    select.title = select.options[select.selectedIndex]?.textContent || "";
-    select.dataset.expanded = String(expanded);
+    return [...options.values()];
+  }
+
+  function createShopCellSelector(selectedID, onChange) {
+    const selected = String(selectedID);
+    const selectedCell = shopEditorCells().find((cell) => String(cell.shopItemCellId) === selected);
+    const label = selectedCell ? shopCellOptionLabel(selectedCell) : idNameLabel(selected, "未知 Cell");
+    return createLazySearchSelect(selected, label, shopCellSelectorOptions, onChange, {
+      placeholder: "搜索 CellId 或商品名称", ariaLabel: "搜索并选择 Cell", limit: 50
+    });
   }
 
   function shopCellOptionLabel(cell) {
@@ -941,13 +1001,14 @@
   }
 
   function effectiveShopCellItemID(cell) {
+    if (cell.isNew) return String(cell.shopItemId);
     return state.dirty.get(changeKey("m_shop_item_cell", Number(cell.row), "ShopItemId"))?.value
       ?? String(cell.shopItemId);
   }
 
   function addShopCellGroupRow() {
     const groupID = Number(selectedShopCellGroupID());
-    const cells = state.catalog?.shopEditor?.cells || [];
+    const cells = shopEditorCells();
     if (!groupID || !cells.length) return;
     const groupRows = state.shopCellGroupDraft.filter((row) => Number(row.shopItemCellGroupId) === groupID);
     const used = new Set(groupRows.map((row) => String(row.shopItemCellId)));
@@ -975,14 +1036,111 @@
     showNotice(`已添加 Cell ${added.shopItemCellId}；SortOrder 自动设为 ${added.sortOrder}，TermId 继承为 ${added.shopItemCellTermId}。`);
   }
 
+  const shopCellBlockerLabels = {
+    m_shop_item_cell_group: "CellGroup",
+    m_shop_item_cell_limited_open: "CellLimitedOpen",
+    shop_cell_group_draft: "当前 CellGroup 草稿"
+  };
+
+  function shopCellBlockerLabel(tableName) {
+    return shopCellBlockerLabels[tableName] || tableName;
+  }
+
+  function shopCellEffectiveBlockers(cell) {
+    const blockers = [...(cell.deleteBlockers || [])];
+    const referencedByDraft = state.shopCellGroupDraft.some((row) => Number(row.shopItemCellId) === Number(cell.shopItemCellId));
+    if (referencedByDraft && !blockers.includes("m_shop_item_cell_group")) blockers.push("shop_cell_group_draft");
+    return blockers;
+  }
+
+  function shopCellHasReferences(cell) {
+    return shopCellEffectiveBlockers(cell).length !== 0;
+  }
+
+  function addShopCell() {
+    const existing = [...(state.catalog?.shopEditor?.cells || []), ...state.shopCellAdditions];
+    const suggestedID = existing.reduce((maximum, cell) => Math.max(maximum, Number(cell.shopItemCellId)), 0) + 1;
+    const cellText = prompt("请输入新 CellId：", String(suggestedID));
+    if (cellText === null) return;
+    const cellID = Number(cellText.trim());
+    if (!Number.isInteger(cellID) || cellID <= 0 || cellID > 2147483647) {
+      showNotice("CellId 必须是有效的正 32 位整数。", true);
+      return;
+    }
+    const stepText = prompt("请输入 StepNumber：", "1");
+    if (stepText === null) return;
+    const stepNumber = Number(stepText.trim());
+    if (!Number.isInteger(stepNumber) || stepNumber <= 0 || stepNumber > 2147483647) {
+      showNotice("StepNumber 必须是有效的正 32 位整数。", true);
+      return;
+    }
+    if (existing.some((cell) => Number(cell.shopItemCellId) === cellID && Number(cell.stepNumber) === stepNumber)) {
+      showNotice(`Cell ${cellID} / Step ${stepNumber} 已存在。`, true);
+      return;
+    }
+    const items = shopEditorItems();
+    const targetItem = state.shopItemCopies.at(-1) || items[0];
+    if (!targetItem) {
+      showNotice("没有可供 Cell 引用的 ShopItem。", true);
+      return;
+    }
+    state.shopCellAdditions.push({
+      row: -1, shopItemCellId: cellID, stepNumber,
+      shopItemId: Number(targetItem.shopItemId), deleteBlockers: [], isNew: true
+    });
+    elements.shopCellSearch.value = String(cellID);
+    state.shopCellPage = 1;
+    updateDirtyUI();
+    renderTable();
+    showNotice(`已新增 Cell ${cellID} / Step ${stepNumber}，请确认其 ShopItem。`);
+  }
+
+  function deleteShopCell(cell) {
+    const blockers = shopCellEffectiveBlockers(cell);
+    if (blockers.length) {
+      showNotice(`Cell ${cell.shopItemCellId} 仍被 ${blockers.map(shopCellBlockerLabel).join("、")} 引用，无法删除。`, true);
+      return;
+    }
+    if (cell.isNew) {
+      if (!confirm(`取消新增 Cell ${cell.shopItemCellId} / Step ${cell.stepNumber}？`)) return;
+      state.shopCellAdditions = state.shopCellAdditions.filter((candidate) => candidate !== cell);
+    } else {
+      if (!confirm(`删除 Cell ${cell.shopItemCellId} / Step ${cell.stepNumber}？`)) return;
+      state.shopCellDeleteKeys.set(shopCellKey(cell), {
+        shopItemCellId: Number(cell.shopItemCellId), stepNumber: Number(cell.stepNumber)
+      });
+      const prefix = `${shopItemCellTableName}\u0000${Number(cell.row)}\u0000`;
+      [...state.dirty.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => state.dirty.delete(key));
+    }
+    updateDirtyUI();
+    renderTable();
+  }
+
+  function shopItemCellStructuralPayload() {
+    return {
+      additions: state.shopCellAdditions.map((cell) => ({
+        shopItemCellId: Number(cell.shopItemCellId), stepNumber: Number(cell.stepNumber),
+        shopItemId: Number(cell.shopItemId)
+      })),
+      deletes: [...state.shopCellDeleteKeys.values()]
+    };
+  }
+
+  function shopItemCellStructuralDirty() {
+    return state.shopCellAdditions.length !== 0 || state.shopCellDeleteKeys.size !== 0;
+  }
+
   function renderShopCellPanel(editor) {
     const query = elements.shopCellSearch.value.trim().toLocaleLowerCase();
-    const rows = editor.cells.filter((cell) => !query || String(cell.shopItemCellId).toLocaleLowerCase().includes(query));
+    const allCells = shopEditorCells(editor);
+    const rows = allCells
+      .filter((cell) => !elements.shopCellUnreferenced.checked || !shopCellHasReferences(cell))
+      .filter((cell) => !query || String(cell.shopItemCellId).toLocaleLowerCase().includes(query));
     const page = shopPage(rows.length, "shopCellPage", state.shopCellPageSize);
     elements.shopCellBody.replaceChildren();
     rows.slice(page.start, page.end).forEach((cell) => elements.shopCellBody.append(renderShopCellRow(cell)));
-    if (!rows.length) elements.shopCellBody.append(renderMissionRewardEmptyRow(3, query ? "没有匹配该 CellId 的 Cell。" : "没有 Cell。"));
-    elements.shopCellCount.textContent = shopPageCountLabel(rows.length, editor.cells.length, page);
+    if (!rows.length) elements.shopCellBody.append(renderMissionRewardEmptyRow(4, query ? "没有匹配该 CellId 的 Cell。" : "没有 Cell。"));
+    elements.shopCellCount.textContent = shopPageCountLabel(rows.length, allCells.length, page);
     syncShopPagination("shopCell", page);
   }
 
@@ -995,57 +1153,69 @@
     const step = makeCell("td", String(cell.stepNumber));
     step.className = "shop-readonly";
     const item = document.createElement("td");
-    const select = document.createElement("select");
     const current = effectiveShopCellItemID(cell);
-    populateShopItemSelect(select, current, false);
-    select.classList.toggle("changed", state.dirty.has(changeKey("m_shop_item_cell", Number(cell.row), "ShopItemId")));
-    const populate = () => populateShopItemSelect(select, select.value, true);
-    select.addEventListener("focus", populate);
-    select.addEventListener("pointerdown", populate);
-    select.addEventListener("change", () => {
-      onFieldChange(
-        { name: "m_shop_item_cell" },
-        { index: Number(cell.row), values: { ShopItemId: String(cell.shopItemId) } },
-        { name: "ShopItemId", kind: "int32", datetime: false }, select
-      );
+    const itemPicker = createShopItemSelector(current, (value, select) => {
+      if (cell.isNew) {
+        cell.shopItemId = Number(value);
+        updateDirtyUI();
+      } else {
+        onFieldChange(
+          { name: shopItemCellTableName },
+          { index: Number(cell.row), values: { ShopItemId: String(cell.shopItemId) } },
+          { name: "ShopItemId", kind: "int32", datetime: false }, select
+        );
+      }
       renderTable();
     });
-    item.append(select);
-    tr.append(id, step, item);
+    itemPicker.input.classList.toggle("changed", cell.isNew || state.dirty.has(changeKey(shopItemCellTableName, Number(cell.row), "ShopItemId")));
+    item.append(itemPicker.wrapper);
+    const actions = document.createElement("td");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button ghost shop-item-delete";
+    remove.textContent = cell.isNew ? "取消新增" : "删除";
+    remove.disabled = shopCellHasReferences(cell);
+    if (remove.disabled) remove.title = `无法删除：仍被 ${shopCellEffectiveBlockers(cell).map(shopCellBlockerLabel).join("、")} 引用`;
+    remove.addEventListener("click", () => deleteShopCell(cell));
+    actions.append(remove);
+    tr.append(id, step, item, actions);
     return tr;
   }
 
-  function populateShopItemSelect(select, selectedID, expanded) {
-    if (expanded && select.dataset.expanded === "true") return;
-    const items = shopEditorItems();
-    const selected = String(selectedID);
-    const options = expanded ? items : items.filter((item) => String(item.shopItemId) === selected);
-    select.replaceChildren();
-    options.forEach((item) => {
-      const option = document.createElement("option");
-      option.value = String(item.shopItemId);
-      option.textContent = idNameLabel(item.shopItemId, localizedInlineText(item.names) || "未命名商品");
-      select.append(option);
+  const shopItemCellTableName = "m_shop_item_cell";
+
+  function shopItemSelectorOptions() {
+    return shopEditorItems().map((item) => {
+      const name = localizedInlineText(item.names) || "未命名商品";
+      return {
+        value: String(item.shopItemId), label: idNameLabel(item.shopItemId, name),
+        searchText: `${item.shopItemId} ${name} ${Object.values(item.names || {}).join(" ")}`
+      };
     });
-    if (![...select.options].some((option) => option.value === selected)) {
-      const option = document.createElement("option");
-      option.value = selected;
-      option.textContent = idNameLabel(selected, "未知商品");
-      select.append(option);
-    }
-    select.value = selected;
-    select.title = select.options[select.selectedIndex]?.textContent || "";
-    select.dataset.expanded = String(expanded);
+  }
+
+  function createShopItemSelector(selectedID, onChange) {
+    const selected = String(selectedID);
+    const selectedItem = shopEditorItems().find((item) => String(item.shopItemId) === selected);
+    const label = selectedItem
+      ? idNameLabel(selectedItem.shopItemId, localizedInlineText(selectedItem.names) || "未命名商品")
+      : idNameLabel(selected, "未知商品");
+    return createLazySearchSelect(selected, label, shopItemSelectorOptions, onChange, {
+      placeholder: "搜索 ShopItemId 或名称", ariaLabel: "搜索并选择 ShopItem", limit: 50
+    });
   }
 
   function renderShopItemPanel(editor, contentTable) {
     const query = elements.shopItemSearch.value.trim().toLocaleLowerCase();
     const allItems = shopEditorItems(editor);
-    const rows = allItems.filter((item) => !query || [
-      item.shopItemId,
-      localizedInlineText(item.names),
-      ...Object.values(item.names || {})
-    ].join(" ").toLocaleLowerCase().includes(query));
+    const referencedItemIDs = new Set(shopEditorCells(editor).map((cell) => effectiveShopCellItemID(cell)));
+    const rows = allItems
+      .filter((item) => !elements.shopItemUnreferenced.checked || !shopItemHasReferences(item, referencedItemIDs))
+      .filter((item) => !query || [
+        item.shopItemId,
+        localizedInlineText(item.names),
+        ...Object.values(item.names || {})
+      ].join(" ").toLocaleLowerCase().includes(query));
     const page = shopPage(rows.length, "shopItemPage", state.shopItemPageSize);
     elements.shopItemBody.replaceChildren();
     rows.slice(page.start, page.end).forEach((item) => elements.shopItemBody.append(renderShopItemRow(item, contentTable)));
@@ -1073,8 +1243,8 @@
     remove.type = "button";
     remove.className = "button ghost shop-item-delete";
     remove.textContent = item.isNew ? "取消新增" : "删除";
-    const blockers = item.deleteBlockers || [];
-    remove.disabled = !item.isNew && blockers.length !== 0;
+    const blockers = shopItemEffectiveBlockers(item, !item.isNew);
+    remove.disabled = blockers.length !== 0;
     if (remove.disabled) remove.title = `无法删除：仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用`;
     remove.addEventListener("click", () => deleteShopItem(item));
     actions.append(copy, remove);
@@ -1134,11 +1304,28 @@
     m_shop_item_content_possession: "Possession 发放内容",
     m_shop_item_content_effect: "Effect 发放内容",
     m_shop_item_content_mission: "Mission 发放内容",
-    m_shop_item_user_level_condition: "等级附加内容"
+    m_shop_item_user_level_condition: "等级附加内容",
+    shop_item_cell_draft: "当前 Cell 草稿"
   };
 
   function shopItemBlockerLabel(tableName) {
     return shopItemBlockerLabels[tableName] || tableName;
+  }
+
+  function shopItemEffectiveBlockers(item, includeOwnPossessions = true, referencedItemIDs = null) {
+    const blockers = [...(item.deleteBlockers || [])];
+    const referencedByCell = referencedItemIDs
+      ? referencedItemIDs.has(String(item.shopItemId))
+      : shopEditorCells().some((cell) => Number(effectiveShopCellItemID(cell)) === Number(item.shopItemId));
+    if (referencedByCell && !blockers.includes("m_shop_item_cell")) blockers.push("shop_item_cell_draft");
+    if (includeOwnPossessions && item.isNew && item.possessions?.length && !blockers.includes("m_shop_item_content_possession")) {
+      blockers.push("m_shop_item_content_possession");
+    }
+    return blockers;
+  }
+
+  function shopItemHasReferences(item, referencedItemIDs = null) {
+    return shopItemEffectiveBlockers(item, true, referencedItemIDs).length !== 0;
   }
 
   function renderShopStockEditor(item) {
@@ -1425,20 +1612,20 @@
     state.shopItemPage = 1;
     updateDirtyUI();
     renderTable();
-    showNotice(`已复制为 ShopItem ${itemID}；仅复制 ShopItem 本行，不复制发放内容。`);
+    showNotice(`已复制为 ShopItem ${itemID}，并继承其 Possession 发放内容。`);
   }
 
   function deleteShopItem(item) {
+    const blockers = shopItemEffectiveBlockers(item, !item.isNew);
+    if (blockers.length) {
+      showNotice(`ShopItem ${item.shopItemId} 仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用，无法删除。`, true);
+      return;
+    }
     if (item.isNew) {
       if (!confirm(`取消新增 ShopItem ${item.shopItemId}？`)) return;
       state.shopItemCopies = state.shopItemCopies.filter((candidate) => candidate !== item);
       updateDirtyUI();
       renderTable();
-      return;
-    }
-    const blockers = item.deleteBlockers || [];
-    if (blockers.length) {
-      showNotice(`ShopItem ${item.shopItemId} 仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用，无法删除。`, true);
       return;
     }
     if (!confirm(`删除孤立 ShopItem ${item.shopItemId}？此操作会在应用变更时再次检查引用。`)) return;
@@ -2844,13 +3031,17 @@
     const itemSummary = shopItemStructuralDirty()
       ? `，含 ${state.shopItemCopies.length} 个复制、${state.shopItemDeleteIDs.size} 个删除`
       : "";
-    elements.saveSummary.textContent = count ? `${state.dirty.size} 个字段等待应用${groupSummary}${itemSummary}` : "没有待应用的修改";
+    const cellSummary = shopItemCellStructuralDirty()
+      ? `，含 ${state.shopCellAdditions.length} 个 Cell 新增、${state.shopCellDeleteKeys.size} 个删除`
+      : "";
+    elements.saveSummary.textContent = count ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}` : "没有待应用的修改";
     elements.save.disabled = count === 0;
     elements.discard.disabled = count === 0;
   }
 
   function masterDirtyCount() {
-    return state.dirty.size + (state.shopCellGroupDirty ? 1 : 0) + (shopItemStructuralDirty() ? 1 : 0);
+    return state.dirty.size + (state.shopCellGroupDirty ? 1 : 0)
+      + (shopItemCellStructuralDirty() ? 1 : 0) + (shopItemStructuralDirty() ? 1 : 0);
   }
 
   function makeCell(tag, text) {
@@ -4058,6 +4249,8 @@
     state.shopCellGroupSelection = "";
     state.shopItemCopies = [];
     state.shopItemDeleteIDs = new Set();
+    state.shopCellAdditions = [];
+    state.shopCellDeleteKeys = new Map();
     sessionStorage.removeItem("lunar-admin-token");
     showLogin();
   });
@@ -4156,7 +4349,12 @@
     renderTable();
   });
   elements.shopCellGroupAdd.addEventListener("click", addShopCellGroupRow);
+  elements.shopCellAdd.addEventListener("click", addShopCell);
   elements.shopCellSearch.addEventListener("input", () => {
+    state.shopCellPage = 1;
+    renderTable();
+  });
+  elements.shopCellUnreferenced.addEventListener("change", () => {
     state.shopCellPage = 1;
     renderTable();
   });
@@ -4177,6 +4375,10 @@
     renderTable();
   });
   elements.shopItemSearch.addEventListener("input", () => {
+    state.shopItemPage = 1;
+    renderTable();
+  });
+  elements.shopItemUnreferenced.addEventListener("change", () => {
     state.shopItemPage = 1;
     renderTable();
   });
@@ -4216,11 +4418,12 @@
   });
   elements.save.addEventListener("click", async () => {
     const changes = [...state.dirty.values()];
-    if (!changes.length && !state.shopCellGroupDirty && !shopItemStructuralDirty()) return;
+    if (!changes.length && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
     const request = { expectedVersion: state.catalog.version, changes };
     if (state.shopCellGroupDirty) {
       request.shopItemCellGroups = state.shopCellGroupDraft.map(shopCellGroupPayload);
     }
+    if (shopItemCellStructuralDirty()) request.shopItemCells = shopItemCellStructuralPayload();
     if (shopItemStructuralDirty()) request.shopItems = shopItemStructuralPayload();
     setBusy(true, "正在计算确定链路及变更预览…");
     try {
@@ -4254,7 +4457,7 @@
   });
   elements.masterUpdateConfirm.addEventListener("click", async () => {
     const request = state.pendingMasterChanges;
-    if (!request || (!request.changes?.length && !request.shopItemCellGroups && !request.shopItems)) return;
+    if (!request || (!request.changes?.length && !request.shopItemCellGroups && !request.shopItemCells && !request.shopItems)) return;
     elements.masterUpdateDialog.returnValue = "confirm";
     elements.masterUpdateDialog.close();
     state.pendingMasterChanges = null;

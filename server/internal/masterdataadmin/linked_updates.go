@@ -150,6 +150,19 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 			AfterRows: len(*request.ShopItemCellGroups), ChangedRows: changedRows,
 		})
 	}
+	if request.ShopItemCells != nil && (len(request.ShopItemCells.Additions) != 0 || len(request.ShopItemCells.Deletes) != 0) {
+		current, _, readErr := file.TableRows(shopItemCellTable)
+		if readErr != nil {
+			return UpdatePreview{}, readErr
+		}
+		replacement, _, changedRows, _, replacementErr := buildShopItemCellReplacement(file, request.ShopItemCells, nil)
+		if replacementErr != nil {
+			return UpdatePreview{}, replacementErr
+		}
+		preview.TableReplacements = append(preview.TableReplacements, TableReplacementPreview{
+			Table: shopItemCellTable, BeforeRows: len(current), AfterRows: len(replacement), ChangedRows: changedRows,
+		})
+	}
 	if request.ShopItems != nil && (len(request.ShopItems.Copies) != 0 || len(request.ShopItems.DeleteIDs) != 0) {
 		current, _, readErr := file.TableRows(shopItemTable)
 		if readErr != nil {
@@ -185,7 +198,7 @@ func validateUpdateEnvelope(request UpdateRequest) error {
 	if request.ExpectedVersion == "" {
 		return fmt.Errorf("expectedVersion is required")
 	}
-	if len(request.Changes) == 0 && request.ShopItemCellGroups == nil && request.ShopItems == nil {
+	if len(request.Changes) == 0 && request.ShopItemCellGroups == nil && request.ShopItemCells == nil && request.ShopItems == nil {
 		return fmt.Errorf("at least one change is required")
 	}
 	if len(request.Changes) > 10000 {

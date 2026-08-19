@@ -8,8 +8,17 @@ import (
 )
 
 const shopItemCellGroupTable = "m_shop_item_cell_group"
+const shopItemCellTable = "m_shop_item_cell"
 const shopItemTable = "m_shop_item"
 const shopItemContentPossessionTable = "m_shop_item_content_possession"
+
+var shopItemCellReferenceTables = []struct {
+	name   string
+	column int
+}{
+	{name: shopItemCellGroupTable, column: 1},
+	{name: "m_shop_item_cell_limited_open", column: 0},
+}
 
 var shopItemReferenceTables = []struct {
 	name   string
@@ -46,10 +55,27 @@ type ShopItemCellGroupInput struct {
 }
 
 type ShopEditorCell struct {
-	Row            int64 `json:"row"`
-	ShopItemCellID int64 `json:"shopItemCellId"`
-	StepNumber     int64 `json:"stepNumber"`
-	ShopItemID     int64 `json:"shopItemId"`
+	Row            int64    `json:"row"`
+	ShopItemCellID int64    `json:"shopItemCellId"`
+	StepNumber     int64    `json:"stepNumber"`
+	ShopItemID     int64    `json:"shopItemId"`
+	DeleteBlockers []string `json:"deleteBlockers,omitempty"`
+}
+
+type ShopItemCellInput struct {
+	ShopItemCellID int32 `json:"shopItemCellId"`
+	StepNumber     int32 `json:"stepNumber"`
+	ShopItemID     int32 `json:"shopItemId"`
+}
+
+type ShopItemCellKey struct {
+	ShopItemCellID int32 `json:"shopItemCellId"`
+	StepNumber     int32 `json:"stepNumber"`
+}
+
+type ShopItemCellStructuralUpdate struct {
+	Additions []ShopItemCellInput `json:"additions,omitempty"`
+	Deletes   []ShopItemCellKey   `json:"deletes,omitempty"`
 }
 
 type ShopItemInput struct {
@@ -151,13 +177,15 @@ func loadShopEditor(file *memorydb.File, resolver *titleResolver) ShopEditorCata
 		})
 	}
 
-	for rowIndex, row := range readRows(file, "m_shop_item_cell") {
+	cellDeleteBlockers := loadShopItemCellDeleteBlockerIndex(file)
+	for rowIndex, row := range readRows(file, shopItemCellTable) {
 		cellID, cellOK := integerAt(row, 0)
 		step, stepOK := integerAt(row, 1)
 		itemID, itemOK := integerAt(row, 2)
 		if cellOK && stepOK && itemOK {
 			result.Cells = append(result.Cells, ShopEditorCell{
 				Row: int64(rowIndex), ShopItemCellID: cellID, StepNumber: step, ShopItemID: itemID,
+				DeleteBlockers: cellDeleteBlockers[cellID],
 			})
 		}
 	}
@@ -255,6 +283,141 @@ func shopItemContentPossessionRows(rows []ShopItemContentPossessionInput) [][]in
 		})
 	}
 	return result
+}
+
+func shopItemCellInputAt(row []interface{}) (ShopItemCellInput, bool) {
+	cellID, cellOK := integerAt(row, 0)
+	step, stepOK := integerAt(row, 1)
+	itemID, itemOK := integerAt(row, 2)
+	if !cellOK || !stepOK || !itemOK {
+		return ShopItemCellInput{}, false
+	}
+	return ShopItemCellInput{
+		ShopItemCellID: int32(cellID), StepNumber: int32(step), ShopItemID: int32(itemID),
+	}, true
+}
+
+func shopItemCellRows(rows []ShopItemCellInput) [][]interface{} {
+	result := make([][]interface{}, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, []interface{}{row.ShopItemCellID, row.StepNumber, row.ShopItemID})
+	}
+	return result
+}
+
+func loadShopItemCellDeleteBlockerIndex(file *memorydb.File) map[int64][]string {
+	result := make(map[int64][]string)
+	for _, reference := range shopItemCellReferenceTables {
+		seen := make(map[int64]bool)
+		for _, row := range readRows(file, reference.name) {
+			cellID, ok := integerAt(row, reference.column)
+			if !ok || seen[cellID] {
+				continue
+			}
+			seen[cellID] = true
+			result[cellID] = append(result[cellID], reference.name)
+		}
+	}
+	return result
+}
+
+func shopItemCellDeleteBlockers(file *memorydb.File, shopItemCellID int64) ([]string, error) {
+	var result []string
+	for _, reference := range shopItemCellReferenceTables {
+		rows, exists, err := file.TableRows(reference.name)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			continue
+		}
+		for _, row := range rows {
+			cellID, ok := integerAt(row, reference.column)
+			if !ok {
+				return nil, fmt.Errorf("table %q contains a malformed row", reference.name)
+			}
+			if cellID == shopItemCellID {
+				result = append(result, reference.name)
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+func buildShopItemCellReplacement(file *memorydb.File, update *ShopItemCellStructuralUpdate, edits []memorydb.CellEdit) ([][]interface{}, int, int, bool, error) {
+	if update == nil || len(update.Additions) == 0 && len(update.Deletes) == 0 {
+		return nil, 0, 0, false, nil
+	}
+	current, exists, err := file.TableRows(shopItemCellTable)
+	if err != nil {
+		return nil, 0, 0, false, err
+	}
+	if !exists {
+		return nil, 0, 0, false, fmt.Errorf("table %q is absent from the current master data", shopItemCellTable)
+	}
+	rows := make([][]interface{}, len(current))
+	existingKeys := make(map[[2]int64]bool, len(current))
+	for index, row := range current {
+		cell, ok := shopItemCellInputAt(row)
+		if !ok {
+			return nil, 0, 0, false, fmt.Errorf("table %q contains a malformed row", shopItemCellTable)
+		}
+		key := [2]int64{int64(cell.ShopItemCellID), int64(cell.StepNumber)}
+		if existingKeys[key] {
+			return nil, 0, 0, false, fmt.Errorf("table %q contains duplicate key %v", shopItemCellTable, key)
+		}
+		existingKeys[key] = true
+		rows[index] = append([]interface{}(nil), row...)
+	}
+	for _, edit := range edits {
+		if edit.Table == shopItemCellTable {
+			rows[edit.Row][edit.Column] = edit.Value
+		}
+	}
+
+	deleteKeys := make(map[[2]int64]bool, len(update.Deletes))
+	for _, deleted := range update.Deletes {
+		key := [2]int64{int64(deleted.ShopItemCellID), int64(deleted.StepNumber)}
+		if deleteKeys[key] {
+			return nil, 0, 0, false, fmt.Errorf("duplicate Cell key %v in deletes", key)
+		}
+		if !existingKeys[key] {
+			return nil, 0, 0, false, fmt.Errorf("Cell %v does not exist", key)
+		}
+		blockers, blockerErr := shopItemCellDeleteBlockers(file, key[0])
+		if blockerErr != nil {
+			return nil, 0, 0, false, blockerErr
+		}
+		if len(blockers) != 0 {
+			return nil, 0, 0, false, fmt.Errorf("CellId %d is still referenced by %v", key[0], blockers)
+		}
+		deleteKeys[key] = true
+	}
+
+	additionKeys := make(map[[2]int64]bool, len(update.Additions))
+	for _, added := range update.Additions {
+		key := [2]int64{int64(added.ShopItemCellID), int64(added.StepNumber)}
+		if added.ShopItemCellID <= 0 || added.StepNumber <= 0 {
+			return nil, 0, 0, false, fmt.Errorf("CellId and StepNumber must be positive")
+		}
+		if existingKeys[key] || additionKeys[key] {
+			return nil, 0, 0, false, fmt.Errorf("Cell %v already exists", key)
+		}
+		additionKeys[key] = true
+	}
+
+	replacement := make([][]interface{}, 0, len(rows)-len(deleteKeys)+len(update.Additions))
+	for _, row := range rows {
+		cell, _ := shopItemCellInputAt(row)
+		key := [2]int64{int64(cell.ShopItemCellID), int64(cell.StepNumber)}
+		if !deleteKeys[key] {
+			replacement = append(replacement, row)
+		}
+	}
+	replacement = append(replacement, shopItemCellRows(update.Additions)...)
+	changedRows := len(update.Additions) + len(update.Deletes)
+	return replacement, changedRows * 3, changedRows, true, nil
 }
 
 func loadShopItemDeleteBlockerIndex(file *memorydb.File) map[int64][]string {
