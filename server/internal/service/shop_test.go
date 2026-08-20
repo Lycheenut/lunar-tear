@@ -115,6 +115,34 @@ func TestGrantShopPossessionSendsCapacityOverflowToGiftBox(t *testing.T) {
 	}
 }
 
+func TestGrantShopPossessionSplitsStackableOverflowByPossessionLimit(t *testing.T) {
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	config := &masterdata.GameConfig{PossessionCountLimitMaterial: 99_999}
+	granter := &store.PossessionGranter{}
+
+	overflow, err := grantShopPossession(granter, user, int32(model.PossessionTypeMaterial), 77, 200_001, 1, config, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overflow == nil || overflow.Count != 200_001 {
+		t.Fatalf("overflow possession = %+v, want count 200001", overflow)
+	}
+	if user.Materials[77] != 0 {
+		t.Fatalf("material inventory count = %d, want 0", user.Materials[77])
+	}
+	if len(user.Gifts.NotReceived) != 3 {
+		t.Fatalf("not-received gifts = %d, want 3", len(user.Gifts.NotReceived))
+	}
+	for i, want := range []int32{99_999, 99_999, 3} {
+		if got := user.Gifts.NotReceived[i].GiftCommon.Count; got != want {
+			t.Fatalf("gift %d count = %d, want %d", i, got, want)
+		}
+	}
+	if user.Notifications.GiftNotReceiveCount != 3 {
+		t.Fatalf("gift notification count = %d, want 3", user.Notifications.GiftNotReceiveCount)
+	}
+}
+
 func TestGrantShopPossessionKeepsWeaponWhenCapacityAllows(t *testing.T) {
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
 	user.Weapons["existing"] = store.WeaponState{UserWeaponUuid: "existing", WeaponId: 1}
