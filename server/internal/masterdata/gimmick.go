@@ -537,8 +537,12 @@ func (c *GimmickCatalog) SequenceAvailable(user *store.UserState, scheduleId, se
 	return ok && nowMillis >= entry.StartDatetime && c.conditions.Satisfied(entry.ReleaseConditionId, user)
 }
 
+func (c *GimmickCatalog) GimmickUnlockAvailable(user *store.UserState, scheduleId, sequenceId, gimmickId int32, nowMillis int64) bool {
+	return c.SequenceAvailable(user, scheduleId, sequenceId, nowMillis) && c.gimmicksBySequence[sequenceId][gimmickId]
+}
+
 func (c *GimmickCatalog) GimmickAvailable(user *store.UserState, scheduleId, sequenceId, gimmickId int32, nowMillis int64) bool {
-	if !c.SequenceAvailable(user, scheduleId, sequenceId, nowMillis) || !c.gimmicksBySequence[sequenceId][gimmickId] {
+	if !c.GimmickUnlockAvailable(user, scheduleId, sequenceId, gimmickId, nowMillis) {
 		return false
 	}
 	if c.gimmickTypes[gimmickId] != model.GimmickTypeReport {

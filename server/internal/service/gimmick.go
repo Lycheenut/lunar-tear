@@ -251,7 +251,7 @@ func (s *GimmickServiceServer) Unlock(ctx context.Context, req *pb.UnlockRequest
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		nowMillis := gametime.NowMillis()
 		for _, item := range req.GimmickKey {
-			if !s.holder.Get().Gimmick.GimmickAvailable(user, item.GimmickSequenceScheduleId, item.GimmickSequenceId, item.GimmickId, nowMillis) {
+			if !s.holder.Get().Gimmick.GimmickUnlockAvailable(user, item.GimmickSequenceScheduleId, item.GimmickSequenceId, item.GimmickId, nowMillis) {
 				validationErr = status.Error(codes.FailedPrecondition, "gimmick is not available")
 				return
 			}
