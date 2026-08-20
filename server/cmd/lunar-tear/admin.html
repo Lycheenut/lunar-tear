@@ -123,13 +123,15 @@
                   <h3 id="mission-reward-content-title">奖励内容</h3>
                   <div class="mission-reward-panel-heading-actions">
                     <input id="mission-reward-content-search" class="mission-reward-content-search" type="search" inputmode="numeric" placeholder="搜索 RewardId" aria-label="按 RewardId 搜索奖励内容">
+                    <label class="mission-reward-unreferenced-filter"><input id="mission-reward-content-unreferenced" type="checkbox">仅展示无引用</label>
                     <span id="mission-reward-content-count" class="row-badge">0 行</span>
+                    <button id="mission-reward-content-add" class="button ghost" type="button">新增 Reward</button>
                   </div>
                 </header>
                 <div class="mission-reward-panel-scroll">
                   <table class="mission-reward-content-table">
                     <thead>
-                      <tr><th>RewardId</th><th>PossessionType</th><th>PossessionId</th><th>Count</th><th>查找引用</th></tr>
+                      <tr><th>RewardId</th><th>PossessionType</th><th>PossessionId</th><th>Count</th><th>操作</th></tr>
                     </thead>
                     <tbody id="mission-reward-content-body"></tbody>
                   </table>

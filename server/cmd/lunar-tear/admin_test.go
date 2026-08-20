@@ -177,6 +177,44 @@ func TestAdminSearchableSelectAppliedToRequestedFilters(t *testing.T) {
 	}
 }
 
+func TestAdminMissionRewardUsesRestrictedStructuralUpdates(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`id="mission-reward-content-add"`,
+		`id="mission-reward-content-unreferenced"`,
+		`<th>RewardId</th><th>PossessionType</th><th>PossessionId</th><th>Count</th><th>操作</th>`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("MissionReward HTML is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		".mission-reward-row-actions", ".mission-reward-delete:disabled", ".mission-reward-unreferenced-filter",
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("MissionReward CSS is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`function missionRewardReplacementPayload(table)`,
+		`function missionRewardReferences(rewardID)`,
+		`function addMissionReward()`,
+		`function deleteMissionReward(table, row)`,
+		`deleteButton.disabled = references.length > 0`,
+		`const unreferencedOnly = elements.missionRewardContentUnreferenced.checked`,
+		`!referencedRewardIDs.has(String(row.values.MissionRewardId))`,
+		`request.missionRewards = missionRewardReplacementPayload(table)`,
+		`tableName === "m_mission_reward" && fieldName === "Count" && number < 0`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("MissionReward JavaScript is missing %s", required)
+		}
+	}
+}
+
 func adminAssetBody(t *testing.T, path string) string {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)

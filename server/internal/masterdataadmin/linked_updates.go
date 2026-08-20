@@ -136,6 +136,22 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 		return UpdatePreview{}, err
 	}
 	preview := assembleUpdatePreview(catalog, request.Changes, planned, impacts, generated, result)
+	if request.MissionRewards != nil {
+		current, _, readErr := file.TableRows(missionRewardTable)
+		if readErr != nil {
+			return UpdatePreview{}, readErr
+		}
+		replacement, _, changedRows, _, replace, replacementErr :=
+			prepareMissionRewardReplacement(file, request.MissionRewards, nil, false)
+		if replacementErr != nil {
+			return UpdatePreview{}, replacementErr
+		}
+		if replace {
+			preview.TableReplacements = append(preview.TableReplacements, TableReplacementPreview{
+				Table: missionRewardTable, BeforeRows: len(current), AfterRows: len(replacement), ChangedRows: changedRows,
+			})
+		}
+	}
 	if request.ShopItemCellGroups != nil {
 		current, _, readErr := file.TableRows(shopItemCellGroupTable)
 		if readErr != nil {
@@ -198,7 +214,7 @@ func validateUpdateEnvelope(request UpdateRequest) error {
 	if request.ExpectedVersion == "" {
 		return fmt.Errorf("expectedVersion is required")
 	}
-	if len(request.Changes) == 0 && request.ShopItemCellGroups == nil && request.ShopItemCells == nil && request.ShopItems == nil {
+	if len(request.Changes) == 0 && request.MissionRewards == nil && request.ShopItemCellGroups == nil && request.ShopItemCells == nil && request.ShopItems == nil {
 		return fmt.Errorf("at least one change is required")
 	}
 	if len(request.Changes) > 10000 {

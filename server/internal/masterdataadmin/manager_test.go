@@ -20,7 +20,6 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_comeback_campaign": true, "m_consumable_item_term": true,
 		"m_dokan": true, "m_enhance_campaign": true, "m_event_quest_chapter": true,
 		"m_event_quest_daily_group": true, "m_event_quest_labyrinth_season": true,
-		"m_gacha_medal": true,
 		"m_login_bonus": true, "m_maintenance": true, "m_mission_term": true, "m_mom_banner": true,
 		"m_navi_cut_in": true,
 		"m_omikuji":     true, "m_pvp_season": true, "m_quest_campaign": true,
@@ -34,7 +33,8 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_event_quest_daily_group_complete_reward":   true,
 		"m_event_quest_daily_group_message":           true,
 		"m_event_quest_labyrinth_season_reward_group": true,
-		"m_maintenance_group":                         true, "m_pvp_season_grouping": true,
+		"m_gacha_medal":       true,
+		"m_maintenance_group": true, "m_pvp_season_grouping": true,
 		"m_pvp_weekly_rank_reward_rank_group": true,
 		"m_pvp_season_rank_reward_rank_group": true,
 		"m_pvp_grade_group":                   true, "m_quest_campaign_target_group": true,
@@ -92,8 +92,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 21 || catalog.RelatedCount != 16 || catalog.DeliveryCount != 3 {
-		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 21/16/3", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
+	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 17 || catalog.DeliveryCount != 3 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/17/3", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")
@@ -940,6 +940,192 @@ func TestMissionRewardAssignmentCanBeUpdatedWithoutExposingMissionTable(t *testi
 	}
 	if got, err := valueAsInt64(rows[source.Row][11]); err != nil || got != replacement {
 		t.Fatalf("MissionRewardId = %d, %v; want %d", got, err, replacement)
+	}
+}
+
+func TestMissionRewardStructuralUpdateIsSortedAndReferenceSafe(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentRows, exists, err := file.TableRows(missionRewardTable)
+	if err != nil || !exists {
+		t.Fatalf("read %s: exists=%v err=%v", missionRewardTable, exists, err)
+	}
+	current := make([]MissionRewardInput, 0, len(currentRows))
+	usedIDs := make(map[int32]bool, len(currentRows))
+	var maximumID int32
+	for _, row := range currentRows {
+		reward, ok := missionRewardInputAt(row)
+		if !ok {
+			t.Fatalf("malformed %s row: %#v", missionRewardTable, row)
+		}
+		current = append(current, reward)
+		usedIDs[reward.MissionRewardID] = true
+		if reward.MissionRewardID > maximumID {
+			maximumID = reward.MissionRewardID
+		}
+	}
+	var newID int32
+	for candidate := int32(1); candidate < maximumID; candidate++ {
+		if !usedIDs[candidate] {
+			newID = candidate
+			break
+		}
+	}
+	if newID == 0 {
+		t.Fatal("no unused RewardId below the current maximum")
+	}
+	added := MissionRewardInput{
+		MissionRewardID: newID, PossessionType: current[0].PossessionType,
+		PossessionID: current[0].PossessionID, Count: 0,
+	}
+	withAddition := append(append([]MissionRewardInput(nil), current...), added)
+	request := UpdateRequest{ExpectedVersion: file.Version(), MissionRewards: &withAddition}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.TableReplacements) != 1 || preview.TableReplacements[0].Table != missionRewardTable {
+		t.Fatalf("unexpected table replacement preview: %+v", preview.TableReplacements)
+	}
+	candidate, result, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedCells != 4 || result.ChangedRows != 1 {
+		t.Fatalf("addition result = %+v, want 4 cells in 1 row", result)
+	}
+	candidateFile, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addedRows, _, err := candidateFile.TableRows(missionRewardTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRowsSortedByIntegerColumns(t, addedRows, 0)
+	found := false
+	for _, row := range addedRows {
+		reward, _ := missionRewardInputAt(row)
+		found = found || reward.MissionRewardID == newID && reward.Count == 0
+	}
+	if !found {
+		t.Fatalf("new RewardId %d with Count=0 was not retained", newID)
+	}
+
+	withoutAddition := append([]MissionRewardInput(nil), current...)
+	_, deletionResult, err := buildUpdate(candidateFile, UpdateRequest{
+		ExpectedVersion: candidateFile.Version(), MissionRewards: &withoutAddition,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deletionResult.ChangedCells != 4 || deletionResult.ChangedRows != 1 {
+		t.Fatalf("deletion result = %+v, want 4 cells in 1 row", deletionResult)
+	}
+
+	missionRows, exists, err := file.TableRows("m_mission")
+	if err != nil || !exists {
+		t.Fatalf("read m_mission: exists=%v err=%v", exists, err)
+	}
+	referenceCounts := make(map[int64]int)
+	for _, row := range missionRows {
+		rewardID, ok := integerAt(row, 11)
+		if !ok {
+			t.Fatalf("malformed m_mission row: %#v", row)
+		}
+		referenceCounts[rewardID]++
+	}
+	var singlyReferencedID int64
+	var missionRow int
+	for rowIndex, row := range missionRows {
+		rewardID, _ := integerAt(row, 11)
+		if referenceCounts[rewardID] == 1 {
+			singlyReferencedID = rewardID
+			missionRow = rowIndex
+			break
+		}
+	}
+	if singlyReferencedID == 0 {
+		t.Fatal("no singly referenced RewardId found")
+	}
+	withoutReferenced := make([]MissionRewardInput, 0, len(current)-1)
+	for _, reward := range current {
+		if int64(reward.MissionRewardID) != singlyReferencedID {
+			withoutReferenced = append(withoutReferenced, reward)
+		}
+	}
+	blocked := UpdateRequest{ExpectedVersion: file.Version(), MissionRewards: &withoutReferenced}
+	if _, _, err := BuildUpdate(path, blocked); err == nil || !strings.Contains(err.Error(), "still referenced") {
+		t.Fatalf("referenced deletion error = %v, want still referenced", err)
+	}
+	var alternateID int32
+	for _, reward := range current {
+		if int64(reward.MissionRewardID) != singlyReferencedID {
+			alternateID = reward.MissionRewardID
+			break
+		}
+	}
+	atomic := UpdateRequest{
+		ExpectedVersion: file.Version(), MissionRewards: &withoutReferenced,
+		Changes: []Change{{Table: "m_mission", Row: missionRow, Field: "MissionRewardId", Value: alternateID}},
+	}
+	if _, err := PreviewUpdate(path, atomic); err != nil {
+		t.Fatalf("preview atomic reassignment and deletion: %v", err)
+	}
+	_, atomicResult, err := BuildUpdate(path, atomic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if atomicResult.ChangedRows != 2 || atomicResult.ChangedCells != 5 {
+		t.Fatalf("atomic reassignment result = %+v, want 5 cells in 2 rows", atomicResult)
+	}
+}
+
+func TestMissionRewardStructuralUpdateRejectsInvalidRows(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := file.TableRows(missionRewardTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := make([]MissionRewardInput, 0, len(rows))
+	for _, row := range rows {
+		reward, ok := missionRewardInputAt(row)
+		if !ok {
+			t.Fatalf("malformed %s row", missionRewardTable)
+		}
+		current = append(current, reward)
+	}
+	duplicate := append(append([]MissionRewardInput(nil), current...), current[0])
+	if _, _, err := BuildUpdate(path, UpdateRequest{ExpectedVersion: file.Version(), MissionRewards: &duplicate}); err == nil || !strings.Contains(err.Error(), "duplicate RewardId") {
+		t.Fatalf("duplicate RewardId error = %v", err)
+	}
+	negative := append([]MissionRewardInput(nil), current...)
+	negative[0].Count = -1
+	if _, _, err := BuildUpdate(path, UpdateRequest{ExpectedVersion: file.Version(), MissionRewards: &negative}); err == nil || !strings.Contains(err.Error(), "cannot be negative") {
+		t.Fatalf("negative Count error = %v", err)
+	}
+	if _, _, err := BuildUpdate(path, UpdateRequest{
+		ExpectedVersion: file.Version(),
+		Changes:         []Change{{Table: missionRewardTable, Row: 0, Field: "Count", Value: -1}},
+	}); err == nil || !strings.Contains(err.Error(), "cannot be negative") {
+		t.Fatalf("negative scalar Count error = %v", err)
 	}
 }
 

@@ -81,6 +81,7 @@ type Change struct {
 type UpdateRequest struct {
 	ExpectedVersion    string                        `json:"expectedVersion"`
 	Changes            []Change                      `json:"changes"`
+	MissionRewards     *[]MissionRewardInput         `json:"missionRewards,omitempty"`
 	ShopItemCellGroups *[]ShopItemCellGroupInput     `json:"shopItemCellGroups,omitempty"`
 	ShopItemCells      *ShopItemCellStructuralUpdate `json:"shopItemCells,omitempty"`
 	ShopItems          *ShopItemStructuralUpdate     `json:"shopItems,omitempty"`
@@ -158,6 +159,9 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 		if err != nil {
 			return nil, UpdateResult{}, fmt.Errorf("%s row %d field %s: %w", change.Table, change.Row, change.Field, err)
 		}
+		if change.Table == missionRewardTable && change.Field == "Count" && value.(int32) < 0 {
+			return nil, UpdateResult{}, fmt.Errorf("%s row %d field Count: cannot be negative", change.Table, change.Row)
+		}
 		editKey := fmt.Sprintf("%s\x00%d\x00%s", change.Table, change.Row, change.Field)
 		if _, duplicate := seen[editKey]; duplicate {
 			return nil, UpdateResult{}, fmt.Errorf("duplicate change for %s row %d field %s", change.Table, change.Row, change.Field)
@@ -223,6 +227,26 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	}
 
 	replacements := make(map[string][][]interface{})
+	missionRewardRows, missionRewardCells, missionRewardChangedRows, _, replaceMissionRewards, err :=
+		prepareMissionRewardReplacement(file, request.MissionRewards, edits, true)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	if replaceMissionRewards {
+		replacements[missionRewardTable] = missionRewardRows
+		filtered := edits[:0]
+		for _, edit := range edits {
+			if edit.Table != missionRewardTable {
+				filtered = append(filtered, edit)
+			}
+		}
+		edits = filtered
+		for key := range changedRows {
+			if strings.HasPrefix(key, missionRewardTable+"\x00") {
+				delete(changedRows, key)
+			}
+		}
+	}
 	structuralCells, structuralRows, err := buildShopItemCellGroupReplacement(file, request.ShopItemCellGroups)
 	if err != nil {
 		return nil, UpdateResult{}, err
@@ -230,6 +254,8 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	if structuralRows != 0 {
 		replacements[shopItemCellGroupTable] = shopItemCellGroupRows(*request.ShopItemCellGroups)
 	}
+	structuralCells += missionRewardCells
+	structuralRows += missionRewardChangedRows
 	originalEditCount := len(edits)
 	cellRows, cellCells, cellChangedRows, replaceCells, err := buildShopItemCellReplacement(file, request.ShopItemCells, edits)
 	if err != nil {

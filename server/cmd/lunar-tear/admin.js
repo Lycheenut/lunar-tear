@@ -16,6 +16,8 @@
     missionRewardEditor: $("#mission-reward-editor"), missionRewardAssignmentBody: $("#mission-reward-assignment-body"),
     missionRewardAssignmentCount: $("#mission-reward-assignment-count"), missionRewardContentBody: $("#mission-reward-content-body"),
     missionRewardContentSearch: $("#mission-reward-content-search"), missionRewardContentCount: $("#mission-reward-content-count"),
+    missionRewardContentUnreferenced: $("#mission-reward-content-unreferenced"),
+    missionRewardContentAdd: $("#mission-reward-content-add"),
     missionRewardContentPageSize: $("#mission-reward-content-page-size"),
     missionRewardContentPagePrevious: $("#mission-reward-content-page-previous"),
     missionRewardContentPageInfo: $("#mission-reward-content-page-info"),
@@ -105,6 +107,9 @@
     missionRewardContentPage: 1,
     missionRewardContentPageSize: 25,
     missionRewardContentPageCount: 1,
+    missionRewardAdditions: [],
+    missionRewardDeleteIDs: new Set(),
+    missionRewardNextRow: -1,
     missionTermContentPage: 1,
     missionTermContentPageSize: 25,
     missionTermContentPageCount: 1,
@@ -191,6 +196,7 @@
       state.rewardCatalog = rewardCatalog;
       resetGachaDraft();
       resetShopCellGroupDraft();
+      resetMissionRewardDraft();
       state.dirty.clear();
       state.pendingMasterChanges = null;
       sessionStorage.setItem("lunar-admin-token", state.token);
@@ -805,6 +811,109 @@
     state.shopItemDeleteIDs = new Set();
     state.shopCellAdditions = [];
     state.shopCellDeleteKeys = new Map();
+  }
+
+  function resetMissionRewardDraft() {
+    state.missionRewardAdditions = [];
+    state.missionRewardDeleteIDs = new Set();
+    state.missionRewardNextRow = -1;
+    state.missionRewardContentPage = 1;
+  }
+
+  function missionRewardStructuralDirty() {
+    return state.missionRewardAdditions.length > 0 || state.missionRewardDeleteIDs.size > 0;
+  }
+
+  function missionRewardEditorRows(table) {
+    return [
+      ...table.rows.filter((row) => !state.missionRewardDeleteIDs.has(String(row.values.MissionRewardId))),
+      ...state.missionRewardAdditions
+    ].sort((left, right) => compareFieldValues(left.values.MissionRewardId, right.values.MissionRewardId));
+  }
+
+  function missionRewardReplacementPayload(table) {
+    return missionRewardEditorRows(table).map((row) => ({
+      missionRewardId: Number(row.values.MissionRewardId),
+      possessionType: Number(effectiveValue(table.name, row, "PossessionType")),
+      possessionId: Number(effectiveValue(table.name, row, "PossessionId")),
+      count: Number(effectiveValue(table.name, row, "Count"))
+    }));
+  }
+
+  function missionRewardReferences(rewardID) {
+    return (state.catalog?.missionSources?.missions || [])
+      .filter((mission) => effectiveMissionRewardID(mission) === String(rewardID));
+  }
+
+  function clearMissionRewardRowChanges(row) {
+    const prefix = `m_mission_reward\u0000${row.index}\u0000`;
+    [...state.dirty.keys()].forEach((key) => {
+      if (key.startsWith(prefix)) state.dirty.delete(key);
+    });
+  }
+
+  function addMissionReward() {
+    const table = state.catalog?.tables.find((candidate) => candidate.name === "m_mission_reward");
+    if (!table) return;
+    const existingIDs = new Set([
+      ...table.rows.map((row) => String(row.values.MissionRewardId)),
+      ...state.missionRewardAdditions.map((row) => String(row.values.MissionRewardId))
+    ]);
+    const suggested = [...existingIDs].reduce((maximum, id) => Math.max(maximum, Number(id)), 0) + 1;
+    const input = prompt("请输入全新的 RewardId：", String(suggested));
+    if (input === null) return;
+    const rewardID = Number(input.trim());
+    if (!Number.isInteger(rewardID) || rewardID <= 0 || rewardID > 2147483647) {
+      showNotice("RewardId 必须是有效的正 32 位整数。", true);
+      return;
+    }
+    if (existingIDs.has(String(rewardID))) {
+      showNotice(`RewardId ${rewardID} 已存在。`, true);
+      return;
+    }
+    const definition = rewardDefinitions.find((candidate) => rewardReferencesForPossessionType(candidate.possessionType).length);
+    const reference = definition && rewardReferencesForPossessionType(definition.possessionType)[0];
+    if (!definition || !reference) {
+      showNotice("当前没有可用于新奖励的发放对象。", true);
+      return;
+    }
+    state.missionRewardAdditions.push({
+      index: state.missionRewardNextRow--,
+      isNew: true,
+      values: {
+        MissionRewardId: String(rewardID),
+        PossessionType: definition.possessionType,
+        PossessionId: String(reference.possessionId),
+        Count: "1"
+      }
+    });
+    elements.missionRewardContentSearch.value = String(rewardID);
+    state.missionRewardContentPage = 1;
+    updateDirtyUI();
+    renderTable();
+    showNotice(`已新增 RewardId ${rewardID} 的草稿；保存时会提交完整奖励列表。`);
+  }
+
+  function deleteMissionReward(table, row) {
+    const rewardID = String(row.values.MissionRewardId);
+    const references = missionRewardReferences(rewardID);
+    if (references.length) {
+      showNotice(`RewardId ${rewardID} 仍被 ${references.length} 个任务引用，请先改派这些任务。`, true);
+      return;
+    }
+    const possessionType = effectiveValue(table.name, row, "PossessionType");
+    const warning = ["2", "13"].includes(possessionType)
+      ? "\n\n该条目发放武器或服装，增删会同时影响 GachaPool 的任务发放排除结果。"
+      : "";
+    if (!confirm(`删除 RewardId ${rewardID}？${warning}`)) return;
+    clearMissionRewardRowChanges(row);
+    if (row.isNew) {
+      state.missionRewardAdditions = state.missionRewardAdditions.filter((candidate) => candidate !== row);
+    } else {
+      state.missionRewardDeleteIDs.add(rewardID);
+    }
+    updateDirtyUI();
+    renderTable();
   }
 
   function shopCellGroupPayload(row) {
@@ -1769,8 +1878,15 @@
     visibleSources.forEach((source) => elements.missionRewardAssignmentBody.append(renderMissionRewardAssignmentRow(table, source)));
     if (!visibleSources.length) elements.missionRewardAssignmentBody.append(renderMissionRewardEmptyRow(3, "当前筛选条件下没有任务。"));
     const rewardIDQuery = elements.missionRewardContentSearch.value.trim().toLocaleLowerCase();
-    const visibleRewardRows = table.rows.filter((row) => !rewardIDQuery
-      || String(row.values.MissionRewardId).toLocaleLowerCase().includes(rewardIDQuery));
+    const rewardRows = missionRewardEditorRows(table);
+    const unreferencedOnly = elements.missionRewardContentUnreferenced.checked;
+    const referencedRewardIDs = unreferencedOnly
+      ? new Set((state.catalog?.missionSources?.missions || []).map(effectiveMissionRewardID))
+      : null;
+    const visibleRewardRows = rewardRows.filter((row) => (
+      (!referencedRewardIDs || !referencedRewardIDs.has(String(row.values.MissionRewardId)))
+      && (!rewardIDQuery || String(row.values.MissionRewardId).toLocaleLowerCase().includes(rewardIDQuery))
+    ));
     const pageCount = Math.max(1, Math.ceil(visibleRewardRows.length / state.missionRewardContentPageSize));
     state.missionRewardContentPage = Math.min(Math.max(1, state.missionRewardContentPage), pageCount);
     state.missionRewardContentPageCount = pageCount;
@@ -1780,12 +1896,12 @@
     visibleRewardRows.slice(pageStart, pageEnd)
       .forEach((row) => elements.missionRewardContentBody.append(renderMissionRewardContentRow(table, fields, row)));
     if (!visibleRewardRows.length) elements.missionRewardContentBody.append(renderMissionRewardEmptyRow(
-      5, rewardIDQuery ? "没有匹配该 RewardId 的奖励内容。" : "当前没有奖励内容。"
+      5, rewardIDQuery || unreferencedOnly ? "没有匹配当前筛选条件的奖励内容。" : "当前没有奖励内容。"
     ));
     elements.missionRewardAssignmentCount.textContent = `${visibleSources.length.toLocaleString()} 个任务`;
-    const rewardRowCount = rewardIDQuery
-      ? `${visibleRewardRows.length.toLocaleString()} / ${table.rows.length.toLocaleString()} 行`
-      : `${table.rows.length.toLocaleString()} 行`;
+    const rewardRowCount = rewardIDQuery || unreferencedOnly
+      ? `${visibleRewardRows.length.toLocaleString()} / ${rewardRows.length.toLocaleString()} 行`
+      : `${rewardRows.length.toLocaleString()} 行`;
     elements.missionRewardContentCount.textContent = visibleRewardRows.length
       ? `${rewardRowCount} · ${pageStart + 1}–${pageEnd}`
       : rewardRowCount;
@@ -1854,7 +1970,18 @@
     referenceButton.textContent = "查找引用";
     referenceButton.setAttribute("aria-label", `查找 RewardId ${row.values.MissionRewardId} 的任务引用`);
     referenceButton.addEventListener("click", () => showMissionReferences("reward", row.values.MissionRewardId));
-    referenceCell.append(referenceButton);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "button ghost mission-reward-delete";
+    deleteButton.textContent = "删除";
+    const references = missionRewardReferences(row.values.MissionRewardId);
+    deleteButton.disabled = references.length > 0;
+    deleteButton.title = references.length ? `仍被 ${references.length} 个任务引用；请先改派` : "删除该奖励内容";
+    deleteButton.addEventListener("click", () => deleteMissionReward(table, row));
+    const actions = document.createElement("div");
+    actions.className = "mission-reward-row-actions";
+    actions.append(referenceButton, deleteButton);
+    referenceCell.append(actions);
     tr.append(referenceCell);
     return tr;
   }
@@ -1939,11 +2066,11 @@
   }
 
   function missionRewardRows(table, rewardID) {
-    return table.rows.filter((row) => row.values.MissionRewardId === String(rewardID));
+    return missionRewardEditorRows(table).filter((row) => row.values.MissionRewardId === String(rewardID));
   }
 
   function missionRewardIDs(table) {
-    return [...new Set(table.rows.map((row) => row.values.MissionRewardId))].sort(compareFieldValues);
+    return [...new Set(missionRewardEditorRows(table).map((row) => row.values.MissionRewardId))].sort(compareFieldValues);
   }
 
   function populateMissionRewardSelect(select, table, selectedID, expanded) {
@@ -2651,6 +2778,9 @@
     configureFieldInput(select, table, row, pair.typeField);
     select.addEventListener("change", () => {
       onFieldChange(table, row, pair.typeField, select);
+      if (table.name === "m_mission_reward" && row.isNew && select.value === "2") {
+        showNotice("新增武器奖励会影响 GachaPool 的任务发放排除结果，请一并确认卡池变化。", true);
+      }
       const references = rewardReferencesForPossessionType(select.value);
       const currentID = effectiveValue(table.name, row, pair.idField.name);
       if (!references.some((reference) => String(reference.possessionId) === currentID) && references.length) {
@@ -2961,6 +3091,9 @@
 
   function validateShopFreeInput(tableName, fieldName, value) {
     const number = Number(value);
+    if (tableName === "m_mission_reward" && fieldName === "Count" && number < 0) {
+      return "Count 不能为负数。";
+    }
     if (tableName === "m_shop_item" && ["Price", "RegularPrice"].includes(fieldName) && number < 0) {
       return `${fieldName} 不能为负数。`;
     }
@@ -3037,14 +3170,18 @@
     const cellSummary = shopItemCellStructuralDirty()
       ? `，含 ${state.shopCellAdditions.length} 个 Cell 新增、${state.shopCellDeleteKeys.size} 个删除`
       : "";
-    elements.saveSummary.textContent = count ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}` : "没有待应用的修改";
+    const missionRewardSummary = missionRewardStructuralDirty()
+      ? `，含 ${state.missionRewardAdditions.length} 个 Reward 新增、${state.missionRewardDeleteIDs.size} 个删除`
+      : "";
+    elements.saveSummary.textContent = count ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}${missionRewardSummary}` : "没有待应用的修改";
     elements.save.disabled = count === 0;
     elements.discard.disabled = count === 0;
   }
 
   function masterDirtyCount() {
     return state.dirty.size + (state.shopCellGroupDirty ? 1 : 0)
-      + (shopItemCellStructuralDirty() ? 1 : 0) + (shopItemStructuralDirty() ? 1 : 0);
+      + (shopItemCellStructuralDirty() ? 1 : 0) + (shopItemStructuralDirty() ? 1 : 0)
+      + (missionRewardStructuralDirty() ? 1 : 0);
   }
 
   function makeCell(tag, text) {
@@ -4254,6 +4391,7 @@
     state.shopItemDeleteIDs = new Set();
     state.shopCellAdditions = [];
     state.shopCellDeleteKeys = new Map();
+    resetMissionRewardDraft();
     sessionStorage.removeItem("lunar-admin-token");
     showLogin();
   });
@@ -4316,7 +4454,12 @@
     state.missionRewardContentPage = 1;
     renderTable();
   });
+  elements.missionRewardContentAdd.addEventListener("click", addMissionReward);
   elements.missionRewardContentSearch.addEventListener("input", () => {
+    state.missionRewardContentPage = 1;
+    renderTable();
+  });
+  elements.missionRewardContentUnreferenced.addEventListener("change", () => {
     state.missionRewardContentPage = 1;
     renderTable();
   });
@@ -4414,15 +4557,21 @@
     if (!confirm("放弃全部尚未应用的修改？")) return;
     state.dirty.clear();
     resetShopCellGroupDraft();
+    resetMissionRewardDraft();
     state.pendingMasterChanges = null;
     updateDirtyUI();
     renderTable();
     showNotice("已放弃本次修改。");
   });
   elements.save.addEventListener("click", async () => {
-    const changes = [...state.dirty.values()];
-    if (!changes.length && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
+    const rewardStructural = missionRewardStructuralDirty();
+    const changes = [...state.dirty.values()].filter((change) => !(rewardStructural && change.table === "m_mission_reward"));
+    if (!changes.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
     const request = { expectedVersion: state.catalog.version, changes };
+    if (rewardStructural) {
+      const table = state.catalog.tables.find((candidate) => candidate.name === "m_mission_reward");
+      request.missionRewards = missionRewardReplacementPayload(table);
+    }
     if (state.shopCellGroupDirty) {
       request.shopItemCellGroups = state.shopCellGroupDraft.map(shopCellGroupPayload);
     }
@@ -4460,7 +4609,7 @@
   });
   elements.masterUpdateConfirm.addEventListener("click", async () => {
     const request = state.pendingMasterChanges;
-    if (!request || (!request.changes?.length && !request.shopItemCellGroups && !request.shopItemCells && !request.shopItems)) return;
+    if (!request || (!request.changes?.length && !request.missionRewards && !request.shopItemCellGroups && !request.shopItemCells && !request.shopItems)) return;
     elements.masterUpdateDialog.returnValue = "confirm";
     elements.masterUpdateDialog.close();
     state.pendingMasterChanges = null;
