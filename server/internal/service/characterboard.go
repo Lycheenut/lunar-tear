@@ -122,14 +122,15 @@ func setBoardReleaseBit(user *store.UserState, panel masterdata.EntityMCharacter
 }
 
 func applyBoardEffects(catalog *masterdata.CharacterBoardCatalog, user *store.UserState, panel masterdata.EntityMCharacterBoardPanel, nowMillis int64) {
-	effects := catalog.ReleaseEffectsByGroupId[panel.CharacterBoardPanelReleaseEffectGroupId]
-	for _, eff := range effects {
-		switch model.CharacterBoardEffectType(eff.CharacterBoardEffectType) {
-		case model.CharacterBoardEffectTypeAbility:
-			applyBoardAbilityEffect(catalog, user, eff, nowMillis)
-		case model.CharacterBoardEffectTypeStatusUp:
-			applyBoardStatusUpEffect(catalog, user, eff, nowMillis)
-		}
+	eff, ok := catalog.ReleaseEffectByGroupId[panel.CharacterBoardPanelReleaseEffectGroupId]
+	if !ok {
+		return
+	}
+	switch model.CharacterBoardEffectType(eff.CharacterBoardEffectType) {
+	case model.CharacterBoardEffectTypeAbility:
+		applyBoardAbilityEffect(catalog, user, eff, nowMillis)
+	case model.CharacterBoardEffectTypeStatusUp:
+		applyBoardStatusUpEffect(catalog, user, eff, nowMillis)
 	}
 }
 
@@ -202,11 +203,9 @@ func applyBoardStatusUpEffect(catalog *masterdata.CharacterBoardCatalog, user *s
 }
 
 func resolveBoardCharacterId(catalog *masterdata.CharacterBoardCatalog, targetGroupId int32) int32 {
-	targets := catalog.EffectTargetsByGroupId[targetGroupId]
-	for _, t := range targets {
-		if t.TargetValue != 0 {
-			return t.TargetValue
-		}
+	target, ok := catalog.EffectTargetByGroupId[targetGroupId]
+	if ok && target.TargetValue != 0 {
+		return target.TargetValue
 	}
 	log.Printf("[CharacterBoardService] no characterId resolved for targetGroupId=%d", targetGroupId)
 	return 0

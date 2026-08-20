@@ -65,8 +65,7 @@ func (s *CharacterServiceServer) Rebirth(ctx context.Context, req *pb.RebirthReq
 
 			costs = append(costs, consumableCost(config.ConsumableItemIdForGold, config.CharacterRebirthConsumeGold))
 
-			materials := catalog.MaterialsByGroupId[step.CharacterRebirthMaterialGroupId]
-			for _, mat := range materials {
+			if mat, ok := catalog.MaterialByGroupId[step.CharacterRebirthMaterialGroupId]; ok {
 				costs = append(costs, materialCost(mat.MaterialId, mat.Count))
 			}
 		}

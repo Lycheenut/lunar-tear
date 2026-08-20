@@ -33,9 +33,9 @@ func BuildExpThresholds(paramMapRows []EntityMNumericalParameterMap, mapId int32
 }
 
 type MaterialCatalog struct {
-	All        map[int32]EntityMMaterial
-	ByType     map[model.MaterialType]map[int32]EntityMMaterial
-	SaleObtain map[int32][]EntityMMaterialSaleObtainPossession
+	All            map[int32]EntityMMaterial
+	ByType         map[model.MaterialType]map[int32]EntityMMaterial
+	SaleObtainById map[int32]EntityMMaterialSaleObtainPossession
 }
 
 func LoadMaterialCatalog() (*MaterialCatalog, error) {
@@ -45,9 +45,9 @@ func LoadMaterialCatalog() (*MaterialCatalog, error) {
 	}
 
 	catalog := &MaterialCatalog{
-		All:        make(map[int32]EntityMMaterial, len(rows)),
-		ByType:     make(map[model.MaterialType]map[int32]EntityMMaterial),
-		SaleObtain: make(map[int32][]EntityMMaterialSaleObtainPossession),
+		All:            make(map[int32]EntityMMaterial, len(rows)),
+		ByType:         make(map[model.MaterialType]map[int32]EntityMMaterial),
+		SaleObtainById: make(map[int32]EntityMMaterialSaleObtainPossession),
 	}
 	for _, row := range rows {
 		catalog.All[row.MaterialId] = row
@@ -63,7 +63,7 @@ func LoadMaterialCatalog() (*MaterialCatalog, error) {
 		log.Printf("material catalog: sale-obtain table unavailable, side rewards on sell will be skipped: %v", err)
 	} else {
 		for _, row := range saleRows {
-			catalog.SaleObtain[row.MaterialSaleObtainPossessionId] = append(catalog.SaleObtain[row.MaterialSaleObtainPossessionId], row)
+			catalog.SaleObtainById[row.MaterialSaleObtainPossessionId] = row
 		}
 	}
 

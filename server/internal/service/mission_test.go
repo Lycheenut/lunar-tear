@@ -158,10 +158,10 @@ func TestClaimMissionRewardsByCategoryClaimsOnlyClearMissionsInCategory(t *testi
 				11: {MissionGroupId: 11, MissionCategoryType: 1},
 				22: {MissionGroupId: 22, MissionCategoryType: 2},
 			},
-			RewardsById: map[int32][]masterdata.EntityMMissionReward{
-				101: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 31, Count: 1}},
-				102: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 32, Count: 1}},
-				103: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 33, Count: 1}},
+			RewardById: map[int32]masterdata.EntityMMissionReward{
+				101: {PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 31, Count: 1},
+				102: {PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 32, Count: 1},
+				103: {PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 33, Count: 1},
 			},
 			TermById: map[int32]masterdata.EntityMMissionTerm{},
 		},
@@ -192,10 +192,10 @@ func TestClaimMissionRewardsSkipsNonClaimableCandidates(t *testing.T) {
 				200001: {MissionId: 200001, MissionRewardId: 102},
 				3:      {MissionId: 3, MissionRewardId: 103},
 			},
-			RewardsById: map[int32][]masterdata.EntityMMissionReward{
-				101: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 31, Count: 1}},
-				102: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 32, Count: 1}},
-				103: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 33, Count: 1}},
+			RewardById: map[int32]masterdata.EntityMMissionReward{
+				101: {PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 31, Count: 1},
+				102: {PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 32, Count: 1},
+				103: {PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 33, Count: 1},
 			},
 			TermById: map[int32]masterdata.EntityMMissionTerm{},
 		},

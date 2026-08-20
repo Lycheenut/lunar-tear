@@ -15,7 +15,7 @@ type CharacterRebirthCatalog struct {
 	StepGroupByCharacterId map[int32]int32
 	CharacterIdBySortOrder map[int32]int32
 	StepByGroupAndCount    map[StepKey]EntityMCharacterRebirthStepGroup
-	MaterialsByGroupId     map[int32][]EntityMCharacterRebirthMaterialGroup
+	MaterialByGroupId      map[int32]EntityMCharacterRebirthMaterialGroup
 }
 
 func (c *CharacterRebirthCatalog) CostumeLevelLimitUp(characterId, rebirthCount int32) int32 {
@@ -65,15 +65,15 @@ func LoadCharacterRebirthCatalog() (*CharacterRebirthCatalog, error) {
 		stepByGroupAndCount[StepKey{GroupId: s.CharacterRebirthStepGroupId, BeforeRebirthCount: s.BeforeRebirthCount}] = s
 	}
 
-	materialsByGroupId := make(map[int32][]EntityMCharacterRebirthMaterialGroup)
+	materialByGroupId := make(map[int32]EntityMCharacterRebirthMaterialGroup, len(materialRows))
 	for _, m := range materialRows {
-		materialsByGroupId[m.CharacterRebirthMaterialGroupId] = append(materialsByGroupId[m.CharacterRebirthMaterialGroupId], m)
+		materialByGroupId[m.CharacterRebirthMaterialGroupId] = m
 	}
 
 	return &CharacterRebirthCatalog{
 		StepGroupByCharacterId: stepGroupByCharacterId,
 		CharacterIdBySortOrder: characterIdBySortOrder,
 		StepByGroupAndCount:    stepByGroupAndCount,
-		MaterialsByGroupId:     materialsByGroupId,
+		MaterialByGroupId:      materialByGroupId,
 	}, nil
 }

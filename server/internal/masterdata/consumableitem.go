@@ -7,8 +7,8 @@ import (
 )
 
 type ConsumableItemCatalog struct {
-	All     map[int32]EntityMConsumableItem
-	Effects map[int32][]EntityMConsumableItemEffect
+	All            map[int32]EntityMConsumableItem
+	EffectByItemId map[int32]EntityMConsumableItemEffect
 }
 
 func LoadConsumableItemCatalog() (*ConsumableItemCatalog, error) {
@@ -22,14 +22,14 @@ func LoadConsumableItemCatalog() (*ConsumableItemCatalog, error) {
 	}
 
 	catalog := &ConsumableItemCatalog{
-		All:     make(map[int32]EntityMConsumableItem, len(rows)),
-		Effects: make(map[int32][]EntityMConsumableItemEffect, len(effects)),
+		All:            make(map[int32]EntityMConsumableItem, len(rows)),
+		EffectByItemId: make(map[int32]EntityMConsumableItemEffect, len(effects)),
 	}
 	for _, row := range rows {
 		catalog.All[row.ConsumableItemId] = row
 	}
 	for _, e := range effects {
-		catalog.Effects[e.ConsumableItemId] = append(catalog.Effects[e.ConsumableItemId], e)
+		catalog.EffectByItemId[e.ConsumableItemId] = e
 	}
 	return catalog, nil
 }

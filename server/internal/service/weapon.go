@@ -1027,9 +1027,8 @@ func (s *WeaponServiceServer) Awaken(ctx context.Context, req *pb.WeaponAwakenRe
 			return
 		}
 
-		mats := catalog.AwakenMaterialsByGroupId[awakenRow.WeaponAwakenMaterialGroupId]
-		costs := make([]store.PossessionCost, 0, len(mats)+1)
-		for _, mat := range mats {
+		costs := make([]store.PossessionCost, 0, 2)
+		if mat, ok := catalog.AwakenMaterialByGroupId[awakenRow.WeaponAwakenMaterialGroupId]; ok {
 			costs = append(costs, materialCost(mat.MaterialId, mat.Count))
 		}
 

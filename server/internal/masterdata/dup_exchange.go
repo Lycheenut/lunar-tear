@@ -23,19 +23,19 @@ func LoadDupExchange() (map[int32][]model.DupExchangeEntry, error) {
 	return result, nil
 }
 
-func LoadCompanionDupExchange() (map[int32][]model.DupExchangeEntry, error) {
+func LoadCompanionDupExchange() (map[int32]model.DupExchangeEntry, error) {
 	rows, err := utils.ReadTable[EntityMCompanionDuplicationExchangePossessionGroup]("m_companion_duplication_exchange_possession_group")
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[int32][]model.DupExchangeEntry)
+	result := make(map[int32]model.DupExchangeEntry, len(rows))
 	for _, row := range rows {
-		result[row.CompanionId] = append(result[row.CompanionId], model.DupExchangeEntry{
+		result[row.CompanionId] = model.DupExchangeEntry{
 			PossessionType: row.PossessionType,
 			PossessionId:   row.PossessionId,
 			Count:          row.Count,
-		})
+		}
 	}
 	return result, nil
 }

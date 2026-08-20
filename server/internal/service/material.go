@@ -55,7 +55,7 @@ func (s *MaterialServiceServer) Sell(ctx context.Context, req *pb.MaterialSellRe
 			log.Printf("[MaterialService] Sell: materialId=%d x%d -> %d gold", item.MaterialId, item.Count, gold)
 
 			if mat.MaterialSaleObtainPossessionId != 0 {
-				for _, row := range catalog.SaleObtain[mat.MaterialSaleObtainPossessionId] {
+				if row, ok := catalog.SaleObtainById[mat.MaterialSaleObtainPossessionId]; ok {
 					grantCount := row.Count * item.Count
 					store.GrantPossession(user, model.PossessionType(row.PossessionType), row.PossessionId, grantCount)
 					log.Printf("[MaterialService] Sell: materialId=%d x%d -> SaleObtain type=%d id=%d +%d", item.MaterialId, item.Count, row.PossessionType, row.PossessionId, grantCount)

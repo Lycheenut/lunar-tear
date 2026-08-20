@@ -2,31 +2,24 @@ package masterdata
 
 import "testing"
 
-func TestCostumeAwakenCostsUseCurrentStepTier(t *testing.T) {
+func TestCostumeAwakenCostsUseConfiguredStep(t *testing.T) {
 	catalog := &CostumeCatalog{
-		AwakenPricesByGroup: map[int32][]EntityMCostumeAwakenPriceGroup{
-			1: {
-				{AwakenStepLowerLimit: 1, Gold: 100},
-				{AwakenStepLowerLimit: 3, Gold: 300},
-			},
+		AwakenPriceByGroup: map[int32]EntityMCostumeAwakenPriceGroup{
+			1: {AwakenStepLowerLimit: 1, Gold: 100},
 		},
-		AwakenStepsByGroup: map[int32][]EntityMCostumeAwakenStepMaterialGroup{
-			2: {
-				{AwakenStepLowerLimit: 1, CostumeAwakenMaterialGroupId: 10},
-				{AwakenStepLowerLimit: 3, CostumeAwakenMaterialGroupId: 20},
-			},
+		AwakenStepByGroup: map[int32]EntityMCostumeAwakenStepMaterialGroup{
+			2: {AwakenStepLowerLimit: 1, CostumeAwakenMaterialGroupId: 10},
 		},
 		AwakenMaterialsByGroup: map[int32][]MaterialOption{
 			10: {{MaterialId: 1000, Count: 1}},
-			20: {{MaterialId: 2000, Count: 2}},
 		},
 	}
 
-	if gold, ok := catalog.AwakenGold(1, 3); !ok || gold != 300 {
-		t.Fatalf("step 3 gold = (%d,%v), want (300,true)", gold, ok)
+	if gold, ok := catalog.AwakenGold(1, 3); !ok || gold != 100 {
+		t.Fatalf("step 3 gold = (%d,%v), want (100,true)", gold, ok)
 	}
 	options := catalog.AwakenMaterialOptions(2, 3)
-	if len(options) != 1 || options[0].MaterialId != 2000 || options[0].Count != 2 {
+	if len(options) != 1 || options[0].MaterialId != 1000 || options[0].Count != 1 {
 		t.Fatalf("step 3 material options = %+v", options)
 	}
 }
@@ -42,8 +35,8 @@ func TestWeaponLimitBreakMaterialOptionsUseSpecificAndRarityAlternatives(t *test
 				{LimitBreakCountLowerLimit: 2, MaterialId: 200, Count: 5},
 			},
 		},
-		RarityLimitBreakByRarity: map[int32][]MaterialOption{
-			40: {{MaterialId: 300, Count: 1}},
+		RarityLimitBreakByRarity: map[int32]MaterialOption{
+			40: {MaterialId: 300, Count: 1},
 		},
 	}
 

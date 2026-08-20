@@ -317,36 +317,34 @@ func loadGimmickOrnamentRewards(cageOrnaments *CageOrnamentCatalog) map[GimmickO
 		gimmickId   int32
 		gimmickType model.GimmickType
 	}
-	gimmicksByGroup := make(map[int32][]gimmickRewardSource)
+	gimmickByGroup := make(map[int32]gimmickRewardSource)
 	for _, g := range gimmicks {
 		t := model.GimmickType(g.GimmickType)
 		if t == model.GimmickTypeCageTreasureHunt || t == model.GimmickTypeMapOnlyCageTreasureHunt {
-			gimmicksByGroup[g.GimmickOrnamentGroupId] = append(gimmicksByGroup[g.GimmickOrnamentGroupId], gimmickRewardSource{g.GimmickId, t})
+			gimmickByGroup[g.GimmickOrnamentGroupId] = gimmickRewardSource{g.GimmickId, t}
 		}
 	}
 
 	out := make(map[GimmickOrnamentRef]SequenceReward)
 	missing := 0
 	for _, o := range ornaments {
-		gids, ok := gimmicksByGroup[o.GimmickOrnamentGroupId]
+		source, ok := gimmickByGroup[o.GimmickOrnamentGroupId]
 		if !ok {
 			continue
 		}
-		for _, source := range gids {
-			cageOrnamentId := o.GimmickOrnamentViewId
-			if source.gimmickType == model.GimmickTypeCageTreasureHunt {
-				cageOrnamentId = 1_000_000 + o.ChapterId*1_000 + o.GimmickOrnamentViewId
-			}
-			reward, ok := cageOrnaments.LookupReward(cageOrnamentId)
-			if !ok {
-				missing++
-				continue
-			}
-			out[GimmickOrnamentRef{GimmickId: source.gimmickId, OrnamentIndex: o.GimmickOrnamentIndex}] = SequenceReward{
-				PossessionType: reward.PossessionType,
-				PossessionId:   reward.PossessionId,
-				Count:          reward.Count,
-			}
+		cageOrnamentId := o.GimmickOrnamentViewId
+		if source.gimmickType == model.GimmickTypeCageTreasureHunt {
+			cageOrnamentId = 1_000_000 + o.ChapterId*1_000 + o.GimmickOrnamentViewId
+		}
+		reward, ok := cageOrnaments.LookupReward(cageOrnamentId)
+		if !ok {
+			missing++
+			continue
+		}
+		out[GimmickOrnamentRef{GimmickId: source.gimmickId, OrnamentIndex: o.GimmickOrnamentIndex}] = SequenceReward{
+			PossessionType: reward.PossessionType,
+			PossessionId:   reward.PossessionId,
+			Count:          reward.Count,
 		}
 	}
 	if missing > 0 {

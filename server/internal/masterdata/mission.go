@@ -18,7 +18,7 @@ type MissionCatalog struct {
 	OrderedMissions                []EntityMMission
 	MissionIdsByType               map[int32][]int32
 	MeasurableMissionIdsByType     map[int32][]int32
-	RewardsById                    map[int32][]EntityMMissionReward
+	RewardById                     map[int32]EntityMMissionReward
 	TermById                       map[int32]EntityMMissionTerm
 	UnlockById                     map[int32]EntityMMissionUnlockCondition
 	GroupById                      map[int32]EntityMMissionGroup
@@ -83,7 +83,7 @@ func LoadMissionCatalog() (*MissionCatalog, error) {
 	c := &MissionCatalog{
 		MissionById: make(map[int32]EntityMMission), OrderedMissions: append([]EntityMMission(nil), missions...),
 		MissionIdsByType: make(map[int32][]int32), MeasurableMissionIdsByType: make(map[int32][]int32),
-		RewardsById: make(map[int32][]EntityMMissionReward), TermById: make(map[int32]EntityMMissionTerm),
+		RewardById: make(map[int32]EntityMMissionReward), TermById: make(map[int32]EntityMMissionTerm),
 		UnlockById: make(map[int32]EntityMMissionUnlockCondition), GroupById: make(map[int32]EntityMMissionGroup),
 		LinkById:                       make(map[int32]EntityMMissionLink),
 		QuestChapterIdsByClearOption:   make(map[int32][]int32),
@@ -101,7 +101,7 @@ func LoadMissionCatalog() (*MissionCatalog, error) {
 		}
 	}
 	for _, row := range rewards {
-		c.RewardsById[row.MissionRewardId] = append(c.RewardsById[row.MissionRewardId], row)
+		c.RewardById[row.MissionRewardId] = row
 	}
 	for _, row := range terms {
 		c.TermById[row.MissionTermId] = row

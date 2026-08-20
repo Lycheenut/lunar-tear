@@ -48,7 +48,7 @@ func (s *ConsumableItemServiceServer) UseEffectItem(ctx context.Context, req *pb
 		}
 
 		maxStaminaMillis := cat.Shop.MaxStaminaMillis[user.Status.Level]
-		for _, effect := range catalog.Effects[req.ConsumableItemId] {
+		if effect, ok := catalog.EffectByItemId[req.ConsumableItemId]; ok {
 			switch effect.EffectTargetType {
 			case model.EffectTargetStaminaRecovery:
 				millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxStaminaMillis)

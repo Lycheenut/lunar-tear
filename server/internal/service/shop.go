@@ -355,14 +355,16 @@ func daysInMonth(year int, month time.Month) int {
 }
 
 func applyShopContentEffects(catalog *masterdata.ShopCatalog, user *store.UserState, shopItemId, qty int32, nowMillis int64) {
-	for _, effect := range catalog.Effects[shopItemId] {
-		switch effect.EffectTargetType {
-		case model.EffectTargetStaminaRecovery:
-			maxMillis := catalog.MaxStaminaMillis[user.Status.Level]
-			millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxMillis)
-			store.RecoverStamina(user, millis*qty, maxMillis, nowMillis)
-		default:
-			log.Printf("[ShopService] unhandled effect: shopItemId=%d targetType=%d", shopItemId, effect.EffectTargetType)
-		}
+	effect, ok := catalog.EffectByItemId[shopItemId]
+	if !ok {
+		return
+	}
+	switch effect.EffectTargetType {
+	case model.EffectTargetStaminaRecovery:
+		maxMillis := catalog.MaxStaminaMillis[user.Status.Level]
+		millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxMillis)
+		store.RecoverStamina(user, millis*qty, maxMillis, nowMillis)
+	default:
+		log.Printf("[ShopService] unhandled effect: shopItemId=%d targetType=%d", shopItemId, effect.EffectTargetType)
 	}
 }

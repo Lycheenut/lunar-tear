@@ -335,7 +335,8 @@ func (s *QuestServiceServer) ReceiveDailyQuestGroupCompleteReward(ctx context.Co
 				}
 			}
 		}
-		for _, reward := range active.Rewards {
+		reward := active.Reward
+		if reward.Count > 0 {
 			cat.QuestHandler.Granter.GrantFull(user, model.PossessionType(reward.PossessionType), reward.PossessionId, reward.Count, nowMillis)
 		}
 		id := active.Definition.EventQuestDailyGroupId

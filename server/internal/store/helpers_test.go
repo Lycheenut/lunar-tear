@@ -12,8 +12,8 @@ func TestPossessionGranterGrantFullHonorsEquipmentCountAndDuplicates(t *testing.
 		CostumeDupExchange: map[int32][]model.DupExchangeEntry{
 			101: {{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 501, Count: 10}},
 		},
-		CompanionDupExchange: map[int32][]model.DupExchangeEntry{
-			201: {{PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 601, Count: 100}},
+		CompanionDupExchange: map[int32]model.DupExchangeEntry{
+			201: {PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 601, Count: 100},
 		},
 	}
 

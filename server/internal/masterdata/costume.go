@@ -17,8 +17,8 @@ type CostumeCatalog struct {
 	LimitBreakCostByRarity map[int32]NumericalFunc
 
 	AwakenByCostumeId           map[int32]EntityMCostumeAwaken
-	AwakenPricesByGroup         map[int32][]EntityMCostumeAwakenPriceGroup
-	AwakenStepsByGroup          map[int32][]EntityMCostumeAwakenStepMaterialGroup
+	AwakenPriceByGroup          map[int32]EntityMCostumeAwakenPriceGroup
+	AwakenStepByGroup           map[int32]EntityMCostumeAwakenStepMaterialGroup
 	AwakenMaterialsByGroup      map[int32][]MaterialOption
 	AwakenEffectsByGroupAndStep map[int32]map[int32]EntityMCostumeAwakenEffectGroup
 	AwakenStatusUpByGroup       map[int32][]EntityMCostumeAwakenStatusUpGroup
@@ -66,27 +66,19 @@ type MaterialOption struct {
 }
 
 func (c *CostumeCatalog) AwakenGold(priceGroupId, awakenStep int32) (int32, bool) {
-	var gold int32
-	found := false
-	for _, row := range c.AwakenPricesByGroup[priceGroupId] {
-		if awakenStep < row.AwakenStepLowerLimit {
-			break
-		}
-		gold = row.Gold
-		found = true
+	row, ok := c.AwakenPriceByGroup[priceGroupId]
+	if !ok || awakenStep < row.AwakenStepLowerLimit {
+		return 0, false
 	}
-	return gold, found
+	return row.Gold, true
 }
 
 func (c *CostumeCatalog) AwakenMaterialOptions(stepGroupId, awakenStep int32) []MaterialOption {
-	materialGroupId := int32(0)
-	for _, row := range c.AwakenStepsByGroup[stepGroupId] {
-		if awakenStep < row.AwakenStepLowerLimit {
-			break
-		}
-		materialGroupId = row.CostumeAwakenMaterialGroupId
+	row, ok := c.AwakenStepByGroup[stepGroupId]
+	if !ok || awakenStep < row.AwakenStepLowerLimit {
+		return nil
 	}
-	return c.AwakenMaterialsByGroup[materialGroupId]
+	return c.AwakenMaterialsByGroup[row.CostumeAwakenMaterialGroupId]
 }
 
 func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
@@ -198,8 +190,8 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 		LimitBreakCostByRarity: make(map[int32]NumericalFunc, len(rarities)),
 
 		AwakenByCostumeId:           make(map[int32]EntityMCostumeAwaken, len(awakenRows)),
-		AwakenPricesByGroup:         make(map[int32][]EntityMCostumeAwakenPriceGroup),
-		AwakenStepsByGroup:          make(map[int32][]EntityMCostumeAwakenStepMaterialGroup),
+		AwakenPriceByGroup:          make(map[int32]EntityMCostumeAwakenPriceGroup),
+		AwakenStepByGroup:           make(map[int32]EntityMCostumeAwakenStepMaterialGroup),
 		AwakenMaterialsByGroup:      make(map[int32][]MaterialOption),
 		AwakenEffectsByGroupAndStep: make(map[int32]map[int32]EntityMCostumeAwakenEffectGroup),
 		AwakenStatusUpByGroup:       make(map[int32][]EntityMCostumeAwakenStatusUpGroup),
@@ -261,20 +253,10 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 		catalog.AwakenByCostumeId[row.CostumeId] = row
 	}
 	for _, row := range awakenPriceRows {
-		catalog.AwakenPricesByGroup[row.CostumeAwakenPriceGroupId] = append(catalog.AwakenPricesByGroup[row.CostumeAwakenPriceGroupId], row)
-	}
-	for groupId := range catalog.AwakenPricesByGroup {
-		sort.Slice(catalog.AwakenPricesByGroup[groupId], func(i, j int) bool {
-			return catalog.AwakenPricesByGroup[groupId][i].AwakenStepLowerLimit < catalog.AwakenPricesByGroup[groupId][j].AwakenStepLowerLimit
-		})
+		catalog.AwakenPriceByGroup[row.CostumeAwakenPriceGroupId] = row
 	}
 	for _, row := range awakenStepRows {
-		catalog.AwakenStepsByGroup[row.CostumeAwakenStepMaterialGroupId] = append(catalog.AwakenStepsByGroup[row.CostumeAwakenStepMaterialGroupId], row)
-	}
-	for groupId := range catalog.AwakenStepsByGroup {
-		sort.Slice(catalog.AwakenStepsByGroup[groupId], func(i, j int) bool {
-			return catalog.AwakenStepsByGroup[groupId][i].AwakenStepLowerLimit < catalog.AwakenStepsByGroup[groupId][j].AwakenStepLowerLimit
-		})
+		catalog.AwakenStepByGroup[row.CostumeAwakenStepMaterialGroupId] = row
 	}
 	for _, row := range awakenMaterialRows {
 		catalog.AwakenMaterialsByGroup[row.CostumeAwakenMaterialGroupId] = append(catalog.AwakenMaterialsByGroup[row.CostumeAwakenMaterialGroupId], MaterialOption{
@@ -354,27 +336,32 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 		catalog.LevelBonusLevelsByCostume[costumeId] = levels
 	}
 
-	limitBreakByGroup := make(map[int32][]MaterialOption)
+	limitBreakByGroup := make(map[int32]MaterialOption, len(limitBreakRows))
 	for _, row := range limitBreakRows {
-		limitBreakByGroup[row.CostumeLimitBreakMaterialGroupId] = append(limitBreakByGroup[row.CostumeLimitBreakMaterialGroupId], MaterialOption{
+		limitBreakByGroup[row.CostumeLimitBreakMaterialGroupId] = MaterialOption{
 			MaterialId: row.MaterialId,
 			Count:      row.Count,
-		})
+		}
 	}
-	rarityLimitBreakByGroup := make(map[int32][]MaterialOption)
+	rarityLimitBreakByGroup := make(map[int32]MaterialOption, len(limitBreakRarityRows))
 	for _, row := range limitBreakRarityRows {
-		rarityLimitBreakByGroup[row.CostumeLimitBreakMaterialRarityGroupId] = append(rarityLimitBreakByGroup[row.CostumeLimitBreakMaterialRarityGroupId], MaterialOption{
+		rarityLimitBreakByGroup[row.CostumeLimitBreakMaterialRarityGroupId] = MaterialOption{
 			MaterialId: row.MaterialId,
 			Count:      row.Count,
-		})
+		}
 	}
 	rarityLimitBreakGroup := make(map[int32]int32, len(rarities))
 	for _, row := range rarities {
 		rarityLimitBreakGroup[row.RarityType] = row.CostumeLimitBreakMaterialRarityGroupId
 	}
 	for costumeId, costume := range catalog.Costumes {
-		options := append([]MaterialOption(nil), limitBreakByGroup[costume.CostumeLimitBreakMaterialGroupId]...)
-		options = append(options, rarityLimitBreakByGroup[rarityLimitBreakGroup[costume.RarityType]]...)
+		options := make([]MaterialOption, 0, 2)
+		if option, ok := limitBreakByGroup[costume.CostumeLimitBreakMaterialGroupId]; ok {
+			options = append(options, option)
+		}
+		if option, ok := rarityLimitBreakByGroup[rarityLimitBreakGroup[costume.RarityType]]; ok {
+			options = append(options, option)
+		}
 		catalog.LimitBreakMaterialsByCostume[costumeId] = uniqueMaterialOptions(options)
 	}
 

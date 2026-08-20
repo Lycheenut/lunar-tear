@@ -11,15 +11,15 @@ import (
 
 func TestQuestMissionUsesBattleResultAndFailureDoesNotClear(t *testing.T) {
 	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
-		QuestById:                         map[int32]masterdata.EntityMQuest{10: {QuestId: 10}},
-		MissionById:                       map[int32]masterdata.EntityMQuestMission{20: {QuestMissionId: 20, QuestMissionConditionType: int32(model.QuestMissionConditionTypeCriticalCountGe), ConditionValue: 3}},
-		MissionIdsByQuestId:               map[int32][]int32{10: {20}},
-		MissionRewardsByMissionId:         map[int32][]masterdata.EntityMQuestMissionReward{},
-		FirstClearRewardsByGroupId:        map[int32][]masterdata.EntityMQuestFirstClearRewardGroup{},
-		FirstClearRewardSwitchesByQuestId: map[int32][]masterdata.EntityMQuestFirstClearRewardSwitch{},
-		ReplayFlowRewardsByGroupId:        map[int32][]masterdata.EntityMQuestReplayFlowRewardGroup{},
-		PickupRewardIdsByGroupId:          map[int32][]int32{},
-		BattleDropRewardById:              map[int32]masterdata.EntityMBattleDropReward{},
+		QuestById:                       map[int32]masterdata.EntityMQuest{10: {QuestId: 10}},
+		MissionById:                     map[int32]masterdata.EntityMQuestMission{20: {QuestMissionId: 20, QuestMissionConditionType: int32(model.QuestMissionConditionTypeCriticalCountGe), ConditionValue: 3}},
+		MissionIdsByQuestId:             map[int32][]int32{10: {20}},
+		MissionRewardById:               map[int32]masterdata.EntityMQuestMissionReward{},
+		FirstClearRewardsByGroupId:      map[int32][]masterdata.EntityMQuestFirstClearRewardGroup{},
+		FirstClearRewardSwitchByQuestId: map[int32]masterdata.EntityMQuestFirstClearRewardSwitch{},
+		ReplayFlowRewardByGroupId:       map[int32]masterdata.EntityMQuestReplayFlowRewardGroup{},
+		PickupRewardIdsByGroupId:        map[int32][]int32{},
+		BattleDropRewardById:            map[int32]masterdata.EntityMBattleDropReward{},
 	}, Config: &masterdata.GameConfig{}, Granter: &store.PossessionGranter{}}
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
 	user.Quests[10] = store.UserQuestState{QuestId: 10, QuestStateType: model.UserQuestStateTypeActive, LatestStartDatetime: 10}
@@ -126,16 +126,16 @@ func questMissionPowerBonusTestHandler(isBigWinTarget bool, restrictionGroup int
 			21: {QuestMissionId: 21, QuestMissionConditionType: int32(model.QuestMissionConditionTypeComplete), QuestMissionRewardId: 201},
 		},
 		MissionIdsByQuestId: map[int32][]int32{10: {20, 21}},
-		MissionRewardsByMissionId: map[int32][]masterdata.EntityMQuestMissionReward{
-			200: {{QuestMissionRewardId: 200, PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 100, Count: 2}},
-			201: {{QuestMissionRewardId: 201, PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 101, Count: 3}},
+		MissionRewardById: map[int32]masterdata.EntityMQuestMissionReward{
+			200: {QuestMissionRewardId: 200, PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 100, Count: 2},
+			201: {QuestMissionRewardId: 201, PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 101, Count: 3},
 		},
-		FirstClearRewardsByGroupId:        map[int32][]masterdata.EntityMQuestFirstClearRewardGroup{},
-		FirstClearRewardSwitchesByQuestId: map[int32][]masterdata.EntityMQuestFirstClearRewardSwitch{},
-		ReplayFlowRewardsByGroupId:        map[int32][]masterdata.EntityMQuestReplayFlowRewardGroup{},
-		PickupRewardIdsByGroupId:          map[int32][]int32{},
-		BattleDropRewardById:              map[int32]masterdata.EntityMBattleDropReward{},
-		UserExpThresholds:                 []int32{0},
+		FirstClearRewardsByGroupId:      map[int32][]masterdata.EntityMQuestFirstClearRewardGroup{},
+		FirstClearRewardSwitchByQuestId: map[int32]masterdata.EntityMQuestFirstClearRewardSwitch{},
+		ReplayFlowRewardByGroupId:       map[int32]masterdata.EntityMQuestReplayFlowRewardGroup{},
+		PickupRewardIdsByGroupId:        map[int32][]int32{},
+		BattleDropRewardById:            map[int32]masterdata.EntityMBattleDropReward{},
+		UserExpThresholds:               []int32{0},
 	}, Config: &masterdata.GameConfig{QuestMissionBigWinBonusPower: 30000}, Granter: &store.PossessionGranter{}}
 }
 
@@ -184,8 +184,8 @@ func TestQuestMissionRejectsMissingOrIncompleteBattleDetail(t *testing.T) {
 func TestReplayRewardGroupIsClaimedOnce(t *testing.T) {
 	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
 		QuestById:                  map[int32]masterdata.EntityMQuest{10: {QuestId: 10, QuestReplayFlowRewardGroupId: 7}},
-		ReplayFlowRewardsByGroupId: map[int32][]masterdata.EntityMQuestReplayFlowRewardGroup{7: {{QuestReplayFlowRewardGroupId: 7, PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 1, Count: 1}}},
-		FirstClearRewardsByGroupId: map[int32][]masterdata.EntityMQuestFirstClearRewardGroup{}, FirstClearRewardSwitchesByQuestId: map[int32][]masterdata.EntityMQuestFirstClearRewardSwitch{}, PickupRewardIdsByGroupId: map[int32][]int32{}, BattleDropRewardById: map[int32]masterdata.EntityMBattleDropReward{},
+		ReplayFlowRewardByGroupId:  map[int32]masterdata.EntityMQuestReplayFlowRewardGroup{7: {QuestReplayFlowRewardGroupId: 7, PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 1, Count: 1}},
+		FirstClearRewardsByGroupId: map[int32][]masterdata.EntityMQuestFirstClearRewardGroup{}, FirstClearRewardSwitchByQuestId: map[int32]masterdata.EntityMQuestFirstClearRewardSwitch{}, PickupRewardIdsByGroupId: map[int32][]int32{}, BattleDropRewardById: map[int32]masterdata.EntityMBattleDropReward{},
 	}}
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
 	user.EnsureMaps()

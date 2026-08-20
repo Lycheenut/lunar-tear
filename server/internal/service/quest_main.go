@@ -323,30 +323,19 @@ func applyQuestUseEffectItems(cat *runtime.Catalogs, user *store.UserState, item
 		if _, ok := cat.ConsumableItem.All[item.ConsumableItemId]; !ok {
 			return fmt.Errorf("unknown effect item %d", item.ConsumableItemId)
 		}
-		effects := cat.ConsumableItem.Effects[item.ConsumableItemId]
-		hasStaminaRecovery := false
-		for _, effect := range effects {
-			if effect.EffectTargetType == model.EffectTargetStaminaRecovery {
-				hasStaminaRecovery = true
-				millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxStaminaMillis)
-				if millis <= 0 || int64(millis)*int64(item.Count) > int64(^uint32(0)>>1) {
-					return fmt.Errorf("invalid stamina recovery effect item %d", item.ConsumableItemId)
-				}
-			}
-		}
-		if !hasStaminaRecovery {
+		effect, ok := cat.ConsumableItem.EffectByItemId[item.ConsumableItemId]
+		if !ok || effect.EffectTargetType != model.EffectTargetStaminaRecovery {
 			return fmt.Errorf("consumable item %d is not a stamina recovery item", item.ConsumableItemId)
+		}
+		millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxStaminaMillis)
+		if millis <= 0 || int64(millis)*int64(item.Count) > int64(^uint32(0)>>1) {
+			return fmt.Errorf("invalid stamina recovery effect item %d", item.ConsumableItemId)
 		}
 		if user.ConsumableItems[item.ConsumableItemId] < item.Count {
 			return fmt.Errorf("insufficient effect item %d", item.ConsumableItemId)
 		}
 		user.ConsumableItems[item.ConsumableItemId] -= item.Count
-		for _, effect := range effects {
-			if effect.EffectTargetType == model.EffectTargetStaminaRecovery {
-				millis := store.ResolveStaminaEffectMillis(effect.EffectValueType, effect.EffectValue, maxStaminaMillis)
-				store.RecoverStamina(user, millis*item.Count, maxStaminaMillis, nowMillis)
-			}
-		}
+		store.RecoverStamina(user, millis*item.Count, maxStaminaMillis, nowMillis)
 	}
 	return nil
 }

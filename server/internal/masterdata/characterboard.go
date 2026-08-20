@@ -8,17 +8,17 @@ import (
 )
 
 type CharacterBoardCatalog struct {
-	PanelById               map[int32]EntityMCharacterBoardPanel
-	PanelsByBoardId         map[int32][]EntityMCharacterBoardPanel
-	ReleaseCostsByGroupId   map[int32][]EntityMCharacterBoardPanelReleasePossessionGroup
-	ReleaseEffectsByGroupId map[int32][]EntityMCharacterBoardPanelReleaseEffectGroup
-	StatusUpById            map[int32]EntityMCharacterBoardStatusUp
-	AbilityById             map[int32]EntityMCharacterBoardAbility
-	AbilityMaxLevel         map[store.CharacterBoardAbilityKey]int32
-	EffectTargetsByGroupId  map[int32][]EntityMCharacterBoardEffectTargetGroup
-	BoardById               map[int32]EntityMCharacterBoard
-	CharacterIdByBoardId    map[int32]int32
-	MissionOptionByBoardId  map[int32]int32
+	PanelById              map[int32]EntityMCharacterBoardPanel
+	PanelsByBoardId        map[int32][]EntityMCharacterBoardPanel
+	ReleaseCostsByGroupId  map[int32][]EntityMCharacterBoardPanelReleasePossessionGroup
+	ReleaseEffectByGroupId map[int32]EntityMCharacterBoardPanelReleaseEffectGroup
+	StatusUpById           map[int32]EntityMCharacterBoardStatusUp
+	AbilityById            map[int32]EntityMCharacterBoardAbility
+	AbilityMaxLevel        map[store.CharacterBoardAbilityKey]int32
+	EffectTargetByGroupId  map[int32]EntityMCharacterBoardEffectTargetGroup
+	BoardById              map[int32]EntityMCharacterBoard
+	CharacterIdByBoardId   map[int32]int32
+	MissionOptionByBoardId map[int32]int32
 }
 
 func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
@@ -70,17 +70,17 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 		return nil, fmt.Errorf("load character board effect target table: %w", err)
 	}
 	catalog := &CharacterBoardCatalog{
-		PanelById:               make(map[int32]EntityMCharacterBoardPanel, len(panels)),
-		PanelsByBoardId:         make(map[int32][]EntityMCharacterBoardPanel),
-		ReleaseCostsByGroupId:   make(map[int32][]EntityMCharacterBoardPanelReleasePossessionGroup),
-		ReleaseEffectsByGroupId: make(map[int32][]EntityMCharacterBoardPanelReleaseEffectGroup),
-		StatusUpById:            make(map[int32]EntityMCharacterBoardStatusUp, len(statusUps)),
-		AbilityById:             make(map[int32]EntityMCharacterBoardAbility, len(abilities)),
-		AbilityMaxLevel:         make(map[store.CharacterBoardAbilityKey]int32, len(abilityMaxLevels)),
-		EffectTargetsByGroupId:  make(map[int32][]EntityMCharacterBoardEffectTargetGroup),
-		BoardById:               make(map[int32]EntityMCharacterBoard, len(boards)),
-		CharacterIdByBoardId:    make(map[int32]int32, len(boards)),
-		MissionOptionByBoardId:  make(map[int32]int32, len(boards)),
+		PanelById:              make(map[int32]EntityMCharacterBoardPanel, len(panels)),
+		PanelsByBoardId:        make(map[int32][]EntityMCharacterBoardPanel),
+		ReleaseCostsByGroupId:  make(map[int32][]EntityMCharacterBoardPanelReleasePossessionGroup),
+		ReleaseEffectByGroupId: make(map[int32]EntityMCharacterBoardPanelReleaseEffectGroup),
+		StatusUpById:           make(map[int32]EntityMCharacterBoardStatusUp, len(statusUps)),
+		AbilityById:            make(map[int32]EntityMCharacterBoardAbility, len(abilities)),
+		AbilityMaxLevel:        make(map[store.CharacterBoardAbilityKey]int32, len(abilityMaxLevels)),
+		EffectTargetByGroupId:  make(map[int32]EntityMCharacterBoardEffectTargetGroup),
+		BoardById:              make(map[int32]EntityMCharacterBoard, len(boards)),
+		CharacterIdByBoardId:   make(map[int32]int32, len(boards)),
+		MissionOptionByBoardId: make(map[int32]int32, len(boards)),
 	}
 
 	for _, p := range panels {
@@ -92,8 +92,7 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 			catalog.ReleaseCostsByGroupId[c.CharacterBoardPanelReleasePossessionGroupId], c)
 	}
 	for _, e := range effects {
-		catalog.ReleaseEffectsByGroupId[e.CharacterBoardPanelReleaseEffectGroupId] = append(
-			catalog.ReleaseEffectsByGroupId[e.CharacterBoardPanelReleaseEffectGroupId], e)
+		catalog.ReleaseEffectByGroupId[e.CharacterBoardPanelReleaseEffectGroupId] = e
 	}
 	for _, b := range boards {
 		catalog.BoardById[b.CharacterBoardId] = b
@@ -139,8 +138,7 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 		}] = m.MaxLevel
 	}
 	for _, t := range targets {
-		catalog.EffectTargetsByGroupId[t.CharacterBoardEffectTargetGroupId] = append(
-			catalog.EffectTargetsByGroupId[t.CharacterBoardEffectTargetGroupId], t)
+		catalog.EffectTargetByGroupId[t.CharacterBoardEffectTargetGroupId] = t
 	}
 	return catalog, nil
 }

@@ -28,7 +28,7 @@ type ShopLimitedStockRule struct {
 type ShopCatalog struct {
 	Items             map[int32]EntityMShopItem
 	Contents          map[int32][]EntityMShopItemContentPossession
-	Effects           map[int32][]EntityMShopItemContentEffect
+	EffectByItemId    map[int32]EntityMShopItemContentEffect
 	MaxStaminaMillis  map[int32]int32 // level -> max stamina in millis
 	LimitedStock      map[int32]ShopLimitedStockRule
 	Shops             map[int32]EntityMShop
@@ -127,7 +127,7 @@ func LoadShopCatalog() (*ShopCatalog, error) {
 	catalog := &ShopCatalog{
 		Items:             make(map[int32]EntityMShopItem, len(items)),
 		Contents:          make(map[int32][]EntityMShopItemContentPossession, len(contents)),
-		Effects:           make(map[int32][]EntityMShopItemContentEffect, len(effects)),
+		EffectByItemId:    make(map[int32]EntityMShopItemContentEffect, len(effects)),
 		MaxStaminaMillis:  make(map[int32]int32, len(userLevels)),
 		LimitedStock:      make(map[int32]ShopLimitedStockRule, len(stockRows)),
 		Shops:             make(map[int32]EntityMShop),
@@ -143,7 +143,7 @@ func LoadShopCatalog() (*ShopCatalog, error) {
 		catalog.Contents[row.ShopItemId] = append(catalog.Contents[row.ShopItemId], row)
 	}
 	for _, row := range effects {
-		catalog.Effects[row.ShopItemId] = append(catalog.Effects[row.ShopItemId], row)
+		catalog.EffectByItemId[row.ShopItemId] = row
 	}
 	for _, ul := range userLevels {
 		catalog.MaxStaminaMillis[ul.UserLevel] = ul.MaxStamina * 1000

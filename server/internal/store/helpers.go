@@ -196,7 +196,7 @@ type PossessionGranter struct {
 	PartsSellPriceL1ByRarity map[int32]int32
 	GoldConsumableItemId     int32
 	CostumeDupExchange       map[int32][]model.DupExchangeEntry
-	CompanionDupExchange     map[int32][]model.DupExchangeEntry
+	CompanionDupExchange     map[int32]model.DupExchangeEntry
 }
 
 type GrantStatus int
@@ -288,7 +288,9 @@ func (g *PossessionGranter) GrantCostume(user *UserState, costumeId int32, nowMi
 func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, nowMillis int64) {
 	for _, row := range user.Companions {
 		if row.CompanionId == companionId {
-			grantDuplicateExchange(user, g.CompanionDupExchange[companionId])
+			if exchange, ok := g.CompanionDupExchange[companionId]; ok {
+				GrantPossession(user, model.PossessionType(exchange.PossessionType), exchange.PossessionId, exchange.Count)
+			}
 			return
 		}
 	}

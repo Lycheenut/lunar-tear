@@ -149,7 +149,7 @@ func claimMissionRewards(cat *runtime.Catalogs, user *store.UserState, missionId
 			continue
 		}
 		isExpired := missionExpired(cat.Mission, mission, nowMillis)
-		for _, reward := range cat.Mission.RewardsById[mission.MissionRewardId] {
+		if reward, ok := cat.Mission.RewardById[mission.MissionRewardId]; ok {
 			row := &pb.MissionReward{PossessionType: reward.PossessionType, PossessionId: reward.PossessionId, Count: reward.Count}
 			if isExpired {
 				expired = append(expired, row)

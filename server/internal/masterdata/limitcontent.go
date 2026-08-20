@@ -8,9 +8,9 @@ import (
 )
 
 type LimitContentCatalog struct {
-	ContentsByChapter map[int32][]EntityMEventQuestLimitContent
-	RestrictionsById  map[int32][]EntityMEventQuestLimitContentDeckRestriction
-	TargetTypesById   map[int32][]int32
+	ContentByChapter map[int32]EntityMEventQuestLimitContent
+	RestrictionById  map[int32]EntityMEventQuestLimitContentDeckRestriction
+	TargetTypesById  map[int32][]int32
 }
 
 func LoadLimitContentCatalog() (*LimitContentCatalog, error) {
@@ -35,14 +35,14 @@ func LoadLimitContentCatalog() (*LimitContentCatalog, error) {
 	for _, content := range contents {
 		contentById[content.EventQuestLimitContentId] = content
 	}
-	catalog := &LimitContentCatalog{ContentsByChapter: make(map[int32][]EntityMEventQuestLimitContent), RestrictionsById: make(map[int32][]EntityMEventQuestLimitContentDeckRestriction), TargetTypesById: make(map[int32][]int32)}
+	catalog := &LimitContentCatalog{ContentByChapter: make(map[int32]EntityMEventQuestLimitContent), RestrictionById: make(map[int32]EntityMEventQuestLimitContentDeckRestriction), TargetTypesById: make(map[int32][]int32)}
 	for _, relation := range relations {
 		if content, ok := contentById[relation.EventQuestLimitContentId]; ok {
-			catalog.ContentsByChapter[relation.EventQuestChapterId] = append(catalog.ContentsByChapter[relation.EventQuestChapterId], content)
+			catalog.ContentByChapter[relation.EventQuestChapterId] = content
 		}
 	}
 	for _, restriction := range restrictions {
-		catalog.RestrictionsById[restriction.EventQuestLimitContentDeckRestrictionId] = append(catalog.RestrictionsById[restriction.EventQuestLimitContentDeckRestrictionId], restriction)
+		catalog.RestrictionById[restriction.EventQuestLimitContentDeckRestrictionId] = restriction
 	}
 	for _, target := range targets {
 		catalog.TargetTypesById[target.EventQuestLimitContentDeckRestrictionTargetId] = append(catalog.TargetTypesById[target.EventQuestLimitContentDeckRestrictionTargetId], target.LimitContentDeckRestrictionType)
@@ -52,14 +52,10 @@ func LoadLimitContentCatalog() (*LimitContentCatalog, error) {
 
 func (c *LimitContentCatalog) ActiveRestrictionTypes(chapterId int32, nowMillis int64) []int32 {
 	seen := make(map[int32]bool)
-	for _, content := range c.ContentsByChapter[chapterId] {
-		if nowMillis < content.StartDatetime || nowMillis >= content.EndDatetime {
-			continue
-		}
-		for _, restriction := range c.RestrictionsById[content.EventQuestLimitContentDeckRestrictionId] {
-			if nowMillis < restriction.StartDatetime || nowMillis >= restriction.EndDatetime {
-				continue
-			}
+	content, ok := c.ContentByChapter[chapterId]
+	if ok && nowMillis >= content.StartDatetime && nowMillis < content.EndDatetime {
+		restriction, ok := c.RestrictionById[content.EventQuestLimitContentDeckRestrictionId]
+		if ok && nowMillis >= restriction.StartDatetime && nowMillis < restriction.EndDatetime {
 			for _, targetType := range c.TargetTypesById[restriction.EventQuestLimitContentDeckRestrictionTargetId] {
 				if targetType != 0 {
 					seen[targetType] = true

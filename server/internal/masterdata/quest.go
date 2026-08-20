@@ -68,7 +68,7 @@ func battleDropEffectId(
 type EventQuestDailyGroup struct {
 	Definition EntityMEventQuestDailyGroup
 	ChapterIds []int32
-	Rewards    []RewardItem
+	Reward     RewardItem
 }
 
 type EventQuestUnlockCondition struct {
@@ -94,8 +94,8 @@ type QuestCatalog struct {
 	SceneIdsByQuestId                  map[int32][]int32
 	OrderedQuestIds                    []int32
 	FirstClearRewardsByGroupId         map[int32][]EntityMQuestFirstClearRewardGroup
-	FirstClearRewardSwitchesByQuestId  map[int32][]EntityMQuestFirstClearRewardSwitch
-	MissionRewardsByMissionId          map[int32][]EntityMQuestMissionReward
+	FirstClearRewardSwitchByQuestId    map[int32]EntityMQuestFirstClearRewardSwitch
+	MissionRewardById                  map[int32]EntityMQuestMissionReward
 	MissionConditionValuesByGroupId    map[int32][]int32
 	SceneChoiceByKey                   map[QuestSceneChoiceKey]EntityMQuestSceneChoice
 	WeaponIdsByReleaseConditionGroupId map[int32][]int32
@@ -115,7 +115,7 @@ type QuestCatalog struct {
 	QuestBonusExpByEffectId            map[int32]EntityMQuestBonusExp
 	QuestBonusTermsByGroupId           map[int32][]EntityMQuestBonusTermGroup
 	WeaponEvolutionByWeaponId          map[int32]WeaponEvolutionInfo
-	ReplayFlowRewardsByGroupId         map[int32][]EntityMQuestReplayFlowRewardGroup
+	ReplayFlowRewardByGroupId          map[int32]EntityMQuestReplayFlowRewardGroup
 	RentalQuestIds                     map[int32]bool
 	TutorialUnlockConditions           []EntityMTutorialUnlockCondition
 	ChapterLastSceneByQuestId          map[int32]int32
@@ -873,13 +873,13 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	for _, row := range dailyTargets {
 		chaptersByTarget[row.EventQuestDailyGroupTargetChapterId] = append(chaptersByTarget[row.EventQuestDailyGroupTargetChapterId], row.EventQuestChapterId)
 	}
-	rewardsByGroup := make(map[int32][]RewardItem)
+	rewardByGroup := make(map[int32]RewardItem, len(dailyRewards))
 	for _, row := range dailyRewards {
-		rewardsByGroup[row.EventQuestDailyGroupCompleteRewardId] = append(rewardsByGroup[row.EventQuestDailyGroupCompleteRewardId], RewardItem{PossessionType: row.PossessionType, PossessionId: row.PossessionId, Count: row.Count})
+		rewardByGroup[row.EventQuestDailyGroupCompleteRewardId] = RewardItem{PossessionType: row.PossessionType, PossessionId: row.PossessionId, Count: row.Count}
 	}
 	eventDailyGroups := make([]EventQuestDailyGroup, 0, len(dailyRows))
 	for _, row := range dailyRows {
-		eventDailyGroups = append(eventDailyGroups, EventQuestDailyGroup{Definition: row, ChapterIds: chaptersByTarget[row.EventQuestDailyGroupTargetChapterId], Rewards: rewardsByGroup[row.EventQuestDailyGroupCompleteRewardId]})
+		eventDailyGroups = append(eventDailyGroups, EventQuestDailyGroup{Definition: row, ChapterIds: chaptersByTarget[row.EventQuestDailyGroupTargetChapterId], Reward: rewardByGroup[row.EventQuestDailyGroupCompleteRewardId]})
 	}
 
 	sortedChapters := make([]EntityMMainQuestChapter, len(chapters))
@@ -921,22 +921,19 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 			firstClearRewardsByGroupId[reward.QuestFirstClearRewardGroupId], reward)
 	}
 
-	replayFlowRewardsByGroupId := make(map[int32][]EntityMQuestReplayFlowRewardGroup, len(replayFlowRewards))
+	replayFlowRewardByGroupId := make(map[int32]EntityMQuestReplayFlowRewardGroup, len(replayFlowRewards))
 	for _, reward := range replayFlowRewards {
-		replayFlowRewardsByGroupId[reward.QuestReplayFlowRewardGroupId] = append(
-			replayFlowRewardsByGroupId[reward.QuestReplayFlowRewardGroupId], reward)
+		replayFlowRewardByGroupId[reward.QuestReplayFlowRewardGroupId] = reward
 	}
 
-	firstClearRewardSwitchesByQuestId := make(map[int32][]EntityMQuestFirstClearRewardSwitch, len(firstClearSwitches))
+	firstClearRewardSwitchByQuestId := make(map[int32]EntityMQuestFirstClearRewardSwitch, len(firstClearSwitches))
 	for _, switchRow := range firstClearSwitches {
-		firstClearRewardSwitchesByQuestId[switchRow.QuestId] = append(
-			firstClearRewardSwitchesByQuestId[switchRow.QuestId], switchRow)
+		firstClearRewardSwitchByQuestId[switchRow.QuestId] = switchRow
 	}
 
-	missionRewardsByMissionId := make(map[int32][]EntityMQuestMissionReward, len(missionRewards))
+	missionRewardById := make(map[int32]EntityMQuestMissionReward, len(missionRewards))
 	for _, reward := range missionRewards {
-		missionRewardsByMissionId[reward.QuestMissionRewardId] = append(
-			missionRewardsByMissionId[reward.QuestMissionRewardId], reward)
+		missionRewardById[reward.QuestMissionRewardId] = reward
 	}
 
 	weaponIdsByReleaseConditionGroupId := make(map[int32][]int32)
@@ -1094,8 +1091,8 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		SceneIdsByQuestId:                  sceneIdsByQuestId,
 		OrderedQuestIds:                    orderedQuestIds,
 		FirstClearRewardsByGroupId:         firstClearRewardsByGroupId,
-		FirstClearRewardSwitchesByQuestId:  firstClearRewardSwitchesByQuestId,
-		MissionRewardsByMissionId:          missionRewardsByMissionId,
+		FirstClearRewardSwitchByQuestId:    firstClearRewardSwitchByQuestId,
+		MissionRewardById:                  missionRewardById,
 		MissionConditionValuesByGroupId:    missionConditionValuesByGroupId,
 		SceneChoiceByKey:                   sceneChoiceByKey,
 		WeaponIdsByReleaseConditionGroupId: weaponIdsByReleaseConditionGroupId,
@@ -1115,7 +1112,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		QuestBonusExpByEffectId:            questBonusExpByEffectId,
 		QuestBonusTermsByGroupId:           questBonusTermsByGroupId,
 		WeaponEvolutionByWeaponId:          weaponEvolutionByWeaponId,
-		ReplayFlowRewardsByGroupId:         replayFlowRewardsByGroupId,
+		ReplayFlowRewardByGroupId:          replayFlowRewardByGroupId,
 		RentalQuestIds:                     rentalQuestIds,
 		TutorialUnlockConditions:           tutorialUnlockConds,
 		ChapterLastSceneByQuestId:          chapterLastSceneByQuestId,

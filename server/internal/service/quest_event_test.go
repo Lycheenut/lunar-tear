@@ -17,7 +17,7 @@ func TestLimitContentDeckRejectsReusedTargetsAndRecordsOnce(t *testing.T) {
 	user.DeckCharacters["dc"] = store.DeckCharacterState{UserCostumeUuid: "costume", MainUserWeaponUuid: "weapon"}
 	user.Costumes["costume"] = store.CostumeState{UserCostumeUuid: "costume"}
 	user.Weapons["weapon"] = store.WeaponState{UserWeaponUuid: "weapon"}
-	catalog := &masterdata.LimitContentCatalog{ContentsByChapter: map[int32][]masterdata.EntityMEventQuestLimitContent{500: {{StartDatetime: 1, EndDatetime: 100, EventQuestLimitContentDeckRestrictionId: 1}}}, RestrictionsById: map[int32][]masterdata.EntityMEventQuestLimitContentDeckRestriction{1: {{EventQuestLimitContentDeckRestrictionTargetId: 1, StartDatetime: 1, EndDatetime: 100}}}, TargetTypesById: map[int32][]int32{1: {1}}}
+	catalog := &masterdata.LimitContentCatalog{ContentByChapter: map[int32]masterdata.EntityMEventQuestLimitContent{500: {StartDatetime: 1, EndDatetime: 100, EventQuestLimitContentDeckRestrictionId: 1}}, RestrictionById: map[int32]masterdata.EntityMEventQuestLimitContentDeckRestriction{1: {EventQuestLimitContentDeckRestrictionTargetId: 1, StartDatetime: 1, EndDatetime: 100}}, TargetTypesById: map[int32][]int32{1: {1}}}
 	if err := recordLimitContentDeck(user, catalog, 500, 10, 1, 50); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestLimitContentDeckRejectsReusedTargetsAndRecordsOnce(t *testing.T) {
 
 func TestLimitContentDeckRequiresRestrictedDeck(t *testing.T) {
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
-	catalog := &masterdata.LimitContentCatalog{ContentsByChapter: map[int32][]masterdata.EntityMEventQuestLimitContent{500: {{StartDatetime: 1, EndDatetime: 100, EventQuestLimitContentDeckRestrictionId: 1}}}, RestrictionsById: map[int32][]masterdata.EntityMEventQuestLimitContentDeckRestriction{1: {{EventQuestLimitContentDeckRestrictionTargetId: 1, StartDatetime: 1, EndDatetime: 100}}}, TargetTypesById: map[int32][]int32{1: {1}}}
+	catalog := &masterdata.LimitContentCatalog{ContentByChapter: map[int32]masterdata.EntityMEventQuestLimitContent{500: {StartDatetime: 1, EndDatetime: 100, EventQuestLimitContentDeckRestrictionId: 1}}, RestrictionById: map[int32]masterdata.EntityMEventQuestLimitContentDeckRestriction{1: {EventQuestLimitContentDeckRestrictionTargetId: 1, StartDatetime: 1, EndDatetime: 100}}, TargetTypesById: map[int32][]int32{1: {1}}}
 	if err := validateLimitContentDeck(user, catalog, 500, 1, 50); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("missing deck status = %v", status.Code(err))
 	}

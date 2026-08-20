@@ -21,24 +21,19 @@ func (h *QuestHandler) isQuestCleared(user *store.UserState, questId int32) bool
 	return quest.QuestStateType == model.UserQuestStateTypeCleared
 }
 
-func appendMissionRewards(dst []RewardGrant, src []masterdata.EntityMQuestMissionReward) []RewardGrant {
-	for _, r := range src {
-		dst = append(dst, RewardGrant{
-			PossessionType: model.PossessionType(r.PossessionType),
-			PossessionId:   r.PossessionId,
-			Count:          r.Count,
-		})
-	}
-	return dst
+func appendMissionReward(dst []RewardGrant, reward masterdata.EntityMQuestMissionReward) []RewardGrant {
+	return append(dst, RewardGrant{
+		PossessionType: model.PossessionType(reward.PossessionType),
+		PossessionId:   reward.PossessionId,
+		Count:          reward.Count,
+	})
 }
 
 func (h *QuestHandler) firstClearRewardGroupId(user *store.UserState, questDef masterdata.EntityMQuest) int32 {
 	rewardGroupId := questDef.QuestFirstClearRewardGroupId
-	for _, switchRow := range h.FirstClearRewardSwitchesByQuestId[questDef.QuestId] {
-		if h.isQuestCleared(user, switchRow.SwitchConditionClearQuestId) {
-			rewardGroupId = switchRow.QuestFirstClearRewardGroupId
-			break
-		}
+	switchRow, ok := h.FirstClearRewardSwitchByQuestId[questDef.QuestId]
+	if ok && h.isQuestCleared(user, switchRow.SwitchConditionClearQuestId) {
+		rewardGroupId = switchRow.QuestFirstClearRewardGroupId
 	}
 	return rewardGroupId
 }
@@ -92,7 +87,7 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 		_, alreadyReceived := user.QuestReplayFlowRewards[questDef.QuestReplayFlowRewardGroupId]
 		if !alreadyReceived {
 			outcome.ReplayRewardGroupId = questDef.QuestReplayFlowRewardGroupId
-			for _, reward := range h.ReplayFlowRewardsByGroupId[questDef.QuestReplayFlowRewardGroupId] {
+			if reward, ok := h.ReplayFlowRewardByGroupId[questDef.QuestReplayFlowRewardGroupId]; ok {
 				outcome.ReplayFlowFirstClearRewards = append(outcome.ReplayFlowFirstClearRewards, RewardGrant{
 					PossessionType: model.PossessionType(reward.PossessionType),
 					PossessionId:   reward.PossessionId,
@@ -123,10 +118,9 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 			} else if powerBonusApplies || h.questMissionSatisfied(user, questId, missionDef) {
 				clearedOrSatisfied++
 				outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
-				outcome.MissionClearRewards = appendMissionRewards(
-					outcome.MissionClearRewards,
-					h.MissionRewardsByMissionId[missionDef.QuestMissionRewardId],
-				)
+				if reward, ok := h.MissionRewardById[missionDef.QuestMissionRewardId]; ok {
+					outcome.MissionClearRewards = appendMissionReward(outcome.MissionClearRewards, reward)
+				}
 			}
 		}
 
@@ -140,10 +134,9 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 				key := store.QuestMissionKey{QuestId: questId, QuestMissionId: questMissionId}
 				if !user.QuestMissions[key].IsClear {
 					outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
-					outcome.MissionClearCompleteRewards = appendMissionRewards(
-						outcome.MissionClearCompleteRewards,
-						h.MissionRewardsByMissionId[missionDef.QuestMissionRewardId],
-					)
+					if reward, ok := h.MissionRewardById[missionDef.QuestMissionRewardId]; ok {
+						outcome.MissionClearCompleteRewards = appendMissionReward(outcome.MissionClearCompleteRewards, reward)
+					}
 					outcome.BigWinClearedQuestMissionIds = append(outcome.BigWinClearedQuestMissionIds, questMissionId)
 				}
 			}

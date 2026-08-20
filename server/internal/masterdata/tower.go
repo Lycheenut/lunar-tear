@@ -9,7 +9,7 @@ import (
 
 type TowerTier struct {
 	QuestMissionClearCount int32
-	Rewards                []RewardItem
+	Reward                 RewardItem
 }
 
 type TowerCatalog struct {
@@ -21,7 +21,9 @@ func (c *TowerCatalog) CollectRewards(chapterId, oldCount, targetCount int32) ([
 	highest := int32(0)
 	for _, t := range c.TiersByChapter[chapterId] {
 		if t.QuestMissionClearCount > oldCount && t.QuestMissionClearCount <= targetCount {
-			items = append(items, t.Rewards...)
+			if t.Reward.Count > 0 {
+				items = append(items, t.Reward)
+			}
 			if t.QuestMissionClearCount > highest {
 				highest = t.QuestMissionClearCount
 			}
@@ -46,13 +48,13 @@ func LoadTowerCatalog() *TowerCatalog {
 	if err != nil {
 		log.Fatalf("load event quest tower reward group table: %v", err)
 	}
-	itemsByRewardGroup := make(map[int32][]RewardItem)
+	itemByRewardGroup := make(map[int32]RewardItem, len(rewardGroupRows))
 	for _, r := range rewardGroupRows {
-		itemsByRewardGroup[r.EventQuestTowerRewardGroupId] = append(itemsByRewardGroup[r.EventQuestTowerRewardGroupId], RewardItem{
+		itemByRewardGroup[r.EventQuestTowerRewardGroupId] = RewardItem{
 			PossessionType: r.PossessionType,
 			PossessionId:   r.PossessionId,
 			Count:          r.Count,
-		})
+		}
 	}
 
 	// accumulation group id -> tiers (threshold + resolved reward items)
@@ -64,7 +66,7 @@ func LoadTowerCatalog() *TowerCatalog {
 	for _, r := range accumGroupRows {
 		tiersByGroup[r.EventQuestTowerAccumulationRewardGroupId] = append(tiersByGroup[r.EventQuestTowerAccumulationRewardGroupId], TowerTier{
 			QuestMissionClearCount: r.QuestMissionClearCount,
-			Rewards:                itemsByRewardGroup[r.EventQuestTowerRewardGroupId],
+			Reward:                 itemByRewardGroup[r.EventQuestTowerRewardGroupId],
 		})
 	}
 
