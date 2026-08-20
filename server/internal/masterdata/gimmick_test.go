@@ -18,7 +18,7 @@ func TestGimmickOrnamentRewardsLoadFromMasterData(t *testing.T) {
 	}
 }
 
-func TestReportGimmickRequiresItsClearCondition(t *testing.T) {
+func TestReportGimmickUnlockAndProgressUseDifferentConditions(t *testing.T) {
 	key := store.GimmickSequenceKey{GimmickSequenceScheduleId: 1, GimmickSequenceId: 2}
 	resolver := &ConditionResolver{
 		conditionsById: map[int32]EntityMEvaluateCondition{
@@ -36,12 +36,15 @@ func TestReportGimmickRequiresItsClearCondition(t *testing.T) {
 		conditions:              resolver,
 	}
 	user := store.SeedUserState(1, "report", 1, model.ClientPlatform{})
+	if !catalog.GimmickUnlockAvailable(user, 1, 2, 3, 50) {
+		t.Fatal("report gimmick unlock required its clear condition")
+	}
 	if catalog.GimmickAvailable(user, 1, 2, 3, 50) {
-		t.Fatal("report gimmick was available before its mission cleared")
+		t.Fatal("report gimmick progress was available before its mission cleared")
 	}
 	user.Missions[30] = store.UserMissionState{MissionId: 30, MissionProgressStatusType: int32(model.MissionProgressStatusTypeClear)}
 	if !catalog.GimmickAvailable(user, 1, 2, 3, 50) {
-		t.Fatal("cleared mission did not unlock report gimmick")
+		t.Fatal("cleared mission did not allow report gimmick progress")
 	}
 }
 
