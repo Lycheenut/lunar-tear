@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/google/uuid"
-
 	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/giftbox"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -411,16 +410,14 @@ func (h *GachaHandler) grantWeaponOrGift(user *store.UserState, item DrawnItem, 
 		return
 	}
 
-	user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
+	giftbox.AddNotReceived(user, store.NotReceivedGiftState{
 		GiftCommon: store.GiftCommonState{
 			PossessionType: item.PossessionType,
 			PossessionId:   item.PossessionId,
 			Count:          1,
 			GrantDatetime:  nowMillis,
 		},
-		UserGiftUuid: uuid.New().String(),
-	})
-	user.Notifications.GiftNotReceiveCount = int32(len(user.Gifts.NotReceived))
+	}, h.Config)
 }
 
 func (h *GachaHandler) tryCostumeDupExchange(user *store.UserState, item DrawnItem, index int) (DuplicateInfo, bool) {

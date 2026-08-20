@@ -7,13 +7,13 @@ import (
 	"log"
 	"time"
 
-	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/giftbox"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
@@ -53,7 +53,7 @@ func (s *LoginBonusServiceServer) ReceiveStamp(ctx context.Context, req *emptypb
 		ensureComebackCampaign(catalogs.Campaign, user, nowMillis)
 		syncLoginBonuses(catalogs.LoginBonus, catalogs.Campaign, user, nowMillis, false)
 		var applyErr error
-		receipts, applyErr = applyLoginBonusStamps(catalogs.LoginBonus, user, nowMillis)
+		receipts, applyErr = applyLoginBonusStamps(catalogs.LoginBonus, user, catalogs.GameConfig, nowMillis)
 		return applyErr
 	})
 	if err != nil {
@@ -80,7 +80,7 @@ type loginBonusReceipt struct {
 	reward              masterdata.LoginBonusReward
 }
 
-func applyLoginBonusStamps(catalog *masterdata.LoginBonusCatalog, user *store.UserState, nowMillis int64) ([]loginBonusReceipt, error) {
+func applyLoginBonusStamps(catalog *masterdata.LoginBonusCatalog, user *store.UserState, config *masterdata.GameConfig, nowMillis int64) ([]loginBonusReceipt, error) {
 	receipts := make([]loginBonusReceipt, 0)
 	for _, definition := range catalog.ActiveDefinitions(nowMillis) {
 		lb, ok := user.LoginBonuses[definition.LoginBonusId]
@@ -102,7 +102,7 @@ func applyLoginBonusStamps(catalog *masterdata.LoginBonusCatalog, user *store.Us
 			nextStamp: nextStamp,
 			reward:    reward,
 		})
-		user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
+		giftbox.AddNotReceived(user, store.NotReceivedGiftState{
 			GiftCommon: store.GiftCommonState{
 				PossessionType: reward.PossessionType,
 				PossessionId:   reward.PossessionId,
@@ -110,8 +110,7 @@ func applyLoginBonusStamps(catalog *masterdata.LoginBonusCatalog, user *store.Us
 				GrantDatetime:  nowMillis,
 			},
 			ExpirationDatetime: nowMillis + int64(30*24*time.Hour/time.Millisecond),
-			UserGiftUuid:       uuid.New().String(),
-		})
+		}, config)
 		lb.CurrentPageNumber = nextPage
 		lb.CurrentStampNumber = nextStamp
 		lb.LatestRewardReceiveDatetime = nowMillis

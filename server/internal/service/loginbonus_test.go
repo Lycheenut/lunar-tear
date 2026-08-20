@@ -32,7 +32,7 @@ func TestApplyLoginBonusStampsTreatsSameBusinessDayAsIdempotentReplay(t *testing
 	before := user
 	before.LoginBonuses = maps.Clone(user.LoginBonuses)
 
-	receipts, err := applyLoginBonusStamps(catalog, &user, now)
+	receipts, err := applyLoginBonusStamps(catalog, &user, nil, now)
 	if err != nil {
 		t.Fatalf("idempotent replay returned error: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestApplyLoginBonusStampsReceivesAllActiveBonuses(t *testing.T) {
 		},
 	}
 
-	receipts, err := applyLoginBonusStamps(loginBonuses, &user, now)
+	receipts, err := applyLoginBonusStamps(loginBonuses, &user, nil, now)
 	if err != nil {
 		t.Fatalf("receive all active login bonuses: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestApplyLoginBonusStampsReceivesAllActiveBonuses(t *testing.T) {
 		t.Fatalf("login bonus stamps were not advanced: %+v", user.LoginBonuses)
 	}
 
-	replayed, err := applyLoginBonusStamps(loginBonuses, &user, now)
+	replayed, err := applyLoginBonusStamps(loginBonuses, &user, nil, now)
 	if err != nil {
 		t.Fatalf("idempotent replay: %v", err)
 	}

@@ -7,9 +7,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/google/uuid"
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/gametime"
+	"lunar-tear/server/internal/giftbox"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
@@ -286,16 +286,14 @@ func grantShopPossession(granter *store.PossessionGranter, user *store.UserState
 	}
 
 	*user = beforeGrant
-	user.Gifts.NotReceived = append(user.Gifts.NotReceived, store.NotReceivedGiftState{
+	giftbox.AddNotReceived(user, store.NotReceivedGiftState{
 		GiftCommon: store.GiftCommonState{
 			PossessionType: possessionType,
 			PossessionId:   possessionId,
 			Count:          int32(totalCount),
 			GrantDatetime:  nowMillis,
 		},
-		UserGiftUuid: uuid.New().String(),
-	})
-	user.Notifications.GiftNotReceiveCount = int32(len(user.Gifts.NotReceived))
+	}, config)
 	return &pb.Possession{
 		PossessionType: possessionType,
 		PossessionId:   possessionId,
