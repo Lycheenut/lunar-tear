@@ -92,6 +92,22 @@ make restore
 
 Pick a backup from the list and confirm.
 
+### Repairing Oversized Gift-Box Records
+
+Stop the game server and back up `server/db/game.db` before running the repair. From the `server` directory, preview the affected records first:
+
+```bash
+go run ./cmd/split-oversized-gifts --dry-run
+```
+
+Then apply the repair:
+
+```bash
+go run ./cmd/split-oversized-gifts
+```
+
+Use `--db <path>` or `--master-data <path>` when the database or master-data binary is not at its default location. The command is transactional and safe to run again; it splits only unreceived material and consumable-item gifts whose count exceeds the configured possession limit.
+
 ### Exporting a Player Snapshot
 
 Export one player by their in-game player ID. JSON is written to stdout; the
