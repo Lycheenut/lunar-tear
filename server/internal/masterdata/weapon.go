@@ -25,6 +25,7 @@ type WeaponCatalog struct {
 	MedalsByWeaponId                    map[int32]map[int32]int32 // WeaponId -> ConsumableItemId -> Count
 	EvolutionNextWeaponId               map[int32]int32
 	EvolutionGroupByWeaponId            map[int32]int32
+	OriginalRarityByWeaponId            map[int32]int32
 	EvolutionOrder                      map[int32]int32                                 // WeaponId -> 0-based position in evolution chain
 	EvolutionMaterials                  map[int32][]EntityMWeaponEvolutionMaterialGroup // WeaponEvolutionMaterialGroupId -> materials
 	EvolutionCostByEnhanceId            map[int32]NumericalFunc
@@ -69,7 +70,11 @@ func (c *WeaponCatalog) LimitBreakMaterialOptions(weaponId, currentLimitBreakCou
 			options = append(options, MaterialOption{MaterialId: row.MaterialId, Count: row.Count})
 		}
 	}
-	options = append(options, c.RarityLimitBreakByRarity[weapon.RarityType]...)
+	rarityType := weapon.RarityType
+	if originalRarity, found := c.OriginalRarityByWeaponId[weaponId]; found {
+		rarityType = originalRarity
+	}
+	options = append(options, c.RarityLimitBreakByRarity[rarityType]...)
 	return uniqueMaterialOptions(options)
 }
 
@@ -169,6 +174,7 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 		MedalsByWeaponId:                    make(map[int32]map[int32]int32),
 		EvolutionNextWeaponId:               make(map[int32]int32),
 		EvolutionGroupByWeaponId:            make(map[int32]int32),
+		OriginalRarityByWeaponId:            make(map[int32]int32, len(weapons)),
 		EvolutionOrder:                      make(map[int32]int32),
 		EvolutionMaterials:                  make(map[int32][]EntityMWeaponEvolutionMaterialGroup),
 		EvolutionCostByEnhanceId:            make(map[int32]NumericalFunc, len(enhanceRows)),
@@ -197,6 +203,7 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 
 	for _, w := range weapons {
 		catalog.Weapons[w.WeaponId] = w
+		catalog.OriginalRarityByWeaponId[w.WeaponId] = w.RarityType
 	}
 
 	for _, r := range enhanceRows {
@@ -279,8 +286,10 @@ func LoadWeaponCatalog(matCatalog *MaterialCatalog) (*WeaponCatalog, error) {
 		sort.Slice(rows, func(i, j int) bool {
 			return rows[i].EvolutionOrder < rows[j].EvolutionOrder
 		})
+		originalRarity := catalog.Weapons[rows[0].WeaponId].RarityType
 		for i, row := range rows {
 			catalog.EvolutionOrder[row.WeaponId] = int32(i)
+			catalog.OriginalRarityByWeaponId[row.WeaponId] = originalRarity
 			if i < len(rows)-1 {
 				catalog.EvolutionNextWeaponId[row.WeaponId] = rows[i+1].WeaponId
 			}

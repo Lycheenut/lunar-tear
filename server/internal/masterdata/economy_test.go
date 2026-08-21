@@ -52,3 +52,25 @@ func TestWeaponLimitBreakMaterialOptionsUseSpecificAndRarityAlternatives(t *test
 		t.Fatalf("limit break options = %+v", options)
 	}
 }
+
+func TestWeaponLimitBreakMaterialOptionsUseOriginalRarityAfterEvolution(t *testing.T) {
+	catalog := &WeaponCatalog{
+		Weapons: map[int32]EntityMWeapon{
+			1: {WeaponId: 1, RarityType: 20},
+			2: {WeaponId: 2, RarityType: 30},
+		},
+		OriginalRarityByWeaponId: map[int32]int32{
+			1: 20,
+			2: 20,
+		},
+		RarityLimitBreakByRarity: map[int32][]MaterialOption{
+			20: {{MaterialId: 312001, Count: 1}},
+			30: {{MaterialId: 312002, Count: 1}},
+		},
+	}
+
+	options := catalog.LimitBreakMaterialOptions(2, 0)
+	if len(options) != 1 || options[0] != (MaterialOption{MaterialId: 312001, Count: 1}) {
+		t.Fatalf("evolved weapon limit break options = %+v, want original-rarity pearl", options)
+	}
+}

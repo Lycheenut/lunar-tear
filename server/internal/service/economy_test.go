@@ -34,3 +34,35 @@ func TestSelectedMaterialCostsSupportsDifferentAlternativeRates(t *testing.T) {
 		t.Fatalf("unknown material status = %v, want InvalidArgument", status.Code(err))
 	}
 }
+
+func TestSelectedMaterialCostsAcceptsUniversalLimitBreakMaterials(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		materials map[int32]int32
+		options   []masterdata.MaterialOption
+	}{
+		{
+			name:      "costume handbook",
+			materials: map[int32]int32{311003: 10},
+			options: []masterdata.MaterialOption{
+				{MaterialId: 311100, Count: 10},
+				{MaterialId: 311003, Count: 10},
+			},
+		},
+		{
+			name:      "weapon pearl",
+			materials: map[int32]int32{312001: 1},
+			options: []masterdata.MaterialOption{
+				{MaterialId: 312100, Count: 1},
+				{MaterialId: 312001, Count: 1},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			costs, steps, err := selectedMaterialCosts(tc.materials, tc.options)
+			if err != nil || steps != 1 || len(costs) != 1 {
+				t.Fatalf("selection = %d steps and %d costs, err=%v; want one step and one cost", steps, len(costs), err)
+			}
+		})
+	}
+}
