@@ -3216,6 +3216,7 @@
     { key: "weapon", catalogKey: "weapons", possessionType: "2", label: "武器", fallbackName: "未命名武器", glyph: "武" },
     { key: "companion", catalogKey: "companions", possessionType: "3", label: "伙伴", fallbackName: "未命名伙伴", glyph: "伙" },
     { key: "consumable", catalogKey: "consumableItems", possessionType: "6", label: "消耗品", fallbackName: "未命名消耗品", glyph: "消" },
+    { key: "important_item", catalogKey: "importantItems", possessionType: "13", label: "重要道具", fallbackName: "未命名重要道具", glyph: "重" },
     { key: "free_gem", catalogKey: "freeGems", possessionType: "12", label: "免费宝石", fallbackName: "免费宝石", glyph: "石" }
   ];
   const rewardTypes = rewardDefinitions.map((definition) => definition.key);
@@ -3394,6 +3395,8 @@
       summary.textContent = weaponAttributeLabels[item.attributeType] || `属性 ${item.attributeType}`;
     } else if (rewardType === "consumable") {
       summary.textContent = `消耗品类型 ${item.consumableType}`;
+    } else if (rewardType === "important_item") {
+      summary.textContent = "重要道具";
     } else {
       summary.textContent = "免费宝石";
     }

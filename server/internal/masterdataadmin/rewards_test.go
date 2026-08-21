@@ -1,10 +1,40 @@
 package masterdataadmin
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"lunar-tear/server/internal/masterdata"
 )
+
+func TestInstalledRewardCatalogResolvesCommemorativeImportantItem(t *testing.T) {
+	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master data is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := LoadRewardReferenceCatalog(masterDataPath, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range catalog.ImportantItems {
+		if item.PossessionId != 310010 {
+			continue
+		}
+		if item.Names["en"] == "" || item.Names["ja"] == "" {
+			t.Fatalf("important item 310010 has incomplete names: %+v", item.Names)
+		}
+		if item.IconPath != "important_item/important310010/important310010_standard.png" {
+			t.Fatalf("important item 310010 icon = %q", item.IconPath)
+		}
+		return
+	}
+	t.Fatal("reward catalog is missing important item 310010")
+}
 
 func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 	resolver := &titleResolver{texts: localizationIndex{
@@ -14,6 +44,7 @@ func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 			"costume.name.ch003004":       "Abstract Hunter",
 			"companion.name.cm001002":     "Bear: Precious",
 			"consumable_item.name.110004": "Gold Automata Medal",
+			"important_item.name.310010":  "Record: The Girl and the Monster",
 		},
 		"ja": {},
 		"ko": {},
@@ -56,6 +87,15 @@ func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 	}, resolver)
 	if !ok || consumable.Names["en"] != "Gold Automata Medal" || consumable.IconPath != "consumable_item/consumable110004/consumable110004_standard.png" {
 		t.Fatalf("unexpected consumable reference: %+v", consumable)
+	}
+
+	importantItem, ok := importantItemRewardReference([]interface{}{
+		int32(310010), int32(310010), int32(310010), int32(1), int32(310), int32(10),
+		int32(0), int32(0), int32(0), int32(1), int32(0),
+	}, resolver)
+	if !ok || importantItem.Names["en"] != "Record: The Girl and the Monster" ||
+		importantItem.IconPath != "important_item/important310010/important310010_standard.png" {
+		t.Fatalf("unexpected important-item reference: %+v", importantItem)
 	}
 }
 

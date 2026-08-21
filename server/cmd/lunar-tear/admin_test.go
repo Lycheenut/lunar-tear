@@ -230,6 +230,18 @@ func TestAdminMissionRewardUsesRestrictedStructuralUpdates(t *testing.T) {
 	}
 }
 
+func TestAdminRewardCatalogIncludesImportantItems(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	if !strings.Contains(html, `<option value="important_item">重要道具</option>`) {
+		t.Fatal("reward reference filter is missing important items")
+	}
+	if !strings.Contains(javascript, `{ key: "important_item", catalogKey: "importantItems", possessionType: "13"`) {
+		t.Fatal("reward definitions are missing ImportantItem possession type 13")
+	}
+}
+
 func adminAssetBody(t *testing.T, path string) string {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)

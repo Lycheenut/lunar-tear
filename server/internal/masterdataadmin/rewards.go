@@ -31,6 +31,7 @@ type RewardReferenceCatalog struct {
 	Weapons         []RewardReference `json:"weapons"`
 	Companions      []RewardReference `json:"companions"`
 	ConsumableItems []RewardReference `json:"consumableItems"`
+	ImportantItems  []RewardReference `json:"importantItems"`
 	FreeGems        []RewardReference `json:"freeGems"`
 }
 
@@ -79,6 +80,11 @@ func LoadRewardReferenceCatalog(
 			result.ConsumableItems = append(result.ConsumableItems, reference)
 		}
 	}
+	for _, row := range readRows(file, "m_important_item") {
+		if reference, ok := importantItemRewardReference(row, resolver); ok {
+			result.ImportantItems = append(result.ImportantItems, reference)
+		}
+	}
 	result.FreeGems = []RewardReference{{
 		PossessionType: int32(model.PossessionTypeFreeGem),
 		Names:          resolver.byKey("gem.name"),
@@ -96,6 +102,9 @@ func LoadRewardReferenceCatalog(
 	})
 	sort.Slice(result.ConsumableItems, func(i, j int) bool {
 		return result.ConsumableItems[i].PossessionId < result.ConsumableItems[j].PossessionId
+	})
+	sort.Slice(result.ImportantItems, func(i, j int) bool {
+		return result.ImportantItems[i].PossessionId < result.ImportantItems[j].PossessionId
 	})
 	return result, nil
 }
@@ -198,6 +207,23 @@ func consumableRewardReference(row []interface{}, resolver *titleResolver) (Rewa
 		Names:          resolver.byKey(fmt.Sprintf("consumable_item.name.%03d%03d", categoryID, variationID)),
 		IconPath:       path.Join("consumable_item", assetName, assetName+"_standard.png"),
 		ConsumableType: int32(consumableType),
+	}, true
+}
+
+func importantItemRewardReference(row []interface{}, resolver *titleResolver) (RewardReference, bool) {
+	id, idOK := integerAt(row, 0)
+	nameTextID, nameOK := integerAt(row, 1)
+	categoryID, categoryOK := integerAt(row, 4)
+	variationID, variationOK := integerAt(row, 5)
+	if !idOK || !nameOK || !categoryOK || !variationOK {
+		return RewardReference{}, false
+	}
+	assetName := fmt.Sprintf("important%03d%03d", categoryID, variationID)
+	return RewardReference{
+		PossessionType: int32(model.PossessionTypeImportantItem),
+		PossessionId:   int32(id),
+		Names:          resolver.byKey(fmt.Sprintf("important_item.name.%d", nameTextID)),
+		IconPath:       path.Join("important_item", assetName, assetName+"_standard.png"),
 	}, true
 }
 
