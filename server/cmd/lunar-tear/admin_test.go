@@ -169,10 +169,25 @@ func TestAdminSearchableSelectAppliedToRequestedFilters(t *testing.T) {
 		"premium Gacha banner": `createSearchableSelect(elements.gachaBannerSelect`,
 		"Box Gacha banner":     `createSearchableSelect(elements.boxGachaBannerSelect`,
 		"LoginBonusId":         `definition.field === "LoginBonusId"`,
-		"MissionReward group":  `table.name === "m_mission_reward" ? { placeholder: "搜索任务组 ID 或名称" } : null`,
+		"Mission groups":       `{ placeholder: "搜索任务组 ID 或名称" }`,
 	} {
 		if !strings.Contains(javascript, required) {
 			t.Fatalf("%s does not use the searchable select", name)
+		}
+	}
+}
+
+func TestAdminMissionTermUsesRequestedLayout(t *testing.T) {
+	css := adminAssetBody(t, "/admin/admin.css")
+
+	for _, required := range []string{
+		`.mission-term-editor {`,
+		`grid-template-columns: minmax(0, 1.25fr) minmax(500px, 1fr);`,
+		`.toolbar:has(#detail-mode-control.hidden)`,
+		`minmax(300px, 1fr) max-content`,
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("admin CSS is missing requested MissionTerm layout rule %s", required)
 		}
 	}
 }

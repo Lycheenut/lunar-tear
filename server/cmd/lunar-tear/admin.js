@@ -635,7 +635,7 @@
         "任务组", "MissionGroupId", groupValues,
         (value) => missionGroupSourceLabel(groupByID.get(value)),
         previous.get("MissionGroupId"), renderTable,
-        table.name === "m_mission_reward" ? { placeholder: "搜索任务组 ID 或名称" } : null
+        { placeholder: "搜索任务组 ID 或名称" }
       );
     }
   }

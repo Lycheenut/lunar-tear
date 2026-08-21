@@ -656,6 +656,10 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   height: 100%;
   gap: 12px;
 }
+.mission-term-editor {
+  grid-template-columns: minmax(0, 1.25fr) minmax(500px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
 .mission-reward-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1061,6 +1065,15 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .impact-no-change { color: var(--muted); font-size: 11px; }
 
 @media (min-width: 901px) {
+  .toolbar:has(#detail-mode-control.hidden) {
+    grid-template-columns: minmax(220px, 1.2fr) 115px 110px minmax(300px, 1fr) max-content;
+  }
+  .toolbar:has(#status-filter-label.hidden) {
+    grid-template-columns: minmax(220px, 1.2fr) 126px 110px minmax(300px, 1fr) max-content;
+  }
+  .toolbar:has(#detail-mode-control.hidden):has(#status-filter-label.hidden) {
+    grid-template-columns: minmax(220px, 1.2fr) 110px minmax(300px, 1fr) max-content;
+  }
   .master-layout.with-reward-reference { align-items: stretch; }
   .master-layout.with-reward-reference > .data-panel,
   .master-layout.with-reward-reference > .reward-reference {
@@ -1101,6 +1114,13 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionType"] { width: 24%; }
   .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionId"] { width: 50%; }
   .master-layout.with-reward-reference #schedule-table [data-field="RewardCount"] { width: 14%; }
+}
+
+@media (max-width: 1100px) {
+  .mission-term-editor {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
