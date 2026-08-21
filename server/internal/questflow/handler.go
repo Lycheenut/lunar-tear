@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"lunar-tear/server/internal/campaign"
+	"lunar-tear/server/internal/importantitem"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -36,10 +37,11 @@ type QuestHandler struct {
 	Granter                        *store.PossessionGranter
 	SideStoryChapterByEventQuestId map[int32]int32
 	Campaigns                      *campaign.Catalog
+	ImportantItemEffects           *importantitem.Catalog
 	CharacterRebirth               *masterdata.CharacterRebirthCatalog
 }
 
-func NewQuestHandler(catalog *masterdata.QuestCatalog, config *masterdata.GameConfig, sideStory *masterdata.SideStoryCatalog, campaigns *campaign.Catalog, characterRebirth *masterdata.CharacterRebirthCatalog) *QuestHandler {
+func NewQuestHandler(catalog *masterdata.QuestCatalog, config *masterdata.GameConfig, sideStory *masterdata.SideStoryCatalog, campaigns *campaign.Catalog, importantItemEffects *importantitem.Catalog, characterRebirth *masterdata.CharacterRebirthCatalog) *QuestHandler {
 	granter := BuildGranter(catalog, config)
 	var sideStoryChapters map[int32]int32
 	if sideStory != nil {
@@ -51,6 +53,7 @@ func NewQuestHandler(catalog *masterdata.QuestCatalog, config *masterdata.GameCo
 		Granter:                        granter,
 		SideStoryChapterByEventQuestId: sideStoryChapters,
 		Campaigns:                      campaigns,
+		ImportantItemEffects:           importantItemEffects,
 		CharacterRebirth:               characterRebirth,
 	}
 }

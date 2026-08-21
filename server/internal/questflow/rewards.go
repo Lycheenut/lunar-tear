@@ -262,10 +262,18 @@ func (h *QuestHandler) computeDropRewardsForRun(
 	}
 	for _, planned := range h.battleDropPlan(user, questDef.QuestId, runSeed) {
 		if bdr, ok := h.BattleDropRewardById[planned.BattleDropRewardId]; ok {
+			itemDropRate := dropRate
+			itemDropCount := dropCount
+			if h.ImportantItemEffects != nil {
+				ratePermil, countPermil := h.ImportantItemEffects.QuestBonuses(
+					user.ImportantItems, target, model.PossessionType(bdr.PossessionType), bdr.PossessionId, nowMillis)
+				itemDropRate = itemDropRate.WithBonusPermil(ratePermil)
+				itemDropCount = itemDropCount.WithBonusPermil(countPermil)
+			}
 			drops = append(drops, RewardGrant{
 				PossessionType: model.PossessionType(bdr.PossessionType),
 				PossessionId:   bdr.PossessionId,
-				Count:          dropCount.Apply(dropRate.Apply(bdr.Count)),
+				Count:          itemDropCount.Apply(itemDropRate.Apply(bdr.Count)),
 				RewardEffectId: planned.BattleDropEffectId,
 			})
 		}

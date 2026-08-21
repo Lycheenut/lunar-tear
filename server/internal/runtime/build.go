@@ -6,6 +6,7 @@ import (
 
 	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gacha"
+	"lunar-tear/server/internal/importantitem"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/questflow"
@@ -50,12 +51,17 @@ func buildCatalogs(gachaConfig *gacha.Config) (*Catalogs, error) {
 		return nil, fmt.Errorf("load campaign catalog: %w", err)
 	}
 	log.Printf("campaign catalog loaded: %d enhance, %d quest", campaignCatalog.EnhanceCount(), campaignCatalog.QuestCount())
+	importantItemEffects, err := importantitem.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load important item effects: %w", err)
+	}
+	log.Printf("important item effects loaded: %d server-side effects", importantItemEffects.EffectCount())
 	characterRebirthCatalog, err := masterdata.LoadCharacterRebirthCatalog()
 	if err != nil {
 		return nil, fmt.Errorf("load character rebirth catalog: %w", err)
 	}
 	log.Printf("character rebirth catalog loaded: %d characters", len(characterRebirthCatalog.StepGroupByCharacterId))
-	questHandler := questflow.NewQuestHandler(questCatalog, gameConfig, sideStoryCatalog, campaignCatalog, characterRebirthCatalog)
+	questHandler := questflow.NewQuestHandler(questCatalog, gameConfig, sideStoryCatalog, campaignCatalog, importantItemEffects, characterRebirthCatalog)
 	userdata.SetQuestHandler(questHandler)
 
 	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog()
@@ -197,6 +203,7 @@ func buildCatalogs(gachaConfig *gacha.Config) (*Catalogs, error) {
 		Labyrinth:         labyrinthCatalog,
 		LimitContent:      limitContentCatalog,
 		Campaign:          campaignCatalog,
+		ImportantItems:    importantItemEffects,
 		QuestHandler:      questHandler,
 		GachaHandler:      gachaHandler,
 	}, nil
