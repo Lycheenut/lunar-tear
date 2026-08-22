@@ -401,6 +401,11 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 	}
 }
 
+var guaranteedThreeStarPromotionWeaponIds = []int32{
+	220061, // Guardian Traveler / 守護たる冒険者
+	210181, // Guardian Exile / 守護たる亡命者
+}
+
 var guaranteedFourStarPromotionWeaponIds = []int32{
 	320081, // Abstract Assassin / 形而上の剣客
 	350161, // Abstract Gunman / 形而上の射手
@@ -411,32 +416,22 @@ func guaranteedTicketPromotions(gachaId int32, banner *PremiumBannerPool) []stor
 	if banner == nil {
 		return nil
 	}
-	if gachaId == model.GachaIdGuaranteedFourStar {
-		promotions := make([]store.GachaPromotionItem, 0, len(guaranteedFourStarPromotionWeaponIds))
-		for _, weaponId := range guaranteedFourStarPromotionWeaponIds {
-			if item, ok := banner.ItemsByWeaponId[weaponId]; ok {
-				promotions = append(promotions, promotionFromPoolItem(item))
-			}
-		}
-		return promotions
+	var weaponIds []int32
+	switch gachaId {
+	case model.GachaIdGuaranteedThreeStarOrHigher:
+		weaponIds = guaranteedThreeStarPromotionWeaponIds
+	case model.GachaIdGuaranteedFourStar:
+		weaponIds = guaranteedFourStarPromotionWeaponIds
+	default:
+		return nil
 	}
-	minimumRarity := model.RaritySRare
-	for _, group := range banner.Groups {
-		if group.Rarity != minimumRarity {
-			continue
+	promotions := make([]store.GachaPromotionItem, 0, len(weaponIds))
+	for _, weaponId := range weaponIds {
+		if item, ok := banner.ItemsByWeaponId[weaponId]; ok {
+			promotions = append(promotions, promotionFromPoolItem(item))
 		}
-		var item PoolItem
-		switch {
-		case len(group.NonPickup) > 0:
-			item = group.NonPickup[0]
-		case len(group.Pickup) > 0:
-			item = group.Pickup[0]
-		default:
-			continue
-		}
-		return []store.GachaPromotionItem{promotionFromPoolItem(item)}
 	}
-	return nil
+	return promotions
 }
 
 func promotionFromPoolItem(item PoolItem) store.GachaPromotionItem {
