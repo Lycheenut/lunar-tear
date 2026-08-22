@@ -17,6 +17,7 @@ const (
 
 type QuestDropType struct {
 	ID    string `json:"id"`
+	Value int32  `json:"value"`
 	Label string `json:"label"`
 }
 
@@ -72,16 +73,15 @@ type questPlacement struct {
 }
 
 var questDropTypes = []QuestDropType{
-	{ID: "main", Label: "主线副本"},
-	{ID: "event-4", Label: "每日副本"},
-	{ID: "event-5", Label: "游击副本"},
-	{ID: "event-6", Label: "角色副本"},
-	{ID: "event-7", Label: "角色剧情副本"},
-	{ID: "event-8", Label: "牢笼副本"},
-	{ID: "event-9", Label: "特殊副本"},
-	{ID: "event-10", Label: "天顶之塔"},
-	{ID: "event-11", Label: "限制副本"},
-	{ID: "event-12", Label: "迷宫副本"},
+	{ID: "main", Value: 1, Label: "MAIN_QUEST"},
+	{ID: "event-4", Value: 4, Label: "DAY_OF_THE_WEEK"},
+	{ID: "event-5", Value: 5, Label: "GUERRILLA"},
+	{ID: "event-6", Value: 6, Label: "CHARACTER"},
+	{ID: "event-7", Value: 7, Label: "CHARACTER_QUEST"},
+	{ID: "event-8", Value: 8, Label: "CAGE"},
+	{ID: "event-10", Value: 10, Label: "TOWER"},
+	{ID: "event-11", Value: 11, Label: "LIMIT_CONTENT"},
+	{ID: "event-12", Value: 12, Label: "LABYRINTH"},
 }
 
 func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDropEditorCatalog {
@@ -291,7 +291,7 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		sortOrder, sortOK := integerAt(row, 2)
 		nameTextID, nameOK := integerAt(row, 3)
 		groupID, groupOK := integerAt(row, 7)
-		if !chapterOK || !typeOK || !sortOK || !groupOK || eventType <= 3 || eventType > 12 {
+		if !chapterOK || !typeOK || !sortOK || !groupOK || eventType <= 3 || eventType == 9 || eventType > 12 {
 			continue
 		}
 		var names map[string]string

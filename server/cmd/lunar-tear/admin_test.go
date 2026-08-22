@@ -161,23 +161,24 @@ func TestAdminDeliveryUsesSearchableRewardsAndReferenceLookups(t *testing.T) {
 	}
 }
 
-func TestAdminQuestDropEditorSeparatesRewardAndAcquisitionPreviews(t *testing.T) {
+func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")
 	javascript := adminAssetBody(t, "/admin/admin.js")
 
 	for _, required := range []string{
 		`id="quest-drop-editor"`, `id="quest-drop-search"`,
-		`<th>关卡</th><th>掉落内容</th><th>奖励预览</th>`, `id="quest-drop-page-info"`,
-		`id="quest-route-quest-select"`, `id="quest-route-possession-list"`,
+		`<h3>QuestPickupRewardGroup</h3>`,
+		`<th>QuestId</th><th>掉落内容</th><th>奖励预览</th><th>获得路径预览</th>`,
+		`id="quest-drop-page-info"`,
 	} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("quest drop HTML is missing %s", required)
 		}
 	}
 	for _, required := range []string{
-		".quest-drop-editor", ".quest-drop-item", ".quest-drop-workspace",
-		".quest-drop-pickup-preview", ".quest-route-preview", ".quest-route-possession",
+		".quest-drop-editor", ".quest-drop-item", ".quest-drop-main",
+		".quest-drop-pickup-preview", ".quest-drop-route-preview", ".quest-drop-preview-row",
 	} {
 		if !strings.Contains(css, required) {
 			t.Fatalf("quest drop CSS is missing %s", required)
@@ -185,8 +186,13 @@ func TestAdminQuestDropEditorSeparatesRewardAndAcquisitionPreviews(t *testing.T)
 	}
 	for _, required := range []string{
 		`typeLabel.textContent = "副本类型"`, `chapterLabel.textContent = "章节"`,
+		"new Option(`${definition.value}. ${definition.label}`, definition.id)",
+		`state.questDropTypeFilter = editor.types[0]?.id || ""`,
+		`state.questDropChapterFilter = chapterSelect.options[0]?.value || ""`,
 		`function questDropRewardOptions()`, `function renderQuestDropPickupPreview(quest)`,
-		`function renderQuestRoutePreview()`, `createSearchableSelect(elements.questRouteQuestSelect`,
+		`function renderQuestDropRoutePreview(quest)`, `row.append(identity, content, preview, routePreview)`,
+		"detail.textContent = `${rewardID}. ${questDropRewardName(reward)} ×${reward?.count ?? \"?\"}`",
+		"chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder} ${questDropDifficultyLabel(quest)}`",
 		`function questDropReplacementPayload()`, `api("/api/admin/quest-drop-config"`,
 		`weightInput.type = "number"`, `在同一关卡中只能配置一条`,
 		`table.name === "m_quest_pickup_reward_group"`,
@@ -195,9 +201,15 @@ func TestAdminQuestDropEditorSeparatesRewardAndAcquisitionPreviews(t *testing.T)
 			t.Fatalf("quest drop JavaScript is missing %s", required)
 		}
 	}
-	for _, obsolete := range []string{`recommendedPossessions`, `Pickup / 获得途径（并集）`} {
-		if strings.Contains(javascript, obsolete) {
-			t.Fatalf("quest drop selector still mixes acquisition routes into RewardId options: %s", obsolete)
+	for _, obsolete := range []string{
+		`recommendedPossessions`, `Pickup / 获得途径（并集）`, `id="quest-route-quest-select"`,
+		`id="quest-route-possession-list"`, `.quest-drop-workspace`, `.quest-route-preview`,
+		`if (table.name === "m_quest_pickup_reward_group") return "关卡掉落"`,
+		`默认 PickupGroup`, "heading.textContent = `Quest ${quest.questId}`",
+		"id.textContent = `Reward ${rewardID}`", ` · Drop ${reward.battleDropRewardId}`,
+	} {
+		if strings.Contains(html, obsolete) || strings.Contains(css, obsolete) || strings.Contains(javascript, obsolete) {
+			t.Fatalf("quest drop editor still contains obsolete presentation: %s", obsolete)
 		}
 	}
 }

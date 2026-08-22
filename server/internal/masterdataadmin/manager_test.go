@@ -346,8 +346,30 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 		t.Fatalf("incomplete quest drop catalog: types=%d chapters=%d quests=%d rewards=%d",
 			len(editor.Types), len(editor.Chapters), len(editor.Quests), len(editor.Rewards))
 	}
+	expectedTypes := map[string]QuestDropType{
+		"main":     {ID: "main", Value: 1, Label: "MAIN_QUEST"},
+		"event-4":  {ID: "event-4", Value: 4, Label: "DAY_OF_THE_WEEK"},
+		"event-5":  {ID: "event-5", Value: 5, Label: "GUERRILLA"},
+		"event-6":  {ID: "event-6", Value: 6, Label: "CHARACTER"},
+		"event-7":  {ID: "event-7", Value: 7, Label: "CHARACTER_QUEST"},
+		"event-8":  {ID: "event-8", Value: 8, Label: "CAGE"},
+		"event-10": {ID: "event-10", Value: 10, Label: "TOWER"},
+		"event-11": {ID: "event-11", Value: 11, Label: "LIMIT_CONTENT"},
+		"event-12": {ID: "event-12", Value: 12, Label: "LABYRINTH"},
+	}
+	if len(editor.Types) != len(expectedTypes) {
+		t.Fatalf("quest drop types=%d, want %d", len(editor.Types), len(expectedTypes))
+	}
+	for _, definition := range editor.Types {
+		if expected, exists := expectedTypes[definition.ID]; !exists || definition != expected {
+			t.Fatalf("unexpected quest drop type: %+v", definition)
+		}
+	}
 	chapters := make(map[string]bool, len(editor.Chapters))
 	for _, chapter := range editor.Chapters {
+		if chapter.TypeID == "event-9" {
+			t.Fatalf("activity chapter %d is configurable", chapter.ChapterID)
+		}
 		chapters[chapter.TypeID+"/"+strconv.FormatInt(int64(chapter.ChapterID), 10)] = true
 	}
 	file, err := memorydb.OpenFile(path)
@@ -427,7 +449,7 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 	}
 	foundRoutePossession := false
 	for _, quest := range editor.Quests {
-		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" {
+		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" || quest.TypeID == "event-9" {
 			t.Fatalf("event quest %d of excluded type %s is configurable", quest.QuestID, quest.TypeID)
 		}
 		if !chapters[quest.TypeID+"/"+strconv.FormatInt(int64(quest.ChapterID), 10)] {
