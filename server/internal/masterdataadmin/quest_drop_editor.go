@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/questdrop"
@@ -72,6 +73,16 @@ type questPlacement struct {
 	sortOrder      int32
 }
 
+type mainStoryChapterSpec struct {
+	chapterID           int32
+	nameMissionTextID   int32
+	mainQuestChapterIDs []int32
+}
+
+type mainQuestChapterDefinition struct {
+	sequenceGroupID int32
+}
+
 var questDropTypes = []QuestDropType{
 	{ID: "main", Value: 1, Label: "MAIN_QUEST"},
 	{ID: "event-4", Value: 4, Label: "DAY_OF_THE_WEEK"},
@@ -82,6 +93,25 @@ var questDropTypes = []QuestDropType{
 	{ID: "event-10", Value: 10, Label: "TOWER"},
 	{ID: "event-11", Value: 11, Label: "LIMIT_CONTENT"},
 	{ID: "event-12", Value: 12, Label: "LABYRINTH"},
+}
+
+// MainQuestChapterId identifies internal route segments, not the 1-30 chapter
+// number shown to players. These groups follow the main-story completion
+// missions; prologue and joined hidden segments stay with their visible chapter.
+var mainStoryChapterSpecs = []mainStoryChapterSpec{
+	{1, 210001, []int32{1, 2}}, {2, 210002, []int32{3}}, {3, 210003, []int32{4}},
+	{4, 210004, []int32{5}}, {5, 210005, []int32{6}}, {6, 210006, []int32{7}},
+	{7, 210007, []int32{8, 9}}, {8, 210008, []int32{10}}, {9, 210017, []int32{11}},
+	{10, 210019, []int32{12}}, {11, 210020, []int32{13}}, {12, 210021, []int32{14}},
+	{13, 210030, []int32{15, 16}}, {14, 210031, []int32{23, 24}},
+	{15, 210032, []int32{17}}, {16, 210033, []int32{25}},
+	{17, 210034, []int32{18}}, {18, 210035, []int32{26}},
+	{19, 210036, []int32{19, 20}}, {20, 210028, []int32{27, 28}},
+	{21, 210038, []int32{21}}, {22, 210039, []int32{29}},
+	{23, 210040, []int32{22}}, {24, 210041, []int32{30}},
+	{25, 210060, []int32{31, 32}}, {26, 210061, []int32{33}},
+	{27, 210062, []int32{34}}, {28, 210063, []int32{35}},
+	{29, 210064, []int32{36}}, {30, 210065, []int32{37, 38}},
 }
 
 func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDropEditorCatalog {
@@ -202,17 +232,7 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 		result.Rewards = append(result.Rewards, reward)
 	}
 	sort.Slice(result.Rewards, func(i, j int) bool {
-		left, right := result.Rewards[i], result.Rewards[j]
-		if left.PossessionType != right.PossessionType {
-			return left.PossessionType < right.PossessionType
-		}
-		if left.PossessionID != right.PossessionID {
-			return left.PossessionID < right.PossessionID
-		}
-		if left.Count != right.Count {
-			return left.Count < right.Count
-		}
-		return left.BattleDropRewardID < right.BattleDropRewardID
+		return result.Rewards[i].BattleDropRewardID < result.Rewards[j].BattleDropRewardID
 	})
 	return result
 }
@@ -244,10 +264,7 @@ func questDropRewardAt(row []interface{}) (QuestDropReward, bool) {
 func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]questPlacement, []QuestDropChapter) {
 	var placements []questPlacement
 	var chapters []QuestDropChapter
-	appendPlacements := func(typeID string, chapterID, chapterSort, sequenceGroupID int32, sequenceGroups, sequences [][]interface{}, names map[string]string) {
-		chapters = append(chapters, QuestDropChapter{
-			TypeID: typeID, ChapterID: chapterID, SortOrder: chapterSort, Names: names,
-		})
+	appendPlacements := func(typeID string, chapterID, sequenceGroupID int32, sequenceGroups, sequences [][]interface{}) {
 		sequenceIDs := make(map[int32]int32)
 		for _, row := range sequenceGroups {
 			groupID, groupOK := integerAt(row, 0)
@@ -274,12 +291,13 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 
 	mainGroups := readRows(file, "m_main_quest_sequence_group")
 	mainSequences := readRows(file, "m_main_quest_sequence")
-	for _, row := range readRows(file, "m_main_quest_chapter") {
-		chapterID, chapterOK := integerAt(row, 0)
-		sortOrder, sortOK := integerAt(row, 2)
-		groupID, groupOK := integerAt(row, 3)
-		if chapterOK && sortOK && groupOK {
-			appendPlacements("main", int32(chapterID), int32(sortOrder), int32(groupID), mainGroups, mainSequences, nil)
+	for _, chapter := range mainStoryQuestChapters(file) {
+		chapters = append(chapters, QuestDropChapter{
+			TypeID: "main", ChapterID: chapter.chapterID, SortOrder: chapter.chapterID,
+			Names: mainStoryChapterNames(resolver, chapter.chapterID),
+		})
+		for _, definition := range chapter.definitions {
+			appendPlacements("main", chapter.chapterID, definition.sequenceGroupID, mainGroups, mainSequences)
 		}
 	}
 
@@ -298,7 +316,11 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		if nameOK && resolver != nil {
 			names = resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", nameTextID))
 		}
-		appendPlacements("event-"+strconv.FormatInt(eventType, 10), int32(chapterID), int32(sortOrder), int32(groupID), eventGroups, eventSequences, names)
+		typeID := "event-" + strconv.FormatInt(eventType, 10)
+		chapters = append(chapters, QuestDropChapter{
+			TypeID: typeID, ChapterID: int32(chapterID), SortOrder: int32(sortOrder), Names: names,
+		})
+		appendPlacements(typeID, int32(chapterID), int32(groupID), eventGroups, eventSequences)
 	}
 
 	sort.SliceStable(placements, func(i, j int) bool {
@@ -320,12 +342,68 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		if chapters[i].TypeID != chapters[j].TypeID {
 			return questDropTypeOrder(chapters[i].TypeID) < questDropTypeOrder(chapters[j].TypeID)
 		}
-		if chapters[i].SortOrder != chapters[j].SortOrder {
-			return chapters[i].SortOrder < chapters[j].SortOrder
-		}
 		return chapters[i].ChapterID < chapters[j].ChapterID
 	})
 	return placements, chapters
+}
+
+type mainStoryQuestChapter struct {
+	chapterID   int32
+	definitions []mainQuestChapterDefinition
+}
+
+func mainStoryQuestChapters(file *memorydb.File) []mainStoryQuestChapter {
+	definitionsByID := make(map[int32]mainQuestChapterDefinition)
+	for _, row := range readRows(file, "m_main_quest_chapter") {
+		chapterID, chapterOK := integerAt(row, 0)
+		groupID, groupOK := integerAt(row, 3)
+		if !chapterOK || !groupOK {
+			continue
+		}
+		id := int32(chapterID)
+		definitionsByID[id] = mainQuestChapterDefinition{sequenceGroupID: int32(groupID)}
+	}
+
+	result := make([]mainStoryQuestChapter, 0, len(mainStoryChapterSpecs))
+	for _, spec := range mainStoryChapterSpecs {
+		chapter := mainStoryQuestChapter{chapterID: spec.chapterID}
+		for _, chapterID := range spec.mainQuestChapterIDs {
+			if definition, ok := definitionsByID[chapterID]; ok {
+				chapter.definitions = append(chapter.definitions, definition)
+			}
+		}
+		result = append(result, chapter)
+	}
+	return result
+}
+
+func mainStoryChapterNames(resolver *titleResolver, chapterID int32) map[string]string {
+	if resolver == nil || chapterID < 1 || int(chapterID) > len(mainStoryChapterSpecs) {
+		return nil
+	}
+	spec := mainStoryChapterSpecs[chapterID-1]
+	names := resolver.byKey(fmt.Sprintf("mission.name.%d", spec.nameMissionTextID))
+	if len(names) == 0 {
+		return nil
+	}
+	for language, name := range names {
+		switch language {
+		case "en":
+			name = strings.TrimSuffix(strings.TrimPrefix(name, "Clear "), " on Normal")
+		case "ja":
+			name = strings.TrimSuffix(name, "ノーマルをクリアする")
+		case "ko":
+			name = strings.TrimSuffix(name, "(Normal) 클리어하기")
+			name = strings.TrimSuffix(name, " Normal 클리어하기")
+		}
+		names[language] = name
+	}
+	if name := names["ja"]; name != "" && chapterID >= 7 && chapterID <= 12 {
+		chapterPrefixes := []string{"七章：", "八章：", "九章：", "十章：", "十一章：", "十二章："}
+		nightPrefixes := []string{"第一夜：", "第二夜：", "第三夜：", "第四夜：", "第五夜：", "第六夜："}
+		names["ja"] = strings.Replace(name, chapterPrefixes[chapterID-7], nightPrefixes[chapterID-7], 1)
+	}
+	return names
 }
 
 func questDropTypeOrder(typeID string) int {

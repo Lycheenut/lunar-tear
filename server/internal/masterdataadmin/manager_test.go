@@ -365,12 +365,39 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 			t.Fatalf("unexpected quest drop type: %+v", definition)
 		}
 	}
+	for index := 1; index < len(editor.Types); index++ {
+		if editor.Types[index-1].Value >= editor.Types[index].Value {
+			t.Fatalf("quest drop types are not ordered by ID: %d before %d",
+				editor.Types[index-1].Value, editor.Types[index].Value)
+		}
+	}
 	chapters := make(map[string]bool, len(editor.Chapters))
+	var mainChapters []QuestDropChapter
 	for _, chapter := range editor.Chapters {
 		if chapter.TypeID == "event-9" {
 			t.Fatalf("activity chapter %d is configurable", chapter.ChapterID)
 		}
+		if chapter.TypeID == "main" {
+			mainChapters = append(mainChapters, chapter)
+		}
 		chapters[chapter.TypeID+"/"+strconv.FormatInt(int64(chapter.ChapterID), 10)] = true
+	}
+	if len(mainChapters) != 30 {
+		t.Fatalf("main story filter chapters=%d, want 30", len(mainChapters))
+	}
+	for index, chapter := range mainChapters {
+		if chapter.ChapterID != int32(index+1) {
+			t.Fatalf("main story filter chapter %d has ID %d", index, chapter.ChapterID)
+		}
+	}
+	wantMainChapterNames := map[int32]string{
+		1: "一章：風砂の章", 7: "第一夜：紅枯の章", 12: "第六夜：白秋の章",
+		13: "陽ノ壱：朝暉の章", 14: "月ノ壱：宵闇の章", 25: "序ノ壱：青藍の章", 30: "三ノ幕：輪廻の章",
+	}
+	for chapterID, want := range wantMainChapterNames {
+		if got := mainChapters[chapterID-1].Names["ja"]; got != want {
+			t.Fatalf("main story chapter %d Japanese name=%q, want %q", chapterID, got, want)
+		}
 	}
 	file, err := memorydb.OpenFile(path)
 	if err != nil {
@@ -408,7 +435,11 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 		}
 	}
 	rewards := make(map[int32]QuestDropReward, len(editor.Rewards))
-	for _, reward := range editor.Rewards {
+	for index, reward := range editor.Rewards {
+		if index > 0 && editor.Rewards[index-1].BattleDropRewardID >= reward.BattleDropRewardID {
+			t.Fatalf("selectable rewards are not ordered by ID: %d before %d",
+				editor.Rewards[index-1].BattleDropRewardID, reward.BattleDropRewardID)
+		}
 		rewards[reward.BattleDropRewardID] = reward
 	}
 	if len(rewards) != len(expectedRewardIDs) {
@@ -448,6 +479,7 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 		}
 	}
 	foundRoutePossession := false
+	mainChapterByQuestID := make(map[int32]int32)
 	for _, quest := range editor.Quests {
 		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" || quest.TypeID == "event-9" {
 			t.Fatalf("event quest %d of excluded type %s is configurable", quest.QuestID, quest.TypeID)
@@ -457,6 +489,17 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 		}
 		if len(quest.RoutePossessions) > 0 {
 			foundRoutePossession = true
+		}
+		if quest.TypeID == "main" {
+			mainChapterByQuestID[quest.QuestID] = quest.ChapterID
+		}
+	}
+	wantMainChapterByQuestID := map[int32]int32{
+		1: 1, 122: 7, 301: 13, 401: 14, 337: 19, 437: 20, 500: 25, 547: 30,
+	}
+	for questID, want := range wantMainChapterByQuestID {
+		if got := mainChapterByQuestID[questID]; got != want {
+			t.Fatalf("main quest %d filter chapter=%d, want %d", questID, got, want)
 		}
 	}
 	if !foundRoutePossession {

@@ -360,7 +360,8 @@
     typeLabel.textContent = "副本类型";
     const typeSelect = document.createElement("select");
     typeSelect.dataset.field = "QuestDropType";
-    editor.types.forEach((definition) => typeSelect.append(new Option(`${definition.value}. ${definition.label}`, definition.id)));
+    [...editor.types].sort((left, right) => Number(left.value) - Number(right.value))
+      .forEach((definition) => typeSelect.append(new Option(`${definition.value}. ${definition.label}`, definition.id)));
     if (!editor.types.some((definition) => definition.id === state.questDropTypeFilter)) {
       state.questDropTypeFilter = editor.types[0]?.id || "";
     }
@@ -379,6 +380,7 @@
     const chapterSelect = document.createElement("select");
     chapterSelect.dataset.field = "QuestDropChapter";
     editor.chapters.filter((chapter) => chapter.typeId === state.questDropTypeFilter)
+      .sort((left, right) => Number(left.chapterId) - Number(right.chapterId))
       .forEach((chapter) => {
         const value = `${chapter.typeId}:${chapter.chapterId}`;
         const name = localizedInlineText(chapter.names) || "未命名";
@@ -960,7 +962,8 @@
 
   function questDropRewardOptions() {
     const editor = state.catalog?.questDropEditor || { rewards: [] };
-    return editor.rewards.map((reward) => ({
+    return [...editor.rewards].sort((left, right) => Number(left.battleDropRewardId) - Number(right.battleDropRewardId))
+      .map((reward) => ({
         value: reward.battleDropRewardId,
         label: questDropRewardLabel(reward),
         searchText: questDropRewardSearchText(reward)

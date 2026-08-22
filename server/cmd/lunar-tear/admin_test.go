@@ -187,6 +187,9 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 	for _, required := range []string{
 		`typeLabel.textContent = "副本类型"`, `chapterLabel.textContent = "章节"`,
 		"new Option(`${definition.value}. ${definition.label}`, definition.id)",
+		"Number(left.value) - Number(right.value)",
+		"Number(left.chapterId) - Number(right.chapterId)",
+		"Number(left.battleDropRewardId) - Number(right.battleDropRewardId)",
 		`state.questDropTypeFilter = editor.types[0]?.id || ""`,
 		`state.questDropChapterFilter = chapterSelect.options[0]?.value || ""`,
 		`function questDropRewardOptions()`, `function renderQuestDropPickupPreview(quest)`,
