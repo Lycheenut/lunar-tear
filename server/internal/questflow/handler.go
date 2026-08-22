@@ -7,6 +7,7 @@ import (
 	"lunar-tear/server/internal/importantitem"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/store"
 )
 
@@ -39,6 +40,7 @@ type QuestHandler struct {
 	Campaigns                      *campaign.Catalog
 	ImportantItemEffects           *importantitem.Catalog
 	CharacterRebirth               *masterdata.CharacterRebirthCatalog
+	DropRewardsByQuestID           map[int32][]questdrop.Reward
 }
 
 func NewQuestHandler(catalog *masterdata.QuestCatalog, config *masterdata.GameConfig, sideStory *masterdata.SideStoryCatalog, campaigns *campaign.Catalog, importantItemEffects *importantitem.Catalog, characterRebirth *masterdata.CharacterRebirthCatalog) *QuestHandler {

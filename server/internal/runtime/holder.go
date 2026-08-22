@@ -20,6 +20,7 @@ import (
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/store"
 )
@@ -64,17 +65,22 @@ type Catalogs struct {
 }
 
 type Holder struct {
-	binPath         string
-	gachaConfigPath string
-	cur             atomic.Pointer[Catalogs]
+	binPath             string
+	gachaConfigPath     string
+	questDropConfigPath string
+	cur                 atomic.Pointer[Catalogs]
 }
 
 func NewHolder(binPath string) (*Holder, error) {
-	return NewHolderWithGachaConfig(binPath, "")
+	return NewHolderWithConfigs(binPath, "", "")
 }
 
 func NewHolderWithGachaConfig(binPath, gachaConfigPath string) (*Holder, error) {
-	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath}
+	return NewHolderWithConfigs(binPath, gachaConfigPath, "")
+}
+
+func NewHolderWithConfigs(binPath, gachaConfigPath, questDropConfigPath string) (*Holder, error) {
+	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath, questDropConfigPath: questDropConfigPath}
 	if err := h.Reload(); err != nil {
 		return nil, err
 	}
@@ -93,7 +99,15 @@ func (h *Holder) Reload() error {
 			return err
 		}
 	}
-	c, err := buildCatalogs(config)
+	questDropConfig := questdrop.DefaultConfig()
+	if h.questDropConfigPath != "" {
+		var err error
+		questDropConfig, _, _, err = questdrop.ReadConfig(h.questDropConfigPath)
+		if err != nil {
+			return err
+		}
+	}
+	c, err := buildCatalogs(config, questDropConfig)
 	if err != nil {
 		return fmt.Errorf("buildCatalogs: %w", err)
 	}

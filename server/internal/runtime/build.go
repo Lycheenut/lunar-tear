@@ -9,6 +9,7 @@ import (
 	"lunar-tear/server/internal/importantitem"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
+	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/userdata"
 )
@@ -16,7 +17,7 @@ import (
 // buildCatalogs runs the full Load*/Build*/Enrich* sequence against whatever
 // memorydb currently holds and returns a fully populated *Catalogs. Called
 // once at startup and again on every reload.
-func buildCatalogs(gachaConfig *gacha.Config) (*Catalogs, error) {
+func buildCatalogs(gachaConfig *gacha.Config, questDropConfig *questdrop.Config) (*Catalogs, error) {
 	log.Printf("master data loaded (%d tables)", memorydb.TableCount())
 
 	gameConfig, err := masterdata.LoadGameConfig()
@@ -62,6 +63,11 @@ func buildCatalogs(gachaConfig *gacha.Config) (*Catalogs, error) {
 	}
 	log.Printf("character rebirth catalog loaded: %d characters", len(characterRebirthCatalog.StepGroupByCharacterId))
 	questHandler := questflow.NewQuestHandler(questCatalog, gameConfig, sideStoryCatalog, campaignCatalog, importantItemEffects, characterRebirthCatalog)
+	dropRewardsByQuestID, err := questdrop.BuildOverrides(questDropConfig, questCatalog, questdrop.BuildOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("build configured quest drop pools: %w", err)
+	}
+	questHandler.DropRewardsByQuestID = dropRewardsByQuestID
 	userdata.SetQuestHandler(questHandler)
 
 	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog()
