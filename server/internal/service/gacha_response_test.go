@@ -142,8 +142,8 @@ func TestGuaranteedThreeStarGachaResponseUsesRequestedPromotions(t *testing.T) {
 		costumeId int32
 		weaponId  int32
 	}{
-		{22003, 220061},
-		{21003, 210181},
+		{22001, 220021},
+		{21001, 210031},
 	}
 	if len(mode.PromotionGachaOddsItem) != len(want) {
 		t.Fatalf("promotion count = %d, want %d", len(mode.PromotionGachaOddsItem), len(want))
