@@ -407,8 +407,8 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 }
 
 var guaranteedThreeStarPromotionWeaponIds = []int32{
-	220061, // Guardian Traveler / 守護たる冒険者
-	210181, // Guardian Exile / 守護たる亡命者
+	220021, // Dissenting Traveler / 異存たる冒険者
+	210031, // Dissenting Exile / 異存たる亡命者
 }
 
 var guaranteedFourStarPromotionWeaponIds = []int32{

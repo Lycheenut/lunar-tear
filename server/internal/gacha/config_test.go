@@ -97,8 +97,8 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 		characterId int32
 		rarity      int32
 	}{
-		{220061, 22003, 1006, model.RaritySRare},
-		{210181, 21003, 1008, model.RaritySRare},
+		{220021, 22001, 1006, model.RaritySRare},
+		{210031, 21001, 1008, model.RaritySRare},
 		{320081, 32000, 2, model.RaritySSRare},
 		{350161, 35001, 5, model.RaritySSRare},
 		{330001, 33000, 3, model.RaritySSRare},
@@ -135,17 +135,17 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 		{
 			{
 				PossessionType:      int32(model.PossessionTypeCostume),
-				PossessionId:        22003,
+				PossessionId:        22001,
 				IsTarget:            true,
 				BonusPossessionType: int32(model.PossessionTypeWeapon),
-				BonusPossessionId:   220061,
+				BonusPossessionId:   220021,
 			},
 			{
 				PossessionType:      int32(model.PossessionTypeCostume),
-				PossessionId:        21003,
+				PossessionId:        21001,
 				IsTarget:            true,
 				BonusPossessionType: int32(model.PossessionTypeWeapon),
-				BonusPossessionId:   210181,
+				BonusPossessionId:   210031,
 			},
 		},
 		{
