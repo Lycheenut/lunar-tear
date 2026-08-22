@@ -322,6 +322,7 @@ func TestQuestClearByCountHonorsQuestTypeOptions(t *testing.T) {
 	catalogs.Quest = &masterdata.QuestCatalog{
 		RouteIdByQuestId:                 map[int32]int32{8: 1, 100: 1, 200: 1},
 		MainQuestDifficultyTypeByQuestId: map[int32]int32{8: 1, 100: 2, 200: 3},
+		EventQuestTypeByChapterId:        map[int32]int32{300: eventQuestTypeMarathon},
 		EventQuestIdsByChapterId:         map[int32][]int32{300: {400}},
 	}
 	user := &store.UserState{}
@@ -507,7 +508,7 @@ func TestWithoutSkipSpecificQuestRequiresSoloCharacter(t *testing.T) {
 	}
 }
 
-func TestDynastMemoriesTenthFloorRequiresSaryuClearEvent(t *testing.T) {
+func TestDynastMemoriesFirstFloorRequiresSaryuClearEvent(t *testing.T) {
 	mission := masterdata.EntityMMission{
 		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount),
 		MissionClearConditionOptionGroupId: 500004, ClearConditionValue: 1,
@@ -521,7 +522,7 @@ func TestDynastMemoriesTenthFloorRequiresSaryuClearEvent(t *testing.T) {
 	user := &store.UserState{}
 	user.EnsureMaps()
 	user.Quests[500004] = store.UserQuestState{QuestId: 500004, ClearCount: 1}
-	user.Quests[210010] = store.UserQuestState{QuestId: 210010, ClearCount: 1}
+	user.Quests[210001] = store.UserQuestState{QuestId: 210001, ClearCount: 1}
 
 	Sync(catalogs, user, 100)
 	if state := user.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
@@ -531,7 +532,7 @@ func TestDynastMemoriesTenthFloorRequiresSaryuClearEvent(t *testing.T) {
 	Apply(catalogs, nil, user, []store.MissionEvent{{
 		ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
 		Count:              1,
-		TargetId:           210010,
+		TargetId:           210001,
 		DeckCharacterIds:   []int32{1015},
 		QuestClearWithDeck: true,
 	}}, 200)
@@ -547,7 +548,7 @@ func TestDynastMemoriesTenthFloorRequiresSaryuClearEvent(t *testing.T) {
 	Apply(catalogs, nil, user, []store.MissionEvent{{
 		ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
 		Count:              1,
-		TargetId:           210010,
+		TargetId:           210001,
 		DeckCharacterIds:   []int32{1022, 1015},
 		QuestClearWithDeck: true,
 	}}, 300)
@@ -672,11 +673,13 @@ func TestQuestOptionMatchesKnownCategoryParameters(t *testing.T) {
 		RouteIdByQuestId:                 map[int32]int32{101: 1, 102: 1, 103: 1},
 		MainQuestDifficultyTypeByQuestId: map[int32]int32{101: 1, 102: mainQuestDifficultyHard, 103: mainQuestDifficultyVeryHard},
 		EventQuestTypeByChapterId: map[int32]int32{
+			100: eventQuestTypeMarathon, 200: eventQuestTypeHunt,
 			300: eventQuestTypeDungeon, 400: eventQuestTypeDayOfTheWeek, 500: eventQuestTypeGuerrilla,
 			600: eventQuestTypeCharacter, 700: eventQuestTypeCharacterQuest, 900: 9, 1000: eventQuestTypeTower,
 			1100: eventQuestTypeLimitContent, 1200: eventQuestTypeLabyrinth,
 		},
 		EventQuestIdsByChapterId: map[int32][]int32{
+			100: {1001}, 200: {2001},
 			300: {3001}, 400: {4001}, 500: {5001}, 600: {6001}, 700: {7001}, 900: {9001},
 			1000: {10001}, 1100: {11001}, 1200: {12001}, 777: {778},
 		},
@@ -693,7 +696,10 @@ func TestQuestOptionMatchesKnownCategoryParameters(t *testing.T) {
 		questId int32
 		want    bool
 	}{
-		{name: "subquest alias", option: questClearOptionSubquestAlt, questId: 3001, want: true},
+		{name: "Event Quest matches Marathon", option: questClearOptionSubquest, questId: 1001, want: true},
+		{name: "Event Quest alias matches Hunt", option: questClearOptionSubquestAlt, questId: 2001, want: true},
+		{name: "Event Quest rejects Dungeon", option: questClearOptionSubquest, questId: 3001},
+		{name: "Event Quest alias rejects Dungeon", option: questClearOptionSubquestAlt, questId: 3001},
 		{name: "Dark Memory direct type", option: eventQuestTypeCharacter, questId: 6001, want: true},
 		{name: "Dark Memory alias", option: questClearOptionDarkMemory, questId: 6001, want: true},
 		{name: "Dark Memory recurring option", option: 421, questId: 6001, want: true},
@@ -882,8 +888,11 @@ func TestCurrentMasterSpecificQuestTargets(t *testing.T) {
 	if questMissionMatches(catalogs, dynastMission, 500004) {
 		t.Fatal("colliding Event Quest chapter ID matched the Dynast's Memories mission")
 	}
-	if !questMissionMatches(catalogs, dynastMission, 210010) {
-		t.Fatal("Dynast's Memories 10F quest did not match mission 500007")
+	if !questMissionMatches(catalogs, dynastMission, 210001) {
+		t.Fatal("Dynast's Memories 1F quest did not match mission 500007")
+	}
+	if questMissionMatches(catalogs, dynastMission, 210010) {
+		t.Fatal("Dynast's Memories 10F quest matched the 1F mission 500007")
 	}
 
 	for option, targetIds := range specificEventQuestTargetsByOption {
