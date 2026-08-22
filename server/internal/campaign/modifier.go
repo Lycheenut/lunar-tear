@@ -34,12 +34,22 @@ type DropRateMul struct {
 	bonusPermil int32
 }
 
+func (m DropRateMul) WithBonusPermil(bonusPermil int32) DropRateMul {
+	m.bonusPermil += bonusPermil
+	return m
+}
+
 func (m DropRateMul) Apply(base int32) int32 {
 	return int32((int64(base)*int64(1000+m.bonusPermil) + 999) / 1000)
 }
 
 type DropCountMul struct {
 	bonusPermil int32
+}
+
+func (m DropCountMul) WithBonusPermil(bonusPermil int32) DropCountMul {
+	m.bonusPermil += bonusPermil
+	return m
 }
 
 func (m DropCountMul) Apply(base int32) int32 {

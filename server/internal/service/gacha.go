@@ -292,6 +292,7 @@ func (s *GachaServiceServer) Draw(ctx context.Context, req *pb.DrawRequest) (*pb
 			}
 		}
 
+		oddsItem.MedalBonus = &pb.GachaBonus{}
 		if drawResult.MedalBonus > 0 && entry.MedalConsumableItemId != 0 {
 			oddsItem.MedalBonus = &pb.GachaBonus{
 				PossessionType: int32(model.PossessionTypeConsumableItem),

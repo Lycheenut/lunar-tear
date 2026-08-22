@@ -8,9 +8,10 @@ import (
 
 func (h *QuestHandler) targetForMain(questId int32) campaign.QuestTarget {
 	return campaign.QuestTarget{
-		QuestId:   questId,
-		QuestType: campaign.QuestTypeMainQuest,
-		ChapterId: h.MainQuestChapterIdByQuestId[questId],
+		QuestId:                 questId,
+		QuestType:               campaign.QuestTypeMainQuest,
+		ChapterId:               h.MainQuestChapterIdByQuestId[questId],
+		MainQuestDifficultyType: h.MainQuestDifficultyTypeByQuestId[questId],
 	}
 }
 

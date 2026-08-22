@@ -95,15 +95,18 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 		weaponId    int32
 		costumeId   int32
 		characterId int32
+		rarity      int32
 	}{
-		{320081, 32000, 2},
-		{350161, 35001, 5},
-		{330001, 33000, 3},
+		{220061, 22003, 1006, model.RaritySRare},
+		{210181, 21003, 1008, model.RaritySRare},
+		{320081, 32000, 2, model.RaritySSRare},
+		{350161, 35001, 5, model.RaritySSRare},
+		{330001, 33000, 3, model.RaritySSRare},
 	} {
-		weapon := masterdata.GachaPoolItem{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: item.weaponId, RarityType: model.RaritySSRare}
+		weapon := masterdata.GachaPoolItem{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: item.weaponId, RarityType: item.rarity}
 		source.ConfigurableWeaponById[item.weaponId] = weapon
 		source.EligibleWeaponById[item.weaponId] = weapon
-		source.CostumeByWeaponId[item.weaponId] = masterdata.GachaPoolItem{PossessionType: int32(model.PossessionTypeCostume), PossessionId: item.costumeId, RarityType: model.RaritySSRare, CharacterId: item.characterId}
+		source.CostumeByWeaponId[item.weaponId] = masterdata.GachaPoolItem{PossessionType: int32(model.PossessionTypeCostume), PossessionId: item.costumeId, RarityType: item.rarity, CharacterId: item.characterId}
 		config.Weapons[item.weaponId] = WeaponConfig{Availability: AvailabilityStandard}
 	}
 	config.LimitedSets["limited_a"] = LimitedSetConfig{DisplayName: "Limited A"}
@@ -129,13 +132,22 @@ func TestGuaranteedTicketGachasUseOnlyStandardWeapons(t *testing.T) {
 	}
 	ApplyConfiguredPromotions(entries, catalog)
 	wantPromotions := [][]store.GachaPromotionItem{
-		{{
-			PossessionType:      int32(model.PossessionTypeCostume),
-			PossessionId:        105,
-			IsTarget:            true,
-			BonusPossessionType: int32(model.PossessionTypeWeapon),
-			BonusPossessionId:   5,
-		}},
+		{
+			{
+				PossessionType:      int32(model.PossessionTypeCostume),
+				PossessionId:        22003,
+				IsTarget:            true,
+				BonusPossessionType: int32(model.PossessionTypeWeapon),
+				BonusPossessionId:   220061,
+			},
+			{
+				PossessionType:      int32(model.PossessionTypeCostume),
+				PossessionId:        21003,
+				IsTarget:            true,
+				BonusPossessionType: int32(model.PossessionTypeWeapon),
+				BonusPossessionId:   210181,
+			},
+		},
 		{
 			{
 				PossessionType:      int32(model.PossessionTypeCostume),

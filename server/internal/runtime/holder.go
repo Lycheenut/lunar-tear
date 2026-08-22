@@ -18,6 +18,7 @@ import (
 
 	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gacha"
+	"lunar-tear/server/internal/importantitem"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
@@ -64,6 +65,7 @@ type Catalogs struct {
 	Labyrinth         *masterdata.LabyrinthCatalog
 	LimitContent      *masterdata.LimitContentCatalog
 	Campaign          *campaign.Catalog
+	ImportantItems    *importantitem.Catalog
 
 	QuestHandler *questflow.QuestHandler
 	GachaHandler *gacha.GachaHandler

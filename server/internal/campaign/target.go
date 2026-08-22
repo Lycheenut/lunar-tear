@@ -94,8 +94,9 @@ type WeaponTarget struct {
 }
 
 type QuestTarget struct {
-	QuestId        int32
-	QuestType      QuestType
-	EventQuestType int32
-	ChapterId      int32
+	QuestId                 int32
+	QuestType               QuestType
+	EventQuestType          int32
+	ChapterId               int32
+	MainQuestDifficultyType int32
 }

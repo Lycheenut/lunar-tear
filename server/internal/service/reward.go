@@ -6,6 +6,7 @@ import (
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
@@ -64,7 +65,8 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 			}
 			items := bhCatalog.CollectNewRewards(rewardGroupId, 0, maxScore)
 			for _, item := range items {
-				granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, item.Count, nowMillis)
+				count := bigHuntDailyRewardCount(cat, user, item, nowMillis)
+				granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, count, nowMillis)
 			}
 			if len(items) > 0 {
 				log.Printf("[RewardService] ReceiveBigHuntReward: bossQuestId=%d granted %d daily rewards (maxScore=%d, group=%d)",
@@ -143,6 +145,21 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 		IsReceivedWeeklyScoreReward: isReceived,
 		LastWeekWeeklyScoreReward:   []*pb.BigHuntReward{},
 	}, nil
+}
+
+func bigHuntDailyRewardCount(cat *runtime.Catalogs, user *store.UserState, item masterdata.RewardItem, nowMillis int64) int32 {
+	if cat.ImportantItems == nil {
+		return item.Count
+	}
+	_, bonusPermil := cat.ImportantItems.QuestBonuses(
+		user.ImportantItems,
+		campaign.QuestTarget{QuestType: campaign.QuestTypeBigHunt},
+		model.PossessionType(item.PossessionType),
+		item.PossessionId,
+		nowMillis,
+	)
+	modifier := campaign.DropCountMul{}
+	return modifier.WithBonusPermil(bonusPermil).Apply(item.Count)
 }
 
 func (s *RewardServiceServer) ReceivePvpReward(ctx context.Context, _ *emptypb.Empty) (*pb.ReceivePvpRewardResponse, error) {

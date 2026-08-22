@@ -14,6 +14,8 @@ import (
 	"lunar-tear/server/internal/store"
 	"lunar-tear/server/internal/store/sqlite"
 	"lunar-tear/server/migrations"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestChapterPromotionReportsConfiguredQuantityAndMonthlyProgress(t *testing.T) {
@@ -138,6 +140,43 @@ func TestGuaranteedFourStarGachaResponseMatchesConfirmBanner(t *testing.T) {
 	}
 }
 
+func TestGuaranteedThreeStarGachaResponseUsesRequestedPromotions(t *testing.T) {
+	holder := newGachaResponseTestHolder(t)
+
+	var entry *store.GachaCatalogEntry
+	for i := range holder.Get().GachaEntries {
+		if holder.Get().GachaEntries[i].GachaId == model.GachaIdGuaranteedThreeStarOrHigher {
+			entry = &holder.Get().GachaEntries[i]
+			break
+		}
+	}
+	if entry == nil {
+		t.Fatal("three-star guaranteed Gacha is missing")
+	}
+	mode := toProtoGacha(*entry, nil).GetGachaModeBasic()
+	if mode == nil {
+		t.Fatal("three-star guaranteed Gacha is not basic mode")
+	}
+	want := []struct {
+		costumeId int32
+		weaponId  int32
+	}{
+		{22003, 220061},
+		{21003, 210181},
+	}
+	if len(mode.PromotionGachaOddsItem) != len(want) {
+		t.Fatalf("promotion count = %d, want %d", len(mode.PromotionGachaOddsItem), len(want))
+	}
+	for i, item := range mode.PromotionGachaOddsItem {
+		if item.GachaItem.PossessionType != int32(model.PossessionTypeCostume) ||
+			item.GachaItem.PossessionId != want[i].costumeId ||
+			item.GachaItemBonus.PossessionType != int32(model.PossessionTypeWeapon) ||
+			item.GachaItemBonus.PossessionId != want[i].weaponId {
+			t.Fatalf("promotion %d = %+v, want costume %d with weapon %d", i, item, want[i].costumeId, want[i].weaponId)
+		}
+	}
+}
+
 func TestGuaranteedTicketDrawKeepsNextGachaUnlockedAfterLastTicket(t *testing.T) {
 	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
 	if err != nil {
@@ -184,6 +223,17 @@ func TestGuaranteedTicketDrawKeepsNextGachaUnlockedAfterLastTicket(t *testing.T)
 	}
 	if response.NextGacha == nil || !response.NextGacha.IsUserGachaUnlock {
 		t.Fatalf("NextGacha must stay unlocked for result production: %+v", response.NextGacha)
+	}
+	wire, err := proto.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := &pb.DrawResponse{}
+	if err := proto.Unmarshal(wire, decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.GachaResult) != 1 || decoded.GachaResult[0].MedalBonus == nil {
+		t.Fatalf("guaranteed Gacha result must include an empty medal bonus message: %+v", decoded.GachaResult)
 	}
 
 	user, err := repo.LoadUser(userId)

@@ -2,14 +2,85 @@ package questflow
 
 import (
 	"math"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"lunar-tear/server/internal/campaign"
+	"lunar-tear/server/internal/importantitem"
 	"lunar-tear/server/internal/masterdata"
+	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 )
+
+func TestImportantItemEffectsModifyMatchingBattleDrops(t *testing.T) {
+	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
+		t.Fatalf("initialize master data: %v", err)
+	}
+	effects, err := importantitem.Load()
+	if err != nil {
+		t.Fatalf("load important-item effects: %v", err)
+	}
+
+	const (
+		questId = int32(10)
+		groupId = int32(20)
+	)
+	catalog := &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			questId: {QuestId: questId, QuestPickupRewardGroupId: groupId},
+		},
+		BattleDropsByQuestId: map[int32][]masterdata.BattleDropInfo{
+			questId: {{QuestSceneId: 101, BattleDropCategoryId: 1}},
+		},
+		PickupRewardIdsByGroupId: map[int32][]int32{
+			groupId: {1001},
+		},
+		PickupRewardIdsByGroupAndEffectId: map[int32]map[int32][]int32{
+			groupId: {1: {1001}},
+		},
+		BattleDropEffectIdByRewardId: map[int32]int32{1001: 1},
+		BattleDropRewardById: map[int32]masterdata.EntityMBattleDropReward{
+			1001: {
+				BattleDropRewardId: 1001,
+				PossessionType:     int32(model.PossessionTypeConsumableItem),
+				PossessionId:       1008,
+				Count:              2,
+			},
+		},
+		QuestBonusById: map[int32]masterdata.EntityMQuestBonus{},
+	}
+	h := &QuestHandler{QuestCatalog: catalog, ImportantItemEffects: effects}
+	const nowMillis = int64(1787241600000)
+	user := &store.UserState{
+		UserId:         99,
+		ImportantItems: map[int32]int32{200001: 1},
+		Quests: map[int32]store.UserQuestState{
+			questId: {QuestId: questId, LatestStartDatetime: 123456789},
+		},
+	}
+
+	matching := h.computeDropRewards(
+		user,
+		catalog.QuestById[questId],
+		campaign.QuestTarget{QuestType: campaign.QuestTypeMainQuest, ChapterId: 2},
+		nowMillis,
+	)
+	if len(matching) != 1 || matching[0].Count != 3 {
+		t.Fatalf("matching important-item drop = %+v, want count 3", matching)
+	}
+
+	nonMatching := h.computeDropRewards(
+		user,
+		catalog.QuestById[questId],
+		campaign.QuestTarget{QuestType: campaign.QuestTypeMainQuest, ChapterId: 1},
+		nowMillis,
+	)
+	if len(nonMatching) != 1 || nonMatching[0].Count != 2 {
+		t.Fatalf("non-matching important-item drop = %+v, want count 2", nonMatching)
+	}
+}
 
 func TestBattleDropPlanMatchesFinishRewards(t *testing.T) {
 	const (
