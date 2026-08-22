@@ -60,9 +60,9 @@ var mainQuestTargetsByDetail = map[int32][]int32{
 }
 
 var specificEventQuestTargetsByOption = map[int32][]int32{
-	// Dungeon: The Dynast's Memories 10F. The option is a condition-group
-	// ID, while the actual Event Quest ID is 210010.
-	500004: {210010},
+	// Dungeon: The Dynast's Memories 1F. The option is a condition-group
+	// ID, while the actual Event Quest ID is 210001.
+	500004: {210001},
 }
 
 // These early and once-per-day missions store a real QuestId directly in the

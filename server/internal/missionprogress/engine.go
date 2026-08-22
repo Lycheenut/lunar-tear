@@ -32,6 +32,8 @@ const (
 	questClearOptionDungeon                 = int32(101030801)
 	mainQuestDifficultyHard                 = int32(2)
 	mainQuestDifficultyVeryHard             = int32(3)
+	eventQuestTypeMarathon                  = int32(1)
+	eventQuestTypeHunt                      = int32(2)
 	eventQuestTypeDungeon                   = int32(3)
 	eventQuestTypeDayOfTheWeek              = int32(4)
 	eventQuestTypeGuerrilla                 = int32(5)
@@ -670,7 +672,8 @@ func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool 
 	case questClearOptionMainQuest:
 		return catalogs.Quest.RouteIdByQuestId[questId] != 0
 	case questClearOptionSubquest, questClearOptionSubquestAlt:
-		return eventQuestMatches(catalogs.Quest, questId)
+		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeMarathon, questId) ||
+			eventQuestTypeMatches(catalogs.Quest, eventQuestTypeHunt, questId)
 	case questClearOptionMainQuestHard, questClearOptionMainQuestHardAlt:
 		return catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId] == mainQuestDifficultyHard
 	case questClearOptionMainQuestHardOrVeryHard:
@@ -772,15 +775,6 @@ func eventQuestSelectorMatches(catalog *masterdata.QuestCatalog, chapterId int32
 		return false
 	}
 	return questIds[selector.ordinal-1] == questId
-}
-
-func eventQuestMatches(catalog *masterdata.QuestCatalog, questId int32) bool {
-	for _, ids := range catalog.EventQuestIdsByChapterId {
-		if containsTarget(ids, questId) {
-			return true
-		}
-	}
-	return false
 }
 
 func eventQuestTypeMatches(catalog *masterdata.QuestCatalog, eventQuestType, questId int32) bool {
