@@ -3,6 +3,7 @@ package questflow
 import (
 	"log"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"lunar-tear/server/internal/gameutil"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/store"
 )
 
@@ -215,31 +217,107 @@ func battleDropSeed(userId int64, questId int32, runSeed int64) int64 {
 
 func (h *QuestHandler) battleDropPlan(user *store.UserState, questId int32, runSeed int64) []masterdata.BattleDropInfo {
 	quest, ok := h.QuestById[questId]
-	if !ok || quest.QuestPickupRewardGroupId == 0 {
+	if !ok {
 		return nil
 	}
 	candidates := h.BattleDropsByQuestId[questId]
-	pool := h.PickupRewardIdsByGroupId[quest.QuestPickupRewardGroupId]
-	if len(candidates) == 0 || len(pool) == 0 {
+	if len(candidates) == 0 {
 		return nil
 	}
-
 	random := rand.New(rand.NewSource(battleDropSeed(user.UserId, questId, runSeed)))
+	if pool, configured := h.DropRewardsByQuestID[questId]; configured {
+		return h.weightedBattleDropPlan(candidates, pool, random)
+	}
+
+	// Unconfigured quests intentionally retain the original master-data row
+	// lottery. Duplicate pickup rows remain duplicate tickets, including in the
+	// second draw within the revealed rarity.
+	pool := h.PickupRewardIdsByGroupId[quest.QuestPickupRewardGroupId]
+	if len(pool) == 0 {
+		return nil
+	}
 	plan := make([]masterdata.BattleDropInfo, 0, len(candidates))
 	for _, candidate := range candidates {
-		// The first draw determines what rarity the battle reveals. The actual
-		// reward is then drawn uniformly from that rarity's subset.
-		probeRewardId := pool[random.Intn(len(pool))]
-		effectId := h.BattleDropEffectIdByRewardId[probeRewardId]
-		subset := h.PickupRewardIdsByGroupAndEffectId[quest.QuestPickupRewardGroupId][effectId]
+		probeRewardID := pool[random.Intn(len(pool))]
+		effectID := h.BattleDropEffectIdByRewardId[probeRewardID]
+		subset := h.PickupRewardIdsByGroupAndEffectId[quest.QuestPickupRewardGroupId][effectID]
 		if len(subset) == 0 {
 			continue
 		}
-		candidate.BattleDropEffectId = effectId
+		candidate.BattleDropEffectId = effectID
 		candidate.BattleDropRewardId = subset[random.Intn(len(subset))]
 		plan = append(plan, candidate)
 	}
 	return plan
+}
+
+func (h *QuestHandler) weightedBattleDropPlan(candidates []masterdata.BattleDropInfo, pool []questdrop.Reward, random *rand.Rand) []masterdata.BattleDropInfo {
+	if len(pool) == 0 {
+		return nil
+	}
+	byEffectID := make(map[int32][]questdrop.Reward)
+	effectWeights := make(map[int32]int64)
+	var effectIDs []int32
+	for _, reward := range pool {
+		effectID := h.BattleDropEffectIdByRewardId[reward.BattleDropRewardID]
+		if _, exists := byEffectID[effectID]; !exists {
+			effectIDs = append(effectIDs, effectID)
+		}
+		byEffectID[effectID] = append(byEffectID[effectID], reward)
+		effectWeights[effectID] += int64(reward.Weight)
+	}
+	sort.Slice(effectIDs, func(i, j int) bool { return effectIDs[i] < effectIDs[j] })
+
+	plan := make([]masterdata.BattleDropInfo, 0, len(candidates))
+	for _, candidate := range candidates {
+		// The battle reveal is selected from each rarity's total configured
+		// weight. The concrete reward then uses its own weight within that rarity.
+		effectID := weightedEffectID(random, effectIDs, effectWeights)
+		rewardID := weightedRewardID(random, byEffectID[effectID])
+		if effectID == 0 || rewardID == 0 {
+			continue
+		}
+		candidate.BattleDropEffectId = effectID
+		candidate.BattleDropRewardId = rewardID
+		plan = append(plan, candidate)
+	}
+	return plan
+}
+
+func weightedEffectID(random *rand.Rand, effectIDs []int32, weights map[int32]int64) int32 {
+	var total int64
+	for _, effectID := range effectIDs {
+		total += weights[effectID]
+	}
+	if total <= 0 {
+		return 0
+	}
+	draw := random.Int63n(total)
+	for _, effectID := range effectIDs {
+		draw -= weights[effectID]
+		if draw < 0 {
+			return effectID
+		}
+	}
+	return 0
+}
+
+func weightedRewardID(random *rand.Rand, rewards []questdrop.Reward) int32 {
+	var total int64
+	for _, reward := range rewards {
+		total += int64(reward.Weight)
+	}
+	if total <= 0 {
+		return 0
+	}
+	draw := random.Int63n(total)
+	for _, reward := range rewards {
+		draw -= int64(reward.Weight)
+		if draw < 0 {
+			return reward.BattleDropRewardID
+		}
+	}
+	return 0
 }
 
 func (h *QuestHandler) computeDropRewards(user *store.UserState, questDef masterdata.EntityMQuest, target campaign.QuestTarget, nowMillis int64) []RewardGrant {

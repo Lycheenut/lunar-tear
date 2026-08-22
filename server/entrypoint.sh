@@ -19,6 +19,11 @@ if [ -n "${LUNAR_GACHA_CONFIG}" ]; then
   GACHA_CONFIG_FLAG="--gacha-config ${LUNAR_GACHA_CONFIG}"
 fi
 
+QUEST_DROP_CONFIG_FLAG=""
+if [ -n "${LUNAR_QUEST_DROP_CONFIG}" ]; then
+  QUEST_DROP_CONFIG_FLAG="--quest-drop-config ${LUNAR_QUEST_DROP_CONFIG}"
+fi
+
 REGISTER_FLAG=""
 case "${LUNAR_NO_REGISTER:-}" in
   1|true|TRUE|yes|YES)
@@ -33,4 +38,5 @@ exec ./lunar-tear \
   ${AUTH_FLAG} \
   ${ADMIN_FLAG} \
   ${GACHA_CONFIG_FLAG} \
+  ${QUEST_DROP_CONFIG_FLAG} \
   ${REGISTER_FLAG}

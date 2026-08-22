@@ -22,6 +22,7 @@ import (
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/store"
 	"lunar-tear/server/internal/userdata"
@@ -72,18 +73,23 @@ type Catalogs struct {
 }
 
 type Holder struct {
-	binPath         string
-	gachaConfigPath string
-	cur             atomic.Pointer[Catalogs]
-	mu              sync.Mutex
+	binPath             string
+	gachaConfigPath     string
+	questDropConfigPath string
+	cur                 atomic.Pointer[Catalogs]
+	mu                  sync.Mutex
 }
 
 func NewHolder(binPath string) (*Holder, error) {
-	return NewHolderWithGachaConfig(binPath, "")
+	return NewHolderWithConfigs(binPath, "", "")
 }
 
 func NewHolderWithGachaConfig(binPath, gachaConfigPath string) (*Holder, error) {
-	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath}
+	return NewHolderWithConfigs(binPath, gachaConfigPath, "")
+}
+
+func NewHolderWithConfigs(binPath, gachaConfigPath, questDropConfigPath string) (*Holder, error) {
+	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath, questDropConfigPath: questDropConfigPath}
 	if err := h.Reload(); err != nil {
 		return nil, err
 	}
@@ -94,7 +100,7 @@ func (h *Holder) Reload() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, false)
+	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, h.questDropConfigPath, false)
 	if err != nil {
 		return err
 	}
@@ -123,7 +129,7 @@ func (h *Holder) InstallAndReload(candidatePath string) error {
 		}
 	}
 
-	c, err := loadCatalogs(candidatePath, h.gachaConfigPath, false)
+	c, err := loadCatalogs(candidatePath, h.gachaConfigPath, h.questDropConfigPath, false)
 	if err != nil {
 		_ = memorydb.Init(h.binPath)
 		return fmt.Errorf("validate candidate: %w", err)
@@ -161,7 +167,7 @@ func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 			return fmt.Errorf("preserve Gacha config permissions: %w", err)
 		}
 	}
-	c, err := loadCatalogs(h.binPath, candidatePath, true)
+	c, err := loadCatalogs(h.binPath, candidatePath, h.questDropConfigPath, true)
 	if err != nil {
 		return fmt.Errorf("validate Gacha config candidate: %w", err)
 	}
@@ -172,7 +178,7 @@ func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 	return nil
 }
 
-func loadCatalogs(path, gachaConfigPath string, requireCompleteGacha bool) (*Catalogs, error) {
+func loadCatalogs(path, gachaConfigPath, questDropConfigPath string, requireCompleteGacha bool) (*Catalogs, error) {
 	if err := memorydb.Init(path); err != nil {
 		return nil, fmt.Errorf("memorydb.Init: %w", err)
 	}
@@ -189,7 +195,14 @@ func loadCatalogs(path, gachaConfigPath string, requireCompleteGacha bool) (*Cat
 			return nil, err
 		}
 	}
-	c, err := buildCatalogs(config, configHash, configExists, masterDataHash, requireCompleteGacha)
+	questDropConfig := questdrop.DefaultConfig()
+	if questDropConfigPath != "" {
+		questDropConfig, _, _, err = questdrop.ReadConfig(questDropConfigPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	c, err := buildCatalogs(config, configHash, configExists, questDropConfig, masterDataHash, requireCompleteGacha)
 	if err != nil {
 		return nil, fmt.Errorf("buildCatalogs: %w", err)
 	}

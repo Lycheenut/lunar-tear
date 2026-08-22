@@ -2,6 +2,7 @@ package questflow
 
 import (
 	"math"
+	"math/rand"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/store"
 )
 
@@ -185,6 +187,90 @@ func TestBattleDropSelectsUniformlyWithinRevealedRarity(t *testing.T) {
 	imbalance := math.Abs(float64(counts[1001]-counts[1002])) / float64(normalTotal)
 	if imbalance > 0.08 {
 		t.Fatalf("normal-rarity selections are too imbalanced: %v", counts)
+	}
+}
+
+func TestBattleDropFallbackKeepsLegacyDuplicateRowLottery(t *testing.T) {
+	const (
+		questID = int32(10)
+		groupID = int32(20)
+	)
+	pool := []int32{1001, 1001, 1002, 2001}
+	byEffect := map[int32][]int32{1: {1001, 1001, 1002}, 3: {2001}}
+	h := &QuestHandler{
+		QuestCatalog: &masterdata.QuestCatalog{
+			QuestById: map[int32]masterdata.EntityMQuest{
+				questID: {QuestId: questID, QuestPickupRewardGroupId: groupID},
+			},
+			BattleDropsByQuestId: map[int32][]masterdata.BattleDropInfo{
+				questID: {{QuestSceneId: 101, BattleDropCategoryId: 1}},
+			},
+			PickupRewardIdsByGroupId: map[int32][]int32{groupID: pool},
+			PickupRewardIdsByGroupAndEffectId: map[int32]map[int32][]int32{
+				groupID: byEffect,
+			},
+			BattleDropEffectIdByRewardId: map[int32]int32{1001: 1, 1002: 1, 2001: 3},
+		},
+		DropRewardsByQuestID: map[int32][]questdrop.Reward{},
+	}
+	user := &store.UserState{UserId: 99}
+	for seed := int64(1); seed <= 100; seed++ {
+		random := rand.New(rand.NewSource(battleDropSeed(user.UserId, questID, seed)))
+		probeRewardID := pool[random.Intn(len(pool))]
+		wantEffectID := h.BattleDropEffectIdByRewardId[probeRewardID]
+		subset := byEffect[wantEffectID]
+		wantRewardID := subset[random.Intn(len(subset))]
+
+		plan := h.battleDropPlan(user, questID, seed)
+		if len(plan) != 1 || plan[0].BattleDropEffectId != wantEffectID || plan[0].BattleDropRewardId != wantRewardID {
+			t.Fatalf("seed %d plan = %+v, want effect %d reward %d", seed, plan, wantEffectID, wantRewardID)
+		}
+	}
+}
+
+func TestBattleDropUsesRarityTotalsThenRewardWeights(t *testing.T) {
+	const (
+		questID = int32(10)
+		groupID = int32(20)
+	)
+	h := &QuestHandler{
+		QuestCatalog: &masterdata.QuestCatalog{
+			QuestById: map[int32]masterdata.EntityMQuest{
+				questID: {QuestId: questID, QuestPickupRewardGroupId: groupID},
+			},
+			BattleDropsByQuestId: map[int32][]masterdata.BattleDropInfo{
+				questID: {{QuestSceneId: 101, BattleDropCategoryId: 1}},
+			},
+			BattleDropEffectIdByRewardId: map[int32]int32{1001: 1, 1002: 1, 2001: 3},
+		},
+		DropRewardsByQuestID: map[int32][]questdrop.Reward{
+			questID: {
+				{BattleDropRewardID: 1001, Weight: 1},
+				{BattleDropRewardID: 1002, Weight: 3},
+				{BattleDropRewardID: 2001, Weight: 6},
+			},
+		},
+	}
+	user := &store.UserState{UserId: 99}
+	counts := map[int32]int{}
+	effects := map[int32]int{}
+	const trials = 30_000
+	for seed := int64(1); seed <= trials; seed++ {
+		plan := h.battleDropPlan(user, questID, seed)
+		if len(plan) != 1 {
+			t.Fatalf("seed %d produced %d drops", seed, len(plan))
+		}
+		counts[plan[0].BattleDropRewardId]++
+		effects[plan[0].BattleDropEffectId]++
+	}
+	if got := float64(effects[1]) / trials; math.Abs(got-0.4) > 0.03 {
+		t.Fatalf("normal effect rate = %.4f, want about 0.4; effects=%v", got, effects)
+	}
+	if got := float64(effects[3]) / trials; math.Abs(got-0.6) > 0.03 {
+		t.Fatalf("high effect rate = %.4f, want about 0.6; effects=%v", got, effects)
+	}
+	if got := float64(counts[1001]) / float64(counts[1001]+counts[1002]); math.Abs(got-0.25) > 0.04 {
+		t.Fatalf("reward 1001 rate within normal rarity = %.4f, want about 0.25; rewards=%v", got, counts)
 	}
 }
 

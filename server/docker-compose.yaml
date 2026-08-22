@@ -13,6 +13,7 @@ services:
       LUNAR_ADMIN_LISTEN: 0.0.0.0:8082
       LUNAR_ADMIN_TOKEN: ${LUNAR_ADMIN_TOKEN:-}
       LUNAR_GACHA_CONFIG: db/gacha.json
+      LUNAR_QUEST_DROP_CONFIG: db/quest_drops.json
     volumes:
       - ./db:/opt/lunar-tear/db
       - ./assets:/opt/lunar-tear/assets
