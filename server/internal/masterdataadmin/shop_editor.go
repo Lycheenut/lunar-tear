@@ -12,22 +12,33 @@ const shopItemCellTable = "m_shop_item_cell"
 const shopItemTable = "m_shop_item"
 const shopItemContentPossessionTable = "m_shop_item_content_possession"
 
-var shopItemCellReferenceTables = []struct {
+type shopReferenceTable struct {
 	name   string
 	column int
-}{
-	{name: shopItemCellGroupTable, column: 1},
-	{name: "m_shop_item_cell_limited_open", column: 0},
+	fields []string
 }
 
-var shopItemReferenceTables = []struct {
-	name   string
-	column int
-}{
-	{name: "m_shop_item_cell", column: 2},
-	{name: "m_shop_item_content_effect", column: 0},
-	{name: "m_shop_item_content_mission", column: 0},
-	{name: "m_shop_item_user_level_condition", column: 0},
+var shopItemCellReferenceTables = []shopReferenceTable{
+	{name: shopItemCellGroupTable, column: 1, fields: []string{"ShopItemCellGroupId", "ShopItemCellId", "SortOrder", "ShopItemCellTermId"}},
+	{name: "m_shop_item_cell_limited_open", column: 0, fields: []string{"ShopItemCellId", "LimitedOpenId"}},
+}
+
+var shopItemReferenceTables = []shopReferenceTable{
+	{name: "m_shop_item_cell", column: 2, fields: []string{"ShopItemCellId", "StepNumber", "ShopItemId"}},
+	{name: "m_shop_item_content_effect", column: 0, fields: []string{"ShopItemId", "EffectTargetType", "EffectValueType", "EffectValue"}},
+	{name: "m_shop_item_content_mission", column: 0, fields: []string{"ShopItemId", "MissionGroupId", "IsReevaluateOnGrant"}},
+	{name: "m_shop_item_user_level_condition", column: 0, fields: []string{"ShopItemId", "UserLevelUpperLimit", "UserLevelLowerLimit", "ShopItemAdditionalContentId"}},
+}
+
+type ShopEditorReferenceIdentity struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type ShopEditorReference struct {
+	Table    string                        `json:"table"`
+	Row      int64                         `json:"row"`
+	Identity []ShopEditorReferenceIdentity `json:"identity"`
 }
 
 type ShopEditorCatalog struct {
@@ -54,11 +65,12 @@ type ShopItemCellGroupInput struct {
 }
 
 type ShopEditorCell struct {
-	Row            int64    `json:"row"`
-	ShopItemCellID int64    `json:"shopItemCellId"`
-	StepNumber     int64    `json:"stepNumber"`
-	ShopItemID     int64    `json:"shopItemId"`
-	DeleteBlockers []string `json:"deleteBlockers,omitempty"`
+	Row            int64                 `json:"row"`
+	ShopItemCellID int64                 `json:"shopItemCellId"`
+	StepNumber     int64                 `json:"stepNumber"`
+	ShopItemID     int64                 `json:"shopItemId"`
+	DeleteBlockers []string              `json:"deleteBlockers,omitempty"`
+	References     []ShopEditorReference `json:"references,omitempty"`
 }
 
 type ShopItemCellInput struct {
@@ -113,22 +125,23 @@ type ShopItemContentPossessionInput struct {
 }
 
 type ShopEditorItem struct {
-	Row                    int64             `json:"row"`
-	ShopItemID             int64             `json:"shopItemId"`
-	NameShopTextID         int64             `json:"nameShopTextId"`
-	DescriptionShopTextID  int64             `json:"descriptionShopTextId"`
-	ShopItemContentType    int64             `json:"shopItemContentType"`
-	PriceType              int64             `json:"priceType"`
-	PriceID                int64             `json:"priceId"`
-	Price                  int64             `json:"price"`
-	RegularPrice           int64             `json:"regularPrice"`
-	ShopPromotionType      int64             `json:"shopPromotionType"`
-	ShopItemLimitedStockID int64             `json:"shopItemLimitedStockId"`
-	AssetCategoryID        int64             `json:"assetCategoryId"`
-	AssetVariationID       int64             `json:"assetVariationId"`
-	ShopItemDecorationType int64             `json:"shopItemDecorationType"`
-	Names                  map[string]string `json:"names,omitempty"`
-	DeleteBlockers         []string          `json:"deleteBlockers,omitempty"`
+	Row                    int64                 `json:"row"`
+	ShopItemID             int64                 `json:"shopItemId"`
+	NameShopTextID         int64                 `json:"nameShopTextId"`
+	DescriptionShopTextID  int64                 `json:"descriptionShopTextId"`
+	ShopItemContentType    int64                 `json:"shopItemContentType"`
+	PriceType              int64                 `json:"priceType"`
+	PriceID                int64                 `json:"priceId"`
+	Price                  int64                 `json:"price"`
+	RegularPrice           int64                 `json:"regularPrice"`
+	ShopPromotionType      int64                 `json:"shopPromotionType"`
+	ShopItemLimitedStockID int64                 `json:"shopItemLimitedStockId"`
+	AssetCategoryID        int64                 `json:"assetCategoryId"`
+	AssetVariationID       int64                 `json:"assetVariationId"`
+	ShopItemDecorationType int64                 `json:"shopItemDecorationType"`
+	Names                  map[string]string     `json:"names,omitempty"`
+	DeleteBlockers         []string              `json:"deleteBlockers,omitempty"`
+	References             []ShopEditorReference `json:"references,omitempty"`
 }
 
 type ShopEditorStock struct {
@@ -177,6 +190,7 @@ func loadShopEditor(file *memorydb.File, resolver *titleResolver) ShopEditorCata
 	}
 
 	cellDeleteBlockers := loadShopItemCellDeleteBlockerIndex(file)
+	cellReferences := loadShopEditorReferenceIndex(file, shopItemCellReferenceTables)
 	for rowIndex, row := range readRows(file, shopItemCellTable) {
 		cellID, cellOK := integerAt(row, 0)
 		step, stepOK := integerAt(row, 1)
@@ -184,7 +198,7 @@ func loadShopEditor(file *memorydb.File, resolver *titleResolver) ShopEditorCata
 		if cellOK && stepOK && itemOK {
 			result.Cells = append(result.Cells, ShopEditorCell{
 				Row: int64(rowIndex), ShopItemCellID: cellID, StepNumber: step, ShopItemID: itemID,
-				DeleteBlockers: cellDeleteBlockers[cellID],
+				DeleteBlockers: cellDeleteBlockers[cellID], References: cellReferences[cellID],
 			})
 		}
 	}
@@ -203,6 +217,7 @@ func loadShopEditor(file *memorydb.File, resolver *titleResolver) ShopEditorCata
 		}
 	}
 	deleteBlockers := loadShopItemDeleteBlockerIndex(file)
+	itemReferences := loadShopEditorReferenceIndex(file, shopItemReferenceTables)
 	for rowIndex, row := range readRows(file, "m_shop_item") {
 		item, ok := shopItemInputAt(row)
 		if !ok {
@@ -216,7 +231,7 @@ func loadShopEditor(file *memorydb.File, resolver *titleResolver) ShopEditorCata
 			ShopItemLimitedStockID: int64(item.ShopItemLimitedStockID), AssetCategoryID: int64(item.AssetCategoryID),
 			AssetVariationID: int64(item.AssetVariationID), ShopItemDecorationType: int64(item.ShopItemDecorationType),
 			Names:          resolver.byKey(fmt.Sprintf("shop.item.name.%d", resolver.shopItemTextIDs[int64(item.ShopItemID)])),
-			DeleteBlockers: deleteBlockers[int64(item.ShopItemID)],
+			DeleteBlockers: deleteBlockers[int64(item.ShopItemID)], References: itemReferences[int64(item.ShopItemID)],
 		})
 	}
 
@@ -300,6 +315,29 @@ func shopItemCellRows(rows []ShopItemCellInput) [][]interface{} {
 	result := make([][]interface{}, 0, len(rows))
 	for _, row := range rows {
 		result = append(result, []interface{}{row.ShopItemCellID, row.StepNumber, row.ShopItemID})
+	}
+	return result
+}
+
+func loadShopEditorReferenceIndex(file *memorydb.File, tables []shopReferenceTable) map[int64][]ShopEditorReference {
+	result := make(map[int64][]ShopEditorReference)
+	for _, table := range tables {
+		for rowIndex, row := range readRows(file, table.name) {
+			referencedID, ok := integerAt(row, table.column)
+			if !ok {
+				continue
+			}
+			identity := make([]ShopEditorReferenceIdentity, 0, len(table.fields))
+			for column, name := range table.fields {
+				if column >= len(row) {
+					break
+				}
+				identity = append(identity, ShopEditorReferenceIdentity{Name: name, Value: fmt.Sprint(row[column])})
+			}
+			result[referencedID] = append(result[referencedID], ShopEditorReference{
+				Table: table.name, Row: int64(rowIndex), Identity: identity,
+			})
+		}
 	}
 	return result
 }

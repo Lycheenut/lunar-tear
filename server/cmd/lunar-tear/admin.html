@@ -80,7 +80,7 @@
         <label>标题语言
           <select id="language-select" aria-label="标题语言"></select>
         </label>
-        <label class="search-field">筛选当前表
+        <label id="table-search-label" class="search-field">筛选当前表
           <input id="search" type="search" placeholder="按标题、字段名或字段值搜索">
         </label>
         <button id="refresh" class="button ghost" type="button">刷新</button>
@@ -271,66 +271,6 @@
           <div id="empty-state" class="empty-state hidden">当前筛选条件下没有内容。</div>
         </section>
 
-        <aside id="reward-reference" class="reward-reference hidden" aria-label="奖励对象对照表">
-          <div class="reward-reference-heading">
-            <div>
-              <p class="eyebrow">REWARD REFERENCE</p>
-              <h2>奖励对象对照表</h2>
-            </div>
-            <span id="reward-visible-count" class="row-badge">0 项</span>
-          </div>
-          <div class="reward-reference-controls">
-            <div class="reward-primary-filters">
-              <label>展示类型
-                <select id="reward-type">
-                  <option value="material" selected>道具</option>
-                  <option value="weapon">武器</option>
-                  <option value="companion">伙伴</option>
-                  <option value="consumable">消耗品</option>
-                  <option value="important_item">重要道具</option>
-                  <option value="free_gem">免费宝石</option>
-                </select>
-              </label>
-              <label id="reward-material-type-label">具体道具类型
-                <select id="reward-material-type"></select>
-              </label>
-            </div>
-            <label>搜索奖励
-              <input id="reward-search" type="search" placeholder="按名称或 ID 搜索">
-            </label>
-            <div id="reward-weapon-filters" class="reward-weapon-filters hidden">
-              <label>属性
-                <select id="reward-weapon-attribute"></select>
-              </label>
-              <label>武器类型
-                <select id="reward-weapon-type"></select>
-              </label>
-              <label>赠送角色
-                <select id="reward-weapon-grant">
-                  <option value="">全部</option>
-                  <option value="true">是</option>
-                  <option value="false">否</option>
-                </select>
-              </label>
-            </div>
-          </div>
-          <div id="reward-reference-list" class="reward-reference-list"></div>
-          <div id="reward-reference-empty" class="empty-state hidden">当前筛选条件下没有奖励对象。</div>
-          <div class="reward-reference-pagination">
-            <label>每页
-              <select id="reward-page-size">
-                <option value="25" selected>25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
-            </label>
-            <div class="reward-page-navigation">
-              <button id="reward-page-previous" class="button ghost" type="button">上一页</button>
-              <span id="reward-page-info" aria-live="polite">第 1 / 1 页</span>
-              <button id="reward-page-next" class="button ghost" type="button">下一页</button>
-            </div>
-          </div>
-        </aside>
       </div>
 
       <div class="savebar master-only">

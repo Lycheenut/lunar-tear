@@ -10,7 +10,8 @@
     timezone: $("#timezone"), tableSelect: $("#table-select"), typeFilters: $("#type-filters"),
     modeControl: $("#detail-mode-control"), modeButtons: document.querySelectorAll(".mode-button"),
     statusFilter: $("#status-filter"), statusFilterLabel: $("#status-filter-label"),
-    languageSelect: $("#language-select"), search: $("#search"), refresh: $("#refresh"), notice: $("#notice"),
+    languageSelect: $("#language-select"), tableSearchLabel: $("#table-search-label"),
+    search: $("#search"), refresh: $("#refresh"), notice: $("#notice"),
     entityName: $("#entity-name"), tableName: $("#table-name"), visibleCount: $("#visible-count"),
     tableScroll: $("#table-scroll"), scheduleTable: $("#schedule-table"), head: $("#schedule-head"), body: $("#schedule-body"),
     missionRewardEditor: $("#mission-reward-editor"), missionRewardAssignmentBody: $("#mission-reward-assignment-body"),
@@ -50,15 +51,7 @@
     masterUpdatePreview: $("#master-update-preview"), masterUpdateCancel: $("#master-update-cancel"),
     masterUpdateConfirm: $("#master-update-confirm"),
     tabMaster: $("#tab-master"), tabRelated: $("#tab-related"), tabDelivery: $("#tab-delivery"),
-    tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"), masterLayout: $("#master-layout"),
-    rewardReference: $("#reward-reference"), rewardVisibleCount: $("#reward-visible-count"),
-    rewardType: $("#reward-type"), rewardSearch: $("#reward-search"),
-    rewardMaterialTypeLabel: $("#reward-material-type-label"), rewardMaterialType: $("#reward-material-type"),
-    rewardWeaponFilters: $("#reward-weapon-filters"), rewardWeaponAttribute: $("#reward-weapon-attribute"),
-    rewardWeaponType: $("#reward-weapon-type"), rewardWeaponGrant: $("#reward-weapon-grant"),
-    rewardReferenceList: $("#reward-reference-list"), rewardReferenceEmpty: $("#reward-reference-empty"),
-    rewardPageSize: $("#reward-page-size"), rewardPagePrevious: $("#reward-page-previous"),
-    rewardPageInfo: $("#reward-page-info"), rewardPageNext: $("#reward-page-next"),
+    tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
     gachaStandardCount: $("#gacha-standard-count"), gachaOverrideCount: $("#gacha-override-count"),
     gachaBannerCount: $("#gacha-banner-count"), gachaPickupCount: $("#gacha-pickup-count"), gachaWarnings: $("#gacha-warnings"),
     gachaLanguageSelect: $("#gacha-language-select"), gachaLimitedSetId: $("#gacha-limited-set-id"),
@@ -101,9 +94,6 @@
     section: "master",
     tableSelections: { master: "", related: "", delivery: "" },
     rewardCatalog: null,
-    rewardPage: 1,
-    rewardPageSize: 25,
-    rewardPageCount: 1,
     missionRewardContentPage: 1,
     missionRewardContentPageSize: 25,
     missionRewardContentPageCount: 1,
@@ -203,10 +193,8 @@
       showWorkspace();
       renderCatalog();
       renderGachaEditor();
-      initializeRewardFilters();
-      renderRewardReference();
       switchAdminSection(state.section);
-      showNotice(`已读取 ${state.catalog.tableCount} 张配置表、${state.catalog.rowCount} 行内容，以及 ${rewardReferenceCount()} 个奖励对象。`);
+      showNotice(`已读取 ${state.catalog.tableCount} 张配置表、${state.catalog.rowCount} 行内容。`);
     } catch (error) {
       if (error.status === 401) {
         state.token = "";
@@ -727,7 +715,7 @@
     elements.head.replaceChildren();
     elements.body.replaceChildren();
 
-    const query = elements.search.value.trim().toLocaleLowerCase();
+    const query = state.section === "delivery" ? "" : elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
     const hasSchedule = (table.pairs || []).length > 0;
     const hasArtwork = table.name === "m_dokan";
@@ -1166,6 +1154,25 @@
     return shopCellEffectiveBlockers(cell).length !== 0;
   }
 
+  function shopCellReferences(cell) {
+    const cellID = Number(cell.shopItemCellId);
+    const groupReferences = state.shopCellGroupDraft.flatMap((row, index) => (
+      Number(row.shopItemCellId) === cellID ? [{
+        table: "m_shop_item_cell_group",
+        row: index,
+        identity: [
+          { name: "ShopItemCellGroupId", value: String(row.shopItemCellGroupId) },
+          { name: "ShopItemCellId", value: String(row.shopItemCellId) },
+          { name: "SortOrder", value: String(row.sortOrder) },
+          { name: "ShopItemCellTermId", value: String(row.shopItemCellTermId) }
+        ]
+      }] : []
+    ));
+    const otherReferences = (cell.references || [])
+      .filter((reference) => reference.table !== "m_shop_item_cell_group");
+    return [...groupReferences, ...otherReferences];
+  }
+
   function addShopCell() {
     const existing = [...(state.catalog?.shopEditor?.cells || []), ...state.shopCellAdditions];
     const suggestedID = existing.reduce((maximum, cell) => Math.max(maximum, Number(cell.shopItemCellId)), 0) + 1;
@@ -1279,6 +1286,13 @@
     itemPicker.input.classList.toggle("changed", cell.isNew || state.dirty.has(changeKey(shopItemCellTableName, Number(cell.row), "ShopItemId")));
     item.append(itemPicker.wrapper);
     const actions = document.createElement("td");
+    const actionStack = document.createElement("div");
+    actionStack.className = "shop-cell-row-actions";
+    const references = document.createElement("button");
+    references.type = "button";
+    references.className = "button ghost mission-reference-button";
+    references.textContent = "查找引用";
+    references.addEventListener("click", () => showShopCellReferences(cell));
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "button ghost shop-item-delete";
@@ -1286,7 +1300,8 @@
     remove.disabled = shopCellHasReferences(cell);
     if (remove.disabled) remove.title = `无法删除：仍被 ${shopCellEffectiveBlockers(cell).map(shopCellBlockerLabel).join("、")} 引用`;
     remove.addEventListener("click", () => deleteShopCell(cell));
-    actions.append(remove);
+    actionStack.append(references, remove);
+    actions.append(actionStack);
     tr.append(id, step, item, actions);
     return tr;
   }
@@ -1348,6 +1363,11 @@
     copy.className = "button ghost";
     copy.textContent = "复制";
     copy.addEventListener("click", () => copyShopItem(item, contentTable));
+    const references = document.createElement("button");
+    references.type = "button";
+    references.className = "button ghost";
+    references.textContent = "查找引用";
+    references.addEventListener("click", () => showShopItemReferences(item));
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "button ghost shop-item-delete";
@@ -1356,7 +1376,7 @@
     remove.disabled = blockers.length !== 0;
     if (remove.disabled) remove.title = `无法删除：仍被 ${blockers.map(shopItemBlockerLabel).join("、")} 引用`;
     remove.addEventListener("click", () => deleteShopItem(item));
-    actions.append(copy, remove);
+    actions.append(copy, references, remove);
     identity.append(code, name, actions);
 
     const transaction = document.createElement("td");
@@ -1431,6 +1451,24 @@
 
   function shopItemHasReferences(item, referencedItemIDs = null) {
     return shopItemEffectiveBlockers(item, referencedItemIDs).length !== 0;
+  }
+
+  function shopItemReferences(item) {
+    const itemID = Number(item.shopItemId);
+    const cellReferences = shopEditorCells().flatMap((cell) => (
+      Number(effectiveShopCellItemID(cell)) === itemID ? [{
+        table: "m_shop_item_cell",
+        row: Number(cell.row),
+        identity: [
+          { name: "ShopItemCellId", value: String(cell.shopItemCellId) },
+          { name: "StepNumber", value: String(cell.stepNumber) },
+          { name: "ShopItemId", value: String(item.shopItemId) }
+        ]
+      }] : []
+    ));
+    const otherReferences = (item.references || [])
+      .filter((reference) => reference.table !== "m_shop_item_cell");
+    return [...cellReferences, ...otherReferences];
   }
 
   function renderShopStockEditor(item) {
@@ -1630,18 +1668,22 @@
       const definition = rewardDefinitionForPossessionType(possessionType);
       const references = rewardReferencesForPossessionType(possessionType);
       const reference = references.find((candidate) => String(candidate.possessionId) === current);
-      populateRewardIDSelect(select, references, current, definition, false);
+      populateRewardIDSelect(select, references, current, definition);
       select.classList.add("changed");
-      const populate = () => populateRewardIDSelect(select, references, select.value, definition, true);
-      select.addEventListener("focus", populate);
-      select.addEventListener("pointerdown", populate);
       select.addEventListener("change", () => {
         possession.possessionId = Number(select.value);
         renderTable();
       });
       const selectSlot = document.createElement("div");
       selectSlot.className = "reward-field-select";
-      selectSlot.append(select);
+      const searchable = createSearchableSelect(select, {
+        options: rewardSelectorOptions(references, definition),
+        placeholder: "搜索奖励对象 ID 或名称",
+        ariaLabel: "搜索并选择奖励对象",
+        limit: 50
+      });
+      searchable.querySelector("input").classList.add("changed");
+      selectSlot.append(searchable);
       wrapper.append(renderRewardIcon(reference, definition, "reward-field-icon"), selectSlot);
       return wrapper;
     }
@@ -2046,6 +2088,51 @@
           ));
         });
         elements.missionReferenceContent.append(category);
+      });
+    }
+    elements.missionReferenceDialog.showModal();
+  }
+
+  function showShopCellReferences(cell) {
+    showShopReferences("Cell", cell.shopItemCellId, shopCellReferences(cell), shopCellBlockerLabel);
+  }
+
+  function showShopItemReferences(item) {
+    showShopReferences("ShopItem", item.shopItemId, shopItemReferences(item), shopItemBlockerLabel);
+  }
+
+  function showShopReferences(entityLabel, entityID, references, tableLabel) {
+    const groups = new Map();
+    references.forEach((reference) => {
+      if (!groups.has(reference.table)) groups.set(reference.table, []);
+      groups.get(reference.table).push(reference);
+    });
+    elements.missionReferenceEyebrow.textContent = `${entityLabel.toUpperCase()} REFERENCES`;
+    elements.missionReferenceTitle.textContent = `${entityLabel} ${entityID} 的引用`;
+    elements.missionReferenceSummary.textContent = references.length
+      ? `${references.length.toLocaleString()} 条引用 · ${groups.size.toLocaleString()} 张表`
+      : `当前没有内容引用此 ${entityLabel}`;
+    elements.missionReferenceContent.replaceChildren();
+    if (!references.length) {
+      const empty = document.createElement("div");
+      empty.className = "impact-section impact-no-change";
+      empty.textContent = `没有找到引用该 ${entityLabel} 的配置。`;
+      elements.missionReferenceContent.append(empty);
+    } else {
+      groups.forEach((records, table) => {
+        const group = document.createElement("section");
+        group.className = "impact-group";
+        const heading = document.createElement("header");
+        heading.append(
+          makeCell("strong", tableLabel(table)),
+          makeCell("span", `${records.length.toLocaleString()} 条引用`)
+        );
+        group.append(heading, renderImpactSection("引用记录", records.map((record) => ({
+          ...record,
+          tableLabel: tableLabel(table),
+          omitChanges: true
+        }))));
+        elements.missionReferenceContent.append(group);
       });
     }
     elements.missionReferenceDialog.showModal();
@@ -2803,15 +2890,13 @@
     const definition = rewardDefinitionForPossessionType(possessionType);
     const references = rewardReferencesForPossessionType(possessionType);
     let reference = references.find((candidate) => String(candidate.possessionId) === currentID);
-    populateRewardIDSelect(select, references, currentID, definition, false);
+    populateRewardIDSelect(select, references, currentID, definition);
     configureFieldInput(select, table, row, pair.idField);
-    const populate = () => populateRewardIDSelect(select, references, select.value, definition, true);
-    select.addEventListener("focus", populate);
-    select.addEventListener("pointerdown", populate);
 
     let icon = renderRewardIcon(reference, definition, "reward-field-icon");
     select.addEventListener("change", () => {
       onFieldChange(table, row, pair.idField, select);
+      searchInput.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, pair.idField.name)));
       reference = references.find((candidate) => String(candidate.possessionId) === select.value);
       const nextIcon = renderRewardIcon(reference, definition, "reward-field-icon");
       icon.replaceWith(nextIcon);
@@ -2820,30 +2905,34 @@
     });
     const selectSlot = document.createElement("div");
     selectSlot.className = "reward-field-select";
-    selectSlot.append(select);
+    const searchable = createSearchableSelect(select, {
+      options: rewardSelectorOptions(references, definition),
+      placeholder: "搜索奖励对象 ID 或名称",
+      ariaLabel: "搜索并选择奖励对象",
+      limit: 50
+    });
+    const searchInput = searchable.querySelector("input");
+    searchInput.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, pair.idField.name)));
+    selectSlot.append(searchable);
     wrapper.append(icon, selectSlot);
     return wrapper;
   }
 
-  function populateRewardIDSelect(select, references, selectedID, definition, expanded) {
-    if (expanded && select.dataset.expanded === "true") return;
+  function populateRewardIDSelect(select, references, selectedID, definition) {
     select.replaceChildren();
     const selected = references.find((reference) => String(reference.possessionId) === selectedID);
-    const options = expanded ? references : selected ? [selected] : [];
-    options.forEach((reference) => {
+    if (selected) {
       const option = document.createElement("option");
-      option.value = String(reference.possessionId);
-      option.textContent = rewardReferenceOptionLabel(reference, definition);
+      option.value = String(selected.possessionId);
+      option.textContent = rewardReferenceOptionLabel(selected, definition);
       select.append(option);
-    });
-    if (!selected) {
+    } else {
       const unknown = document.createElement("option");
       unknown.value = selectedID;
       unknown.textContent = idNameLabel(selectedID, "未知奖励");
       select.append(unknown);
     }
     select.value = selectedID;
-    select.dataset.expanded = String(expanded);
   }
 
   function configureFieldInput(input, table, row, field) {
@@ -3205,12 +3294,6 @@
   const availabilityLabels = { standard: "常驻", event: "活动", limited: "限定" };
   const weaponAttributeLabels = { 1: "暗", 2: "火", 3: "光", 5: "水", 6: "风" };
   const weaponTypeLabels = { 1: "小剑", 2: "枪", 3: "大剑", 4: "拳", 5: "杖", 6: "铳" };
-  const materialTypeLabels = {
-    10: "武器强化", 20: "服装强化", 30: "伙伴强化", 40: "武器技能强化",
-    50: "服装技能强化", 60: "通用技能强化", 70: "武器进化", 80: "武器突破",
-    90: "服装突破", 100: "传承的石碑", 110: "服装觉醒", 120: "升华",
-    130: "精炼", 140: "天命"
-  };
   const rewardDefinitions = [
     { key: "material", catalogKey: "materials", possessionType: "5", label: "道具", fallbackName: "未命名道具", glyph: "具" },
     { key: "weapon", catalogKey: "weapons", possessionType: "2", label: "武器", fallbackName: "未命名武器", glyph: "武" },
@@ -3219,7 +3302,6 @@
     { key: "important_item", catalogKey: "importantItems", possessionType: "13", label: "重要道具", fallbackName: "未命名重要道具", glyph: "重" },
     { key: "free_gem", catalogKey: "freeGems", possessionType: "12", label: "免费宝石", fallbackName: "免费宝石", glyph: "石" }
   ];
-  const rewardTypes = rewardDefinitions.map((definition) => definition.key);
   const rewardPageSizes = [25, 50, 100];
   const gachaGroupDefinitions = [
     { id: "character_weapon_4", grantType: "character_weapon", star: 4, label: "4星角色武器" },
@@ -3228,44 +3310,6 @@
     { id: "weapon_only_3", grantType: "weapon_only", star: 3, label: "3星武器" },
     { id: "weapon_only_2", grantType: "weapon_only", star: 2, label: "2星武器", calculated: true }
   ];
-
-  function initializeRewardFilters() {
-    if (!state.rewardCatalog) return;
-    if (!rewardTypes.includes(elements.rewardType.value)) {
-      elements.rewardType.value = state.rewardCatalog.defaultType || "material";
-    }
-    populateRewardFilter(
-      elements.rewardMaterialType,
-      state.rewardCatalog.materials.map((item) => item.materialType),
-      (value) => materialTypeLabels[value] || `类型 ${value}`
-    );
-    populateRewardFilter(
-      elements.rewardWeaponAttribute,
-      state.rewardCatalog.weapons.map((item) => item.attributeType),
-      (value) => weaponAttributeLabels[value] || `属性 ${value}`
-    );
-    populateRewardFilter(
-      elements.rewardWeaponType,
-      state.rewardCatalog.weapons.map((item) => item.weaponType),
-      (value) => weaponTypeLabels[value] || `类型 ${value}`
-    );
-  }
-
-  function populateRewardFilter(select, values, labelForValue) {
-    const previous = select.value;
-    select.replaceChildren();
-    const all = document.createElement("option");
-    all.value = "";
-    all.textContent = "全部";
-    select.append(all);
-    [...new Set(values.map(Number).filter(Number.isFinite))].sort((left, right) => left - right).forEach((value) => {
-      const option = document.createElement("option");
-      option.value = String(value);
-      option.textContent = idNameLabel(value, labelForValue(value));
-      select.append(option);
-    });
-    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
-  }
 
   function rewardDefinitionForPossessionType(possessionType) {
     return rewardDefinitions.find((definition) => definition.possessionType === String(possessionType));
@@ -3283,6 +3327,14 @@
   function rewardReferenceOptionLabel(reference, definition) {
     const name = rewardReferenceName(reference, definition).replace(/\s*\n\s*/g, " ");
     return idNameLabel(reference.possessionId, name);
+  }
+
+  function rewardSelectorOptions(references, definition) {
+    return references.map((reference) => ({
+      value: String(reference.possessionId),
+      label: rewardReferenceOptionLabel(reference, definition),
+      searchText: `${reference.possessionId} ${Object.values(reference.names || {}).join(" ")} ${Object.values(reference.costumeNames || {}).join(" ")}`
+    }));
   }
 
   function renderAssetIcon(iconPath, alt, glyph, className) {
@@ -3316,110 +3368,13 @@
     );
   }
 
-  function renderRewardReference() {
-    if (!state.rewardCatalog) return;
-    const rewardType = elements.rewardType.value;
-    const isWeapon = rewardType === "weapon";
-    elements.rewardMaterialTypeLabel.classList.toggle("hidden", rewardType !== "material");
-    elements.rewardWeaponFilters.classList.toggle("hidden", !isWeapon);
-
-    const query = elements.rewardSearch.value.trim().toLocaleLowerCase();
-    const materialType = elements.rewardMaterialType.value;
-    const attributeType = elements.rewardWeaponAttribute.value;
-    const weaponType = elements.rewardWeaponType.value;
-    const grantCharacter = elements.rewardWeaponGrant.value;
-    const definition = rewardDefinitions.find((candidate) => candidate.key === rewardType);
-    const source = definition ? state.rewardCatalog[definition.catalogKey] || [] : [];
-    const visible = source.filter((item) => {
-      if (rewardType === "material" && materialType && String(item.materialType) !== materialType) return false;
-      if (isWeapon && attributeType && String(item.attributeType) !== attributeType) return false;
-      if (isWeapon && weaponType && String(item.weaponType) !== weaponType) return false;
-      if (isWeapon && grantCharacter && String(Boolean(item.grantsCharacter)) !== grantCharacter) return false;
-      if (!query) return true;
-      return `${item.possessionId} ${localizedText(item.names)} ${Object.values(item.names || {}).join(" ")} ${Object.values(item.costumeNames || {}).join(" ")}`
-        .toLocaleLowerCase().includes(query);
-    });
-
-    const pageCount = Math.max(1, Math.ceil(visible.length / state.rewardPageSize));
-    state.rewardPage = Math.min(Math.max(1, state.rewardPage), pageCount);
-    state.rewardPageCount = pageCount;
-    const pageStart = (state.rewardPage - 1) * state.rewardPageSize;
-    const pageEnd = Math.min(pageStart + state.rewardPageSize, visible.length);
-    const rendered = visible.slice(pageStart, pageEnd);
-    elements.rewardReferenceList.replaceChildren();
-    rendered.forEach((item) => elements.rewardReferenceList.append(renderRewardReferenceCard(item, rewardType)));
-    elements.rewardReferenceList.scrollTop = 0;
-    elements.rewardVisibleCount.textContent = visible.length
-      ? `${visible.length.toLocaleString()} 项 · ${pageStart + 1}–${pageEnd}`
-      : "0 项";
-    elements.rewardPageInfo.textContent = `第 ${state.rewardPage.toLocaleString()} / ${pageCount.toLocaleString()} 页`;
-    elements.rewardPagePrevious.disabled = state.rewardPage === 1;
-    elements.rewardPageNext.disabled = state.rewardPage === pageCount;
-    elements.rewardReferenceEmpty.classList.toggle("hidden", visible.length !== 0);
-  }
-
-  function resetRewardPageAndRender() {
-    state.rewardPage = 1;
-    renderRewardReference();
-  }
-
-  function rewardReferenceCount() {
-    if (!state.rewardCatalog) return 0;
-    return rewardDefinitions
-      .reduce((count, definition) => count + (state.rewardCatalog[definition.catalogKey]?.length || 0), 0)
-      .toLocaleString();
-  }
-
-  function renderRewardReferenceCard(item, rewardType) {
-    const card = document.createElement("article");
-    card.className = "reward-reference-card";
-    const definition = rewardDefinitions.find((candidate) => candidate.key === rewardType);
-    const visual = renderRewardIcon(item, definition, "reward-reference-icon");
-    const name = rewardReferenceName(item, definition);
-
-    const content = document.createElement("div");
-    content.className = "reward-reference-content";
-    const title = document.createElement("strong");
-    title.textContent = name;
-    const summary = document.createElement("span");
-    if (rewardType === "weapon") {
-      const segments = [
-        weaponAttributeLabels[item.attributeType] || `属性 ${item.attributeType}`,
-        weaponTypeLabels[item.weaponType] || `类型 ${item.weaponType}`
-      ];
-      if (item.grantsCharacter) segments.push(localizedText(item.costumeNames) || "未命名服装");
-      summary.textContent = segments.join(" · ");
-    } else if (rewardType === "material") {
-      summary.textContent = materialTypeLabels[item.materialType] || `类型 ${item.materialType}`;
-    } else if (rewardType === "companion") {
-      summary.textContent = weaponAttributeLabels[item.attributeType] || `属性 ${item.attributeType}`;
-    } else if (rewardType === "consumable") {
-      summary.textContent = `消耗品类型 ${item.consumableType}`;
-    } else if (rewardType === "important_item") {
-      summary.textContent = "重要道具";
-    } else {
-      summary.textContent = "免费宝石";
-    }
-    const identifiers = document.createElement("code");
-    identifiers.textContent = `Type=${item.possessionType} · ID=${item.possessionId}`;
-    content.append(title, summary, identifiers);
-    card.append(visual, content);
-    if (rewardType === "weapon" && item.grantsCharacter) {
-      const costumeName = localizedText(item.costumeNames) || "未命名服装";
-      card.classList.add("with-costume");
-      card.append(renderAssetIcon(item.costumeIconPath, costumeName, "装", "reward-reference-costume-icon"));
-    }
-    return card;
-  }
-
   function switchAdminSection(section) {
     state.section = ["master", "related", "delivery", "gacha"].includes(section) ? section : "master";
     const isGacha = state.section === "gacha";
     const isDelivery = state.section === "delivery";
     document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha));
     elements.gachaEditor.classList.toggle("hidden", !isGacha);
-    elements.rewardReference.classList.toggle("hidden", !isDelivery);
-    elements.masterLayout.classList.toggle("with-reward-reference", isDelivery);
+    elements.tableSearchLabel.classList.toggle("hidden", isDelivery);
     elements.tabMaster.classList.toggle("active", state.section === "master");
     elements.tabRelated.classList.toggle("active", state.section === "related");
     elements.tabDelivery.classList.toggle("active", isDelivery);
@@ -3431,7 +3386,6 @@
     if (isGacha) renderGachaEditor();
     else if (state.catalog) {
       renderCatalog();
-      if (isDelivery) renderRewardReference();
     }
   }
 
@@ -4427,30 +4381,8 @@
     renderTypeFilters(currentTable());
     renderTable();
     renderGachaEditor();
-    renderRewardReference();
   });
 
-  elements.rewardType.addEventListener("change", resetRewardPageAndRender);
-  elements.rewardSearch.addEventListener("input", resetRewardPageAndRender);
-  elements.rewardMaterialType.addEventListener("change", resetRewardPageAndRender);
-  elements.rewardWeaponAttribute.addEventListener("change", resetRewardPageAndRender);
-  elements.rewardWeaponType.addEventListener("change", resetRewardPageAndRender);
-  elements.rewardWeaponGrant.addEventListener("change", resetRewardPageAndRender);
-  elements.rewardPageSize.addEventListener("change", () => {
-    const pageSize = Number(elements.rewardPageSize.value);
-    state.rewardPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;
-    resetRewardPageAndRender();
-  });
-  elements.rewardPagePrevious.addEventListener("click", () => {
-    if (state.rewardPage <= 1) return;
-    state.rewardPage -= 1;
-    renderRewardReference();
-  });
-  elements.rewardPageNext.addEventListener("click", () => {
-    if (state.rewardPage >= state.rewardPageCount) return;
-    state.rewardPage += 1;
-    renderRewardReference();
-  });
   elements.missionRewardContentPageSize.addEventListener("change", () => {
     const pageSize = Number(elements.missionRewardContentPageSize.value);
     state.missionRewardContentPageSize = rewardPageSizes.includes(pageSize) ? pageSize : 25;

@@ -138,6 +138,29 @@ func TestAdminShopCellStructureLazySelectorsAndUnreferencedFilters(t *testing.T)
 	}
 }
 
+func TestAdminDeliveryUsesSearchableRewardsAndReferenceLookups(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	if strings.Contains(html, "奖励对象对照表") || strings.Contains(html, `id="reward-reference"`) {
+		t.Fatal("delivery editor still renders the removed reward reference table")
+	}
+	for _, required := range []string{
+		`id="table-search-label"`,
+		`elements.tableSearchLabel.classList.toggle("hidden", isDelivery)`,
+		`const query = state.section === "delivery" ? ""`,
+		`function rewardSelectorOptions(references, definition)`,
+		`placeholder: "搜索奖励对象 ID 或名称"`,
+		`function showShopCellReferences(cell)`,
+		`function showShopItemReferences(item)`,
+		`references.textContent = "查找引用"`,
+	} {
+		if !strings.Contains(html, required) && !strings.Contains(javascript, required) {
+			t.Fatalf("delivery editor is missing %s", required)
+		}
+	}
+}
+
 func TestAdminEntityLabelsUseIDFirstFormat(t *testing.T) {
 	javascript := adminAssetBody(t, "/admin/admin.js")
 	if !strings.Contains(javascript, "return `${id}. ${name}`;") {
@@ -231,12 +254,8 @@ func TestAdminMissionRewardUsesRestrictedStructuralUpdates(t *testing.T) {
 }
 
 func TestAdminRewardCatalogIncludesImportantItems(t *testing.T) {
-	html := adminAssetBody(t, "/admin/")
 	javascript := adminAssetBody(t, "/admin/admin.js")
 
-	if !strings.Contains(html, `<option value="important_item">重要道具</option>`) {
-		t.Fatal("reward reference filter is missing important items")
-	}
 	if !strings.Contains(javascript, `{ key: "important_item", catalogKey: "importantItems", possessionType: "13"`) {
 		t.Fatal("reward definitions are missing ImportantItem possession type 13")
 	}

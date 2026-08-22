@@ -337,106 +337,6 @@ input:focus, select:focus {
   align-items: start;
 }
 
-.master-layout.with-reward-reference {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
-}
-
-.reward-reference {
-  position: sticky;
-  top: 16px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(17, 25, 31, .96);
-}
-
-.reward-reference-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px;
-  border-bottom: 1px solid var(--line);
-}
-
-.reward-reference-heading h2 { margin-top: 5px; font-size: 18px; }
-
-.reward-reference-controls {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(12, 20, 25, .72);
-}
-
-.reward-primary-filters,
-.reward-weapon-filters { display: grid; gap: 8px; }
-.reward-primary-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.reward-primary-filters:has(#reward-material-type-label.hidden) { grid-template-columns: 1fr; }
-.reward-weapon-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.reward-reference-controls input,
-.reward-reference-controls select { width: 100%; min-width: 0; }
-
-.reward-reference-list {
-  display: grid;
-  align-content: start;
-  grid-auto-rows: 82px;
-  max-height: calc(100vh - 405px);
-  overflow: auto;
-}
-
-.reward-reference-card {
-  display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  height: 82px;
-  min-height: 82px;
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(38, 52, 61, .7);
-}
-
-.reward-reference-card.with-costume { grid-template-columns: 62px minmax(0, 1fr) 50px; }
-
-.reward-reference-card:last-child { border-bottom: 0; }
-.reward-reference-card:hover { background: rgba(255, 255, 255, .018); }
-
-.reward-reference-icon {
-  display: grid;
-  place-items: center;
-  width: 62px;
-  height: 62px;
-  overflow: hidden;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: #0b1216;
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.reward-reference-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.reward-reference-costume-icon {
-  display: grid;
-  place-items: center;
-  width: 50px;
-  height: 50px;
-  overflow: hidden;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: #0b1216;
-  font-size: 14px;
-  font-weight: 800;
-}
-.reward-reference-costume-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.reward-reference-content { display: grid; min-width: 0; gap: 4px; }
-.reward-reference-content strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
-.reward-reference-content span { color: var(--muted); font-size: 10px; line-height: 1.4; }
-.reward-reference-content code { color: var(--accent-strong); font-size: 10px; overflow-wrap: anywhere; }
-.reward-reference > .empty-state { border-top: 0; }
-
-.reward-reference-pagination,
 .mission-reward-pagination {
   display: flex;
   align-items: center;
@@ -447,12 +347,9 @@ input:focus, select:focus {
   background: rgba(12, 20, 25, .72);
 }
 
-.reward-reference-pagination label,
 .mission-reward-pagination label,
 .reward-page-navigation { display: flex; align-items: center; gap: 8px; }
-.reward-reference-pagination label,
 .mission-reward-pagination label { flex: 0 0 auto; }
-.reward-reference-pagination select,
 .mission-reward-pagination select { width: auto; min-width: 64px; }
 .reward-page-navigation { justify-content: flex-end; min-width: 0; }
 .reward-page-navigation .button { min-height: 32px; padding: 6px 9px; font-size: 11px; }
@@ -790,12 +687,14 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .shop-cell-card-meta { grid-area: meta; display: flex; flex-wrap: wrap; min-width: 0; gap: 5px 10px; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .shop-cell-card-meta code { color: var(--text); }
 .shop-cell-card .shop-remove-cell { grid-area: remove; width: auto; min-height: 28px; padding: 4px 7px; }
-.shop-cell-table { min-width: 760px !important; }
+.shop-cell-table { min-width: 850px !important; }
 .shop-cell-table th:nth-child(1) { width: 110px; }
 .shop-cell-table th:nth-child(2) { width: 110px; }
 .shop-cell-table th:nth-child(3) { width: auto; }
-.shop-cell-table th:nth-child(4) { width: 88px; }
+.shop-cell-table th:nth-child(4) { width: 178px; }
 .shop-cell-table td:nth-child(3) { padding-right: 16px; }
+.shop-cell-row-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.shop-cell-row-actions .button { width: 100%; min-width: 0; min-height: 32px; padding: 6px; white-space: nowrap; }
 .shop-item-table { min-width: 1100px !important; }
 .shop-item-table th:nth-child(1) { width: 200px; }
 .shop-item-table th:nth-child(2) { width: 680px; }
@@ -1074,46 +973,6 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .toolbar:has(#detail-mode-control.hidden):has(#status-filter-label.hidden) {
     grid-template-columns: minmax(220px, 1.2fr) 110px minmax(300px, 1fr) max-content;
   }
-  .master-layout.with-reward-reference { align-items: stretch; }
-  .master-layout.with-reward-reference > .data-panel,
-  .master-layout.with-reward-reference > .reward-reference {
-    height: max(520px, calc(100vh - 104px));
-    min-height: 0;
-  }
-  .master-layout.with-reward-reference > .data-panel {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-  }
-  .master-layout.with-reward-reference > .reward-reference {
-    display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-  }
-  .master-layout.with-reward-reference .table-scroll,
-  .master-layout.with-reward-reference .reward-reference-list {
-    min-height: 0;
-    max-height: none;
-  }
-  .master-layout.with-reward-reference .table-scroll { scrollbar-gutter: stable; }
-  .master-layout.with-reward-reference #schedule-table {
-    min-width: 0;
-    table-layout: fixed;
-  }
-  .master-layout.with-reward-reference #schedule-table th {
-    padding-right: 10px;
-    padding-left: 10px;
-    overflow-wrap: anywhere;
-    white-space: normal;
-  }
-  .master-layout.with-reward-reference #schedule-table td { padding-right: 10px; padding-left: 10px; }
-  .master-layout.with-reward-reference #schedule-table td:first-child,
-  .master-layout.with-reward-reference #schedule-table th:first-child,
-  .master-layout.with-reward-reference #schedule-table .field-column {
-    min-width: 0;
-  }
-  .master-layout.with-reward-reference #schedule-table [data-field="StampNumber"] { width: 12%; }
-  .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionType"] { width: 24%; }
-  .master-layout.with-reward-reference #schedule-table [data-field="RewardPossessionId"] { width: 50%; }
-  .master-layout.with-reward-reference #schedule-table [data-field="RewardCount"] { width: 14%; }
 }
 
 @media (max-width: 1100px) {
@@ -1134,9 +993,6 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .box-gacha-toolbar { grid-template-columns: 1fr 1fr; }
   .box-gacha-actions { grid-column: 1 / -1; justify-content: flex-start; }
   .limited-set-create { grid-template-columns: 1fr 1fr; }
-  .master-layout.with-reward-reference { grid-template-columns: 1fr; }
-  .reward-reference { position: static; }
-  .reward-reference-list { max-height: 520px; }
 }
 
 @media (max-width: 620px) {
@@ -1162,8 +1018,6 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
   .box-gacha-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .admin-tabs { display: flex; overflow-x: auto; }
   .admin-tab { flex: 0 0 auto; }
-  .reward-primary-filters, .reward-weapon-filters { grid-template-columns: 1fr; }
-  .reward-reference-pagination { align-items: stretch; flex-direction: column; }
   .reward-page-navigation { justify-content: space-between; }
   .impact-dialog-heading { display: block; }
   .impact-summary { max-width: none; margin-top: 8px !important; text-align: left; }

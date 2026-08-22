@@ -630,6 +630,16 @@ func TestShopItemCopyAndRestrictedDelete(t *testing.T) {
 	}
 
 	blockedID := catalog.ShopEditor.Cells[0].ShopItemID
+	var referencedItem ShopEditorItem
+	for _, item := range catalog.ShopEditor.Items {
+		if item.ShopItemID == blockedID {
+			referencedItem = item
+			break
+		}
+	}
+	if referencedItem.ShopItemID == 0 || len(referencedItem.References) == 0 {
+		t.Fatal("Cell-referenced ShopItem must expose reference records")
+	}
 	_, _, err = BuildUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
 		ShopItems:       &ShopItemStructuralUpdate{DeleteIDs: []int32{int32(blockedID)}},
@@ -805,8 +815,8 @@ func TestShopItemCellAdditionAndRestrictedDelete(t *testing.T) {
 			break
 		}
 	}
-	if referencedCell.ShopItemCellID == 0 || len(referencedCell.DeleteBlockers) == 0 {
-		t.Fatal("CellGroup-referenced Cell must expose delete blockers")
+	if referencedCell.ShopItemCellID == 0 || len(referencedCell.DeleteBlockers) == 0 || len(referencedCell.References) == 0 {
+		t.Fatal("CellGroup-referenced Cell must expose delete blockers and reference records")
 	}
 	_, _, err = BuildUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
