@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"lunar-tear/server/internal/masterdata/memorydb"
+	"lunar-tear/server/internal/questdrop"
 )
 
 func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
-	if got, want := len(activityTableSpecs), 40; got != want {
+	if got, want := len(activityTableSpecs), 41; got != want {
 		t.Fatalf("activity spec count = %d, want %d", got, want)
 	}
 	wantPrimary := map[string]bool{
@@ -42,7 +43,7 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 	}
 	wantDelivery := map[string]bool{
 		"m_login_bonus_stamp": true, "m_mission_reward": true,
-		"m_shop_item_content_possession": true,
+		"m_shop_item_content_possession": true, "m_quest_pickup_reward_group": true,
 	}
 	seen := make(map[string]bool, len(activityTableSpecs))
 	primaryCount := 0
@@ -92,8 +93,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 17 || catalog.DeliveryCount != 3 {
-		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/17/3", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
+	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 17 || catalog.DeliveryCount != 4 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/17/4", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")
@@ -321,6 +322,95 @@ func TestMissionRewardIsDeliveryTableWithLocalizedSources(t *testing.T) {
 	}
 	if got, err := valueAsInt64(rows[row.Index][3]); err != nil || got != count+1 {
 		t.Fatalf("Count = %d, %v; want %d", got, err, count+1)
+	}
+}
+
+func TestQuestDropEditorCatalogUsesNonEventQuestsAndAcquisitionRoutes(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := findCatalogTable(catalog, questPickupRewardGroupTable)
+	if !table.Delivery || len(table.Rows) == 0 {
+		t.Fatalf("unexpected quest drop table: delivery=%v rows=%d", table.Delivery, len(table.Rows))
+	}
+	editor := catalog.QuestDropEditor
+	if len(editor.Types) < 2 || len(editor.Chapters) == 0 || len(editor.Quests) == 0 || len(editor.Rewards) == 0 {
+		t.Fatalf("incomplete quest drop catalog: types=%d chapters=%d quests=%d rewards=%d",
+			len(editor.Types), len(editor.Chapters), len(editor.Quests), len(editor.Rewards))
+	}
+	chapters := make(map[string]bool, len(editor.Chapters))
+	for _, chapter := range editor.Chapters {
+		chapters[chapter.TypeID+"/"+strconv.FormatInt(int64(chapter.ChapterID), 10)] = true
+	}
+	rewards := make(map[int32]QuestDropReward, len(editor.Rewards))
+	for _, reward := range editor.Rewards {
+		rewards[reward.BattleDropRewardID] = reward
+	}
+	groups := make(map[int32]QuestDropGroup, len(editor.Groups))
+	for _, group := range editor.Groups {
+		groups[group.QuestPickupRewardGroupID] = group
+		seen := make(map[int32]bool, len(group.Rewards))
+		for _, configuredReward := range group.Rewards {
+			if _, exists := rewards[configuredReward.BattleDropRewardID]; !exists {
+				t.Fatalf("group %d references omitted reward %d", group.QuestPickupRewardGroupID, configuredReward.BattleDropRewardID)
+			}
+			if seen[configuredReward.BattleDropRewardID] {
+				t.Fatalf("group %d contains duplicate reward %d", group.QuestPickupRewardGroupID, configuredReward.BattleDropRewardID)
+			}
+			if configuredReward.Weight < 1 {
+				t.Fatalf("group %d reward %d has invalid weight %d", group.QuestPickupRewardGroupID, configuredReward.BattleDropRewardID, configuredReward.Weight)
+			}
+			seen[configuredReward.BattleDropRewardID] = true
+		}
+	}
+	foundRouteCandidate := false
+	for _, quest := range editor.Quests {
+		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" {
+			t.Fatalf("event quest %d of excluded type %s is configurable", quest.QuestID, quest.TypeID)
+		}
+		if !chapters[quest.TypeID+"/"+strconv.FormatInt(int64(quest.ChapterID), 10)] {
+			t.Fatalf("quest %d references an omitted chapter", quest.QuestID)
+		}
+		for _, route := range quest.RoutePossessions {
+			for _, reward := range editor.Rewards {
+				if reward.PossessionType == route.PossessionType && reward.PossessionID == route.PossessionID {
+					foundRouteCandidate = true
+					break
+				}
+			}
+		}
+	}
+	if !foundRouteCandidate {
+		t.Fatal("no acquisition-route possession maps to a selectable battle drop reward")
+	}
+}
+
+func TestQuestDropConfigScopeOnlyAllowsCatalogQuests(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	questID := catalog.QuestDropEditor.Quests[0].QuestID
+	valid := &questdrop.Config{Version: questdrop.ConfigVersion, Quests: map[int32]questdrop.QuestConfig{questID: {}}}
+	if err := ValidateQuestDropConfigScope(catalog.QuestDropEditor, valid); err != nil {
+		t.Fatalf("valid quest config scope: %v", err)
+	}
+	invalid := &questdrop.Config{Version: questdrop.ConfigVersion, Quests: map[int32]questdrop.QuestConfig{-1: {}}}
+	if err := ValidateQuestDropConfigScope(catalog.QuestDropEditor, invalid); err == nil {
+		t.Fatal("out-of-scope quest config was accepted")
 	}
 }
 

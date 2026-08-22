@@ -45,6 +45,12 @@
     shopItemBody: $("#shop-item-body"), shopItemPageSize: $("#shop-item-page-size"),
     shopItemPagePrevious: $("#shop-item-page-previous"), shopItemPageInfo: $("#shop-item-page-info"),
     shopItemPageNext: $("#shop-item-page-next"),
+    questDropEditor: $("#quest-drop-editor"), questDropSearch: $("#quest-drop-search"),
+    questDropCount: $("#quest-drop-count"), questDropBody: $("#quest-drop-body"),
+    questDropPageSize: $("#quest-drop-page-size"), questDropPagePrevious: $("#quest-drop-page-previous"),
+    questDropPageInfo: $("#quest-drop-page-info"), questDropPageNext: $("#quest-drop-page-next"),
+    questDropSaveSummary: $("#quest-drop-save-summary"), questDropDiscard: $("#quest-drop-discard"),
+    questDropSave: $("#quest-drop-save"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
@@ -117,6 +123,17 @@
     shopItemPageCount: 1,
     shopItemCopies: [],
     shopItemDeleteIDs: new Set(),
+    questDropDraft: new Map(),
+    questDropBaseline: new Map(),
+    questDropDirtyQuestIDs: new Set(),
+    questDropRewardIndex: new Map(),
+    questDropRewardReferenceIndex: new Map(),
+    questDropTypeFilter: "",
+    questDropChapterFilter: "",
+    questDropPage: 1,
+    questDropPageSize: 10,
+    questDropPageCount: 1,
+    questDropCatalog: null,
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false,
@@ -176,17 +193,20 @@
   async function loadCatalog() {
     setBusy(true, "正在读取主数据…");
     try {
-      const [catalog, gachaCatalog, rewardCatalog] = await Promise.all([
+      const [catalog, gachaCatalog, questDropCatalog, rewardCatalog] = await Promise.all([
         api("/api/admin/master-data/schedules"),
         api("/api/admin/gacha-config"),
+        api("/api/admin/quest-drop-config"),
         api("/api/admin/reward-reference")
       ]);
       state.catalog = catalog;
       state.gachaCatalog = gachaCatalog;
+      state.questDropCatalog = questDropCatalog;
       state.rewardCatalog = rewardCatalog;
       resetGachaDraft();
       resetShopCellGroupDraft();
       resetMissionRewardDraft();
+      resetQuestDropDraft();
       state.dirty.clear();
       state.pendingMasterChanges = null;
       sessionStorage.setItem("lunar-admin-token", state.token);
@@ -302,6 +322,11 @@
       elements.typeFilters.classList.remove("hidden");
       return;
     }
+    if (table?.name === "m_quest_pickup_reward_group") {
+      renderQuestDropFilters();
+      elements.typeFilters.classList.remove("hidden");
+      return;
+    }
     const fields = (table?.fields || []).filter((field) => field.type.endsWith("Type"));
     fields.forEach((field) => {
       const label = document.createElement("label");
@@ -326,6 +351,55 @@
       elements.typeFilters.append(label);
     });
     elements.typeFilters.classList.toggle("hidden", fields.length === 0);
+  }
+
+  function renderQuestDropFilters() {
+    const editor = state.catalog?.questDropEditor || { types: [], chapters: [] };
+    const typeLabel = document.createElement("label");
+    typeLabel.textContent = "副本类型";
+    const typeSelect = document.createElement("select");
+    typeSelect.dataset.field = "QuestDropType";
+    typeSelect.append(new Option("全部", ""));
+    editor.types.forEach((definition) => typeSelect.append(new Option(definition.label, definition.id)));
+    if (editor.types.some((definition) => definition.id === state.questDropTypeFilter)) {
+      typeSelect.value = state.questDropTypeFilter;
+    } else {
+      state.questDropTypeFilter = "";
+    }
+    typeSelect.addEventListener("change", () => {
+      state.questDropTypeFilter = typeSelect.value;
+      state.questDropChapterFilter = "";
+      state.questDropPage = 1;
+      renderTypeFilters(currentTable());
+      renderTable();
+    });
+    typeLabel.append(typeSelect);
+
+    const chapterLabel = document.createElement("label");
+    chapterLabel.textContent = "章节";
+    const chapterSelect = document.createElement("select");
+    chapterSelect.dataset.field = "QuestDropChapter";
+    chapterSelect.append(new Option("全部", ""));
+    const typeByID = new Map(editor.types.map((definition) => [definition.id, definition.label]));
+    editor.chapters.filter((chapter) => !state.questDropTypeFilter || chapter.typeId === state.questDropTypeFilter)
+      .forEach((chapter) => {
+        const value = `${chapter.typeId}:${chapter.chapterId}`;
+        const name = localizedInlineText(chapter.names) || `章节 ${chapter.chapterId}`;
+        const prefix = state.questDropTypeFilter ? "" : `${typeByID.get(chapter.typeId) || chapter.typeId} · `;
+        chapterSelect.append(new Option(`${prefix}${chapter.chapterId}. ${name}`, value));
+      });
+    if ([...chapterSelect.options].some((option) => option.value === state.questDropChapterFilter)) {
+      chapterSelect.value = state.questDropChapterFilter;
+    } else {
+      state.questDropChapterFilter = "";
+    }
+    chapterSelect.addEventListener("change", () => {
+      state.questDropChapterFilter = chapterSelect.value;
+      state.questDropPage = 1;
+      renderTable();
+    });
+    chapterLabel.append(chapterSelect);
+    elements.typeFilters.append(typeLabel, chapterLabel);
   }
 
   const searchableSelectControllers = new WeakMap();
@@ -367,16 +441,23 @@
         if (configured) {
           if (controller.optionSource !== configured) {
             controller.optionSource = configured;
-            controller.optionEntries = configured.map((entry, index) => ({
-              value: String(entry.value), label: String(entry.label),
-              searchText: String(entry.searchText || ""), disabled: Boolean(entry.disabled), index
-            }));
+            const groupOrder = new Map();
+            controller.optionEntries = configured.map((entry, index) => {
+              const group = String(entry.group || "");
+              if (!groupOrder.has(group)) groupOrder.set(group, groupOrder.size);
+              return {
+                value: String(entry.value), label: String(entry.label), group,
+                groupOrder: groupOrder.get(group), searchText: String(entry.searchText || ""),
+                disabled: Boolean(entry.disabled), index
+              };
+            });
           }
           return controller.optionEntries;
         }
         return [...select.options].map((option, index) => ({
           option, value: option.value, label: option.textContent?.trim() || option.value,
-          searchText: option.dataset.searchText || "", disabled: option.disabled, index
+          group: option.parentElement?.tagName === "OPTGROUP" ? option.parentElement.label : "",
+          groupOrder: 0, searchText: option.dataset.searchText || "", disabled: option.disabled, index
         }));
       };
       const matchingOptions = (query = "") => {
@@ -392,7 +473,7 @@
           const rank = value === normalized ? 0 : value.startsWith(normalized) ? 1 : entry.label.toLocaleLowerCase().startsWith(normalized) ? 2 : 3;
           matches.push({ ...entry, rank });
         });
-        return matches.sort((left, right) => left.rank - right.rank || left.index - right.index);
+        return matches.sort((left, right) => left.groupOrder - right.groupOrder || left.rank - right.rank || left.index - right.index);
       };
       const choose = (entry) => {
         if (!entry.option) {
@@ -410,7 +491,15 @@
         const matches = matchingOptions(query);
         const limit = controller.config.limit || 100;
         list.replaceChildren();
+        let previousGroup = null;
         matches.slice(0, limit).forEach((entry) => {
+          if (entry.group && entry.group !== previousGroup) {
+            const group = document.createElement("div");
+            group.className = "searchable-select-group";
+            group.textContent = entry.group;
+            list.append(group);
+          }
+          previousGroup = entry.group;
           const button = document.createElement("button");
           button.type = "button";
           button.className = "searchable-select-option";
@@ -700,17 +789,20 @@
     const isMissionTerm = table.name === "m_mission_term";
     const isMissionEditor = isMissionReward || isMissionTerm;
     const isShopEditor = table.name === "m_shop_item_content_possession";
+    const isQuestDropEditor = table.name === "m_quest_pickup_reward_group";
     elements.entityName.textContent = table.name;
     elements.tableName.textContent = tableDisplayName(table);
-    elements.modeControl.classList.toggle("hidden", !table.primary || isMissionEditor || isShopEditor);
+    elements.modeControl.classList.toggle("hidden", !table.primary || isMissionEditor || isShopEditor || isQuestDropEditor);
     elements.scheduleTable.classList.toggle("detail-mode", detailed);
-    elements.scheduleTable.classList.toggle("hidden", isMissionEditor || isShopEditor);
+    elements.scheduleTable.classList.toggle("hidden", isMissionEditor || isShopEditor || isQuestDropEditor);
     elements.missionRewardEditor.classList.toggle("hidden", !isMissionReward);
     elements.missionTermEditor.classList.toggle("hidden", !isMissionTerm);
     elements.shopEditor.classList.toggle("hidden", !isShopEditor);
-    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionEditor || isShopEditor);
+    elements.questDropEditor.classList.toggle("hidden", !isQuestDropEditor);
+    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionEditor || isShopEditor || isQuestDropEditor);
     elements.tableScroll.classList.toggle("mission-term-mode", isMissionTerm);
     elements.tableScroll.classList.toggle("shop-mode", isShopEditor);
+    elements.tableScroll.classList.toggle("quest-drop-mode", isQuestDropEditor);
     syncModeToggle();
     elements.head.replaceChildren();
     elements.body.replaceChildren();
@@ -739,6 +831,10 @@
     }
     if (isShopEditor) {
       renderShopEditor(table, query);
+      return;
+    }
+    if (isQuestDropEditor) {
+      renderQuestDropEditor();
       return;
     }
     const visibleRows = table.rows.filter((row) => {
@@ -806,6 +902,314 @@
     state.missionRewardDeleteIDs = new Set();
     state.missionRewardNextRow = -1;
     state.missionRewardContentPage = 1;
+  }
+
+  function resetQuestDropDraft() {
+    const editor = state.catalog?.questDropEditor || { quests: [], groups: [], rewards: [] };
+    const rewardsByGroup = new Map(editor.groups.map((group) => [
+      String(group.questPickupRewardGroupId), (group.rewards || []).map((reward) => ({ ...reward }))
+    ]));
+    const configuredQuests = state.questDropCatalog?.config?.quests || {};
+    state.questDropDraft = new Map();
+    state.questDropBaseline = new Map();
+    editor.quests.forEach((quest) => {
+      const configured = configuredQuests[String(quest.questId)];
+      const rewards = (configured ? configured.rewards : rewardsByGroup.get(String(quest.questPickupRewardGroupId)) || [])
+        .map((reward) => ({ battleDropRewardId: Number(reward.battleDropRewardId), weight: Number(reward.weight) }));
+      state.questDropDraft.set(String(quest.questId), rewards);
+      state.questDropBaseline.set(String(quest.questId), JSON.stringify(rewards));
+    });
+    state.questDropDirtyQuestIDs = new Set();
+    state.questDropRewardIndex = new Map(editor.rewards.map((reward) => [String(reward.battleDropRewardId), reward]));
+    state.questDropRewardReferenceIndex = new Map();
+    rewardDefinitions.forEach((definition) => {
+      rewardReferencesForPossessionType(definition.possessionType).forEach((reference) => {
+        state.questDropRewardReferenceIndex.set(`${reference.possessionType}:${reference.possessionId}`, reference);
+      });
+    });
+    state.questDropPage = 1;
+    updateQuestDropDirtyUI();
+  }
+
+  function questDropStructuralDirty() {
+    return state.questDropDirtyQuestIDs.size > 0;
+  }
+
+  function markQuestDropChanged(questID) {
+    const key = String(questID);
+    const current = JSON.stringify(state.questDropDraft.get(key) || []);
+    if (current === state.questDropBaseline.get(key)) state.questDropDirtyQuestIDs.delete(key);
+    else state.questDropDirtyQuestIDs.add(key);
+    updateDirtyUI();
+    updateQuestDropDirtyUI();
+  }
+
+  function questDropRewardName(reward) {
+    if (!reward) return "未知掉落";
+    const definition = rewardDefinitionForPossessionType(reward.possessionType);
+    const reference = state.questDropRewardReferenceIndex.get(`${reward.possessionType}:${reward.possessionId}`);
+    if (reference && definition) return rewardReferenceName(reference, definition).replace(/\s*\n\s*/g, " ");
+    const typeLabels = { "4": "回忆", "5": "道具", "6": "消耗品", "12": "免费宝石" };
+    return `${typeLabels[String(reward.possessionType)] || `类型 ${reward.possessionType}`} ${reward.possessionId}`;
+  }
+
+  function questDropRewardLabel(reward) {
+    if (!reward) return "未知掉落";
+    return `${questDropRewardName(reward)} ×${reward.count} · Drop ${reward.battleDropRewardId}`;
+  }
+
+  function questDropRewardSearchText(reward) {
+    const reference = state.questDropRewardReferenceIndex.get(`${reward.possessionType}:${reward.possessionId}`);
+    return `${reward.battleDropRewardId} ${reward.possessionType} ${reward.possessionId} ${reward.count} ${Object.values(reference?.names || {}).join(" ")}`;
+  }
+
+  function questDropRewardOptions(quest) {
+    const editor = state.catalog?.questDropEditor || { rewards: [] };
+    const baselineRewards = JSON.parse(state.questDropBaseline.get(String(quest.questId)) || "[]");
+    const pickupIDs = new Set(baselineRewards.map((reward) => String(reward.battleDropRewardId)));
+    const recommendedPossessions = new Set((quest.routePossessions || [])
+      .map((possession) => `${possession.possessionType}:${possession.possessionId}`));
+    baselineRewards.forEach(({ battleDropRewardId: rewardID }) => {
+      const reward = state.questDropRewardIndex.get(String(rewardID));
+      if (reward) recommendedPossessions.add(`${reward.possessionType}:${reward.possessionId}`);
+    });
+
+    const rewardByContent = new Map();
+    editor.rewards.forEach((reward) => {
+      const key = `${reward.possessionType}:${reward.possessionId}:${reward.count}`;
+      const previous = rewardByContent.get(key);
+      if (!previous || pickupIDs.has(String(reward.battleDropRewardId))) rewardByContent.set(key, reward);
+    });
+    const recommended = [];
+    const other = [];
+    rewardByContent.forEach((reward) => {
+      const entry = {
+        value: reward.battleDropRewardId,
+        label: questDropRewardLabel(reward),
+        searchText: questDropRewardSearchText(reward),
+        group: recommendedPossessions.has(`${reward.possessionType}:${reward.possessionId}`)
+          ? "Pickup / 获得途径（并集）" : "其他"
+      };
+      (entry.group === "其他" ? other : recommended).push(entry);
+    });
+    return [...recommended, ...other];
+  }
+
+  function renderQuestDropRewardIcon(reward) {
+    const definition = rewardDefinitionForPossessionType(reward?.possessionType);
+    const reference = reward && state.questDropRewardReferenceIndex.get(`${reward.possessionType}:${reward.possessionId}`);
+    if (definition) return renderRewardIcon(reference, definition, "quest-drop-reward-icon");
+    return renderAssetIcon("", questDropRewardName(reward), reward?.possessionType === 4 ? "忆" : "奖", "quest-drop-reward-icon");
+  }
+
+  function setQuestDropReward(questID, index, rewardID) {
+    const rewards = state.questDropDraft.get(String(questID));
+    if (!rewards || !state.questDropRewardIndex.has(String(rewardID))) return;
+    const normalized = Number(rewardID);
+    if (rewards.some((reward, rewardIndex) => rewardIndex !== index && reward.battleDropRewardId === normalized)) {
+      showNotice(`BattleDropReward ${normalized} 在同一关卡中只能配置一条。`, true);
+      renderTable();
+      return;
+    }
+    rewards[index].battleDropRewardId = normalized;
+    markQuestDropChanged(questID);
+    renderTable();
+  }
+
+  function setQuestDropWeight(questID, index, value) {
+    const rewards = state.questDropDraft.get(String(questID));
+    if (!rewards) return;
+    rewards[index].weight = Number(value);
+    markQuestDropChanged(questID);
+  }
+
+  function moveQuestDropReward(questID, index, offset) {
+    const rewards = state.questDropDraft.get(String(questID));
+    const target = index + offset;
+    if (!rewards || target < 0 || target >= rewards.length) return;
+    [rewards[index], rewards[target]] = [rewards[target], rewards[index]];
+    markQuestDropChanged(questID);
+    renderTable();
+  }
+
+  function removeQuestDropReward(questID, index) {
+    const rewards = state.questDropDraft.get(String(questID));
+    if (!rewards) return;
+    rewards.splice(index, 1);
+    markQuestDropChanged(questID);
+    renderTable();
+  }
+
+  function addQuestDropReward(quest) {
+    const rewards = state.questDropDraft.get(String(quest.questId));
+    if (!rewards) return;
+    const used = new Set(rewards.map((reward) => String(reward.battleDropRewardId)));
+    const option = questDropRewardOptions(quest).find((candidate) => !used.has(String(candidate.value)))
+      || questDropRewardOptions(quest)[0];
+    if (!option) {
+      showNotice("当前没有可用的 BattleDropReward。", true);
+      return;
+    }
+    rewards.push({ battleDropRewardId: Number(option.value), weight: 1 });
+    markQuestDropChanged(quest.questId);
+    renderTable();
+  }
+
+  function questDropTypeLabel(typeID) {
+    return state.catalog?.questDropEditor?.types.find((definition) => definition.id === typeID)?.label || typeID;
+  }
+
+  function questDropChapterLabel(quest) {
+    const chapter = state.catalog?.questDropEditor?.chapters.find((candidate) =>
+      candidate.typeId === quest.typeId && String(candidate.chapterId) === String(quest.chapterId));
+    return localizedInlineText(chapter?.names) || `章节 ${quest.chapterId}`;
+  }
+
+  function renderQuestDropEditor() {
+    const editor = state.catalog?.questDropEditor || { quests: [] };
+    const query = elements.questDropSearch.value.trim().toLocaleLowerCase();
+    const visible = editor.quests.filter((quest) => {
+      if (state.questDropTypeFilter && quest.typeId !== state.questDropTypeFilter) return false;
+      if (state.questDropChapterFilter && `${quest.typeId}:${quest.chapterId}` !== state.questDropChapterFilter) return false;
+      if (!query) return true;
+      return `${quest.questId} ${questDropChapterLabel(quest)} ${questDropTypeLabel(quest.typeId)}`.toLocaleLowerCase().includes(query);
+    });
+    state.questDropPageCount = Math.max(1, Math.ceil(visible.length / state.questDropPageSize));
+    state.questDropPage = Math.min(Math.max(1, state.questDropPage), state.questDropPageCount);
+    const pageStart = (state.questDropPage - 1) * state.questDropPageSize;
+    const page = visible.slice(pageStart, pageStart + state.questDropPageSize);
+    elements.questDropBody.replaceChildren();
+    page.forEach((quest) => {
+      const row = document.createElement("tr");
+      row.classList.toggle("quest-drop-changed", state.questDropDirtyQuestIDs.has(String(quest.questId)));
+      const identity = document.createElement("td");
+      const heading = document.createElement("strong");
+      heading.textContent = `Quest ${quest.questId}`;
+      const chapter = document.createElement("span");
+      const difficultyLabels = { "1": "Normal", "2": "Hard", "3": "Very Hard" };
+      chapter.textContent = `${questDropTypeLabel(quest.typeId)} · ${questDropChapterLabel(quest)} · ${difficultyLabels[String(quest.difficultyType)] || `难度 ${quest.difficultyType}`} · 第 ${quest.sortOrder} 关`;
+      const group = document.createElement("code");
+      group.textContent = `默认 PickupGroup ${quest.questPickupRewardGroupId || "未配置"}`;
+      identity.append(heading, chapter, group);
+
+      const content = document.createElement("td");
+      const rewards = state.questDropDraft.get(String(quest.questId)) || [];
+      const list = document.createElement("div");
+      list.className = "quest-drop-list";
+      let cachedOptions;
+      const optionSource = () => (cachedOptions ||= questDropRewardOptions(quest));
+      rewards.forEach((configuredReward, index) => {
+        const rewardID = configuredReward.battleDropRewardId;
+        const reward = state.questDropRewardIndex.get(String(rewardID));
+        const item = document.createElement("div");
+        item.className = "quest-drop-item";
+        item.append(renderQuestDropRewardIcon(reward));
+        const selector = createLazySearchSelect(
+          rewardID,
+          questDropRewardLabel(reward),
+          optionSource,
+          (value) => setQuestDropReward(quest.questId, index, value),
+          { placeholder: "搜索掉落 ID、物品名或数量", ariaLabel: `Quest ${quest.questId} 第 ${index + 1} 个掉落` }
+        );
+        selector.input.classList.toggle("changed", state.questDropDirtyQuestIDs.has(String(quest.questId)));
+        item.append(selector.wrapper);
+        const weight = document.createElement("label");
+        weight.className = "quest-drop-weight";
+        weight.textContent = "权重";
+        const weightInput = document.createElement("input");
+        weightInput.type = "number";
+        weightInput.min = "1";
+        weightInput.max = "2147483647";
+        weightInput.step = "1";
+        weightInput.value = String(configuredReward.weight);
+        weightInput.setAttribute("aria-label", `Quest ${quest.questId} BattleDropReward ${rewardID} 权重`);
+        weightInput.addEventListener("input", () => setQuestDropWeight(quest.questId, index, weightInput.value));
+        weight.append(weightInput);
+        item.append(weight);
+        const actions = document.createElement("div");
+        actions.className = "quest-drop-item-actions";
+        [["↑", -1], ["↓", 1]].forEach(([label, offset]) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "order-button";
+          button.textContent = label;
+          button.disabled = index + offset < 0 || index + offset >= rewards.length;
+          button.addEventListener("click", () => moveQuestDropReward(quest.questId, index, offset));
+          actions.append(button);
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "button ghost quest-drop-remove";
+        remove.textContent = "移除";
+        remove.addEventListener("click", () => removeQuestDropReward(quest.questId, index));
+        actions.append(remove);
+        item.append(actions);
+        list.append(item);
+      });
+      if (!rewards.length) {
+        const empty = document.createElement("div");
+        empty.className = "quest-drop-list-empty";
+        empty.textContent = "本关尚未配置掉落内容。";
+        list.append(empty);
+      }
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "button ghost quest-drop-add";
+      add.textContent = "添加掉落";
+      add.addEventListener("click", () => addQuestDropReward(quest));
+      content.append(list, add);
+      row.append(identity, content);
+      elements.questDropBody.append(row);
+    });
+
+    elements.questDropCount.textContent = `${visible.length.toLocaleString()} 个关卡`;
+    elements.visibleCount.textContent = `${visible.length.toLocaleString()} 个关卡`;
+    elements.questDropPageInfo.textContent = `第 ${state.questDropPage} / ${state.questDropPageCount} 页`;
+    elements.questDropPagePrevious.disabled = state.questDropPage <= 1;
+    elements.questDropPageNext.disabled = state.questDropPage >= state.questDropPageCount;
+    elements.empty.classList.toggle("hidden", visible.length !== 0);
+  }
+
+  function questDropReplacementPayload() {
+    const config = JSON.parse(JSON.stringify(state.questDropCatalog?.config || { version: 1, quests: {} }));
+    config.version = 1;
+    config.quests ||= {};
+    [...state.questDropDirtyQuestIDs].sort(compareFieldValues).forEach((questID) => {
+      config.quests[String(questID)] = {
+        rewards: (state.questDropDraft.get(String(questID)) || []).map((reward) => ({
+          battleDropRewardId: reward.battleDropRewardId,
+          weight: reward.weight
+        }))
+      };
+    });
+    return config;
+  }
+
+  function questDropValidationErrors() {
+    const errors = [];
+    state.questDropDraft.forEach((rewards, questID) => {
+      const seen = new Set();
+      rewards.forEach((reward) => {
+        if (seen.has(String(reward.battleDropRewardId))) {
+          errors.push(`Quest ${questID} 的 BattleDropReward ${reward.battleDropRewardId} 重复`);
+        }
+        seen.add(String(reward.battleDropRewardId));
+        if (!Number.isSafeInteger(reward.weight) || reward.weight < 1 || reward.weight > 2147483647) {
+          errors.push(`Quest ${questID} 的 BattleDropReward ${reward.battleDropRewardId} 权重必须是 1–2147483647 的整数`);
+        }
+      });
+    });
+    return errors;
+  }
+
+  function updateQuestDropDirtyUI() {
+    if (!elements.questDropSaveSummary) return;
+    const errors = questDropValidationErrors();
+    if (errors.length) elements.questDropSaveSummary.textContent = `无法发布：${errors[0]}${errors.length > 1 ? `（另有 ${errors.length - 1} 项）` : ""}`;
+    else if (questDropStructuralDirty()) elements.questDropSaveSummary.textContent = `${state.questDropDirtyQuestIDs.size} 个关卡的掉落配置等待发布`;
+    else elements.questDropSaveSummary.textContent = "没有待发布的关卡掉落修改";
+    elements.questDropSave.disabled = !questDropStructuralDirty() || errors.length > 0;
+    elements.questDropDiscard.disabled = !questDropStructuralDirty();
   }
 
   function missionRewardStructuralDirty() {
@@ -3124,6 +3528,7 @@
   }
 
   function tableDisplayName(table) {
+    if (table.name === "m_quest_pickup_reward_group") return "关卡掉落";
     if (table.entityName?.startsWith("EntityM")) return table.entityName.slice("EntityM".length);
     return table.name.replace(/^m_/, "").split("_").filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
@@ -3250,7 +3655,8 @@
   }
 
   function updateDirtyUI() {
-    const count = masterDirtyCount();
+    const masterCount = masterDirtyCount();
+    const count = masterCount + (questDropStructuralDirty() ? 1 : 0);
     elements.dirtyCount.textContent = count.toLocaleString();
     const groupSummary = state.shopCellGroupDirty ? "，含 1 张 CellGroup 完整列表" : "";
     const itemSummary = shopItemStructuralDirty()
@@ -3262,8 +3668,11 @@
     const missionRewardSummary = missionRewardStructuralDirty()
       ? `，含 ${state.missionRewardAdditions.length} 个 Reward 新增、${state.missionRewardDeleteIDs.size} 个删除`
       : "";
-    elements.saveSummary.textContent = count ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}${missionRewardSummary}` : "没有待应用的修改";
-    elements.save.disabled = count === 0;
+    const questDropSummary = questDropStructuralDirty() ? "；关卡掉落请使用页面内的发布按钮" : "";
+    elements.saveSummary.textContent = masterCount
+      ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}${missionRewardSummary}${questDropSummary}`
+      : questDropStructuralDirty() ? "关卡掉落修改请使用页面内的发布按钮" : "没有待应用的修改";
+    elements.save.disabled = masterCount === 0;
     elements.discard.disabled = count === 0;
   }
 
@@ -3287,6 +3696,8 @@
 
   function setBusy(busy, message = "") {
     elements.save.disabled = busy || masterDirtyCount() === 0;
+    elements.questDropSave.disabled = busy || !questDropStructuralDirty() || questDropValidationErrors().length > 0;
+    elements.questDropDiscard.disabled = busy || !questDropStructuralDirty();
     elements.refresh.disabled = busy;
     if (message) showNotice(message);
   }
@@ -4337,6 +4748,7 @@
     state.catalog = null;
     state.rewardCatalog = null;
     state.gachaCatalog = null;
+    state.questDropCatalog = null;
     state.gachaDraft = null;
     state.gachaDirty = false;
     state.dirty.clear();
@@ -4349,6 +4761,9 @@
     state.shopCellAdditions = [];
     state.shopCellDeleteKeys = new Map();
     resetMissionRewardDraft();
+    state.questDropDraft = new Map();
+    state.questDropBaseline = new Map();
+    state.questDropDirtyQuestIDs = new Set();
     sessionStorage.removeItem("lunar-admin-token");
     showLogin();
   });
@@ -4367,6 +4782,7 @@
     state.missionTermContentPage = 1;
     state.shopCellPage = 1;
     state.shopItemPage = 1;
+    state.questDropPage = 1;
     renderTypeFilters(currentTable());
     renderTable();
   });
@@ -4479,13 +4895,69 @@
     state.shopItemPage += 1;
     renderTable();
   });
+  elements.questDropSearch.addEventListener("input", () => {
+    state.questDropPage = 1;
+    renderTable();
+  });
+  elements.questDropPageSize.addEventListener("change", () => {
+    const pageSize = Number(elements.questDropPageSize.value);
+    state.questDropPageSize = [10, 25, 50].includes(pageSize) ? pageSize : 10;
+    state.questDropPage = 1;
+    renderTable();
+  });
+  elements.questDropPagePrevious.addEventListener("click", () => {
+    if (state.questDropPage <= 1) return;
+    state.questDropPage -= 1;
+    renderTable();
+  });
+  elements.questDropPageNext.addEventListener("click", () => {
+    if (state.questDropPage >= state.questDropPageCount) return;
+    state.questDropPage += 1;
+    renderTable();
+  });
+  elements.questDropDiscard.addEventListener("click", () => {
+    if (!confirm("放弃尚未发布的关卡掉落修改？")) return;
+    resetQuestDropDraft();
+    updateDirtyUI();
+    renderTable();
+    showNotice("已放弃关卡掉落修改。");
+  });
+  elements.questDropSave.addEventListener("click", async () => {
+    const errors = questDropValidationErrors();
+    if (errors.length) {
+      showNotice(errors[0], true);
+      return;
+    }
+    if (!confirm(`发布 ${state.questDropDirtyQuestIDs.size} 个关卡的掉落配置？`)) return;
+    setBusy(true, "正在校验、写入并热更新关卡掉落配置…");
+    try {
+      await api("/api/admin/quest-drop-config", {
+        method: "POST",
+        body: JSON.stringify({
+          expectedContentHash: state.questDropCatalog.contentHash,
+          config: questDropReplacementPayload()
+        })
+      });
+      await loadCatalog();
+      showNotice("关卡掉落配置发布成功，新的关卡请求已使用新权重。");
+    } catch (error) {
+      showNotice(error.message, true);
+      if (error.status === 409) {
+        try { await loadCatalog(); } catch (_) { /* keep the conflict notice */ }
+      }
+    } finally {
+      setBusy(false);
+      updateQuestDropDirtyUI();
+      updateDirtyUI();
+    }
+  });
   elements.search.addEventListener("input", renderTable);
   elements.modeButtons.forEach((button) => button.addEventListener("click", () => {
     state.mode = button.dataset.mode === "detail" ? "detail" : "simple";
     renderTable();
   }));
   elements.refresh.addEventListener("click", async () => {
-    if ((masterDirtyCount() || state.gachaDirty) && !confirm("刷新会放弃尚未应用的修改，是否继续？")) return;
+    if ((masterDirtyCount() || questDropStructuralDirty() || state.gachaDirty) && !confirm("刷新会放弃尚未应用的修改，是否继续？")) return;
     try { await loadCatalog(); } catch (_) { /* notice is already shown */ }
   });
   elements.discard.addEventListener("click", () => {
@@ -4493,6 +4965,7 @@
     state.dirty.clear();
     resetShopCellGroupDraft();
     resetMissionRewardDraft();
+    resetQuestDropDraft();
     state.pendingMasterChanges = null;
     updateDirtyUI();
     renderTable();
@@ -4657,7 +5130,7 @@
   });
 
   window.addEventListener("beforeunload", (event) => {
-    if (!masterDirtyCount() && !state.gachaDirty) return;
+    if (!masterDirtyCount() && !questDropStructuralDirty() && !state.gachaDirty) return;
     event.preventDefault();
     event.returnValue = "";
   });

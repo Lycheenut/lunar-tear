@@ -134,6 +134,7 @@ var activityTableSpecs = []tableSpec{
 	deliveryTable("m_login_bonus_stamp", "EntityMLoginBonusStamp", 3, field("LoginBonusId", 0, "int"), field("LowerPageNumber", 1, "int"), field("StampNumber", 2, "int"), field("RewardPossessionType", 3, "PossessionType"), field("RewardPossessionId", 4, "int"), field("RewardCount", 5, "int")),
 	deliveryTable("m_mission_reward", "EntityMMissionReward", 1, field("MissionRewardId", 0, "int"), field("PossessionType", 1, "PossessionType"), field("PossessionId", 2, "int"), field("Count", 3, "int")),
 	deliveryTable("m_shop_item_content_possession", "EntityMShopItemContentPossession", 1, field("ShopItemId", 0, "int"), field("PossessionType", 1, "PossessionType"), field("PossessionId", 2, "int"), field("SortOrder", 3, "int"), field("Count", 4, "int")),
+	deliveryTable("m_quest_pickup_reward_group", "EntityMQuestPickupRewardGroup", 2, field("QuestPickupRewardGroupId", 0, "int"), field("SortOrder", 1, "int"), field("BattleDropRewardId", 2, "int")),
 }
 
 // m_mission stays out of the general-purpose table catalog. The mission reward

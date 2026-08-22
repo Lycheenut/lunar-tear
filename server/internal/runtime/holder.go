@@ -32,41 +32,44 @@ import (
 // handler the server needs at runtime. A new *Catalogs is built from scratch
 // on every reload and atomically published via Holder.
 type Catalogs struct {
-	MasterDataHash    string
-	GameConfig        *masterdata.GameConfig
-	Parts             *masterdata.PartsCatalog
-	Quest             *masterdata.QuestCatalog
-	Mission           *masterdata.MissionCatalog
-	GachaEntries      []store.GachaCatalogEntry
-	GachaMedals       map[int32]masterdata.GachaMedalInfo
-	GachaPool         *masterdata.GachaCatalog
-	GachaConfig       *gacha.Config
-	GachaConfigHash   string
-	GachaConfigExists bool
-	PremiumGacha      *gacha.PremiumCatalog
-	Shop              *masterdata.ShopCatalog
-	DupExchange       map[int32][]model.DupExchangeEntry
-	ConditionResolver *masterdata.ConditionResolver
-	CageOrnament      *masterdata.CageOrnamentCatalog
-	LoginBonus        *masterdata.LoginBonusCatalog
-	CharacterViewer   *masterdata.CharacterViewerCatalog
-	Omikuji           *masterdata.OmikujiCatalog
-	Material          *masterdata.MaterialCatalog
-	ConsumableItem    *masterdata.ConsumableItemCatalog
-	Costume           *masterdata.CostumeCatalog
-	Weapon            *masterdata.WeaponCatalog
-	Explore           *masterdata.ExploreCatalog
-	Gimmick           *masterdata.GimmickCatalog
-	CharacterBoard    *masterdata.CharacterBoardCatalog
-	CharacterRebirth  *masterdata.CharacterRebirthCatalog
-	Companion         *masterdata.CompanionCatalog
-	SideStory         *masterdata.SideStoryCatalog
-	BigHunt           *masterdata.BigHuntCatalog
-	Tower             *masterdata.TowerCatalog
-	Labyrinth         *masterdata.LabyrinthCatalog
-	LimitContent      *masterdata.LimitContentCatalog
-	Campaign          *campaign.Catalog
-	ImportantItems    *importantitem.Catalog
+	MasterDataHash        string
+	GameConfig            *masterdata.GameConfig
+	Parts                 *masterdata.PartsCatalog
+	Quest                 *masterdata.QuestCatalog
+	Mission               *masterdata.MissionCatalog
+	GachaEntries          []store.GachaCatalogEntry
+	GachaMedals           map[int32]masterdata.GachaMedalInfo
+	GachaPool             *masterdata.GachaCatalog
+	GachaConfig           *gacha.Config
+	GachaConfigHash       string
+	GachaConfigExists     bool
+	QuestDropConfig       *questdrop.Config
+	QuestDropConfigHash   string
+	QuestDropConfigExists bool
+	PremiumGacha          *gacha.PremiumCatalog
+	Shop                  *masterdata.ShopCatalog
+	DupExchange           map[int32][]model.DupExchangeEntry
+	ConditionResolver     *masterdata.ConditionResolver
+	CageOrnament          *masterdata.CageOrnamentCatalog
+	LoginBonus            *masterdata.LoginBonusCatalog
+	CharacterViewer       *masterdata.CharacterViewerCatalog
+	Omikuji               *masterdata.OmikujiCatalog
+	Material              *masterdata.MaterialCatalog
+	ConsumableItem        *masterdata.ConsumableItemCatalog
+	Costume               *masterdata.CostumeCatalog
+	Weapon                *masterdata.WeaponCatalog
+	Explore               *masterdata.ExploreCatalog
+	Gimmick               *masterdata.GimmickCatalog
+	CharacterBoard        *masterdata.CharacterBoardCatalog
+	CharacterRebirth      *masterdata.CharacterRebirthCatalog
+	Companion             *masterdata.CompanionCatalog
+	SideStory             *masterdata.SideStoryCatalog
+	BigHunt               *masterdata.BigHuntCatalog
+	Tower                 *masterdata.TowerCatalog
+	Labyrinth             *masterdata.LabyrinthCatalog
+	LimitContent          *masterdata.LimitContentCatalog
+	Campaign              *campaign.Catalog
+	ImportantItems        *importantitem.Catalog
 
 	QuestHandler *questflow.QuestHandler
 	GachaHandler *gacha.GachaHandler
@@ -100,7 +103,7 @@ func (h *Holder) Reload() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, h.questDropConfigPath, false)
+	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, h.questDropConfigPath, false, false)
 	if err != nil {
 		return err
 	}
@@ -129,7 +132,7 @@ func (h *Holder) InstallAndReload(candidatePath string) error {
 		}
 	}
 
-	c, err := loadCatalogs(candidatePath, h.gachaConfigPath, h.questDropConfigPath, false)
+	c, err := loadCatalogs(candidatePath, h.gachaConfigPath, h.questDropConfigPath, false, false)
 	if err != nil {
 		_ = memorydb.Init(h.binPath)
 		return fmt.Errorf("validate candidate: %w", err)
@@ -167,7 +170,7 @@ func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 			return fmt.Errorf("preserve Gacha config permissions: %w", err)
 		}
 	}
-	c, err := loadCatalogs(h.binPath, candidatePath, h.questDropConfigPath, true)
+	c, err := loadCatalogs(h.binPath, candidatePath, h.questDropConfigPath, true, false)
 	if err != nil {
 		return fmt.Errorf("validate Gacha config candidate: %w", err)
 	}
@@ -178,7 +181,42 @@ func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 	return nil
 }
 
-func loadCatalogs(path, gachaConfigPath, questDropConfigPath string, requireCompleteGacha bool) (*Catalogs, error) {
+var ErrQuestDropConfigConflict = errors.New("quest drop config changed since it was loaded")
+
+func (h *Holder) InstallQuestDropConfig(candidatePath, expectedHash string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.questDropConfigPath == "" {
+		return fmt.Errorf("quest drop config path is not configured")
+	}
+	current := h.cur.Load()
+	if current == nil || expectedHash == "" || current.QuestDropConfigHash != expectedHash {
+		return ErrQuestDropConfigConflict
+	}
+	candidateInfo, err := os.Stat(candidatePath)
+	if err != nil {
+		return fmt.Errorf("stat quest drop config candidate: %w", err)
+	}
+	if candidateInfo.Size() == 0 {
+		return fmt.Errorf("quest drop config candidate is empty")
+	}
+	if currentInfo, statErr := os.Stat(h.questDropConfigPath); statErr == nil {
+		if err := os.Chmod(candidatePath, currentInfo.Mode().Perm()); err != nil {
+			return fmt.Errorf("preserve quest drop config permissions: %w", err)
+		}
+	}
+	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, candidatePath, false, true)
+	if err != nil {
+		return fmt.Errorf("validate quest drop config candidate: %w", err)
+	}
+	if err := replaceFile(candidatePath, h.questDropConfigPath); err != nil {
+		return fmt.Errorf("install quest drop config candidate: %w", err)
+	}
+	h.publish(c)
+	return nil
+}
+
+func loadCatalogs(path, gachaConfigPath, questDropConfigPath string, requireCompleteGacha, requireCurrentQuestDrops bool) (*Catalogs, error) {
 	if err := memorydb.Init(path); err != nil {
 		return nil, fmt.Errorf("memorydb.Init: %w", err)
 	}
@@ -196,13 +234,15 @@ func loadCatalogs(path, gachaConfigPath, questDropConfigPath string, requireComp
 		}
 	}
 	questDropConfig := questdrop.DefaultConfig()
+	questDropConfigHash := questdrop.ContentHash(nil)
+	questDropConfigExists := false
 	if questDropConfigPath != "" {
-		questDropConfig, _, _, err = questdrop.ReadConfig(questDropConfigPath)
+		questDropConfig, questDropConfigHash, questDropConfigExists, err = questdrop.ReadConfig(questDropConfigPath)
 		if err != nil {
 			return nil, err
 		}
 	}
-	c, err := buildCatalogs(config, configHash, configExists, questDropConfig, masterDataHash, requireCompleteGacha)
+	c, err := buildCatalogs(config, configHash, configExists, questDropConfig, questDropConfigHash, questDropConfigExists, masterDataHash, requireCompleteGacha, requireCurrentQuestDrops)
 	if err != nil {
 		return nil, fmt.Errorf("buildCatalogs: %w", err)
 	}

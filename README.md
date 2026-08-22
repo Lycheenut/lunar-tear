@@ -279,6 +279,7 @@ values in `ARGS` take precedence. `make restart` re-detects the address.
 | `--auth-url`     | _(empty)_        | Auth server base URL (e.g. `http://localhost:3000`)                         |
 | `--admin-listen` | `127.0.0.1:8082` | Admin UI/API listen address. Only binds when `LUNAR_ADMIN_TOKEN` is set.    |
 | `--gacha-config` | `config/gacha.json` | Plaintext Premium, Chapter, and Event Gacha configuration.               |
+| `--quest-drop-config` | `config/quest_drops.json` | Plaintext per-quest weighted drop configuration.                   |
 | `--no-register`  | `false`          | Disable new user registrations (only already registered users can connect). |
 
 ### Master Data Management and Live Reload
@@ -295,6 +296,8 @@ The management UI reads every table whose schema has a matching `*StartDatetime`
 The UI uses a content hash for optimistic locking, so a stale browser cannot overwrite a newer master-data file. The asset directory and existing `.bin.e` must be writable by the `lunar-tear` process.
 
 The **Gacha Configuration** tab manages Premium weapon pools plus Chapter and Event reward boxes. Box rewards configure grant quantity, finite stock, item weight, finite/unlimited group probability, featured display, and (for Event boxes) jackpot targets; the UI previews the effective probability from the current weights. Event boxes are ordered in the JSON because this master-data snapshot has no box-count table. Drawing every jackpot unlocks the next box, while the final box can only reset after all finite stock is drawn. Publishing validates the complete configuration, writes `--gacha-config` as readable JSON, and atomically swaps the live catalog; it never modifies or imports these choices into master data. Chapter and Event banners without a JSON box configuration are not available for drawing, but remain visible in the editor so their configuration can be created.
+
+The **Delivery Configuration → Quest Drops** page manages non-event quest drops. Each configured reward can appear only once per quest and has a positive integer weight. Publishing writes `--quest-drop-config` and atomically swaps the live catalog. For each configured in-battle drop, the server first selects `BattleDropEffectId` from the total weight of each rarity/effect tier, then selects the concrete reward by weight within that tier. Quests without an override continue through the original master-data pickup-row lottery unchanged, including duplicate rows and its original random-draw sequence.
 
 At draw time, the server first selects one of the six `grant type × rarity` groups using the configured group weights. If that group has pickups, the group probability is divided 50/50 between all pickups and all non-pickups, with uniform selection inside each side. On every tenth result, each 2-star group's full weight moves to the 3-star group with the same grant type while 4-star weights stay unchanged. Event-only weapons never enter a pool, standard weapons enter every premium banner, and limited weapons enter only banners that allow their limited set.
 
@@ -362,6 +365,7 @@ The game server is configured via environment variables in the compose file:
 | `LUNAR_ADMIN_LISTEN` | Admin UI/API bind address inside the container (compose default: `0.0.0.0:8082`)      |
 | `LUNAR_ADMIN_TOKEN`  | Bearer token for admin data APIs. **The admin listener does not bind unless this is set.** |
 | `LUNAR_GACHA_CONFIG` | Plaintext Gacha config path (compose uses `db/gacha.json` so it persists with the DB volume). |
+| `LUNAR_QUEST_DROP_CONFIG` | Plaintext quest-drop config path (compose uses `db/quest_drops.json` in the DB volume). |
 
 Auth is optional — if `LUNAR_AUTH_URL` is unset the game server starts without it. The admin service is published to `127.0.0.1:8082` on the host so it cannot be reached directly; the production nginx template exposes it at `https://admin.example.com/admin/` through Cloudflare while keeping the Bearer-token API gate. Set `LUNAR_ADMIN_TOKEN` (e.g. via a `.env` file) before bringing the stack up.
 

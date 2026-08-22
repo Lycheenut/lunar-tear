@@ -51,7 +51,7 @@ func main() {
 
 	grpcServer := startGRPC(*listen, *publicAddr, *octoURL, *authURL, userStore, holder, *noRegister)
 
-	startAdmin(*adminListen, masterDataPath, *gachaConfigPath, holder)
+	startAdmin(*adminListen, masterDataPath, *gachaConfigPath, *questDropConfigPath, holder)
 
 	<-ctx.Done()
 	log.Println("shutting down...")

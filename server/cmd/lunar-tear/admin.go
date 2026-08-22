@@ -15,6 +15,7 @@ import (
 
 	"lunar-tear/server/internal/gacha"
 	"lunar-tear/server/internal/masterdataadmin"
+	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/runtime"
 )
 
@@ -23,7 +24,7 @@ var adminAssets embed.FS
 
 // startAdmin serves the token-gated master-data API and its static management
 // UI. The listener stays disabled when LUNAR_ADMIN_TOKEN is empty.
-func startAdmin(listen, binPath, gachaConfigPath string, holder *runtime.Holder) {
+func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, holder *runtime.Holder) {
 	token := os.Getenv("LUNAR_ADMIN_TOKEN")
 	if token == "" {
 		log.Println("[admin] disabled (no LUNAR_ADMIN_TOKEN set)")
@@ -242,6 +243,77 @@ func startAdmin(listen, binPath, gachaConfigPath string, holder *runtime.Holder)
 			writeAdminError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
 	})
+	mux.HandleFunc("/api/admin/quest-drop-config", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(r) {
+			writeAdminError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			snapshot := holder.Get()
+			writeAdminJSON(w, http.StatusOK, map[string]interface{}{
+				"contentHash":    snapshot.QuestDropConfigHash,
+				"masterDataHash": snapshot.MasterDataHash,
+				"exists":         snapshot.QuestDropConfigExists,
+				"config":         snapshot.QuestDropConfig,
+			})
+		case http.MethodPost:
+			updateMu.Lock()
+			defer updateMu.Unlock()
+			var request struct {
+				ExpectedContentHash string           `json:"expectedContentHash"`
+				Config              questdrop.Config `json:"config"`
+			}
+			body := http.MaxBytesReader(w, r.Body, 4<<20)
+			decoder := json.NewDecoder(body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&request); err != nil {
+				writeAdminError(w, http.StatusBadRequest, "请求格式无效: "+err.Error())
+				return
+			}
+			catalog, err := masterdataadmin.Load(binPath)
+			if err != nil {
+				writeAdminError(w, http.StatusInternalServerError, "读取可配置关卡失败")
+				return
+			}
+			if err := masterdataadmin.ValidateQuestDropConfigScope(catalog.QuestDropEditor, &request.Config); err != nil {
+				writeAdminError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			snapshot := holder.Get()
+			request.Config.SourceMasterDataHash = snapshot.MasterDataHash
+			raw, _, err := questdrop.EncodeConfig(&request.Config)
+			if err != nil {
+				writeAdminError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			candidate, err := writeQuestDropCandidate(questDropConfigPath, raw)
+			if err != nil {
+				log.Printf("[admin] write quest drop candidate failed: %v", err)
+				writeAdminError(w, http.StatusInternalServerError, "写入关卡掉落候选配置失败")
+				return
+			}
+			defer os.Remove(candidate)
+			if err := holder.InstallQuestDropConfig(candidate, request.ExpectedContentHash); err != nil {
+				if errors.Is(err, runtime.ErrQuestDropConfigConflict) {
+					writeAdminError(w, http.StatusConflict, "关卡掉落配置已被其他操作更新，请刷新后重试")
+					return
+				}
+				writeAdminError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			updated := holder.Get()
+			log.Printf("[admin] installed quest drop config from %s: %d quest overrides", r.RemoteAddr, len(updated.QuestDropConfig.Quests))
+			writeAdminJSON(w, http.StatusOK, map[string]interface{}{
+				"contentHash":    updated.QuestDropConfigHash,
+				"masterDataHash": updated.MasterDataHash,
+			})
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			writeAdminError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	})
 
 	server := &http.Server{
 		Addr:              listen,
@@ -318,6 +390,33 @@ func writeGachaCandidate(configPath string, data []byte) (path string, err error
 		return "", err
 	}
 	file, err := os.CreateTemp(directory, ".gacha-admin-*.json")
+	if err != nil {
+		return "", err
+	}
+	path = file.Name()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+		if err != nil {
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err = file.Write(data); err != nil {
+		return "", err
+	}
+	if err = file.Sync(); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func writeQuestDropCandidate(configPath string, data []byte) (path string, err error) {
+	directory := filepath.Dir(configPath)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(directory, ".quest-drop-admin-*.json")
 	if err != nil {
 		return "", err
 	}
