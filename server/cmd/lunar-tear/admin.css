@@ -744,7 +744,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .mission-reward-delete:disabled { color: var(--muted); }
 .quest-drop-editor {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -767,9 +767,12 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .quest-drop-heading-actions { display: flex; align-items: center; gap: 10px; }
 .quest-drop-heading-actions input { width: 220px; min-height: 32px; padding: 6px 10px; font-size: 12px; }
 .quest-drop-save-summary { padding: 7px 14px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 11px; }
+.quest-drop-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 310px; min-width: 0; min-height: 0; }
+.quest-drop-main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
 .quest-drop-scroll { min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
-.quest-drop-table { min-width: 880px; table-layout: fixed; }
-.quest-drop-table th:first-child { width: 250px; }
+.quest-drop-table { min-width: 870px; table-layout: fixed; }
+.quest-drop-table th:first-child { width: 170px; }
+.quest-drop-table th:nth-child(3) { width: 220px; }
 .quest-drop-table td:first-child,
 .quest-drop-table th:first-child { position: static; min-width: 0; background: inherit; }
 .quest-drop-table th:first-child { background: #121b20; }
@@ -784,7 +787,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .quest-drop-list { display: grid; gap: 8px; }
 .quest-drop-item {
   display: grid;
-  grid-template-columns: 40px minmax(260px, 1fr) 104px auto;
+  grid-template-columns: 40px minmax(200px, 1fr) 88px auto;
   align-items: center;
   min-width: 0;
   gap: 8px;
@@ -812,6 +815,27 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .quest-drop-remove { min-height: 28px; padding: 4px 7px; color: var(--danger); }
 .quest-drop-list-empty { padding: 12px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; font-size: 11px; text-align: center; }
 .quest-drop-add { width: auto; min-height: 30px; margin-top: 9px; padding: 5px 9px; }
+.quest-drop-pickup-preview { display: grid; grid-template-columns: repeat(4, minmax(44px, 1fr)); gap: 5px; }
+.quest-drop-preview-card { display: grid; align-content: start; justify-items: center; min-width: 0; gap: 6px; padding: 8px 5px; border: 1px solid rgba(105, 132, 145, .24); border-radius: 8px; background: rgba(9, 16, 21, .72); text-align: center; }
+.quest-drop-preview-icon { width: 42px; height: 42px; }
+.quest-drop-preview-card code { color: var(--accent-strong); font-size: 9px; overflow-wrap: anywhere; }
+.quest-drop-preview-card span { width: 100%; overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; }
+.quest-drop-preview-empty { grid-column: 1 / -1; padding: 12px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; font-size: 10px; text-align: center; }
+.quest-route-preview { display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid var(--line); background: rgba(13, 22, 27, .84); }
+.quest-route-preview > header { padding: 14px; border-bottom: 1px solid var(--line); }
+.quest-route-preview > header .eyebrow { margin: 0 0 5px; }
+.quest-route-preview h4 { margin: 0; font-size: 14px; }
+.quest-route-preview > header p:last-child { margin: 7px 0 0; color: #d8bd88; font-size: 10px; line-height: 1.5; }
+.quest-route-selector { display: grid; gap: 6px; padding: 12px 14px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 10px; }
+.quest-route-selector .searchable-select { width: 100%; }
+.quest-route-selector .searchable-select-options { max-height: 320px; }
+.quest-route-possession-list { display: grid; align-content: start; min-height: 0; gap: 8px; padding: 12px 14px; overflow-y: auto; scrollbar-gutter: stable; }
+.quest-route-possession { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 9px; padding: 8px; border: 1px solid rgba(105, 132, 145, .24); border-radius: 8px; background: rgba(9, 16, 21, .72); }
+.quest-route-possession-icon { width: 40px; height: 40px; }
+.quest-route-possession-detail { display: grid; min-width: 0; gap: 4px; }
+.quest-route-possession-detail strong { overflow: hidden; font-size: 11px; line-height: 1.4; text-overflow: ellipsis; }
+.quest-route-possession-detail code { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
+.quest-route-possession-empty { padding: 14px 10px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; font-size: 10px; line-height: 1.5; text-align: center; }
 .reward-id-field-editor { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 8px; }
 .reward-field-select { display: flex; min-width: 0; }
 .reward-field-select select { flex: 1 1 auto; width: auto; min-width: 0; }
@@ -1062,6 +1086,9 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
     grid-template-columns: 1fr;
     grid-template-rows: repeat(2, minmax(0, 1fr));
   }
+  .quest-drop-workspace { grid-template-columns: 1fr; overflow-y: auto; }
+  .quest-drop-main { min-height: 620px; }
+  .quest-route-preview { min-height: 420px; border-top: 1px solid var(--line); border-left: 0; }
 }
 
 @media (max-width: 900px) {

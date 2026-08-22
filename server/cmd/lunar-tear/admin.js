@@ -50,7 +50,8 @@
     questDropPageSize: $("#quest-drop-page-size"), questDropPagePrevious: $("#quest-drop-page-previous"),
     questDropPageInfo: $("#quest-drop-page-info"), questDropPageNext: $("#quest-drop-page-next"),
     questDropSaveSummary: $("#quest-drop-save-summary"), questDropDiscard: $("#quest-drop-discard"),
-    questDropSave: $("#quest-drop-save"),
+    questDropSave: $("#quest-drop-save"), questRouteQuestSelect: $("#quest-route-quest-select"),
+    questRoutePossessionList: $("#quest-route-possession-list"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
@@ -128,6 +129,8 @@
     questDropDirtyQuestIDs: new Set(),
     questDropRewardIndex: new Map(),
     questDropRewardReferenceIndex: new Map(),
+    questDropGroupIndex: new Map(),
+    questRouteQuestID: "",
     questDropTypeFilter: "",
     questDropChapterFilter: "",
     questDropPage: 1,
@@ -906,15 +909,15 @@
 
   function resetQuestDropDraft() {
     const editor = state.catalog?.questDropEditor || { quests: [], groups: [], rewards: [] };
-    const rewardsByGroup = new Map(editor.groups.map((group) => [
-      String(group.questPickupRewardGroupId), (group.rewards || []).map((reward) => ({ ...reward }))
+    state.questDropGroupIndex = new Map(editor.groups.map((group) => [
+      String(group.questPickupRewardGroupId), group
     ]));
     const configuredQuests = state.questDropCatalog?.config?.quests || {};
     state.questDropDraft = new Map();
     state.questDropBaseline = new Map();
     editor.quests.forEach((quest) => {
       const configured = configuredQuests[String(quest.questId)];
-      const rewards = (configured ? configured.rewards : rewardsByGroup.get(String(quest.questPickupRewardGroupId)) || [])
+      const rewards = (configured ? configured.rewards : state.questDropGroupIndex.get(String(quest.questPickupRewardGroupId))?.rewards || [])
         .map((reward) => ({ battleDropRewardId: Number(reward.battleDropRewardId), weight: Number(reward.weight) }));
       state.questDropDraft.set(String(quest.questId), rewards);
       state.questDropBaseline.set(String(quest.questId), JSON.stringify(rewards));
@@ -927,6 +930,9 @@
         state.questDropRewardReferenceIndex.set(`${reference.possessionType}:${reference.possessionId}`, reference);
       });
     });
+    if (!editor.quests.some((quest) => String(quest.questId) === state.questRouteQuestID)) {
+      state.questRouteQuestID = String(editor.quests[0]?.questId || "");
+    }
     state.questDropPage = 1;
     updateQuestDropDirtyUI();
   }
@@ -963,43 +969,20 @@
     return `${reward.battleDropRewardId} ${reward.possessionType} ${reward.possessionId} ${reward.count} ${Object.values(reference?.names || {}).join(" ")}`;
   }
 
-  function questDropRewardOptions(quest) {
+  function questDropRewardOptions() {
     const editor = state.catalog?.questDropEditor || { rewards: [] };
-    const baselineRewards = JSON.parse(state.questDropBaseline.get(String(quest.questId)) || "[]");
-    const pickupIDs = new Set(baselineRewards.map((reward) => String(reward.battleDropRewardId)));
-    const recommendedPossessions = new Set((quest.routePossessions || [])
-      .map((possession) => `${possession.possessionType}:${possession.possessionId}`));
-    baselineRewards.forEach(({ battleDropRewardId: rewardID }) => {
-      const reward = state.questDropRewardIndex.get(String(rewardID));
-      if (reward) recommendedPossessions.add(`${reward.possessionType}:${reward.possessionId}`);
-    });
-
-    const rewardByContent = new Map();
-    editor.rewards.forEach((reward) => {
-      const key = `${reward.possessionType}:${reward.possessionId}:${reward.count}`;
-      const previous = rewardByContent.get(key);
-      if (!previous || pickupIDs.has(String(reward.battleDropRewardId))) rewardByContent.set(key, reward);
-    });
-    const recommended = [];
-    const other = [];
-    rewardByContent.forEach((reward) => {
-      const entry = {
+    return editor.rewards.map((reward) => ({
         value: reward.battleDropRewardId,
         label: questDropRewardLabel(reward),
-        searchText: questDropRewardSearchText(reward),
-        group: recommendedPossessions.has(`${reward.possessionType}:${reward.possessionId}`)
-          ? "Pickup / 获得途径（并集）" : "其他"
-      };
-      (entry.group === "其他" ? other : recommended).push(entry);
-    });
-    return [...recommended, ...other];
+        searchText: questDropRewardSearchText(reward)
+      }));
   }
 
-  function renderQuestDropRewardIcon(reward) {
+  function renderQuestDropRewardIcon(reward, className = "quest-drop-reward-icon") {
     const definition = rewardDefinitionForPossessionType(reward?.possessionType);
     const reference = reward && state.questDropRewardReferenceIndex.get(`${reward.possessionType}:${reward.possessionId}`);
-    if (definition) return renderRewardIcon(reference, definition, "quest-drop-reward-icon");
-    return renderAssetIcon("", questDropRewardName(reward), reward?.possessionType === 4 ? "忆" : "奖", "quest-drop-reward-icon");
+    if (definition) return renderRewardIcon(reference, definition, className);
+    return renderAssetIcon("", questDropRewardName(reward), reward?.possessionType === 4 ? "忆" : "奖", className);
   }
 
   function setQuestDropReward(questID, index, rewardID) {
@@ -1044,8 +1027,8 @@
     const rewards = state.questDropDraft.get(String(quest.questId));
     if (!rewards) return;
     const used = new Set(rewards.map((reward) => String(reward.battleDropRewardId)));
-    const option = questDropRewardOptions(quest).find((candidate) => !used.has(String(candidate.value)))
-      || questDropRewardOptions(quest)[0];
+    const option = questDropRewardOptions().find((candidate) => !used.has(String(candidate.value)))
+      || questDropRewardOptions()[0];
     if (!option) {
       showNotice("当前没有可用的 BattleDropReward。", true);
       return;
@@ -1063,6 +1046,83 @@
     const chapter = state.catalog?.questDropEditor?.chapters.find((candidate) =>
       candidate.typeId === quest.typeId && String(candidate.chapterId) === String(quest.chapterId));
     return localizedInlineText(chapter?.names) || `章节 ${quest.chapterId}`;
+  }
+
+  function questDropDifficultyLabel(quest) {
+    const labels = { "1": "Normal", "2": "Hard", "3": "Very Hard" };
+    return labels[String(quest.difficultyType)] || `难度 ${quest.difficultyType}`;
+  }
+
+  function questDropQuestLabel(quest) {
+    return `Quest ${quest.questId} · ${questDropTypeLabel(quest.typeId)} · ${questDropChapterLabel(quest)} · ${questDropDifficultyLabel(quest)} · 第 ${quest.sortOrder} 关`;
+  }
+
+  function renderQuestDropPickupPreview(quest) {
+    const preview = document.createElement("div");
+    preview.className = "quest-drop-pickup-preview";
+    const group = state.questDropGroupIndex.get(String(quest.questPickupRewardGroupId));
+    const rewardIDs = (group?.previewRewardIds || group?.rewards?.map((reward) => reward.battleDropRewardId) || []).slice(0, 4);
+    rewardIDs.forEach((rewardID) => {
+      const reward = state.questDropRewardIndex.get(String(rewardID));
+      const card = document.createElement("div");
+      card.className = "quest-drop-preview-card";
+      card.title = questDropRewardLabel(reward);
+      const id = document.createElement("code");
+      id.textContent = `Reward ${rewardID}`;
+      const name = document.createElement("span");
+      name.textContent = questDropRewardName(reward);
+      card.append(renderQuestDropRewardIcon(reward, "quest-drop-reward-icon quest-drop-preview-icon"), id, name);
+      preview.append(card);
+    });
+    if (!rewardIDs.length) {
+      const empty = document.createElement("div");
+      empty.className = "quest-drop-preview-empty";
+      empty.textContent = "客户端没有配置奖励预览。";
+      preview.append(empty);
+    }
+    return preview;
+  }
+
+  function renderQuestRoutePreview() {
+    const editor = state.catalog?.questDropEditor || { quests: [] };
+    if (!editor.quests.some((quest) => String(quest.questId) === state.questRouteQuestID)) {
+      state.questRouteQuestID = String(editor.quests[0]?.questId || "");
+    }
+    elements.questRouteQuestSelect.replaceChildren();
+    editor.quests.forEach((quest) => {
+      const option = document.createElement("option");
+      option.value = String(quest.questId);
+      option.textContent = questDropQuestLabel(quest);
+      option.dataset.searchText = `${quest.questId} ${quest.typeId} ${quest.chapterId} ${questDropTypeLabel(quest.typeId)} ${questDropChapterLabel(quest)}`;
+      elements.questRouteQuestSelect.append(option);
+    });
+    elements.questRouteQuestSelect.value = state.questRouteQuestID;
+    createSearchableSelect(elements.questRouteQuestSelect, {
+      placeholder: "搜索 QuestId、副本类型或章节",
+      ariaLabel: "搜索并选择获得路径副本"
+    });
+
+    elements.questRoutePossessionList.replaceChildren();
+    const quest = editor.quests.find((candidate) => String(candidate.questId) === state.questRouteQuestID);
+    (quest?.routePossessions || []).forEach((possession) => {
+      const card = document.createElement("div");
+      card.className = "quest-route-possession";
+      const detail = document.createElement("div");
+      detail.className = "quest-route-possession-detail";
+      const name = document.createElement("strong");
+      name.textContent = questDropRewardName(possession);
+      const id = document.createElement("code");
+      id.textContent = `Possession ${possession.possessionType}:${possession.possessionId}`;
+      detail.append(name, id);
+      card.append(renderQuestDropRewardIcon(possession, "quest-drop-reward-icon quest-route-possession-icon"), detail);
+      elements.questRoutePossessionList.append(card);
+    });
+    if (!quest?.routePossessions?.length) {
+      const empty = document.createElement("div");
+      empty.className = "quest-route-possession-empty";
+      empty.textContent = quest ? "主数据中没有该副本的获得路径 Possession。" : "没有可预览的副本关卡。";
+      elements.questRoutePossessionList.append(empty);
+    }
   }
 
   function renderQuestDropEditor() {
@@ -1086,8 +1146,7 @@
       const heading = document.createElement("strong");
       heading.textContent = `Quest ${quest.questId}`;
       const chapter = document.createElement("span");
-      const difficultyLabels = { "1": "Normal", "2": "Hard", "3": "Very Hard" };
-      chapter.textContent = `${questDropTypeLabel(quest.typeId)} · ${questDropChapterLabel(quest)} · ${difficultyLabels[String(quest.difficultyType)] || `难度 ${quest.difficultyType}`} · 第 ${quest.sortOrder} 关`;
+      chapter.textContent = `${questDropTypeLabel(quest.typeId)} · ${questDropChapterLabel(quest)} · ${questDropDifficultyLabel(quest)} · 第 ${quest.sortOrder} 关`;
       const group = document.createElement("code");
       group.textContent = `默认 PickupGroup ${quest.questPickupRewardGroupId || "未配置"}`;
       identity.append(heading, chapter, group);
@@ -1097,7 +1156,7 @@
       const list = document.createElement("div");
       list.className = "quest-drop-list";
       let cachedOptions;
-      const optionSource = () => (cachedOptions ||= questDropRewardOptions(quest));
+      const optionSource = () => (cachedOptions ||= questDropRewardOptions());
       rewards.forEach((configuredReward, index) => {
         const rewardID = configuredReward.battleDropRewardId;
         const reward = state.questDropRewardIndex.get(String(rewardID));
@@ -1158,7 +1217,9 @@
       add.textContent = "添加掉落";
       add.addEventListener("click", () => addQuestDropReward(quest));
       content.append(list, add);
-      row.append(identity, content);
+      const preview = document.createElement("td");
+      preview.append(renderQuestDropPickupPreview(quest));
+      row.append(identity, content, preview);
       elements.questDropBody.append(row);
     });
 
@@ -1168,6 +1229,7 @@
     elements.questDropPagePrevious.disabled = state.questDropPage <= 1;
     elements.questDropPageNext.disabled = state.questDropPage >= state.questDropPageCount;
     elements.empty.classList.toggle("hidden", visible.length !== 0);
+    renderQuestRoutePreview();
   }
 
   function questDropReplacementPayload() {
@@ -4898,6 +4960,10 @@
   elements.questDropSearch.addEventListener("input", () => {
     state.questDropPage = 1;
     renderTable();
+  });
+  elements.questRouteQuestSelect.addEventListener("change", () => {
+    state.questRouteQuestID = elements.questRouteQuestSelect.value;
+    renderQuestRoutePreview();
   });
   elements.questDropPageSize.addEventListener("change", () => {
     const pageSize = Number(elements.questDropPageSize.value);

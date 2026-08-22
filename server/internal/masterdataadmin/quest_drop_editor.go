@@ -52,6 +52,7 @@ type QuestDropReward struct {
 type QuestDropGroup struct {
 	QuestPickupRewardGroupID int32              `json:"questPickupRewardGroupId"`
 	Rewards                  []questdrop.Reward `json:"rewards"`
+	PreviewRewardIDs         []int32            `json:"previewRewardIds"`
 }
 
 type QuestDropEditorCatalog struct {
@@ -109,6 +110,15 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 			routesByQuest[int32(questID)] = append(routesByQuest[int32(questID)], key)
 		}
 	}
+	for questID := range routesByQuest {
+		sort.Slice(routesByQuest[questID], func(i, j int) bool {
+			left, right := routesByQuest[questID][i], routesByQuest[questID][j]
+			if left.PossessionType != right.PossessionType {
+				return left.PossessionType < right.PossessionType
+			}
+			return left.PossessionID < right.PossessionID
+		})
+	}
 
 	result := QuestDropEditorCatalog{Types: append([]QuestDropType(nil), questDropTypes...), Chapters: chapters}
 	includedGroups := make(map[int32]bool)
@@ -127,16 +137,25 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 		}
 	}
 
-	selectedRewardIDs := make(map[int32]bool)
 	groupByID := make(map[int32][]questdrop.Reward)
 	groupRewardIndexes := make(map[int32]map[int32]int)
-	for _, row := range readRows(file, questPickupRewardGroupTable) {
+	type previewReward struct {
+		sortOrder int64
+		rowIndex  int
+		rewardID  int32
+	}
+	previewByGroup := make(map[int32][]previewReward)
+	for rowIndex, row := range readRows(file, questPickupRewardGroupTable) {
 		groupID, groupOK := integerAt(row, 0)
+		sortOrder, sortOK := integerAt(row, 1)
 		rewardID, rewardOK := integerAt(row, 2)
-		if !groupOK || !rewardOK || !includedGroups[int32(groupID)] {
+		if !groupOK || !sortOK || !rewardOK || !includedGroups[int32(groupID)] {
 			continue
 		}
 		group, reward := int32(groupID), int32(rewardID)
+		previewByGroup[group] = append(previewByGroup[group], previewReward{
+			sortOrder: sortOrder, rowIndex: rowIndex, rewardID: reward,
+		})
 		if groupRewardIndexes[group] == nil {
 			groupRewardIndexes[group] = make(map[int32]int)
 		}
@@ -146,7 +165,6 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 			groupRewardIndexes[group][reward] = len(groupByID[group])
 			groupByID[group] = append(groupByID[group], questdrop.Reward{BattleDropRewardID: reward, Weight: 1})
 		}
-		selectedRewardIDs[reward] = true
 	}
 	groupIDs := make([]int32, 0, len(groupByID))
 	for groupID := range groupByID {
@@ -154,14 +172,24 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 	}
 	sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
 	for _, groupID := range groupIDs {
+		preview := previewByGroup[groupID]
+		sort.SliceStable(preview, func(i, j int) bool {
+			if preview[i].sortOrder != preview[j].sortOrder {
+				return preview[i].sortOrder < preview[j].sortOrder
+			}
+			return preview[i].rowIndex < preview[j].rowIndex
+		})
+		previewRewardIDs := make([]int32, 0, len(preview))
+		for _, reward := range preview {
+			previewRewardIDs = append(previewRewardIDs, reward.rewardID)
+		}
 		result.Groups = append(result.Groups, QuestDropGroup{
 			QuestPickupRewardGroupID: groupID,
 			Rewards:                  groupByID[groupID],
+			PreviewRewardIDs:         previewRewardIDs,
 		})
 	}
 
-	type rewardKey struct{ possessionType, possessionID, count int32 }
-	canonicalByReward := make(map[rewardKey]QuestDropReward)
 	rewardByID := make(map[int32]QuestDropReward)
 	for _, row := range readRows(file, battleDropRewardTable) {
 		reward, ok := questDropRewardAt(row)
@@ -169,22 +197,9 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 			continue
 		}
 		rewardByID[reward.BattleDropRewardID] = reward
-		key := rewardKey{reward.PossessionType, reward.PossessionID, reward.Count}
-		if previous, exists := canonicalByReward[key]; !exists || reward.BattleDropRewardID < previous.BattleDropRewardID {
-			canonicalByReward[key] = reward
-		}
 	}
-	includedRewardIDs := make(map[int32]bool, len(canonicalByReward)+len(selectedRewardIDs))
-	for _, reward := range canonicalByReward {
-		includedRewardIDs[reward.BattleDropRewardID] = true
-	}
-	for rewardID := range selectedRewardIDs {
-		includedRewardIDs[rewardID] = true
-	}
-	for rewardID := range includedRewardIDs {
-		if reward, exists := rewardByID[rewardID]; exists {
-			result.Rewards = append(result.Rewards, reward)
-		}
+	for _, reward := range rewardByID {
+		result.Rewards = append(result.Rewards, reward)
 	}
 	sort.Slice(result.Rewards, func(i, j int) bool {
 		left, right := result.Rewards[i], result.Rewards[j]

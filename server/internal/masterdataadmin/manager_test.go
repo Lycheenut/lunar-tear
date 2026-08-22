@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -325,7 +326,7 @@ func TestMissionRewardIsDeliveryTableWithLocalizedSources(t *testing.T) {
 	}
 }
 
-func TestQuestDropEditorCatalogUsesNonEventQuestsAndAcquisitionRoutes(t *testing.T) {
+func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *testing.T) {
 	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		t.Skip("repository master-data asset is not installed")
@@ -349,13 +350,67 @@ func TestQuestDropEditorCatalogUsesNonEventQuestsAndAcquisitionRoutes(t *testing
 	for _, chapter := range editor.Chapters {
 		chapters[chapter.TypeID+"/"+strconv.FormatInt(int64(chapter.ChapterID), 10)] = true
 	}
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type expectedPreviewReward struct {
+		sortOrder int64
+		rowIndex  int
+		rewardID  int32
+	}
+	expectedPreviews := make(map[int32][]expectedPreviewReward)
+	for rowIndex, row := range readRows(file, questPickupRewardGroupTable) {
+		groupID, groupOK := integerAt(row, 0)
+		sortOrder, sortOK := integerAt(row, 1)
+		rewardID, rewardOK := integerAt(row, 2)
+		if groupOK && sortOK && rewardOK {
+			expectedPreviews[int32(groupID)] = append(expectedPreviews[int32(groupID)], expectedPreviewReward{
+				sortOrder: sortOrder, rowIndex: rowIndex, rewardID: int32(rewardID),
+			})
+		}
+	}
+	for groupID := range expectedPreviews {
+		sort.SliceStable(expectedPreviews[groupID], func(i, j int) bool {
+			left, right := expectedPreviews[groupID][i], expectedPreviews[groupID][j]
+			if left.sortOrder != right.sortOrder {
+				return left.sortOrder < right.sortOrder
+			}
+			return left.rowIndex < right.rowIndex
+		})
+	}
+	expectedRewardIDs := make(map[int32]bool)
+	for _, row := range readRows(file, battleDropRewardTable) {
+		if reward, ok := questDropRewardAt(row); ok {
+			expectedRewardIDs[reward.BattleDropRewardID] = true
+		}
+	}
 	rewards := make(map[int32]QuestDropReward, len(editor.Rewards))
 	for _, reward := range editor.Rewards {
 		rewards[reward.BattleDropRewardID] = reward
 	}
+	if len(rewards) != len(expectedRewardIDs) {
+		t.Fatalf("selectable rewards=%d, want every BattleDropRewardId (%d)", len(rewards), len(expectedRewardIDs))
+	}
+	for rewardID := range expectedRewardIDs {
+		if _, exists := rewards[rewardID]; !exists {
+			t.Fatalf("BattleDropRewardId %d was omitted from the searchable selector", rewardID)
+		}
+	}
 	groups := make(map[int32]QuestDropGroup, len(editor.Groups))
 	for _, group := range editor.Groups {
 		groups[group.QuestPickupRewardGroupID] = group
+		expectedPreview := expectedPreviews[group.QuestPickupRewardGroupID]
+		if len(group.PreviewRewardIDs) != len(expectedPreview) {
+			t.Fatalf("group %d preview rewards=%d, want %d raw pickup rows",
+				group.QuestPickupRewardGroupID, len(group.PreviewRewardIDs), len(expectedPreview))
+		}
+		for index, rewardID := range group.PreviewRewardIDs {
+			if rewardID != expectedPreview[index].rewardID {
+				t.Fatalf("group %d preview reward %d=%d, want %d",
+					group.QuestPickupRewardGroupID, index, rewardID, expectedPreview[index].rewardID)
+			}
+		}
 		seen := make(map[int32]bool, len(group.Rewards))
 		for _, configuredReward := range group.Rewards {
 			if _, exists := rewards[configuredReward.BattleDropRewardID]; !exists {
@@ -370,7 +425,7 @@ func TestQuestDropEditorCatalogUsesNonEventQuestsAndAcquisitionRoutes(t *testing
 			seen[configuredReward.BattleDropRewardID] = true
 		}
 	}
-	foundRouteCandidate := false
+	foundRoutePossession := false
 	for _, quest := range editor.Quests {
 		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" {
 			t.Fatalf("event quest %d of excluded type %s is configurable", quest.QuestID, quest.TypeID)
@@ -378,17 +433,12 @@ func TestQuestDropEditorCatalogUsesNonEventQuestsAndAcquisitionRoutes(t *testing
 		if !chapters[quest.TypeID+"/"+strconv.FormatInt(int64(quest.ChapterID), 10)] {
 			t.Fatalf("quest %d references an omitted chapter", quest.QuestID)
 		}
-		for _, route := range quest.RoutePossessions {
-			for _, reward := range editor.Rewards {
-				if reward.PossessionType == route.PossessionType && reward.PossessionID == route.PossessionID {
-					foundRouteCandidate = true
-					break
-				}
-			}
+		if len(quest.RoutePossessions) > 0 {
+			foundRoutePossession = true
 		}
 	}
-	if !foundRouteCandidate {
-		t.Fatal("no acquisition-route possession maps to a selectable battle drop reward")
+	if !foundRoutePossession {
+		t.Fatal("no acquisition-route possessions are available for preview")
 	}
 }
 

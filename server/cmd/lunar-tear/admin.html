@@ -271,7 +271,7 @@
               <header class="quest-drop-heading">
                 <div>
                   <h3>关卡掉落</h3>
-                  <p>选择器优先展示 Pickup 与获得途径的并集；每种奖励只能配置一条，并可设置正整数权重。</p>
+                  <p>通过搜索下拉框选择掉落奖励；Pickup 奖励与获得路径 Possession 分开预览。</p>
                 </div>
                 <div class="quest-drop-heading-actions">
                   <input id="quest-drop-search" type="search" inputmode="numeric" placeholder="搜索 QuestId" aria-label="按 QuestId 搜索关卡">
@@ -281,25 +281,40 @@
                 </div>
               </header>
               <div id="quest-drop-save-summary" class="quest-drop-save-summary">没有待发布的关卡掉落修改</div>
-              <div class="quest-drop-scroll">
-                <table class="quest-drop-table">
-                  <thead><tr><th>关卡</th><th>掉落内容</th></tr></thead>
-                  <tbody id="quest-drop-body"></tbody>
-                </table>
-              </div>
-              <div class="mission-reward-pagination">
-                <label>每页
-                  <select id="quest-drop-page-size">
-                    <option value="10" selected>10</option>
-                    <option value="25">25</option>
-                    <option value="50">50</option>
-                  </select>
-                </label>
-                <div class="reward-page-navigation">
-                  <button id="quest-drop-page-previous" class="button ghost" type="button">上一页</button>
-                  <span id="quest-drop-page-info" aria-live="polite">第 1 / 1 页</span>
-                  <button id="quest-drop-page-next" class="button ghost" type="button">下一页</button>
+              <div class="quest-drop-workspace">
+                <div class="quest-drop-main">
+                  <div class="quest-drop-scroll">
+                    <table class="quest-drop-table">
+                      <thead><tr><th>关卡</th><th>掉落内容</th><th>奖励预览</th></tr></thead>
+                      <tbody id="quest-drop-body"></tbody>
+                    </table>
+                  </div>
+                  <div class="mission-reward-pagination">
+                    <label>每页
+                      <select id="quest-drop-page-size">
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                      </select>
+                    </label>
+                    <div class="reward-page-navigation">
+                      <button id="quest-drop-page-previous" class="button ghost" type="button">上一页</button>
+                      <span id="quest-drop-page-info" aria-live="polite">第 1 / 1 页</span>
+                      <button id="quest-drop-page-next" class="button ghost" type="button">下一页</button>
+                    </div>
+                  </div>
                 </div>
+                <aside class="quest-route-preview" aria-labelledby="quest-route-preview-title">
+                  <header>
+                    <p class="eyebrow">ACQUISITION ROUTE</p>
+                    <h4 id="quest-route-preview-title">获得路径预览</h4>
+                    <p>获得路径只精确到 Possession，不代表具体 RewardId。</p>
+                  </header>
+                  <label class="quest-route-selector">副本关卡
+                    <select id="quest-route-quest-select" aria-label="搜索并选择获得路径副本"></select>
+                  </label>
+                  <div id="quest-route-possession-list" class="quest-route-possession-list"></div>
+                </aside>
               </div>
             </div>
           </div>
