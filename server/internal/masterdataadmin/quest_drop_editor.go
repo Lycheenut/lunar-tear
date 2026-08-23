@@ -40,6 +40,7 @@ type QuestDropQuest struct {
 	ChapterID                int32                 `json:"chapterId"`
 	DifficultyType           int32                 `json:"difficultyType"`
 	SortOrder                int32                 `json:"sortOrder"`
+	Names                    map[string]string     `json:"names,omitempty"`
 	DropCount                int32                 `json:"dropCount"`
 	QuestPickupRewardGroupID int32                 `json:"questPickupRewardGroupId"`
 	RoutePossessions         []QuestDropPossession `json:"routePossessions,omitempty"`
@@ -72,6 +73,13 @@ type questPlacement struct {
 	chapterID      int32
 	difficultyType int32
 	sortOrder      int32
+	names          map[string]string
+}
+
+type questDropQuestMetadata struct {
+	nameTextID       int32
+	pickupGroupID    int32
+	isCountedAsQuest bool
 }
 
 type mainStoryChapterSpec struct {
@@ -91,9 +99,6 @@ var questDropTypes = []QuestDropType{
 	{ID: "event-6", Value: 6, Label: "CHARACTER"},
 	{ID: "event-7", Value: 7, Label: "CHARACTER_QUEST"},
 	{ID: "event-8", Value: 8, Label: "CAGE"},
-	{ID: "event-10", Value: 10, Label: "TOWER"},
-	{ID: "event-11", Value: 11, Label: "LIMIT_CONTENT"},
-	{ID: "event-12", Value: 12, Label: "LABYRINTH"},
 }
 
 // MainQuestChapterId identifies internal route segments, not the 1-30 chapter
@@ -161,6 +166,7 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 		result.Quests = append(result.Quests, QuestDropQuest{
 			QuestID: placement.questID, TypeID: placement.typeID, ChapterID: placement.chapterID,
 			DifficultyType: placement.difficultyType, SortOrder: placement.sortOrder,
+			Names:                    placement.names,
 			QuestPickupRewardGroupID: groupID, RoutePossessions: routesByQuest[placement.questID],
 		})
 		if groupID != 0 {
@@ -310,7 +316,7 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		sortOrder, sortOK := integerAt(row, 2)
 		nameTextID, nameOK := integerAt(row, 3)
 		groupID, groupOK := integerAt(row, 7)
-		if !chapterOK || !typeOK || !sortOK || !groupOK || eventType <= 3 || eventType == 9 || eventType > 12 {
+		if !chapterOK || !typeOK || !sortOK || !groupOK || eventType < 4 || eventType > 8 {
 			continue
 		}
 		var names map[string]string
@@ -323,6 +329,7 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		})
 		appendPlacements(typeID, int32(chapterID), int32(groupID), eventGroups, eventSequences)
 	}
+	placements, chapters = normalizeQuestDropPlacements(file, resolver, placements, chapters)
 
 	sort.SliceStable(placements, func(i, j int) bool {
 		if placements[i].typeID != placements[j].typeID {
@@ -346,6 +353,221 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		return chapters[i].ChapterID < chapters[j].ChapterID
 	})
 	return placements, chapters
+}
+
+func normalizeQuestDropPlacements(
+	file *memorydb.File,
+	resolver *titleResolver,
+	placements []questPlacement,
+	chapters []QuestDropChapter,
+) ([]questPlacement, []QuestDropChapter) {
+	metadata := questDropQuestMetadataByID(file)
+	guerrillaWeaponTypes := questDropGuerrillaWeaponTypes(file, metadata)
+
+	dayChapterSizes := make(map[int32]int)
+	for _, placement := range placements {
+		if placement.typeID == "event-4" {
+			dayChapterSizes[placement.chapterID]++
+		}
+	}
+	dayChapterByQuest := make(map[int32]int32)
+	for _, placement := range placements {
+		if placement.typeID != "event-4" {
+			continue
+		}
+		current, exists := dayChapterByQuest[placement.questID]
+		if !exists || dayChapterSizes[placement.chapterID] < dayChapterSizes[current] ||
+			(dayChapterSizes[placement.chapterID] == dayChapterSizes[current] && placement.chapterID < current) {
+			dayChapterByQuest[placement.questID] = placement.chapterID
+		}
+	}
+
+	dayRegular := make(map[int32][]questPlacement)
+	guerrillaByWeaponType := make(map[int32][]questPlacement)
+	daySpecialNames := make(map[int32]map[string]string)
+	for _, placement := range placements {
+		switch placement.typeID {
+		case "event-4":
+			if dayChapterByQuest[placement.questID] != placement.chapterID {
+				continue
+			}
+			if placement.questID >= 400000 {
+				daySpecialNames[placement.questID] = questDropSpecialNames(resolver, placement.questID, metadata[placement.questID].nameTextID)
+			} else {
+				dayRegular[placement.chapterID] = append(dayRegular[placement.chapterID], placement)
+			}
+		case "event-5":
+			if weaponType := guerrillaWeaponTypes[placement.questID]; weaponType != 0 {
+				guerrillaByWeaponType[weaponType] = append(guerrillaByWeaponType[weaponType], placement)
+			}
+		}
+	}
+	dayStageByQuest := rankedQuestStages(dayRegular)
+	guerrillaStageByQuest := rankedQuestStages(guerrillaByWeaponType)
+
+	result := make([]questPlacement, 0, len(placements))
+	for _, placement := range placements {
+		switch placement.typeID {
+		case "main":
+			if !metadata[placement.questID].isCountedAsQuest {
+				continue
+			}
+		case "event-4":
+			if dayChapterByQuest[placement.questID] != placement.chapterID {
+				continue
+			}
+			if names, special := daySpecialNames[placement.questID]; special {
+				placement.names = names
+			} else {
+				placement.sortOrder = dayStageByQuest[placement.questID]
+				placement.names = questDropLevelNames(resolver, placement.sortOrder)
+			}
+		case "event-5":
+			weaponType := guerrillaWeaponTypes[placement.questID]
+			if weaponType == 0 {
+				continue
+			}
+			placement.chapterID = weaponType
+			placement.sortOrder = guerrillaStageByQuest[placement.questID]
+			placement.names = questDropLevelNames(resolver, placement.sortOrder)
+		}
+		result = append(result, placement)
+	}
+
+	usedChapters := make(map[string]bool)
+	for _, placement := range result {
+		usedChapters[placement.typeID+":"+strconv.FormatInt(int64(placement.chapterID), 10)] = true
+	}
+	characterNames := questDropCharacterNamesByChapter(file, resolver)
+	chapterResult := make([]QuestDropChapter, 0, len(chapters)+len(guerrillaByWeaponType))
+	for _, chapter := range chapters {
+		if chapter.TypeID == "event-5" || !usedChapters[chapter.TypeID+":"+strconv.FormatInt(int64(chapter.ChapterID), 10)] {
+			continue
+		}
+		if chapter.TypeID == "event-6" || chapter.TypeID == "event-7" {
+			if names := characterNames[chapter.ChapterID]; len(names) != 0 {
+				chapter.Names = names
+			}
+		}
+		chapterResult = append(chapterResult, chapter)
+	}
+	for weaponType := range guerrillaByWeaponType {
+		chapterResult = append(chapterResult, QuestDropChapter{
+			TypeID: "event-5", ChapterID: weaponType, SortOrder: weaponType,
+			Names: resolver.byKey(fmt.Sprintf("ui.Outgame.WeaponType.%d", weaponType)),
+		})
+	}
+	return result, chapterResult
+}
+
+func questDropQuestMetadataByID(file *memorydb.File) map[int32]questDropQuestMetadata {
+	result := make(map[int32]questDropQuestMetadata)
+	for _, row := range readRows(file, questTable) {
+		questID, questOK := integerAt(row, 0)
+		nameTextID, nameOK := integerAt(row, 1)
+		pickupGroupID, pickupOK := integerAt(row, 8)
+		isCountedAsQuest, countedOK := booleanAt(row, 18)
+		if questOK && nameOK && pickupOK && countedOK {
+			result[int32(questID)] = questDropQuestMetadata{
+				nameTextID: int32(nameTextID), pickupGroupID: int32(pickupGroupID), isCountedAsQuest: isCountedAsQuest,
+			}
+		}
+	}
+	return result
+}
+
+func questDropGuerrillaWeaponTypes(file *memorydb.File, metadata map[int32]questDropQuestMetadata) map[int32]int32 {
+	materialWeaponTypes := make(map[int32]int32)
+	for _, row := range readRows(file, "m_material") {
+		materialID, idOK := integerAt(row, 0)
+		weaponType, typeOK := integerAt(row, 3)
+		if idOK && typeOK && weaponType != 0 {
+			materialWeaponTypes[int32(materialID)] = int32(weaponType)
+		}
+	}
+	rewardWeaponTypes := make(map[int32]int32)
+	for _, row := range readRows(file, battleDropRewardTable) {
+		rewardID, rewardOK := integerAt(row, 0)
+		possessionType, typeOK := integerAt(row, 1)
+		possessionID, possessionOK := integerAt(row, 2)
+		if rewardOK && typeOK && possessionOK && possessionType == 5 {
+			rewardWeaponTypes[int32(rewardID)] = materialWeaponTypes[int32(possessionID)]
+		}
+	}
+	groupWeaponTypes := make(map[int32]int32)
+	for _, row := range readRows(file, questPickupRewardGroupTable) {
+		groupID, groupOK := integerAt(row, 0)
+		rewardID, rewardOK := integerAt(row, 2)
+		if !groupOK || !rewardOK {
+			continue
+		}
+		weaponType := rewardWeaponTypes[int32(rewardID)]
+		if weaponType != 0 {
+			groupWeaponTypes[int32(groupID)] = weaponType
+		}
+	}
+	result := make(map[int32]int32)
+	for questID, quest := range metadata {
+		if weaponType := groupWeaponTypes[quest.pickupGroupID]; weaponType != 0 {
+			result[questID] = weaponType
+		}
+	}
+	return result
+}
+
+func questDropCharacterNamesByChapter(file *memorydb.File, resolver *titleResolver) map[int32]map[string]string {
+	result := make(map[int32]map[string]string)
+	for _, row := range readRows(file, "m_event_quest_chapter_character") {
+		chapterID, chapterOK := integerAt(row, 0)
+		characterID, characterOK := integerAt(row, 1)
+		if chapterOK && characterOK {
+			result[int32(chapterID)] = cloneTitles(resolver.characterTitlesByID[characterID])
+		}
+	}
+	return result
+}
+
+func rankedQuestStages(groups map[int32][]questPlacement) map[int32]int32 {
+	result := make(map[int32]int32)
+	for _, placements := range groups {
+		sort.SliceStable(placements, func(i, j int) bool {
+			if placements[i].sortOrder != placements[j].sortOrder {
+				return placements[i].sortOrder < placements[j].sortOrder
+			}
+			return placements[i].questID < placements[j].questID
+		})
+		for index, placement := range placements {
+			result[placement.questID] = int32(index + 1)
+		}
+	}
+	return result
+}
+
+func questDropLevelNames(resolver *titleResolver, level int32) map[string]string {
+	titles := resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", 500000+level))
+	for language, title := range titles {
+		if separator := strings.LastIndex(title, "："); separator >= 0 {
+			titles[language] = strings.TrimSpace(title[separator+len("："):])
+		} else if separator = strings.LastIndex(title, ":"); separator >= 0 {
+			titles[language] = strings.TrimSpace(title[separator+1:])
+		}
+	}
+	return titles
+}
+
+func questDropSpecialNames(resolver *titleResolver, questID, nameTextID int32) map[string]string {
+	if names := resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", questID)); len(names) != 0 {
+		return names
+	}
+	return resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", nameTextID))
+}
+
+func booleanAt(row []interface{}, index int) (bool, bool) {
+	if index < 0 || index >= len(row) {
+		return false, false
+	}
+	value, ok := row[index].(bool)
+	return value, ok
 }
 
 type mainStoryQuestChapter struct {

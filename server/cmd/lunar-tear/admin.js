@@ -1175,6 +1175,10 @@
     return localizedInlineText(chapter?.names) || String(quest.chapterId);
   }
 
+  function questDropStageLabel(quest) {
+    return localizedInlineText(quest.names) || String(quest.sortOrder);
+  }
+
   function questDropDifficultyLabel(quest) {
     const labels = { "1": "Normal", "2": "Hard", "3": "Very Hard" };
     return labels[String(quest.difficultyType)] || `难度 ${quest.difficultyType}`;
@@ -1321,7 +1325,7 @@
       if (state.questDropChapterFilter && `${quest.typeId}:${quest.chapterId}` !== state.questDropChapterFilter) return false;
       if (state.questDropDifficultyFilter && String(quest.difficultyType) !== state.questDropDifficultyFilter) return false;
       if (!query) return true;
-      return `${quest.questId} ${questDropChapterLabel(quest)} ${questDropTypeLabel(quest.typeId)}`.toLocaleLowerCase().includes(query);
+      return `${quest.questId} ${questDropChapterLabel(quest)} ${questDropStageLabel(quest)} ${questDropTypeLabel(quest.typeId)}`.toLocaleLowerCase().includes(query);
     });
     state.questDropPageCount = Math.max(1, Math.ceil(visible.length / state.questDropPageSize));
     state.questDropPage = Math.min(Math.max(1, state.questDropPage), state.questDropPageCount);
@@ -1335,7 +1339,7 @@
       const heading = document.createElement("strong");
       heading.textContent = String(quest.questId);
       const chapter = document.createElement("span");
-      chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder} · 总掉落数 ${quest.dropCount ?? 0}`;
+      chapter.textContent = `${questDropChapterLabel(quest)}-${questDropStageLabel(quest)} · 总掉落数 ${quest.dropCount ?? 0}`;
       const copy = document.createElement("button");
       copy.type = "button";
       copy.className = "button ghost quest-drop-copy";

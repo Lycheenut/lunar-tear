@@ -347,15 +347,12 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 			len(editor.Types), len(editor.Chapters), len(editor.Quests), len(editor.Rewards))
 	}
 	expectedTypes := map[string]QuestDropType{
-		"main":     {ID: "main", Value: 1, Label: "MAIN_QUEST"},
-		"event-4":  {ID: "event-4", Value: 4, Label: "DAY_OF_THE_WEEK"},
-		"event-5":  {ID: "event-5", Value: 5, Label: "GUERRILLA"},
-		"event-6":  {ID: "event-6", Value: 6, Label: "CHARACTER"},
-		"event-7":  {ID: "event-7", Value: 7, Label: "CHARACTER_QUEST"},
-		"event-8":  {ID: "event-8", Value: 8, Label: "CAGE"},
-		"event-10": {ID: "event-10", Value: 10, Label: "TOWER"},
-		"event-11": {ID: "event-11", Value: 11, Label: "LIMIT_CONTENT"},
-		"event-12": {ID: "event-12", Value: 12, Label: "LABYRINTH"},
+		"main":    {ID: "main", Value: 1, Label: "MAIN_QUEST"},
+		"event-4": {ID: "event-4", Value: 4, Label: "DAY_OF_THE_WEEK"},
+		"event-5": {ID: "event-5", Value: 5, Label: "GUERRILLA"},
+		"event-6": {ID: "event-6", Value: 6, Label: "CHARACTER"},
+		"event-7": {ID: "event-7", Value: 7, Label: "CHARACTER_QUEST"},
+		"event-8": {ID: "event-8", Value: 8, Label: "CAGE"},
 	}
 	if len(editor.Types) != len(expectedTypes) {
 		t.Fatalf("quest drop types=%d, want %d", len(editor.Types), len(expectedTypes))
@@ -397,6 +394,25 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 	for chapterID, want := range wantMainChapterNames {
 		if got := mainChapters[chapterID-1].Names["ja"]; got != want {
 			t.Fatalf("main story chapter %d Japanese name=%q, want %q", chapterID, got, want)
+		}
+	}
+	chapterByKey := make(map[string]QuestDropChapter, len(editor.Chapters))
+	for _, chapter := range editor.Chapters {
+		chapterByKey[chapter.TypeID+"/"+strconv.FormatInt(int64(chapter.ChapterID), 10)] = chapter
+	}
+	if chapters["event-4/10"] {
+		t.Fatal("duplicate aggregate weekday chapter 10 is configurable")
+	}
+	wantGuerrillaChapterNames := map[int32]string{1: "小型剣", 2: "槍", 3: "大剣", 4: "格闘", 5: "杖", 6: "銃"}
+	for chapterID, want := range wantGuerrillaChapterNames {
+		chapter, exists := chapterByKey["event-5/"+strconv.FormatInt(int64(chapterID), 10)]
+		if !exists || chapter.Names["ja"] != want {
+			t.Fatalf("guerrilla chapter %d = %+v, want Japanese name %q", chapterID, chapter, want)
+		}
+	}
+	for key, want := range map[string]string{"event-6/901": "リオン", "event-7/99001": "リオン", "event-6/921": "１０Ｈ", "event-7/99022": "１０Ｈ"} {
+		if got := chapterByKey[key].Names["ja"]; got != want {
+			t.Fatalf("character chapter %s Japanese name=%q, want %q", key, got, want)
 		}
 	}
 	file, err := memorydb.OpenFile(path)
@@ -480,8 +496,12 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 	}
 	foundRoutePossession := false
 	mainChapterByQuestID := make(map[int32]int32)
+	weekdayStages := make(map[int32]map[int32]string)
+	guerrillaStages := make(map[int32]map[int32]string)
+	wantStageNames := map[int32]string{1: "初級", 2: "中級", 3: "上級", 4: "超級"}
 	for _, quest := range editor.Quests {
-		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" || quest.TypeID == "event-9" {
+		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" || quest.TypeID == "event-9" ||
+			quest.TypeID == "event-10" || quest.TypeID == "event-11" || quest.TypeID == "event-12" {
 			t.Fatalf("event quest %d of excluded type %s is configurable", quest.QuestID, quest.TypeID)
 		}
 		if !chapters[quest.TypeID+"/"+strconv.FormatInt(int64(quest.ChapterID), 10)] {
@@ -492,10 +512,43 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 		}
 		if quest.TypeID == "main" {
 			mainChapterByQuestID[quest.QuestID] = quest.ChapterID
+		} else if quest.TypeID == "event-4" && quest.QuestID < 400000 {
+			if weekdayStages[quest.ChapterID] == nil {
+				weekdayStages[quest.ChapterID] = make(map[int32]string)
+			}
+			weekdayStages[quest.ChapterID][quest.SortOrder] = quest.Names["ja"]
+		} else if quest.TypeID == "event-5" {
+			if guerrillaStages[quest.ChapterID] == nil {
+				guerrillaStages[quest.ChapterID] = make(map[int32]string)
+			}
+			guerrillaStages[quest.ChapterID][quest.SortOrder] = quest.Names["ja"]
+		}
+	}
+	if _, exists := mainChapterByQuestID[1]; exists {
+		t.Fatal("main-flow quest 1 is configurable")
+	}
+	for _, chapterID := range []int32{1, 2, 3, 4, 5, 6, 8} {
+		if len(weekdayStages[chapterID]) != 4 {
+			t.Fatalf("weekday chapter %d regular stages=%v, want four", chapterID, weekdayStages[chapterID])
+		}
+		for stage, want := range wantStageNames {
+			if got := weekdayStages[chapterID][stage]; got != want {
+				t.Fatalf("weekday chapter %d stage %d name=%q, want %q", chapterID, stage, got, want)
+			}
+		}
+	}
+	for chapterID := int32(1); chapterID <= 6; chapterID++ {
+		if len(guerrillaStages[chapterID]) != 4 {
+			t.Fatalf("guerrilla chapter %d stages=%v, want four", chapterID, guerrillaStages[chapterID])
+		}
+		for stage, want := range wantStageNames {
+			if got := guerrillaStages[chapterID][stage]; got != want {
+				t.Fatalf("guerrilla chapter %d stage %d name=%q, want %q", chapterID, stage, got, want)
+			}
 		}
 	}
 	wantMainChapterByQuestID := map[int32]int32{
-		1: 1, 122: 7, 301: 13, 401: 14, 337: 19, 437: 20, 500: 25, 547: 30,
+		2: 1, 62: 7, 305: 13, 405: 14, 341: 19, 441: 20, 501: 25, 547: 30,
 	}
 	for questID, want := range wantMainChapterByQuestID {
 		if got := mainChapterByQuestID[questID]; got != want {
