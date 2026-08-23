@@ -179,23 +179,28 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 	for _, required := range []string{
 		".quest-drop-editor", ".quest-drop-item", ".quest-drop-main",
 		".quest-drop-pickup-preview", ".quest-drop-route-preview", ".quest-drop-preview-row",
+		".quest-drop-preview-toggle", ".quest-drop-table th:nth-child(2) { width: 520px; }",
+		".quest-drop-table th:nth-child(4) { width: 230px; }",
 	} {
 		if !strings.Contains(css, required) {
 			t.Fatalf("quest drop CSS is missing %s", required)
 		}
 	}
 	for _, required := range []string{
-		`typeLabel.textContent = "副本类型"`, `chapterLabel.textContent = "章节"`,
+		`typeLabel.textContent = "副本类型"`, `chapterLabel.textContent = "章节"`, `difficultyLabel.textContent = "难度"`,
 		"new Option(`${definition.value}. ${definition.label}`, definition.id)",
 		"Number(left.value) - Number(right.value)",
 		"Number(left.chapterId) - Number(right.chapterId)",
 		"Number(left.battleDropRewardId) - Number(right.battleDropRewardId)",
 		`state.questDropTypeFilter = editor.types[0]?.id || ""`,
 		`state.questDropChapterFilter = chapterSelect.options[0]?.value || ""`,
+		`questDropDifficultyFilter: "1"`, `difficultyValues.includes(1) ? "1"`,
 		`function questDropRewardOptions()`, `function renderQuestDropPickupPreview(quest)`,
 		`function renderQuestDropRoutePreview(quest)`, `row.append(identity, content, preview, routePreview)`,
+		`function setQuestDropPreviewReward(questID, rewardID, included)`, `toggle.type = "checkbox"`,
+		`toggle.addEventListener("change", () => setQuestDropPreviewReward`,
 		"detail.textContent = `${rewardID}. ${questDropRewardName(reward)} ×${reward?.count ?? \"?\"}`",
-		"chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder} ${questDropDifficultyLabel(quest)}`",
+		"chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder}`",
 		`function questDropReplacementPayload()`, `api("/api/admin/quest-drop-config"`,
 		`weightInput.type = "number"`, `在同一关卡中只能配置一条`,
 		`table.name === "m_quest_pickup_reward_group"`,
@@ -210,6 +215,8 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 		`if (table.name === "m_quest_pickup_reward_group") return "关卡掉落"`,
 		`默认 PickupGroup`, "heading.textContent = `Quest ${quest.questId}`",
 		"id.textContent = `Reward ${rewardID}`", ` · Drop ${reward.battleDropRewardId}`,
+		`state.questDropGroupIndex.get(String(quest.questPickupRewardGroupId))?.rewards || []`,
+		"`${possession.possessionType}:${possession.possessionId}.",
 	} {
 		if strings.Contains(html, obsolete) || strings.Contains(css, obsolete) || strings.Contains(javascript, obsolete) {
 			t.Fatalf("quest drop editor still contains obsolete presentation: %s", obsolete)

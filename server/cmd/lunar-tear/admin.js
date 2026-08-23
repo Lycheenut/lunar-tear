@@ -131,6 +131,7 @@
     questDropGroupIndex: new Map(),
     questDropTypeFilter: "",
     questDropChapterFilter: "",
+    questDropDifficultyFilter: "1",
     questDropPage: 1,
     questDropPageSize: 10,
     questDropPageCount: 1,
@@ -355,7 +356,7 @@
   }
 
   function renderQuestDropFilters() {
-    const editor = state.catalog?.questDropEditor || { types: [], chapters: [] };
+    const editor = state.catalog?.questDropEditor || { types: [], chapters: [], quests: [] };
     const typeLabel = document.createElement("label");
     typeLabel.textContent = "副本类型";
     const typeSelect = document.createElement("select");
@@ -369,6 +370,7 @@
     typeSelect.addEventListener("change", () => {
       state.questDropTypeFilter = typeSelect.value;
       state.questDropChapterFilter = "";
+      state.questDropDifficultyFilter = "1";
       state.questDropPage = 1;
       renderTypeFilters(currentTable());
       renderTable();
@@ -392,11 +394,36 @@
     chapterSelect.value = state.questDropChapterFilter;
     chapterSelect.addEventListener("change", () => {
       state.questDropChapterFilter = chapterSelect.value;
+      state.questDropDifficultyFilter = "1";
       state.questDropPage = 1;
+      renderTypeFilters(currentTable());
       renderTable();
     });
     chapterLabel.append(chapterSelect);
-    elements.typeFilters.append(typeLabel, chapterLabel);
+
+    const difficultyLabel = document.createElement("label");
+    difficultyLabel.textContent = "难度";
+    const difficultySelect = document.createElement("select");
+    difficultySelect.dataset.field = "QuestDropDifficulty";
+    const difficultyValues = [...new Set(editor.quests
+      .filter((quest) => quest.typeId === state.questDropTypeFilter
+        && `${quest.typeId}:${quest.chapterId}` === state.questDropChapterFilter)
+      .map((quest) => Number(quest.difficultyType)))]
+      .sort((left, right) => left - right);
+    difficultyValues.forEach((value) => {
+      difficultySelect.append(new Option(`${value}. ${questDropDifficultyLabel({ difficultyType: value })}`, String(value)));
+    });
+    if (!difficultyValues.some((value) => String(value) === state.questDropDifficultyFilter)) {
+      state.questDropDifficultyFilter = difficultyValues.includes(1) ? "1" : String(difficultyValues[0] || "");
+    }
+    difficultySelect.value = state.questDropDifficultyFilter;
+    difficultySelect.addEventListener("change", () => {
+      state.questDropDifficultyFilter = difficultySelect.value;
+      state.questDropPage = 1;
+      renderTable();
+    });
+    difficultyLabel.append(difficultySelect);
+    elements.typeFilters.append(typeLabel, chapterLabel, difficultyLabel);
   }
 
   const searchableSelectControllers = new WeakMap();
@@ -911,7 +938,7 @@
     state.questDropBaseline = new Map();
     editor.quests.forEach((quest) => {
       const configured = configuredQuests[String(quest.questId)];
-      const rewards = (configured ? configured.rewards : state.questDropGroupIndex.get(String(quest.questPickupRewardGroupId))?.rewards || [])
+      const rewards = (configured?.rewards || [])
         .map((reward) => ({ battleDropRewardId: Number(reward.battleDropRewardId), weight: Number(reward.weight) }));
       state.questDropDraft.set(String(quest.questId), rewards);
       state.questDropBaseline.set(String(quest.questId), JSON.stringify(rewards));
@@ -1030,6 +1057,18 @@
     renderTable();
   }
 
+  function setQuestDropPreviewReward(questID, rewardID, included) {
+    const key = String(questID);
+    const rewards = state.questDropDraft.get(key);
+    const normalized = Number(rewardID);
+    if (!rewards || !state.questDropRewardIndex.has(String(normalized))) return;
+    const index = rewards.findIndex((reward) => reward.battleDropRewardId === normalized);
+    if (included && index < 0) rewards.push({ battleDropRewardId: normalized, weight: 1 });
+    if (!included && index >= 0) rewards.splice(index, 1);
+    markQuestDropChanged(questID);
+    renderTable();
+  }
+
   function questDropTypeLabel(typeID) {
     return state.catalog?.questDropEditor?.types.find((definition) => definition.id === typeID)?.label || typeID;
   }
@@ -1055,9 +1094,16 @@
       const row = document.createElement("div");
       row.className = "quest-drop-preview-row";
       row.title = questDropRewardLabel(reward);
+      const toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.className = "quest-drop-preview-toggle";
+      toggle.checked = (state.questDropDraft.get(String(quest.questId)) || [])
+        .some((configuredReward) => configuredReward.battleDropRewardId === Number(rewardID));
+      toggle.setAttribute("aria-label", `将奖励预览 ${rewardID} 加入关卡 ${quest.questId} 的掉落内容`);
+      toggle.addEventListener("change", () => setQuestDropPreviewReward(quest.questId, rewardID, toggle.checked));
       const detail = document.createElement("span");
       detail.textContent = `${rewardID}. ${questDropRewardName(reward)} ×${reward?.count ?? "?"}`;
-      row.append(renderQuestDropRewardIcon(reward, "quest-drop-reward-icon quest-drop-preview-icon"), detail);
+      row.append(toggle, renderQuestDropRewardIcon(reward, "quest-drop-reward-icon quest-drop-preview-icon"), detail);
       preview.append(row);
     });
     if (!rewardIDs.length) {
@@ -1076,7 +1122,9 @@
       const row = document.createElement("div");
       row.className = "quest-drop-preview-row";
       const detail = document.createElement("span");
-      detail.textContent = `${possession.possessionType}:${possession.possessionId}. ${questDropRewardName(possession)}`;
+      const definition = rewardDefinitionForPossessionType(possession.possessionType);
+      const reference = state.questDropRewardReferenceIndex.get(`${possession.possessionType}:${possession.possessionId}`);
+      detail.textContent = reference && definition ? rewardReferenceName(reference, definition).replace(/\s*\n\s*/g, " ") : definition?.label || "未知物品";
       row.append(renderQuestDropRewardIcon(possession, "quest-drop-reward-icon quest-drop-preview-icon"), detail);
       preview.append(row);
     });
@@ -1095,6 +1143,7 @@
     const visible = editor.quests.filter((quest) => {
       if (state.questDropTypeFilter && quest.typeId !== state.questDropTypeFilter) return false;
       if (state.questDropChapterFilter && `${quest.typeId}:${quest.chapterId}` !== state.questDropChapterFilter) return false;
+      if (state.questDropDifficultyFilter && String(quest.difficultyType) !== state.questDropDifficultyFilter) return false;
       if (!query) return true;
       return `${quest.questId} ${questDropChapterLabel(quest)} ${questDropTypeLabel(quest.typeId)}`.toLocaleLowerCase().includes(query);
     });
@@ -1110,7 +1159,7 @@
       const heading = document.createElement("strong");
       heading.textContent = String(quest.questId);
       const chapter = document.createElement("span");
-      chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder} ${questDropDifficultyLabel(quest)}`;
+      chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder}`;
       identity.append(heading, chapter);
 
       const content = document.createElement("td");
