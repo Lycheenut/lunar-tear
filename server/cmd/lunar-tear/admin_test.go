@@ -72,6 +72,59 @@ func TestAdminSearchableSelectLoadsAroundSelectionAndExtendsAtEdges(t *testing.T
 	}
 }
 
+func TestAdminQuestDropUsesSharedOuterPanelAndBottomSavebar(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`class="savebar drop-section-only hidden"`,
+		`<strong id="quest-drop-save-summary">`,
+		`id="quest-drop-discard"`, `id="quest-drop-save"`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("quest drop bottom savebar is missing %s", required)
+		}
+	}
+	headingStart := strings.Index(html, `class="quest-drop-heading"`)
+	if headingStart < 0 {
+		t.Fatal("quest drop heading is missing")
+	}
+	headingEnd := strings.Index(html[headingStart:], `</header>`)
+	if headingEnd < 0 {
+		t.Fatal("quest drop heading is not closed")
+	}
+	heading := html[headingStart : headingStart+headingEnd]
+	if strings.Contains(heading, `id="quest-drop-discard"`) || strings.Contains(heading, `id="quest-drop-save"`) {
+		t.Fatal("quest drop actions are still rendered in the page heading")
+	}
+	if !strings.Contains(css, `.table-scroll.quest-drop-mode { height: clamp(620px, calc(100vh - 300px), 920px); max-height: none; overflow: hidden; padding: 0;`) {
+		t.Fatal("quest drop table still has the extra inset container padding")
+	}
+	if strings.Contains(css, `.quest-drop-save-summary {`) {
+		t.Fatal("quest drop still has an in-panel save summary")
+	}
+	if !strings.Contains(javascript, `document.querySelectorAll(".drop-section-only")`) {
+		t.Fatal("quest drop bottom savebar is not tied to its route")
+	}
+}
+
+func TestAdminTransientNoticesAndDatetimeYearRange(t *testing.T) {
+	javascript := adminAssetBody(t, "/admin/admin.js")
+	for _, required := range []string{
+		`input.min = "0001-01-01T00:00:00"`,
+		`input.max = "9999-12-31T23:59:59"`,
+		`noticeTimer = window.setTimeout(() => clearNotice(currentID), timeout)`,
+		`showNotice(message, false, { persistent: true })`,
+		`clearNotice(completedNoticeID)`,
+		`clearErrorNotice();`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("admin transient state behavior is missing %s", required)
+		}
+	}
+}
+
 func TestAdminShopEditorUsesSearchableCardLayout(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")

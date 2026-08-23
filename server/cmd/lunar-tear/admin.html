@@ -277,12 +277,9 @@
                 <div class="quest-drop-heading-actions">
                   <input id="quest-drop-search" type="search" inputmode="numeric" placeholder="搜索 QuestId" aria-label="按 QuestId 搜索关卡">
                   <span id="quest-drop-count" class="row-badge">0 个关卡</span>
-                  <button id="quest-drop-discard" class="button ghost" type="button" disabled>放弃掉落修改</button>
-                  <button id="quest-drop-save" class="button primary" type="button" disabled>发布掉落配置</button>
                 </div>
               </header>
               <div id="quest-drop-filters" class="type-filters hidden" aria-label="掉落配置筛选"></div>
-              <div id="quest-drop-save-summary" class="quest-drop-save-summary">没有待发布的关卡掉落修改</div>
               <div class="quest-drop-main">
                 <div class="quest-drop-scroll">
                   <table class="quest-drop-table">
@@ -320,6 +317,17 @@
         <div class="save-actions">
           <button id="discard" class="button ghost" type="button" disabled>放弃修改</button>
           <button id="save" class="button primary" type="button" disabled>重建并应用</button>
+        </div>
+      </div>
+
+      <div class="savebar drop-section-only hidden">
+        <div>
+          <strong id="quest-drop-save-summary">没有待发布的关卡掉落修改</strong>
+          <span>发布后会原子替换服务端掉落配置并热更新当前服务。</span>
+        </div>
+        <div class="save-actions">
+          <button id="quest-drop-discard" class="button ghost" type="button" disabled>放弃修改</button>
+          <button id="quest-drop-save" class="button primary" type="button" disabled>校验并发布</button>
         </div>
       </div>
 

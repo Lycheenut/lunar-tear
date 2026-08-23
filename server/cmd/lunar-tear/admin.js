@@ -3544,6 +3544,8 @@
       input.type = field.datetime ? "datetime-local" : "text";
       if (field.datetime) {
         input.step = "1";
+        input.min = "0001-01-01T00:00:00";
+        input.max = "9999-12-31T23:59:59";
         input.value = timeInputValue(Number(current));
       } else {
         input.value = current;
@@ -3906,6 +3908,7 @@
       return;
     }
     input.classList.remove("invalid");
+    clearErrorNotice();
     storeFieldChange(table, row, field, value, input);
     if (table.name === "m_mission_reward") {
       refreshMissionRewardAssignmentDisplays(table, row.values.MissionRewardId);
@@ -4020,18 +4023,63 @@
     return cell;
   }
 
-  function showNotice(message, error = false) {
+  let noticeTimer = 0;
+  let noticeID = 0;
+  let noticeIsError = false;
+  let busyDepth = 0;
+  let busyNoticeID = 0;
+
+  function clearNotice(expectedID = 0) {
+    if (expectedID && expectedID !== noticeID) return;
+    if (noticeTimer) window.clearTimeout(noticeTimer);
+    noticeTimer = 0;
+    noticeID += 1;
+    noticeIsError = false;
+    elements.notice.textContent = "";
+    elements.notice.classList.add("hidden");
+    elements.notice.classList.remove("error");
+  }
+
+  function clearErrorNotice() {
+    if (noticeIsError) clearNotice();
+  }
+
+  function showNotice(message, error = false, options = {}) {
+    if (!message) {
+      clearNotice();
+      return 0;
+    }
+    if (noticeTimer) window.clearTimeout(noticeTimer);
+    noticeTimer = 0;
+    const currentID = ++noticeID;
+    noticeIsError = error;
     elements.notice.textContent = message;
     elements.notice.classList.remove("hidden");
     elements.notice.classList.toggle("error", error);
+    if (!options.persistent) {
+      const timeout = options.timeout ?? (error ? 6000 : 4500);
+      noticeTimer = window.setTimeout(() => clearNotice(currentID), timeout);
+    }
+    return currentID;
   }
 
   function setBusy(busy, message = "") {
-    elements.save.disabled = busy || masterDirtyCount() === 0;
-    elements.questDropSave.disabled = busy || !questDropStructuralDirty() || questDropValidationErrors().length > 0;
-    elements.questDropDiscard.disabled = busy || !questDropStructuralDirty();
-    elements.refresh.disabled = busy;
-    if (message) showNotice(message);
+    if (busy) {
+      busyDepth += 1;
+      if (message) busyNoticeID = showNotice(message, false, { persistent: true });
+    } else {
+      busyDepth = Math.max(0, busyDepth - 1);
+      if (busyDepth === 0 && busyNoticeID) {
+        const completedNoticeID = busyNoticeID;
+        busyNoticeID = 0;
+        clearNotice(completedNoticeID);
+      }
+    }
+    const isBusy = busyDepth > 0;
+    elements.save.disabled = isBusy || masterDirtyCount() === 0;
+    elements.questDropSave.disabled = isBusy || !questDropStructuralDirty() || questDropValidationErrors().length > 0;
+    elements.questDropDiscard.disabled = isBusy || !questDropStructuralDirty();
+    elements.refresh.disabled = isBusy;
   }
 
   const availabilityLabels = { standard: "常驻", event: "活动", limited: "限定" };
@@ -4123,6 +4171,7 @@
     const isDelivery = state.section === "delivery";
     document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha));
     document.querySelectorAll(".table-section-only").forEach((element) => element.classList.toggle("hidden", isGacha || isDrop));
+    document.querySelectorAll(".drop-section-only").forEach((element) => element.classList.toggle("hidden", !isDrop));
     elements.gachaEditor.classList.toggle("hidden", !isGacha);
     elements.tableSearchLabel.classList.toggle("hidden", isDelivery);
     if (isDrop) elements.tableSearchLabel.classList.add("hidden");
@@ -5515,7 +5564,7 @@
     elements.gachaPublishDialog.close();
     elements.gachaSave.disabled = true;
     elements.gachaDiscard.disabled = true;
-    showNotice("正在校验、写入并热更新 Gacha 配置…");
+    showNotice("正在校验、写入并热更新 Gacha 配置…", false, { persistent: true });
     try {
       await api("/api/admin/gacha-config", {
         method: "POST",
