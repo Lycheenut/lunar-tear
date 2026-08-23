@@ -368,6 +368,12 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 				editor.Types[index-1].Value, editor.Types[index].Value)
 		}
 	}
+	for index := 1; index < len(editor.Quests); index++ {
+		if editor.Quests[index-1].QuestID > editor.Quests[index].QuestID {
+			t.Fatalf("quest drop rows are not ordered by ID: %d before %d",
+				editor.Quests[index-1].QuestID, editor.Quests[index].QuestID)
+		}
+	}
 	chapters := make(map[string]bool, len(editor.Chapters))
 	var mainChapters []QuestDropChapter
 	for _, chapter := range editor.Chapters {

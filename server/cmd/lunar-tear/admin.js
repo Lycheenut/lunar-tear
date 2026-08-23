@@ -1336,17 +1336,22 @@
       const row = document.createElement("tr");
       row.classList.toggle("quest-drop-changed", state.questDropDirtyQuestIDs.has(String(quest.questId)));
       const identity = document.createElement("td");
+      const identityContent = document.createElement("div");
+      identityContent.className = "quest-drop-identity";
       const heading = document.createElement("strong");
       heading.textContent = String(quest.questId);
       const chapter = document.createElement("span");
-      chapter.textContent = `${questDropChapterLabel(quest)}-${questDropStageLabel(quest)} · 总掉落数 ${quest.dropCount ?? 0}`;
+      chapter.textContent = `${questDropChapterLabel(quest)}-${questDropStageLabel(quest)}`;
+      const dropCount = document.createElement("span");
+      dropCount.textContent = `总掉落数 ${quest.dropCount ?? 0}`;
       const copy = document.createElement("button");
       copy.type = "button";
       copy.className = "button ghost quest-drop-copy";
       copy.textContent = "复制自其他副本";
       copy.setAttribute("aria-label", `为关卡 ${quest.questId} 复制其他副本的掉落配置`);
       copy.addEventListener("click", () => openQuestDropCopyDialog(quest));
-      identity.append(heading, chapter, copy);
+      identityContent.append(heading, chapter, dropCount, copy);
+      identity.append(identityContent);
 
       const content = document.createElement("td");
       const rewards = state.questDropDraft.get(String(quest.questId)) || [];

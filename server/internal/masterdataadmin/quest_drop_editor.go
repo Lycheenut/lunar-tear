@@ -332,6 +332,9 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 	placements, chapters = normalizeQuestDropPlacements(file, resolver, placements, chapters)
 
 	sort.SliceStable(placements, func(i, j int) bool {
+		if placements[i].questID != placements[j].questID {
+			return placements[i].questID < placements[j].questID
+		}
 		if placements[i].typeID != placements[j].typeID {
 			return questDropTypeOrder(placements[i].typeID) < questDropTypeOrder(placements[j].typeID)
 		}
@@ -344,7 +347,7 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		if placements[i].sortOrder != placements[j].sortOrder {
 			return placements[i].sortOrder < placements[j].sortOrder
 		}
-		return placements[i].questID < placements[j].questID
+		return false
 	})
 	sort.SliceStable(chapters, func(i, j int) bool {
 		if chapters[i].TypeID != chapters[j].TypeID {

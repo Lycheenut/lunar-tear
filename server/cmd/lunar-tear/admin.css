@@ -769,8 +769,8 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .quest-drop-save-summary { padding: 7px 14px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 11px; }
 .quest-drop-main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
 .quest-drop-scroll { min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
-.quest-drop-table { min-width: 1240px; table-layout: fixed; }
-.quest-drop-table th:first-child { width: 170px; }
+.quest-drop-table { min-width: 1310px; table-layout: fixed; }
+.quest-drop-table th:first-child { width: 240px; }
 .quest-drop-table th:nth-child(2) { width: 520px; }
 .quest-drop-table th:nth-child(3) { width: 320px; }
 .quest-drop-table th:nth-child(4) { width: 230px; }
@@ -778,10 +778,10 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .quest-drop-table th:first-child { position: static; min-width: 0; background: inherit; }
 .quest-drop-table th:first-child { background: #121b20; }
 .quest-drop-table td { vertical-align: top; }
-.quest-drop-table td:first-child { display: grid; gap: 5px; }
-.quest-drop-table td:first-child strong { color: var(--accent-strong); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
-.quest-drop-table td:first-child span { color: var(--muted); font-size: 11px; line-height: 1.5; }
-.quest-drop-copy { justify-self: start; width: auto; min-height: 28px; padding: 4px 7px; font-size: 10px; }
+.quest-drop-identity { display: grid; width: 100%; min-width: 0; gap: 5px; }
+.quest-drop-identity strong { color: var(--accent-strong); font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.quest-drop-identity span { color: var(--muted); font-size: 13px; line-height: 1.5; white-space: nowrap; }
+.quest-drop-copy { justify-self: start; width: auto; min-height: 32px; padding: 5px 8px; font-size: 13px; }
 .quest-drop-changed td { background-color: rgba(243, 200, 107, .035); }
 .quest-drop-groups { display: grid; gap: 14px; }
 .quest-drop-group { display: grid; gap: 8px; min-width: 0; }
