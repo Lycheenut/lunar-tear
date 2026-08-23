@@ -41,10 +41,11 @@
         <button id="tab-master" class="admin-tab active" type="button" aria-pressed="true">运营活动配置</button>
         <button id="tab-related" class="admin-tab" type="button" aria-pressed="false">关联表配置</button>
         <button id="tab-delivery" class="admin-tab" type="button" aria-pressed="false">投放配置</button>
+        <button id="tab-drop" class="admin-tab" type="button" aria-pressed="false">掉落配置</button>
         <button id="tab-gacha" class="admin-tab" type="button" aria-pressed="false">Gacha 配置</button>
       </nav>
 
-      <div class="summary-grid master-only">
+      <div class="summary-grid master-only table-section-only">
         <article class="metric"><span>配置表</span><strong id="table-count">—</strong></article>
         <article class="metric"><span>内容行</span><strong id="row-count">—</strong></article>
         <article class="metric"><span>待应用修改</span><strong id="dirty-count">0</strong></article>
@@ -57,7 +58,7 @@
         </article>
       </div>
 
-      <div class="toolbar master-only">
+      <div class="toolbar master-only table-section-only">
         <label>数据表
           <select id="table-select"></select>
         </label>
@@ -91,7 +92,7 @@
 
       <div id="master-layout" class="master-layout master-only">
         <section class="data-panel">
-          <div class="data-heading">
+          <div class="data-heading table-section-only">
             <div>
               <p id="entity-name" class="eyebrow"></p>
               <h2 id="table-name">—</h2>
@@ -280,6 +281,7 @@
                   <button id="quest-drop-save" class="button primary" type="button" disabled>发布掉落配置</button>
                 </div>
               </header>
+              <div id="quest-drop-filters" class="type-filters hidden" aria-label="掉落配置筛选"></div>
               <div id="quest-drop-save-summary" class="quest-drop-save-summary">没有待发布的关卡掉落修改</div>
               <div class="quest-drop-main">
                 <div class="quest-drop-scroll">
@@ -310,7 +312,7 @@
 
       </div>
 
-      <div class="savebar master-only">
+      <div class="savebar master-only table-section-only">
         <div>
           <strong id="save-summary">没有待应用的修改</strong>
           <span>应用后会重建主数据、原子替换文件并热更新当前服务。</span>

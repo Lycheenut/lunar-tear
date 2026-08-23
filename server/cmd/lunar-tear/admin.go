@@ -46,6 +46,56 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("/admin/", serveAdminAsset)
+	mux.HandleFunc("/api/admin/master-data/catalog", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			writeAdminError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorized(r) {
+			writeAdminError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		catalog, err := masterdataadmin.LoadMetadata(binPath)
+		if err != nil {
+			log.Printf("[admin] read master-data metadata failed: %v", err)
+			writeAdminError(w, http.StatusInternalServerError, "读取主数据元信息失败")
+			return
+		}
+		writeAdminJSON(w, http.StatusOK, catalog)
+	})
+	mux.HandleFunc("/api/admin/master-data/table", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			writeAdminError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorized(r) {
+			writeAdminError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		tableName := r.URL.Query().Get("name")
+		if tableName == "" {
+			writeAdminError(w, http.StatusBadRequest, "缺少数据表名称")
+			return
+		}
+		catalog, err := masterdataadmin.LoadTable(binPath, tableName)
+		if err != nil {
+			log.Printf("[admin] read master-data table %q failed: %v", tableName, err)
+			writeAdminError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if tableName == "m_quest_pickup_reward_group" {
+			snapshot := holder.Get()
+			for index := range catalog.QuestDropEditor.Quests {
+				quest := &catalog.QuestDropEditor.Quests[index]
+				quest.DropCount = int32(len(snapshot.Quest.BattleDropsByQuestId[quest.QuestID]))
+			}
+		}
+		writeAdminJSON(w, http.StatusOK, catalog)
+	})
 	mux.HandleFunc("/api/admin/master-data/schedules/preview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
@@ -342,7 +392,7 @@ func serveAdminAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	var name, contentType string
 	switch r.URL.Path {
-	case "/admin/":
+	case "/admin/", "/admin/activities", "/admin/related", "/admin/delivery", "/admin/drops", "/admin/gacha":
 		name, contentType = "admin.html", "text/html; charset=utf-8"
 	case "/admin/admin.css":
 		name, contentType = "admin.css", "text/css; charset=utf-8"

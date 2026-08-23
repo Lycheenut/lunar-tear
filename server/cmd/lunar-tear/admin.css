@@ -766,6 +766,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .quest-drop-heading p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .quest-drop-heading-actions { display: flex; align-items: center; gap: 10px; }
 .quest-drop-heading-actions input { width: 220px; min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.quest-drop-editor > .type-filters { padding: 12px 14px; border-top: 0; border-bottom: 1px solid var(--line); background: #0f191e; }
 .quest-drop-save-summary { padding: 7px 14px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 11px; }
 .quest-drop-main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
 .quest-drop-scroll { min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; }

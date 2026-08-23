@@ -54,14 +54,14 @@
     questDropCopyTitle: $("#quest-drop-copy-title"), questDropCopySummary: $("#quest-drop-copy-summary"),
     questDropCopyField: $("#quest-drop-copy-field"), questDropCopySource: $("#quest-drop-copy-source"),
     questDropCopyError: $("#quest-drop-copy-error"), questDropCopyCancel: $("#quest-drop-copy-cancel"),
-    questDropCopyConfirm: $("#quest-drop-copy-confirm"),
+    questDropCopyConfirm: $("#quest-drop-copy-confirm"), questDropFilters: $("#quest-drop-filters"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
     masterUpdatePreview: $("#master-update-preview"), masterUpdateCancel: $("#master-update-cancel"),
     masterUpdateConfirm: $("#master-update-confirm"),
     tabMaster: $("#tab-master"), tabRelated: $("#tab-related"), tabDelivery: $("#tab-delivery"),
-    tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
+    tabDrop: $("#tab-drop"), tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
     gachaStandardCount: $("#gacha-standard-count"), gachaOverrideCount: $("#gacha-override-count"),
     gachaBannerCount: $("#gacha-banner-count"), gachaPickupCount: $("#gacha-pickup-count"), gachaWarnings: $("#gacha-warnings"),
     gachaLanguageSelect: $("#gacha-language-select"), gachaLimitedSetId: $("#gacha-limited-set-id"),
@@ -102,7 +102,7 @@
     catalog: null,
     dirty: new Map(),
     section: "master",
-    tableSelections: { master: "", related: "", delivery: "" },
+    tableSelections: { master: "", related: "", delivery: "", drop: "m_quest_pickup_reward_group" },
     rewardCatalog: null,
     missionRewardContentPage: 1,
     missionRewardContentPageSize: 25,
@@ -200,30 +200,19 @@
   }
 
   async function loadCatalog() {
-    setBusy(true, "正在读取主数据…");
+    setBusy(true, "正在读取配置表元信息…");
     try {
-      const [catalog, gachaCatalog, questDropCatalog, rewardCatalog] = await Promise.all([
-        api("/api/admin/master-data/schedules"),
-        api("/api/admin/gacha-config"),
-        api("/api/admin/quest-drop-config"),
-        api("/api/admin/reward-reference")
-      ]);
-      state.catalog = catalog;
-      state.gachaCatalog = gachaCatalog;
-      state.questDropCatalog = questDropCatalog;
-      state.rewardCatalog = rewardCatalog;
-      resetGachaDraft();
-      resetShopCellGroupDraft();
-      resetMissionRewardDraft();
-      resetQuestDropDraft();
+      state.catalog = await api("/api/admin/master-data/catalog");
+      state.gachaCatalog = null;
+      state.questDropCatalog = null;
+      state.rewardCatalog = null;
+      state.gachaDraft = null;
       state.dirty.clear();
       state.pendingMasterChanges = null;
       sessionStorage.setItem("lunar-admin-token", state.token);
       showWorkspace();
-      renderCatalog();
-      renderGachaEditor();
-      switchAdminSection(state.section);
-      showNotice(`已读取 ${state.catalog.tableCount} 张配置表、${state.catalog.rowCount} 行内容。`);
+      await switchAdminSection(sectionFromPath(), false);
+      showNotice(`已读取 ${state.catalog.tableCount} 张配置表元信息；当前页面数据已按需加载。`);
     } catch (error) {
       if (error.status === 401) {
         state.token = "";
@@ -235,6 +224,57 @@
     } finally {
       setBusy(false);
     }
+  }
+
+  function sectionFromPath() {
+    const sections = {
+      "/admin/activities": "master",
+      "/admin/related": "related",
+      "/admin/delivery": "delivery",
+      "/admin/drops": "drop",
+      "/admin/gacha": "gacha"
+    };
+    return sections[window.location.pathname] || "master";
+  }
+
+  function sectionPath(section) {
+    return {
+      master: "/admin/activities",
+      related: "/admin/related",
+      delivery: "/admin/delivery",
+      drop: "/admin/drops",
+      gacha: "/admin/gacha"
+    }[section] || "/admin/activities";
+  }
+
+  async function ensureRewardCatalog() {
+    if (!state.rewardCatalog) state.rewardCatalog = await api("/api/admin/reward-reference");
+  }
+
+  async function loadSelectedTable() {
+    const table = currentTable();
+    if (!table || Array.isArray(table.rows)) return table;
+    const requestedName = table.name;
+    const payload = await api(`/api/admin/master-data/table?name=${encodeURIComponent(requestedName)}`);
+    if (payload.version !== state.catalog.version) {
+      throw new Error("主数据版本已变化，请刷新后重试。");
+    }
+    (payload.tables || []).forEach((loadedTable) => {
+      const existing = state.catalog.tables.find((candidate) => candidate.name === loadedTable.name);
+      if (existing) Object.assign(existing, loadedTable);
+    });
+    if (["m_mission_reward", "m_mission_term"].includes(requestedName)) {
+      state.catalog.missionSources = payload.missionSources;
+      resetMissionRewardDraft();
+    }
+    if (requestedName === "m_shop_item_content_possession") {
+      state.catalog.shopEditor = payload.shopEditor;
+      resetShopCellGroupDraft();
+    }
+    if (requestedName === "m_quest_pickup_reward_group") {
+      state.catalog.questDropEditor = payload.questDropEditor;
+    }
+    return currentTable();
   }
 
   function showWorkspace() {
@@ -256,25 +296,28 @@
     const tables = configurationTables();
     const previous = state.tableSelections[state.section] || elements.tableSelect.value;
     elements.tableSelect.replaceChildren();
+    if (state.section !== "drop") {
+      const placeholder = new Option("请选择数据表", "");
+      placeholder.disabled = true;
+      elements.tableSelect.append(placeholder);
+    }
     tables.forEach((table) => {
       const option = document.createElement("option");
       option.value = table.name;
-      option.textContent = `${tableDisplayName(table)}（${table.rows.length} 行）`;
+      option.textContent = `${tableDisplayName(table)}（${Number(table.rowCount || 0).toLocaleString()} 行）`;
       option.title = table.name;
       elements.tableSelect.append(option);
     });
-    if (tables.some((table) => table.name === previous)) elements.tableSelect.value = previous;
+    elements.tableSelect.value = tables.some((table) => table.name === previous) ? previous : "";
     state.tableSelections[state.section] = elements.tableSelect.value;
     renderLanguages();
-    renderTypeFilters(currentTable());
     elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
     elements.version.title = state.catalog.version;
     elements.tableCount.textContent = tables.length.toLocaleString();
     elements.tableCount.title = `${tables.length} 张配置表`;
-    elements.rowCount.textContent = tables.reduce((count, table) => count + table.rows.length, 0).toLocaleString();
+    elements.rowCount.textContent = tables.reduce((count, table) => count + Number(table.rowCount || 0), 0).toLocaleString();
     elements.timezone.value = state.timeMode;
     updateDirtyUI();
-    renderTable();
   }
 
   function renderLanguages() {
@@ -292,12 +335,30 @@
 
   function currentTable() {
     const tables = configurationTables();
-    return tables.find((table) => table.name === elements.tableSelect.value) || tables[0];
+    return tables.find((table) => table.name === elements.tableSelect.value);
+  }
+
+  function renderTableSelectionPrompt() {
+    elements.entityName.textContent = "";
+    elements.tableName.textContent = "请选择数据表";
+    elements.visibleCount.textContent = "0 行";
+    elements.head.replaceChildren();
+    elements.body.replaceChildren();
+    elements.scheduleTable.classList.add("hidden");
+    elements.missionRewardEditor.classList.add("hidden");
+    elements.missionTermEditor.classList.add("hidden");
+    elements.shopEditor.classList.add("hidden");
+    elements.questDropEditor.classList.add("hidden");
+    elements.typeFilters.replaceChildren();
+    elements.typeFilters.classList.add("hidden");
+    elements.empty.textContent = "选择一个数据表后加载条目。";
+    elements.empty.classList.remove("hidden");
   }
 
   function configurationTables() {
     if (!state.catalog) return [];
-    if (state.section === "delivery") return state.catalog.tables.filter((table) => table.delivery);
+    if (state.section === "drop") return state.catalog.tables.filter((table) => table.name === "m_quest_pickup_reward_group");
+    if (state.section === "delivery") return state.catalog.tables.filter((table) => table.delivery && table.name !== "m_quest_pickup_reward_group");
     if (state.section === "related") return state.catalog.tables.filter((table) => !table.primary && !table.delivery);
     return state.catalog.tables.filter((table) => table.primary && !table.delivery);
   }
@@ -316,6 +377,8 @@
   function renderTypeFilters(table) {
     const previous = new Map([...elements.typeFilters.querySelectorAll("select")].map((select) => [select.dataset.field, select.value]));
     elements.typeFilters.replaceChildren();
+    elements.questDropFilters.replaceChildren();
+    elements.questDropFilters.classList.add("hidden");
     if (table?.name === "m_login_bonus_stamp") {
       renderLoginBonusStampFilters(table, previous);
       elements.typeFilters.classList.remove("hidden");
@@ -332,8 +395,9 @@
       return;
     }
     if (table?.name === "m_quest_pickup_reward_group") {
-      renderQuestDropFilters();
-      elements.typeFilters.classList.remove("hidden");
+      renderQuestDropFilters(elements.questDropFilters);
+      elements.typeFilters.classList.add("hidden");
+      elements.questDropFilters.classList.remove("hidden");
       return;
     }
     const fields = (table?.fields || []).filter((field) => field.type.endsWith("Type"));
@@ -362,7 +426,7 @@
     elements.typeFilters.classList.toggle("hidden", fields.length === 0);
   }
 
-  function renderQuestDropFilters() {
+  function renderQuestDropFilters(container) {
     const editor = state.catalog?.questDropEditor || { types: [], chapters: [], quests: [] };
     const typeLabel = document.createElement("label");
     typeLabel.textContent = "副本类型";
@@ -430,7 +494,7 @@
       renderTable();
     });
     difficultyLabel.append(difficultySelect);
-    elements.typeFilters.append(typeLabel, chapterLabel, difficultyLabel);
+    container.append(typeLabel, chapterLabel, difficultyLabel);
   }
 
   const searchableSelectControllers = new WeakMap();
@@ -518,12 +582,13 @@
         close();
         select.dispatchEvent(new Event("change", { bubbles: true }));
       };
-      const renderOptions = (query = "") => {
-        const matches = matchingOptions(query);
-        const limit = controller.config.limit || 100;
+      const renderOptionWindow = (matches, start, end) => {
+        controller.matches = matches;
+        controller.windowStart = start;
+        controller.windowEnd = end;
         list.replaceChildren();
         let previousGroup = null;
-        matches.slice(0, limit).forEach((entry) => {
+        matches.slice(start, end).forEach((entry) => {
           if (entry.group && entry.group !== previousGroup) {
             const group = document.createElement("div");
             group.className = "searchable-select-group";
@@ -536,6 +601,7 @@
           button.className = "searchable-select-option";
           button.setAttribute("role", "option");
           button.setAttribute("aria-selected", String(entry.value === select.value));
+          button.dataset.optionValue = entry.value;
           button.textContent = entry.label;
           button.title = entry.label;
           button.addEventListener("pointerdown", (event) => {
@@ -544,20 +610,43 @@
           });
           list.append(button);
         });
-        if (!matches.length || matches.length > limit) {
+        if (!matches.length) {
           const note = document.createElement("div");
           note.className = "searchable-select-empty";
-          note.textContent = matches.length
-            ? `匹配 ${matches.length.toLocaleString()} 项，请继续输入以缩小范围。`
-            : controller.config.emptyText || "没有匹配项。";
+          note.textContent = controller.config.emptyText || "没有匹配项。";
           list.append(note);
+        }
+      };
+      const renderOptions = (query = "", centerSelection = false) => {
+        const matches = matchingOptions(query);
+        const batchSize = controller.config.limit || 50;
+        let start = 0;
+        let end = Math.min(matches.length, batchSize);
+        if (centerSelection) {
+          const selectedIndex = matches.findIndex((entry) => entry.value === select.value);
+          if (selectedIndex >= 0) {
+            start = Math.max(0, selectedIndex - 25);
+            end = Math.min(matches.length, selectedIndex + 25);
+            if (end - start < batchSize) {
+              start = Math.max(0, end - batchSize);
+              end = Math.min(matches.length, start + batchSize);
+            }
+          }
+        }
+        renderOptionWindow(matches, start, end);
+        if (centerSelection) {
+          controller.positioning = true;
+          requestAnimationFrame(() => {
+            list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "center" });
+            requestAnimationFrame(() => { controller.positioning = false; });
+          });
         }
         return matches;
       };
 
       input.addEventListener("focus", () => {
         input.select();
-        renderOptions();
+        renderOptions("", true);
         list.classList.remove("hidden");
         input.setAttribute("aria-expanded", "true");
       });
@@ -565,6 +654,29 @@
         renderOptions(input.value);
         list.classList.remove("hidden");
         input.setAttribute("aria-expanded", "true");
+      });
+      list.addEventListener("scroll", () => {
+        if (controller.positioning || !controller.matches.length) return;
+        const batchSize = controller.config.limit || 50;
+        if (list.scrollTop <= 8 && controller.windowStart > 0) {
+          const previousHeight = list.scrollHeight;
+          const previousTop = list.scrollTop;
+          renderOptionWindow(
+            controller.matches,
+            Math.max(0, controller.windowStart - batchSize),
+            controller.windowEnd
+          );
+          list.scrollTop = previousTop + list.scrollHeight - previousHeight;
+          return;
+        }
+        if (list.scrollTop + list.clientHeight >= list.scrollHeight - 8
+          && controller.windowEnd < controller.matches.length) {
+          renderOptionWindow(
+            controller.matches,
+            controller.windowStart,
+            Math.min(controller.matches.length, controller.windowEnd + batchSize)
+          );
+        }
       });
       input.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
@@ -592,6 +704,10 @@
         config: {},
         optionSource: null,
         optionEntries: [],
+        matches: [],
+        windowStart: 0,
+        windowEnd: 0,
+        positioning: false,
         sync() {
           input.placeholder = controller.config.placeholder || "搜索并选择";
           input.setAttribute("aria-label", controller.config.ariaLabel || input.placeholder);
@@ -615,14 +731,18 @@
     select.append(selected);
     select.value = String(value);
     select.addEventListener("change", () => onChange(select.value, select));
-    let cachedOptions;
-    const optionSource = typeof options === "function" ? () => (cachedOptions ||= options()) : options;
+    const optionSource = typeof options === "function" ? lazySearchOptions(options) : options;
     const wrapper = createSearchableSelect(select, {
       ...config,
       options: optionSource,
       limit: config.limit || 50
     });
     return { wrapper, select, input: wrapper.querySelector("input") };
+  }
+
+  function lazySearchOptions(factory) {
+    let cachedOptions;
+    return () => (cachedOptions ||= factory());
   }
 
   function renderShopContentFilter(table, previous) {
@@ -815,6 +935,7 @@
   function renderTable() {
     const table = currentTable();
     if (!table) return;
+    elements.empty.textContent = "当前筛选条件下没有内容。";
     const detailed = !table.primary || state.mode === "detail";
     const isMissionReward = table.name === "m_mission_reward";
     const isMissionTerm = table.name === "m_mission_term";
@@ -2293,7 +2414,7 @@
       const selectSlot = document.createElement("div");
       selectSlot.className = "reward-field-select";
       const searchable = createSearchableSelect(select, {
-        options: rewardSelectorOptions(references, definition),
+        options: lazySearchOptions(() => rewardSelectorOptions(references, definition)),
         placeholder: "搜索奖励对象 ID 或名称",
         ariaLabel: "搜索并选择奖励对象",
         limit: 50
@@ -3522,7 +3643,7 @@
     const selectSlot = document.createElement("div");
     selectSlot.className = "reward-field-select";
     const searchable = createSearchableSelect(select, {
-      options: rewardSelectorOptions(references, definition),
+      options: lazySearchOptions(() => rewardSelectorOptions(references, definition)),
       placeholder: "搜索奖励对象 ID 或名称",
       ariaLabel: "搜索并选择奖励对象",
       limit: 50
@@ -3990,24 +4111,75 @@
     );
   }
 
-  function switchAdminSection(section) {
-    state.section = ["master", "related", "delivery", "gacha"].includes(section) ? section : "master";
+  async function switchAdminSection(section, navigate = true) {
+    state.section = ["master", "related", "delivery", "drop", "gacha"].includes(section) ? section : "master";
+    if (navigate && window.location.pathname !== sectionPath(state.section)) {
+      window.history.pushState({}, "", sectionPath(state.section));
+    } else if (!navigate && window.location.pathname === "/admin/") {
+      window.history.replaceState({}, "", sectionPath(state.section));
+    }
     const isGacha = state.section === "gacha";
+    const isDrop = state.section === "drop";
     const isDelivery = state.section === "delivery";
     document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha));
+    document.querySelectorAll(".table-section-only").forEach((element) => element.classList.toggle("hidden", isGacha || isDrop));
     elements.gachaEditor.classList.toggle("hidden", !isGacha);
     elements.tableSearchLabel.classList.toggle("hidden", isDelivery);
+    if (isDrop) elements.tableSearchLabel.classList.add("hidden");
     elements.tabMaster.classList.toggle("active", state.section === "master");
     elements.tabRelated.classList.toggle("active", state.section === "related");
     elements.tabDelivery.classList.toggle("active", isDelivery);
+    elements.tabDrop.classList.toggle("active", isDrop);
     elements.tabGacha.classList.toggle("active", isGacha);
     elements.tabMaster.setAttribute("aria-pressed", String(state.section === "master"));
     elements.tabRelated.setAttribute("aria-pressed", String(state.section === "related"));
     elements.tabDelivery.setAttribute("aria-pressed", String(isDelivery));
+    elements.tabDrop.setAttribute("aria-pressed", String(isDrop));
     elements.tabGacha.setAttribute("aria-pressed", String(isGacha));
-    if (isGacha) renderGachaEditor();
-    else if (state.catalog) {
+
+    if (!state.catalog) return;
+    setBusy(true, isGacha ? "正在读取 Gacha 配置…" : isDrop ? "正在读取掉落配置…" : "正在读取当前数据表…");
+    try {
+      if (isGacha) {
+        const gachaRequest = state.gachaCatalog
+          ? Promise.resolve(state.gachaCatalog)
+          : api("/api/admin/gacha-config").then((catalog) => { state.gachaCatalog = catalog; });
+        await Promise.all([gachaRequest, ensureRewardCatalog()]);
+        if (!state.gachaDraft) resetGachaDraft();
+        renderGachaEditor();
+        return;
+      }
+
       renderCatalog();
+      if (!currentTable()) {
+        renderTableSelectionPrompt();
+        return;
+      }
+      const tableWasLoaded = Array.isArray(currentTable()?.rows);
+      if (isDrop) {
+        const dropRequest = state.questDropCatalog
+          ? Promise.resolve(state.questDropCatalog)
+          : api("/api/admin/quest-drop-config").then((catalog) => { state.questDropCatalog = catalog; });
+        await Promise.all([loadSelectedTable(), dropRequest, ensureRewardCatalog()]);
+        if (!tableWasLoaded) resetQuestDropDraft();
+      } else {
+        await Promise.all([
+          loadSelectedTable(),
+          isDelivery ? ensureRewardCatalog() : Promise.resolve()
+        ]);
+      }
+      renderTypeFilters(currentTable());
+      renderTable();
+    } catch (error) {
+      if (error.status === 401) {
+        state.token = "";
+        sessionStorage.removeItem("lunar-admin-token");
+        showLogin();
+      }
+      showNotice(error.message, true);
+      throw error;
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -4979,23 +5151,39 @@
     showLogin();
   });
 
-  elements.tabMaster.addEventListener("click", () => switchAdminSection("master"));
-  elements.tabRelated.addEventListener("click", () => switchAdminSection("related"));
-  elements.tabDelivery.addEventListener("click", () => switchAdminSection("delivery"));
-  elements.tabGacha.addEventListener("click", () => switchAdminSection("gacha"));
+  const activateSection = (section, navigate = true) => {
+    switchAdminSection(section, navigate).catch(() => { /* notice is already shown */ });
+  };
+  elements.tabMaster.addEventListener("click", () => activateSection("master"));
+  elements.tabRelated.addEventListener("click", () => activateSection("related"));
+  elements.tabDelivery.addEventListener("click", () => activateSection("delivery"));
+  elements.tabDrop.addEventListener("click", () => activateSection("drop"));
+  elements.tabGacha.addEventListener("click", () => activateSection("gacha"));
+  window.addEventListener("popstate", () => activateSection(sectionFromPath(), false));
   elements.gachaKindPremium.addEventListener("click", () => setGachaKind("premium"));
   elements.gachaKindChapter.addEventListener("click", () => setGachaKind("chapter"));
   elements.gachaKindEvent.addEventListener("click", () => setGachaKind("event"));
 
-  elements.tableSelect.addEventListener("change", () => {
+  elements.tableSelect.addEventListener("change", async () => {
     state.tableSelections[state.section] = elements.tableSelect.value;
     state.missionRewardContentPage = 1;
     state.missionTermContentPage = 1;
     state.shopCellPage = 1;
     state.shopItemPage = 1;
     state.questDropPage = 1;
-    renderTypeFilters(currentTable());
-    renderTable();
+    setBusy(true, "正在读取当前数据表…");
+    try {
+      await Promise.all([
+        loadSelectedTable(),
+        state.section === "delivery" ? ensureRewardCatalog() : Promise.resolve()
+      ]);
+      renderTypeFilters(currentTable());
+      renderTable();
+    } catch (error) {
+      showNotice(error.message, true);
+    } finally {
+      setBusy(false);
+    }
   });
   elements.statusFilter.addEventListener("change", renderTable);
   elements.timezone.addEventListener("change", () => {
@@ -5334,14 +5522,11 @@
         body: JSON.stringify({ expectedContentHash: state.gachaCatalog.contentHash, config: state.gachaDraft })
       });
       await loadCatalog();
-      state.section = "gacha";
-      switchAdminSection("gacha");
       showNotice("Gacha 配置发布成功，新的抽取请求已使用新版本。");
     } catch (error) {
       showNotice(error.message, true);
       if (error.status === 409) {
         try { await loadCatalog(); } catch (_) { /* keep the conflict notice */ }
-        switchAdminSection("gacha");
       }
     } finally {
       updateGachaDirtyUI();

@@ -22,6 +22,56 @@ func TestAdminContentSecurityPolicyAllowsBannerPreviews(t *testing.T) {
 	}
 }
 
+func TestAdminConfigurationModulesUseSubroutesAndLazyData(t *testing.T) {
+	for _, path := range []string{
+		"/admin/activities", "/admin/related", "/admin/delivery", "/admin/drops", "/admin/gacha",
+	} {
+		html := adminAssetBody(t, path)
+		if !strings.Contains(html, `id="workspace"`) {
+			t.Fatalf("GET %s did not serve the admin application", path)
+		}
+	}
+
+	html := adminAssetBody(t, "/admin/")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+	for _, required := range []string{
+		`id="tab-drop"`, `id="quest-drop-filters"`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("admin HTML is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`api("/api/admin/master-data/catalog")`,
+		"api(`/api/admin/master-data/table?name=${encodeURIComponent(requestedName)}`)",
+		`new Option("请选择数据表", "")`,
+		`"/admin/drops": "drop"`,
+		`table.delivery && table.name !== "m_quest_pickup_reward_group"`,
+		`api("/api/admin/gacha-config")`,
+		`api("/api/admin/quest-drop-config")`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("admin JavaScript is missing lazy route behavior %s", required)
+		}
+	}
+}
+
+func TestAdminSearchableSelectLoadsAroundSelectionAndExtendsAtEdges(t *testing.T) {
+	javascript := adminAssetBody(t, "/admin/admin.js")
+	for _, required := range []string{
+		`const batchSize = controller.config.limit || 50`,
+		`selectedIndex - 25`, `selectedIndex + 25`,
+		`scrollIntoView({ block: "center" })`,
+		`controller.windowStart - batchSize`,
+		`controller.windowEnd + batchSize`,
+		`options: lazySearchOptions(() => rewardSelectorOptions(references, definition))`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("searchable select is missing windowing behavior %s", required)
+		}
+	}
+}
+
 func TestAdminShopEditorUsesSearchableCardLayout(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")

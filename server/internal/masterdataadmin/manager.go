@@ -54,6 +54,7 @@ type Table struct {
 	Fields     []Field    `json:"fields"`
 	TimeFields []string   `json:"timeFields"`
 	Pairs      []timePair `json:"pairs"`
+	RowCount   int        `json:"rowCount"`
 	Rows       []Row      `json:"rows"`
 }
 
@@ -101,6 +102,76 @@ func Load(path string) (*Catalog, error) {
 	}
 	resolver := newTitleResolver(file, loadLocalizationIndex(path))
 	return catalogFromFile(file, resolver)
+}
+
+// LoadMetadata returns table definitions and row counts without serializing
+// any table rows or editor-specific supporting catalogs.
+func LoadMetadata(path string) (*Catalog, error) {
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		return nil, err
+	}
+	catalog := newCatalog(file)
+	for _, spec := range activityTableSpecs {
+		table, exists, err := tableFromFile(file, nil, spec, false)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			appendCatalogTable(catalog, table)
+		}
+	}
+	return catalog, nil
+}
+
+// LoadTable returns one table's rows and only the supporting data required by
+// that table's specialized editor. A small number of display-only dependency
+// tables are included for title and banner previews.
+func LoadTable(path, tableName string) (*Catalog, error) {
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		return nil, err
+	}
+	resolver := newTitleResolver(file, loadLocalizationIndex(path))
+	catalog := newCatalog(file)
+
+	requested := []string{tableName}
+	switch tableName {
+	case "m_login_bonus_stamp":
+		requested = append(requested, "m_login_bonus")
+	case "m_mom_banner":
+		requested = append(requested, "m_login_bonus", "m_event_quest_chapter")
+	}
+
+	seen := make(map[string]struct{}, len(requested))
+	for _, name := range requested {
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		spec, ok := tableSpecByName(name)
+		if !ok {
+			return nil, fmt.Errorf("table %q is not an activity configuration table", name)
+		}
+		table, exists, err := tableFromFile(file, resolver, spec, true)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("table %q is absent from the current master data", name)
+		}
+		appendCatalogTable(catalog, table)
+	}
+
+	switch tableName {
+	case "m_mission_reward", "m_mission_term":
+		catalog.MissionSources = loadMissionSources(file, resolver)
+	case "m_shop_item_content_possession":
+		catalog.ShopEditor = loadShopEditor(file, resolver)
+	case "m_quest_pickup_reward_group":
+		catalog.QuestDropEditor = loadQuestDropEditor(file, resolver)
+	}
+	return catalog, nil
 }
 
 func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, error) {
@@ -317,84 +388,112 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 }
 
 func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, error) {
-	catalog := &Catalog{
-		Version:         file.Version(),
-		DefaultLanguage: "en",
-		Languages:       append([]string(nil), supportedLanguages...),
-		MissionSources:  loadMissionSources(file, resolver),
-		ShopEditor:      loadShopEditor(file, resolver),
-		QuestDropEditor: loadQuestDropEditor(file, resolver),
-	}
+	catalog := newCatalog(file)
+	catalog.MissionSources = loadMissionSources(file, resolver)
+	catalog.ShopEditor = loadShopEditor(file, resolver)
+	catalog.QuestDropEditor = loadQuestDropEditor(file, resolver)
 	for _, spec := range activityTableSpecs {
-		rows, exists, err := file.TableRows(spec.Name)
+		table, exists, err := tableFromFile(file, resolver, spec, true)
 		if err != nil {
 			return nil, err
 		}
-		if !exists {
-			continue
-		}
-		table := Table{
-			Name:       spec.Name,
-			EntityName: spec.EntityName,
-			Primary:    spec.Primary,
-			Delivery:   spec.Delivery,
-			Pairs:      spec.pairs(),
-			Rows:       make([]Row, 0, len(rows)),
-		}
-		for _, field := range spec.Fields {
-			table.Fields = append(table.Fields, Field{
-				Name:       field.Name,
-				Type:       field.SchemaType,
-				Kind:       string(field.Kind),
-				PrimaryKey: field.PrimaryKey,
-				Datetime:   field.Datetime,
-			})
-			if field.Datetime {
-				table.TimeFields = append(table.TimeFields, field.Name)
-			}
-		}
-		for rowIndex, values := range rows {
-			row := Row{
-				Index:  rowIndex,
-				Values: make(map[string]string, len(spec.Fields)),
-				Times:  make(map[string]int64, len(spec.Times)),
-			}
-			for _, field := range spec.Fields {
-				if field.Index >= len(values) {
-					return nil, fmt.Errorf("table %q row %d is missing column %s", spec.Name, rowIndex, field.Name)
-				}
-				row.Values[field.Name] = formatValue(values[field.Index])
-				if field.PrimaryKey {
-					row.Identity = append(row.Identity, FieldValue{Name: field.Name, Value: row.Values[field.Name]})
-				}
-				if !field.Datetime {
-					continue
-				}
-				value, err := valueAsInt64(values[field.Index])
-				if err != nil {
-					return nil, fmt.Errorf("table %q row %d field %s: %w", spec.Name, rowIndex, field.Name, err)
-				}
-				row.Times[field.Name] = value
-			}
-			row.Titles = resolver.resolve(spec.Name, values)
-			row.ContentBody = resolver.resolveContentBody(spec.Name, values)
-			row.DokanImages = resolver.resolveDokanImages(spec.Name, values)
-			row.ShopRelations = resolver.resolveShopRelations(spec.Name, values)
-			row.ContentFootnotes = resolver.resolveContentFootnotes(spec.Name, values, row.ShopRelations)
-			table.Rows = append(table.Rows, row)
-		}
-		catalog.RowCount += len(table.Rows)
-		catalog.Tables = append(catalog.Tables, table)
-		if spec.Delivery {
-			catalog.DeliveryCount++
-		} else if spec.Primary {
-			catalog.PrimaryCount++
-		} else {
-			catalog.RelatedCount++
+		if exists {
+			appendCatalogTable(catalog, table)
 		}
 	}
-	catalog.TableCount = len(catalog.Tables)
 	return catalog, nil
+}
+
+func newCatalog(file *memorydb.File) *Catalog {
+	return &Catalog{
+		Version:         file.Version(),
+		DefaultLanguage: "en",
+		Languages:       append([]string(nil), supportedLanguages...),
+	}
+}
+
+func tableSpecByName(name string) (tableSpec, bool) {
+	for _, spec := range activityTableSpecs {
+		if spec.Name == name {
+			return spec, true
+		}
+	}
+	return tableSpec{}, false
+}
+
+func appendCatalogTable(catalog *Catalog, table Table) {
+	catalog.RowCount += table.RowCount
+	catalog.Tables = append(catalog.Tables, table)
+	if table.Delivery {
+		catalog.DeliveryCount++
+	} else if table.Primary {
+		catalog.PrimaryCount++
+	} else {
+		catalog.RelatedCount++
+	}
+	catalog.TableCount = len(catalog.Tables)
+}
+
+func tableFromFile(file *memorydb.File, resolver *titleResolver, spec tableSpec, includeRows bool) (Table, bool, error) {
+	rows, exists, err := file.TableRows(spec.Name)
+	if err != nil || !exists {
+		return Table{}, exists, err
+	}
+	table := Table{
+		Name:       spec.Name,
+		EntityName: spec.EntityName,
+		Primary:    spec.Primary,
+		Delivery:   spec.Delivery,
+		Pairs:      spec.pairs(),
+		RowCount:   len(rows),
+	}
+	for _, field := range spec.Fields {
+		table.Fields = append(table.Fields, Field{
+			Name:       field.Name,
+			Type:       field.SchemaType,
+			Kind:       string(field.Kind),
+			PrimaryKey: field.PrimaryKey,
+			Datetime:   field.Datetime,
+		})
+		if field.Datetime {
+			table.TimeFields = append(table.TimeFields, field.Name)
+		}
+	}
+	if !includeRows {
+		return table, true, nil
+	}
+	table.Rows = make([]Row, 0, len(rows))
+	for rowIndex, values := range rows {
+		row := Row{
+			Index:  rowIndex,
+			Values: make(map[string]string, len(spec.Fields)),
+			Times:  make(map[string]int64, len(spec.Times)),
+		}
+		for _, field := range spec.Fields {
+			if field.Index >= len(values) {
+				return Table{}, true, fmt.Errorf("table %q row %d is missing column %s", spec.Name, rowIndex, field.Name)
+			}
+			row.Values[field.Name] = formatValue(values[field.Index])
+			if field.PrimaryKey {
+				row.Identity = append(row.Identity, FieldValue{Name: field.Name, Value: row.Values[field.Name]})
+			}
+			if !field.Datetime {
+				continue
+			}
+			value, err := valueAsInt64(values[field.Index])
+			if err != nil {
+				return Table{}, true, fmt.Errorf("table %q row %d field %s: %w", spec.Name, rowIndex, field.Name, err)
+			}
+			row.Times[field.Name] = value
+		}
+		row.Titles = resolver.resolve(spec.Name, values)
+		row.ContentBody = resolver.resolveContentBody(spec.Name, values)
+		row.DokanImages = resolver.resolveDokanImages(spec.Name, values)
+		row.ShopRelations = resolver.resolveShopRelations(spec.Name, values)
+		row.ContentFootnotes = resolver.resolveContentFootnotes(spec.Name, values, row.ShopRelations)
+		table.Rows = append(table.Rows, row)
+	}
+	return table, true, nil
 }
 
 func findField(spec tableSpec, name string) (columnSpec, bool) {

@@ -156,6 +156,52 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	}
 }
 
+func TestLoadMetadataAndTableOnDemand(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+
+	metadata, err := LoadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.TableCount == 0 || metadata.RowCount == 0 {
+		t.Fatalf("metadata counts = %d tables, %d rows", metadata.TableCount, metadata.RowCount)
+	}
+	var selected Table
+	for _, table := range metadata.Tables {
+		if table.Rows != nil {
+			t.Fatalf("metadata table %q unexpectedly includes row entries", table.Name)
+		}
+		if selected.Name == "" && table.RowCount > 0 {
+			selected = table
+		}
+	}
+	if selected.Name == "" {
+		t.Fatal("metadata has no non-empty table")
+	}
+
+	loaded, err := LoadTable(path, selected.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version != metadata.Version {
+		t.Fatalf("single-table version = %q, want %q", loaded.Version, metadata.Version)
+	}
+	if len(loaded.Tables) == 0 || loaded.Tables[0].Name != selected.Name {
+		t.Fatalf("single-table response starts with %+v, want %q", loaded.Tables, selected.Name)
+	}
+	if len(loaded.Tables[0].Rows) != selected.RowCount {
+		t.Fatalf("loaded %d rows, want %d", len(loaded.Tables[0].Rows), selected.RowCount)
+	}
+	if _, err := LoadTable(path, "m_not_an_admin_table"); err == nil {
+		t.Fatal("unknown table unexpectedly loaded")
+	}
+}
+
 func TestGachaMedalActivityTableCanUpdateGachaLink(t *testing.T) {
 	path, catalog := linkedUpdateTestCatalog(t)
 	medal := catalogRowByID(t, catalog, "m_gacha_medal", "GachaMedalId", "8193")
