@@ -45,6 +45,7 @@ func TestHolderLoadsQuestDropOverrides(t *testing.T) {
 	config.Quests[questID] = questdrop.QuestConfig{Rewards: []questdrop.Reward{{
 		BattleDropRewardID: rewardID,
 		Weight:             7,
+		Guaranteed:         true,
 	}}}
 	encoded, _, err := questdrop.EncodeConfig(config)
 	if err != nil {
@@ -59,7 +60,7 @@ func TestHolderLoadsQuestDropOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool := holder.Get().QuestHandler.DropRewardsByQuestID[questID]
-	if len(pool) != 1 || pool[0].BattleDropRewardID != rewardID || pool[0].Weight != 7 {
+	if len(pool) != 1 || pool[0].BattleDropRewardID != rewardID || pool[0].Weight != 7 || !pool[0].Guaranteed {
 		t.Fatalf("loaded quest drop override = %+v", pool)
 	}
 }

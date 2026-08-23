@@ -21,6 +21,7 @@ const (
 type Reward struct {
 	BattleDropRewardID int32 `json:"battleDropRewardId"`
 	Weight             int32 `json:"weight"`
+	Guaranteed         bool  `json:"guaranteed,omitempty"`
 }
 
 type QuestConfig struct {
@@ -107,16 +108,21 @@ func BuildOverrides(config *Config, catalog *masterdata.QuestCatalog, options Bu
 		if len(questConfig.Rewards) > 200 {
 			return nil, fmt.Errorf("QuestId %d has too many drop rewards", questID)
 		}
-		seen := make(map[int32]bool, len(questConfig.Rewards))
+		type rewardKey struct {
+			id         int32
+			guaranteed bool
+		}
+		seen := make(map[rewardKey]bool, len(questConfig.Rewards))
 		var total int64
 		for _, reward := range questConfig.Rewards {
 			if _, exists := catalog.BattleDropRewardById[reward.BattleDropRewardID]; !exists {
 				return nil, fmt.Errorf("QuestId %d references unknown BattleDropRewardId %d", questID, reward.BattleDropRewardID)
 			}
-			if seen[reward.BattleDropRewardID] {
-				return nil, fmt.Errorf("QuestId %d contains duplicate BattleDropRewardId %d", questID, reward.BattleDropRewardID)
+			key := rewardKey{id: reward.BattleDropRewardID, guaranteed: reward.Guaranteed}
+			if seen[key] {
+				return nil, fmt.Errorf("QuestId %d contains duplicate BattleDropRewardId %d in guaranteed=%t group", questID, reward.BattleDropRewardID, reward.Guaranteed)
 			}
-			seen[reward.BattleDropRewardID] = true
+			seen[key] = true
 			if reward.Weight < 1 || reward.Weight > MaxWeight {
 				return nil, fmt.Errorf("QuestId %d BattleDropRewardId %d weight must be between 1 and %d", questID, reward.BattleDropRewardID, MaxWeight)
 			}

@@ -259,6 +259,9 @@ func (h *QuestHandler) weightedBattleDropPlan(candidates []masterdata.BattleDrop
 	effectWeights := make(map[int32]int64)
 	var effectIDs []int32
 	for _, reward := range pool {
+		if reward.Guaranteed {
+			continue
+		}
 		effectID := h.BattleDropEffectIdByRewardId[reward.BattleDropRewardID]
 		if _, exists := byEffectID[effectID]; !exists {
 			effectIDs = append(effectIDs, effectID)
@@ -339,25 +342,51 @@ func (h *QuestHandler) computeDropRewardsForRun(
 		dropCount = h.Campaigns.QuestDropCount(target, h.campaignFilter(user, nowMillis))
 	}
 	for _, planned := range h.battleDropPlan(user, questDef.QuestId, runSeed) {
-		if bdr, ok := h.BattleDropRewardById[planned.BattleDropRewardId]; ok {
-			itemDropRate := dropRate
-			itemDropCount := dropCount
-			if h.ImportantItemEffects != nil {
-				ratePermil, countPermil := h.ImportantItemEffects.QuestBonuses(
-					user.ImportantItems, target, model.PossessionType(bdr.PossessionType), bdr.PossessionId, nowMillis)
-				itemDropRate = itemDropRate.WithBonusPermil(ratePermil)
-				itemDropCount = itemDropCount.WithBonusPermil(countPermil)
-			}
-			drops = append(drops, RewardGrant{
-				PossessionType: model.PossessionType(bdr.PossessionType),
-				PossessionId:   bdr.PossessionId,
-				Count:          itemDropCount.Apply(itemDropRate.Apply(bdr.Count)),
-				RewardEffectId: planned.BattleDropEffectId,
-			})
+		if grant, ok := h.battleDropRewardGrant(user, planned.BattleDropRewardId, planned.BattleDropEffectId, target, nowMillis, dropRate, dropCount); ok {
+			drops = append(drops, grant)
+		}
+	}
+	// Guaranteed rewards are added at settlement and stay out of the battle
+	// reveal plan, so they never consume the quest's random drop candidates.
+	for _, reward := range h.DropRewardsByQuestID[questDef.QuestId] {
+		if !reward.Guaranteed {
+			continue
+		}
+		effectID := h.BattleDropEffectIdByRewardId[reward.BattleDropRewardID]
+		if grant, ok := h.battleDropRewardGrant(user, reward.BattleDropRewardID, effectID, target, nowMillis, dropRate, dropCount); ok {
+			drops = append(drops, grant)
 		}
 	}
 	drops = append(drops, h.questBonusDropRewards(user, questDef, nowMillis)...)
 	return h.appendBonusDrops(user, drops, target, nowMillis)
+}
+
+func (h *QuestHandler) battleDropRewardGrant(
+	user *store.UserState,
+	rewardID, effectID int32,
+	target campaign.QuestTarget,
+	nowMillis int64,
+	dropRate campaign.DropRateMul,
+	dropCount campaign.DropCountMul,
+) (RewardGrant, bool) {
+	bdr, ok := h.BattleDropRewardById[rewardID]
+	if !ok {
+		return RewardGrant{}, false
+	}
+	itemDropRate := dropRate
+	itemDropCount := dropCount
+	if h.ImportantItemEffects != nil {
+		ratePermil, countPermil := h.ImportantItemEffects.QuestBonuses(
+			user.ImportantItems, target, model.PossessionType(bdr.PossessionType), bdr.PossessionId, nowMillis)
+		itemDropRate = itemDropRate.WithBonusPermil(ratePermil)
+		itemDropCount = itemDropCount.WithBonusPermil(countPermil)
+	}
+	return RewardGrant{
+		PossessionType: model.PossessionType(bdr.PossessionType),
+		PossessionId:   bdr.PossessionId,
+		Count:          itemDropCount.Apply(itemDropRate.Apply(bdr.Count)),
+		RewardEffectId: effectID,
+	}, true
 }
 
 func (h *QuestHandler) applyExpRewards(user *store.UserState, questId int32, nowMillis int64) {

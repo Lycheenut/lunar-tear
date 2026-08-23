@@ -90,6 +90,11 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 				writeAdminError(w, http.StatusInternalServerError, "读取主数据失败")
 				return
 			}
+			snapshot := holder.Get()
+			for index := range catalog.QuestDropEditor.Quests {
+				quest := &catalog.QuestDropEditor.Quests[index]
+				quest.DropCount = int32(len(snapshot.Quest.BattleDropsByQuestId[quest.QuestID]))
+			}
 			writeAdminJSON(w, http.StatusOK, catalog)
 		case http.MethodPost:
 			updateMu.Lock()

@@ -168,6 +168,7 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 
 	for _, required := range []string{
 		`id="quest-drop-editor"`, `id="quest-drop-search"`,
+		`id="quest-drop-copy-dialog"`, `id="quest-drop-copy-source"`, `id="quest-drop-copy-confirm"`,
 		`<h3>QuestPickupRewardGroup</h3>`,
 		`<th>QuestId</th><th>掉落内容</th><th>奖励预览</th><th>获得路径预览</th>`,
 		`id="quest-drop-page-info"`,
@@ -179,7 +180,9 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 	for _, required := range []string{
 		".quest-drop-editor", ".quest-drop-item", ".quest-drop-main",
 		".quest-drop-pickup-preview", ".quest-drop-route-preview", ".quest-drop-preview-row",
-		".quest-drop-preview-toggle", ".quest-drop-table th:nth-child(2) { width: 520px; }",
+		".quest-drop-preview-toggle", ".quest-drop-groups", ".quest-drop-group", ".quest-drop-guaranteed-item",
+		".quest-drop-copy", ".quest-drop-copy-field",
+		".quest-drop-table th:nth-child(2) { width: 520px; }",
 		".quest-drop-table th:nth-child(4) { width: 230px; }",
 	} {
 		if !strings.Contains(css, required) {
@@ -200,9 +203,17 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 		`function setQuestDropPreviewReward(questID, rewardID, included)`, `toggle.type = "checkbox"`,
 		`toggle.addEventListener("change", () => setQuestDropPreviewReward`,
 		"detail.textContent = `${rewardID}. ${questDropRewardName(reward)} ×${reward?.count ?? \"?\"}`",
-		"chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder}`",
+		"chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder} · 总掉落数 ${quest.dropCount ?? 0}`",
 		`function questDropReplacementPayload()`, `api("/api/admin/quest-drop-config"`,
-		`weightInput.type = "number"`, `在同一关卡中只能配置一条`,
+		`function renderQuestDropGroup(quest, rewards, guaranteed, optionSource)`,
+		`const groupLabel = guaranteed ? "必定掉落" : "随机掉落"`, `weightInput.type = "number"`,
+		`renderQuestDropGroup(quest, rewards, false, optionSource)`,
+		`renderQuestDropGroup(quest, rewards, true, optionSource)`,
+		"add.textContent = `添加${groupLabel}`", `guaranteed: reward.guaranteed`, `在同一${guaranteed ? "必定掉落" : "随机掉落"}组中只能配置一条`,
+		`reward.guaranteed === normalizedGuaranteed`, "const key = `${Boolean(reward.guaranteed)}:${reward.battleDropRewardId}`",
+		`function openQuestDropCopyDialog(quest)`, `function copyQuestDropRewards()`, `copy.textContent = "复制自其他副本"`,
+		`sourceRewards.map((reward) => ({ ...reward }))`, `没有可复制的掉落配置`,
+		`当前关卡相同`, `已配置 ${currentRewards.length} 条掉落`, `elements.questDropCopyConfirm.textContent = "确认覆盖"`,
 		`table.name === "m_quest_pickup_reward_group"`,
 	} {
 		if !strings.Contains(javascript, required) {
@@ -217,6 +228,7 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 		"id.textContent = `Reward ${rewardID}`", ` · Drop ${reward.battleDropRewardId}`,
 		`state.questDropGroupIndex.get(String(quest.questPickupRewardGroupId))?.rewards || []`,
 		"`${possession.possessionType}:${possession.possessionId}.",
+		`function setQuestDropGuaranteed(`, `guaranteedInput.type = "checkbox"`, `.quest-drop-guaranteed input`,
 	} {
 		if strings.Contains(html, obsolete) || strings.Contains(css, obsolete) || strings.Contains(javascript, obsolete) {
 			t.Fatalf("quest drop editor still contains obsolete presentation: %s", obsolete)

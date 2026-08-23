@@ -50,7 +50,11 @@
     questDropPageSize: $("#quest-drop-page-size"), questDropPagePrevious: $("#quest-drop-page-previous"),
     questDropPageInfo: $("#quest-drop-page-info"), questDropPageNext: $("#quest-drop-page-next"),
     questDropSaveSummary: $("#quest-drop-save-summary"), questDropDiscard: $("#quest-drop-discard"),
-    questDropSave: $("#quest-drop-save"),
+    questDropSave: $("#quest-drop-save"), questDropCopyDialog: $("#quest-drop-copy-dialog"),
+    questDropCopyTitle: $("#quest-drop-copy-title"), questDropCopySummary: $("#quest-drop-copy-summary"),
+    questDropCopyField: $("#quest-drop-copy-field"), questDropCopySource: $("#quest-drop-copy-source"),
+    questDropCopyError: $("#quest-drop-copy-error"), questDropCopyCancel: $("#quest-drop-copy-cancel"),
+    questDropCopyConfirm: $("#quest-drop-copy-confirm"),
     empty: $("#empty-state"),
     saveSummary: $("#save-summary"), discard: $("#discard"), save: $("#save"),
     masterUpdateDialog: $("#master-update-dialog"), masterUpdateSummary: $("#master-update-summary"),
@@ -136,6 +140,9 @@
     questDropPageSize: 10,
     questDropPageCount: 1,
     questDropCatalog: null,
+    questDropCopyTargetID: 0,
+    questDropCopySourceID: 0,
+    questDropCopyConfirming: false,
     gachaCatalog: null,
     gachaDraft: null,
     gachaDirty: false,
@@ -939,7 +946,11 @@
     editor.quests.forEach((quest) => {
       const configured = configuredQuests[String(quest.questId)];
       const rewards = (configured?.rewards || [])
-        .map((reward) => ({ battleDropRewardId: Number(reward.battleDropRewardId), weight: Number(reward.weight) }));
+        .map((reward) => ({
+          battleDropRewardId: Number(reward.battleDropRewardId),
+          weight: Number(reward.weight),
+          guaranteed: Boolean(reward.guaranteed)
+        }));
       state.questDropDraft.set(String(quest.questId), rewards);
       state.questDropBaseline.set(String(quest.questId), JSON.stringify(rewards));
     });
@@ -1008,8 +1019,11 @@
     const rewards = state.questDropDraft.get(String(questID));
     if (!rewards || !state.questDropRewardIndex.has(String(rewardID))) return;
     const normalized = Number(rewardID);
-    if (rewards.some((reward, rewardIndex) => rewardIndex !== index && reward.battleDropRewardId === normalized)) {
-      showNotice(`奖励 ${normalized} 在同一关卡中只能配置一条。`, true);
+    const guaranteed = rewards[index].guaranteed;
+    if (rewards.some((reward, rewardIndex) => rewardIndex !== index
+      && reward.guaranteed === guaranteed
+      && reward.battleDropRewardId === normalized)) {
+      showNotice(`奖励 ${normalized} 在同一${guaranteed ? "必定掉落" : "随机掉落"}组中只能配置一条。`, true);
       renderTable();
       return;
     }
@@ -1027,8 +1041,14 @@
 
   function moveQuestDropReward(questID, index, offset) {
     const rewards = state.questDropDraft.get(String(questID));
-    const target = index + offset;
-    if (!rewards || target < 0 || target >= rewards.length) return;
+    if (!rewards || !rewards[index]) return;
+    const guaranteed = rewards[index].guaranteed;
+    const groupIndexes = rewards.map((reward, rewardIndex) => ({ reward, rewardIndex }))
+      .filter((entry) => entry.reward.guaranteed === guaranteed)
+      .map((entry) => entry.rewardIndex);
+    const groupIndex = groupIndexes.indexOf(index);
+    const target = groupIndexes[groupIndex + offset];
+    if (target === undefined) return;
     [rewards[index], rewards[target]] = [rewards[target], rewards[index]];
     markQuestDropChanged(questID);
     renderTable();
@@ -1042,17 +1062,19 @@
     renderTable();
   }
 
-  function addQuestDropReward(quest) {
+  function addQuestDropReward(quest, guaranteed) {
     const rewards = state.questDropDraft.get(String(quest.questId));
     if (!rewards) return;
-    const used = new Set(rewards.map((reward) => String(reward.battleDropRewardId)));
-    const option = questDropRewardOptions().find((candidate) => !used.has(String(candidate.value)))
-      || questDropRewardOptions()[0];
+    const normalizedGuaranteed = Boolean(guaranteed);
+    const used = new Set(rewards
+      .filter((reward) => reward.guaranteed === normalizedGuaranteed)
+      .map((reward) => String(reward.battleDropRewardId)));
+    const option = questDropRewardOptions().find((candidate) => !used.has(String(candidate.value)));
     if (!option) {
       showNotice("当前没有可用的掉落奖励。", true);
       return;
     }
-    rewards.push({ battleDropRewardId: Number(option.value), weight: 1 });
+    rewards.push({ battleDropRewardId: Number(option.value), weight: 1, guaranteed: normalizedGuaranteed });
     markQuestDropChanged(quest.questId);
     renderTable();
   }
@@ -1062,11 +1084,85 @@
     const rewards = state.questDropDraft.get(key);
     const normalized = Number(rewardID);
     if (!rewards || !state.questDropRewardIndex.has(String(normalized))) return;
-    const index = rewards.findIndex((reward) => reward.battleDropRewardId === normalized);
-    if (included && index < 0) rewards.push({ battleDropRewardId: normalized, weight: 1 });
+    const index = rewards.findIndex((reward) => !reward.guaranteed && reward.battleDropRewardId === normalized);
+    if (included && index < 0) rewards.push({ battleDropRewardId: normalized, weight: 1, guaranteed: false });
     if (!included && index >= 0) rewards.splice(index, 1);
     markQuestDropChanged(questID);
     renderTable();
+  }
+
+  function setQuestDropCopyError(message) {
+    elements.questDropCopyError.textContent = message;
+    elements.questDropCopyError.classList.toggle("hidden", !message);
+  }
+
+  function resetQuestDropCopyDialog() {
+    state.questDropCopyTargetID = 0;
+    state.questDropCopySourceID = 0;
+    state.questDropCopyConfirming = false;
+    elements.questDropCopySource.value = "";
+    elements.questDropCopyField.classList.remove("hidden");
+    elements.questDropCopyConfirm.textContent = "读取并复制";
+    setQuestDropCopyError("");
+  }
+
+  function openQuestDropCopyDialog(quest) {
+    resetQuestDropCopyDialog();
+    state.questDropCopyTargetID = quest.questId;
+    elements.questDropCopyTitle.textContent = "复制其他副本的掉落配置";
+    elements.questDropCopySummary.textContent = `当前关卡：${quest.questId}`;
+    elements.questDropCopyDialog.showModal();
+    elements.questDropCopySource.focus();
+  }
+
+  function applyQuestDropCopy() {
+    const targetQuestID = state.questDropCopyTargetID;
+    const sourceQuestID = state.questDropCopySourceID;
+    const sourceRewards = state.questDropDraft.get(String(sourceQuestID)) || [];
+    state.questDropDraft.set(String(targetQuestID), sourceRewards.map((reward) => ({ ...reward })));
+    markQuestDropChanged(targetQuestID);
+    elements.questDropCopyDialog.close();
+    renderTable();
+    showNotice(`已将关卡 ${sourceQuestID} 的掉落配置复制到关卡 ${targetQuestID}。`);
+  }
+
+  function copyQuestDropRewards() {
+    if (state.questDropCopyConfirming) {
+      applyQuestDropCopy();
+      return;
+    }
+    const normalized = elements.questDropCopySource.value.trim();
+    if (!/^\d+$/.test(normalized)) {
+      setQuestDropCopyError("请输入有效的来源 QuestId。");
+      return;
+    }
+    const sourceQuestID = Number(normalized);
+    const editor = state.catalog?.questDropEditor || { quests: [] };
+    if (!editor.quests.some((candidate) => candidate.questId === sourceQuestID)) {
+      setQuestDropCopyError(`来源关卡 ${sourceQuestID} 不存在或不属于可配置副本。`);
+      return;
+    }
+    if (sourceQuestID === state.questDropCopyTargetID) {
+      setQuestDropCopyError("来源关卡不能与当前关卡相同。");
+      return;
+    }
+    const sourceRewards = state.questDropDraft.get(String(sourceQuestID)) || [];
+    if (!sourceRewards.length) {
+      setQuestDropCopyError(`来源关卡 ${sourceQuestID} 没有可复制的掉落配置。`);
+      return;
+    }
+    state.questDropCopySourceID = sourceQuestID;
+    const currentRewards = state.questDropDraft.get(String(state.questDropCopyTargetID)) || [];
+    if (currentRewards.length) {
+      state.questDropCopyConfirming = true;
+      elements.questDropCopyTitle.textContent = "确认覆盖当前掉落？";
+      elements.questDropCopySummary.textContent = `当前关卡 ${state.questDropCopyTargetID} 已配置 ${currentRewards.length} 条掉落；来源关卡 ${sourceQuestID} 有 ${sourceRewards.length} 条。`;
+      elements.questDropCopyField.classList.add("hidden");
+      elements.questDropCopyConfirm.textContent = "确认覆盖";
+      setQuestDropCopyError("");
+      return;
+    }
+    applyQuestDropCopy();
   }
 
   function questDropTypeLabel(typeID) {
@@ -1098,7 +1194,8 @@
       toggle.type = "checkbox";
       toggle.className = "quest-drop-preview-toggle";
       toggle.checked = (state.questDropDraft.get(String(quest.questId)) || [])
-        .some((configuredReward) => configuredReward.battleDropRewardId === Number(rewardID));
+        .some((configuredReward) => !configuredReward.guaranteed
+          && configuredReward.battleDropRewardId === Number(rewardID));
       toggle.setAttribute("aria-label", `将奖励预览 ${rewardID} 加入关卡 ${quest.questId} 的掉落内容`);
       toggle.addEventListener("change", () => setQuestDropPreviewReward(quest.questId, rewardID, toggle.checked));
       const detail = document.createElement("span");
@@ -1137,6 +1234,85 @@
     return preview;
   }
 
+  function renderQuestDropGroup(quest, rewards, guaranteed, optionSource) {
+    const groupLabel = guaranteed ? "必定掉落" : "随机掉落";
+    const entries = rewards.map((configuredReward, index) => ({ configuredReward, index }))
+      .filter((entry) => entry.configuredReward.guaranteed === guaranteed);
+    const section = document.createElement("section");
+    section.className = "quest-drop-group";
+    const heading = document.createElement("header");
+    const title = document.createElement("h4");
+    title.textContent = groupLabel;
+    const count = document.createElement("span");
+    count.textContent = `${entries.length} 条`;
+    heading.append(title, count);
+    const list = document.createElement("div");
+    list.className = "quest-drop-list";
+    entries.forEach(({ configuredReward, index }, groupIndex) => {
+      const rewardID = configuredReward.battleDropRewardId;
+      const reward = state.questDropRewardIndex.get(String(rewardID));
+      const item = document.createElement("div");
+      item.className = `quest-drop-item${guaranteed ? " quest-drop-guaranteed-item" : ""}`;
+      item.append(renderQuestDropRewardIcon(reward));
+      const selector = createLazySearchSelect(
+        rewardID,
+        questDropRewardLabel(reward),
+        optionSource,
+        (value) => setQuestDropReward(quest.questId, index, value),
+        { placeholder: "搜索掉落 ID、物品名或数量", ariaLabel: `关卡 ${quest.questId} 第 ${groupIndex + 1} 个${groupLabel}` }
+      );
+      selector.input.classList.toggle("changed", state.questDropDirtyQuestIDs.has(String(quest.questId)));
+      item.append(selector.wrapper);
+      if (!guaranteed) {
+        const weight = document.createElement("label");
+        weight.className = "quest-drop-weight";
+        weight.textContent = "权重";
+        const weightInput = document.createElement("input");
+        weightInput.type = "number";
+        weightInput.min = "1";
+        weightInput.max = "2147483647";
+        weightInput.step = "1";
+        weightInput.value = String(configuredReward.weight);
+        weightInput.setAttribute("aria-label", `关卡 ${quest.questId} 奖励 ${rewardID} 权重`);
+        weightInput.addEventListener("input", () => setQuestDropWeight(quest.questId, index, weightInput.value));
+        weight.append(weightInput);
+        item.append(weight);
+      }
+      const actions = document.createElement("div");
+      actions.className = "quest-drop-item-actions";
+      [["↑", -1], ["↓", 1]].forEach(([label, offset]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "order-button";
+        button.textContent = label;
+        button.disabled = groupIndex + offset < 0 || groupIndex + offset >= entries.length;
+        button.addEventListener("click", () => moveQuestDropReward(quest.questId, index, offset));
+        actions.append(button);
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button ghost quest-drop-remove";
+      remove.textContent = "移除";
+      remove.addEventListener("click", () => removeQuestDropReward(quest.questId, index));
+      actions.append(remove);
+      item.append(actions);
+      list.append(item);
+    });
+    if (!entries.length) {
+      const empty = document.createElement("div");
+      empty.className = "quest-drop-list-empty";
+      empty.textContent = `本关尚未配置${groupLabel}。`;
+      list.append(empty);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "button ghost quest-drop-add";
+    add.textContent = `添加${groupLabel}`;
+    add.addEventListener("click", () => addQuestDropReward(quest, guaranteed));
+    section.append(heading, list, add);
+    return section;
+  }
+
   function renderQuestDropEditor() {
     const editor = state.catalog?.questDropEditor || { quests: [] };
     const query = elements.questDropSearch.value.trim().toLocaleLowerCase();
@@ -1159,75 +1335,26 @@
       const heading = document.createElement("strong");
       heading.textContent = String(quest.questId);
       const chapter = document.createElement("span");
-      chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder}`;
-      identity.append(heading, chapter);
+      chapter.textContent = `${questDropChapterLabel(quest)}-${quest.sortOrder} · 总掉落数 ${quest.dropCount ?? 0}`;
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "button ghost quest-drop-copy";
+      copy.textContent = "复制自其他副本";
+      copy.setAttribute("aria-label", `为关卡 ${quest.questId} 复制其他副本的掉落配置`);
+      copy.addEventListener("click", () => openQuestDropCopyDialog(quest));
+      identity.append(heading, chapter, copy);
 
       const content = document.createElement("td");
       const rewards = state.questDropDraft.get(String(quest.questId)) || [];
-      const list = document.createElement("div");
-      list.className = "quest-drop-list";
       let cachedOptions;
       const optionSource = () => (cachedOptions ||= questDropRewardOptions());
-      rewards.forEach((configuredReward, index) => {
-        const rewardID = configuredReward.battleDropRewardId;
-        const reward = state.questDropRewardIndex.get(String(rewardID));
-        const item = document.createElement("div");
-        item.className = "quest-drop-item";
-        item.append(renderQuestDropRewardIcon(reward));
-        const selector = createLazySearchSelect(
-          rewardID,
-          questDropRewardLabel(reward),
-          optionSource,
-          (value) => setQuestDropReward(quest.questId, index, value),
-          { placeholder: "搜索掉落 ID、物品名或数量", ariaLabel: `关卡 ${quest.questId} 第 ${index + 1} 个掉落` }
-        );
-        selector.input.classList.toggle("changed", state.questDropDirtyQuestIDs.has(String(quest.questId)));
-        item.append(selector.wrapper);
-        const weight = document.createElement("label");
-        weight.className = "quest-drop-weight";
-        weight.textContent = "权重";
-        const weightInput = document.createElement("input");
-        weightInput.type = "number";
-        weightInput.min = "1";
-        weightInput.max = "2147483647";
-        weightInput.step = "1";
-        weightInput.value = String(configuredReward.weight);
-        weightInput.setAttribute("aria-label", `关卡 ${quest.questId} 奖励 ${rewardID} 权重`);
-        weightInput.addEventListener("input", () => setQuestDropWeight(quest.questId, index, weightInput.value));
-        weight.append(weightInput);
-        item.append(weight);
-        const actions = document.createElement("div");
-        actions.className = "quest-drop-item-actions";
-        [["↑", -1], ["↓", 1]].forEach(([label, offset]) => {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "order-button";
-          button.textContent = label;
-          button.disabled = index + offset < 0 || index + offset >= rewards.length;
-          button.addEventListener("click", () => moveQuestDropReward(quest.questId, index, offset));
-          actions.append(button);
-        });
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "button ghost quest-drop-remove";
-        remove.textContent = "移除";
-        remove.addEventListener("click", () => removeQuestDropReward(quest.questId, index));
-        actions.append(remove);
-        item.append(actions);
-        list.append(item);
-      });
-      if (!rewards.length) {
-        const empty = document.createElement("div");
-        empty.className = "quest-drop-list-empty";
-        empty.textContent = "本关尚未配置掉落内容。";
-        list.append(empty);
-      }
-      const add = document.createElement("button");
-      add.type = "button";
-      add.className = "button ghost quest-drop-add";
-      add.textContent = "添加掉落";
-      add.addEventListener("click", () => addQuestDropReward(quest));
-      content.append(list, add);
+      const groups = document.createElement("div");
+      groups.className = "quest-drop-groups";
+      groups.append(
+        renderQuestDropGroup(quest, rewards, false, optionSource),
+        renderQuestDropGroup(quest, rewards, true, optionSource)
+      );
+      content.append(groups);
       const preview = document.createElement("td");
       preview.append(renderQuestDropPickupPreview(quest));
       const routePreview = document.createElement("td");
@@ -1252,7 +1379,8 @@
       config.quests[String(questID)] = {
         rewards: (state.questDropDraft.get(String(questID)) || []).map((reward) => ({
           battleDropRewardId: reward.battleDropRewardId,
-          weight: reward.weight
+          weight: reward.weight,
+          guaranteed: reward.guaranteed
         }))
       };
     });
@@ -1264,10 +1392,11 @@
     state.questDropDraft.forEach((rewards, questID) => {
       const seen = new Set();
       rewards.forEach((reward) => {
-        if (seen.has(String(reward.battleDropRewardId))) {
-          errors.push(`关卡 ${questID} 的奖励 ${reward.battleDropRewardId} 重复`);
+        const key = `${Boolean(reward.guaranteed)}:${reward.battleDropRewardId}`;
+        if (seen.has(key)) {
+          errors.push(`关卡 ${questID} 的${reward.guaranteed ? "必定掉落" : "随机掉落"}奖励 ${reward.battleDropRewardId} 重复`);
         }
-        seen.add(String(reward.battleDropRewardId));
+        seen.add(key);
         if (!Number.isSafeInteger(reward.weight) || reward.weight < 1 || reward.weight > 2147483647) {
           errors.push(`关卡 ${questID} 的奖励 ${reward.battleDropRewardId} 权重必须是 1–2147483647 的整数`);
         }
@@ -4988,6 +5117,14 @@
     state.questDropPage += 1;
     renderTable();
   });
+  elements.questDropCopyCancel.addEventListener("click", () => elements.questDropCopyDialog.close());
+  elements.questDropCopyConfirm.addEventListener("click", copyQuestDropRewards);
+  elements.questDropCopySource.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    copyQuestDropRewards();
+  });
+  elements.questDropCopyDialog.addEventListener("close", resetQuestDropCopyDialog);
   elements.questDropDiscard.addEventListener("click", () => {
     if (!confirm("放弃尚未发布的关卡掉落修改？")) return;
     resetQuestDropDraft();

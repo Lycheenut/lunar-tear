@@ -40,6 +40,7 @@ type QuestDropQuest struct {
 	ChapterID                int32                 `json:"chapterId"`
 	DifficultyType           int32                 `json:"difficultyType"`
 	SortOrder                int32                 `json:"sortOrder"`
+	DropCount                int32                 `json:"dropCount"`
 	QuestPickupRewardGroupID int32                 `json:"questPickupRewardGroupId"`
 	RoutePossessions         []QuestDropPossession `json:"routePossessions,omitempty"`
 }

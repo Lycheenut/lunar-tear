@@ -781,7 +781,14 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .quest-drop-table td:first-child { display: grid; gap: 5px; }
 .quest-drop-table td:first-child strong { color: var(--accent-strong); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .quest-drop-table td:first-child span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.quest-drop-copy { justify-self: start; width: auto; min-height: 28px; padding: 4px 7px; font-size: 10px; }
 .quest-drop-changed td { background-color: rgba(243, 200, 107, .035); }
+.quest-drop-groups { display: grid; gap: 14px; }
+.quest-drop-group { display: grid; gap: 8px; min-width: 0; }
+.quest-drop-group + .quest-drop-group { padding-top: 12px; border-top: 1px solid var(--line); }
+.quest-drop-group > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.quest-drop-group h4 { margin: 0; color: var(--accent-strong); font-size: 11px; }
+.quest-drop-group > header span { color: var(--muted); font-size: 10px; }
 .quest-drop-list { display: grid; gap: 8px; }
 .quest-drop-item {
   display: grid;
@@ -790,6 +797,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
   min-width: 0;
   gap: 6px;
 }
+.quest-drop-guaranteed-item { grid-template-columns: 36px minmax(140px, 1fr) 110px; }
 .quest-drop-reward-icon {
   display: grid;
   place-items: center;
@@ -1023,6 +1031,9 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .confirm-dialog h2 { margin: 7px 0 10px; }
 .confirm-dialog p:last-child { color: var(--muted); font-size: 13px; line-height: 1.65; }
 .confirm-dialog .save-actions { justify-content: flex-end; margin-top: 22px; }
+.quest-drop-copy-field { display: grid; gap: 7px; margin-top: 18px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.quest-drop-copy-field input { width: 100%; min-height: 38px; }
+.quest-drop-copy-error { margin: 10px 0 0; color: var(--danger) !important; font-size: 11px !important; }
 
 .impact-dialog {
   width: min(900px, calc(100% - 32px));

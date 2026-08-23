@@ -274,6 +274,75 @@ func TestBattleDropUsesRarityTotalsThenRewardWeights(t *testing.T) {
 	}
 }
 
+func TestGuaranteedDropIsGrantedWithoutConsumingBattleDropCandidates(t *testing.T) {
+	const (
+		questID            = int32(10)
+		randomRewardID     = int32(1001)
+		guaranteedRewardID = int32(2001)
+	)
+	catalog := &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			questID: {QuestId: questID},
+		},
+		BattleDropsByQuestId: map[int32][]masterdata.BattleDropInfo{
+			questID: {
+				{QuestSceneId: 101, BattleDropCategoryId: 1},
+				{QuestSceneId: 102, BattleDropCategoryId: 2},
+			},
+		},
+		BattleDropEffectIdByRewardId: map[int32]int32{randomRewardID: 1, guaranteedRewardID: 3},
+		BattleDropRewardById: map[int32]masterdata.EntityMBattleDropReward{
+			randomRewardID: {
+				BattleDropRewardId: randomRewardID,
+				PossessionType:     int32(model.PossessionTypeMaterial),
+				PossessionId:       501,
+				Count:              1,
+			},
+			guaranteedRewardID: {
+				BattleDropRewardId: guaranteedRewardID,
+				PossessionType:     int32(model.PossessionTypeMaterial),
+				PossessionId:       601,
+				Count:              2,
+			},
+		},
+		QuestBonusById: map[int32]masterdata.EntityMQuestBonus{},
+	}
+	h := &QuestHandler{
+		QuestCatalog: catalog,
+		DropRewardsByQuestID: map[int32][]questdrop.Reward{
+			questID: {
+				{BattleDropRewardID: randomRewardID, Weight: 1},
+				{BattleDropRewardID: guaranteedRewardID, Weight: 1, Guaranteed: true},
+			},
+		},
+	}
+	user := &store.UserState{
+		UserId: 99,
+		Quests: map[int32]store.UserQuestState{
+			questID: {QuestId: questID, LatestStartDatetime: 123456789},
+		},
+	}
+
+	plan := h.BattleDropRewards(user, questID)
+	if len(plan) != 2 {
+		t.Fatalf("battle drop plan has %d entries, want exactly 2 random-drop candidates", len(plan))
+	}
+	for _, planned := range plan {
+		if planned.BattleDropRewardId != randomRewardID {
+			t.Fatalf("guaranteed reward entered battle drop plan: %+v", plan)
+		}
+	}
+
+	drops := h.computeDropRewards(user, catalog.QuestById[questID], campaign.QuestTarget{}, 123456790)
+	if len(drops) != 3 {
+		t.Fatalf("finish drops = %+v, want 2 random drops plus 1 guaranteed drop", drops)
+	}
+	got := drops[2]
+	if got.PossessionId != 601 || got.Count != 2 || got.RewardEffectId != 3 {
+		t.Fatalf("guaranteed drop = %+v, want possession 601 x2 with effect 3", got)
+	}
+}
+
 func TestOriginalQuestBonusUsesBestEquippedWeaponTier(t *testing.T) {
 	const questId = int32(10)
 	catalog := &masterdata.QuestCatalog{

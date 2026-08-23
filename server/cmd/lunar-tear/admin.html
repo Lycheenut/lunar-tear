@@ -271,7 +271,7 @@
               <header class="quest-drop-heading">
                 <div>
                   <h3>QuestPickupRewardGroup</h3>
-                  <p>通过搜索下拉框选择掉落奖励；奖励预览复选框可同步加入或移除掉落内容。</p>
+                  <p>随机掉落可配置权重；必定掉落单独配置且不占用关卡的随机掉落数。</p>
                 </div>
                 <div class="quest-drop-heading-actions">
                   <input id="quest-drop-search" type="search" inputmode="numeric" placeholder="搜索 QuestId" aria-label="按 QuestId 搜索关卡">
@@ -625,6 +625,22 @@
     <div class="save-actions">
       <button id="master-update-cancel" class="button ghost" type="button">取消</button>
       <button id="master-update-confirm" class="button primary" type="button">确认应用</button>
+    </div>
+  </dialog>
+
+  <dialog id="quest-drop-copy-dialog" class="confirm-dialog" aria-labelledby="quest-drop-copy-title">
+    <div>
+      <p class="eyebrow">COPY QUEST DROPS</p>
+      <h2 id="quest-drop-copy-title">复制其他副本的掉落配置</h2>
+      <p id="quest-drop-copy-summary"></p>
+    </div>
+    <label id="quest-drop-copy-field" class="quest-drop-copy-field">来源 QuestId
+      <input id="quest-drop-copy-source" type="text" inputmode="numeric" autocomplete="off" aria-describedby="quest-drop-copy-error">
+    </label>
+    <p id="quest-drop-copy-error" class="quest-drop-copy-error hidden" role="alert"></p>
+    <div class="save-actions">
+      <button id="quest-drop-copy-cancel" class="button ghost" type="button">取消</button>
+      <button id="quest-drop-copy-confirm" class="button primary" type="button">读取并复制</button>
     </div>
   </dialog>
 

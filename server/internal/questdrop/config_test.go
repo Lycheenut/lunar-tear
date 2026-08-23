@@ -45,7 +45,30 @@ func TestBuildOverridesLeavesLegacyPoolsUntouchedAndAppliesConfiguredPool(t *tes
 	}
 }
 
-func TestBuildOverridesRejectsDuplicateRewardsAndInvalidWeights(t *testing.T) {
+func TestBuildOverridesAllowsSameRewardAcrossRandomAndGuaranteedGroups(t *testing.T) {
+	const questID = int32(10)
+	catalog := &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{questID: {QuestId: questID}},
+		BattleDropRewardById: map[int32]masterdata.EntityMBattleDropReward{
+			1001: {BattleDropRewardId: 1001},
+		},
+	}
+	config := DefaultConfig()
+	config.Quests[questID] = QuestConfig{Rewards: []Reward{
+		{BattleDropRewardID: 1001, Weight: 3},
+		{BattleDropRewardID: 1001, Weight: 1, Guaranteed: true},
+	}}
+
+	overrides, err := BuildOverrides(config, catalog, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := overrides[questID]; len(got) != 2 || got[0].Guaranteed || !got[1].Guaranteed {
+		t.Fatalf("configured pool = %+v, want the reward once in each group", got)
+	}
+}
+
+func TestBuildOverridesRejectsDuplicateRewardsWithinGroupAndInvalidWeights(t *testing.T) {
 	const questID = int32(10)
 	catalog := &masterdata.QuestCatalog{
 		QuestById: map[int32]masterdata.EntityMQuest{questID: {QuestId: questID}},
@@ -58,7 +81,8 @@ func TestBuildOverridesRejectsDuplicateRewardsAndInvalidWeights(t *testing.T) {
 		rewards []Reward
 		want    string
 	}{
-		{"duplicate", []Reward{{BattleDropRewardID: 1001, Weight: 1}, {BattleDropRewardID: 1001, Weight: 2}}, "duplicate"},
+		{"duplicate random", []Reward{{BattleDropRewardID: 1001, Weight: 1}, {BattleDropRewardID: 1001, Weight: 2}}, "duplicate"},
+		{"duplicate guaranteed", []Reward{{BattleDropRewardID: 1001, Weight: 1, Guaranteed: true}, {BattleDropRewardID: 1001, Weight: 2, Guaranteed: true}}, "duplicate"},
 		{"zero weight", []Reward{{BattleDropRewardID: 1001, Weight: 0}}, "weight must be"},
 	}
 	for _, test := range tests {
@@ -70,5 +94,21 @@ func TestBuildOverridesRejectsDuplicateRewardsAndInvalidWeights(t *testing.T) {
 				t.Fatalf("BuildOverrides error = %v, want text %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestEncodeConfigPersistsGuaranteedRewardsAndOmitsFalseFlag(t *testing.T) {
+	config := DefaultConfig()
+	config.Quests[10] = QuestConfig{Rewards: []Reward{
+		{BattleDropRewardID: 1001, Weight: 3},
+		{BattleDropRewardID: 1002, Weight: 1, Guaranteed: true},
+	}}
+	raw, _, err := EncodeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(raw)
+	if strings.Count(encoded, `"guaranteed"`) != 1 || !strings.Contains(encoded, `"guaranteed": true`) {
+		t.Fatalf("encoded config = %s, want exactly one guaranteed flag", encoded)
 	}
 }
