@@ -135,7 +135,7 @@
     questDropGroupIndex: new Map(),
     questDropTypeFilter: "",
     questDropChapterFilter: "",
-    questDropDifficultyFilter: "1",
+    questDropSubtypeFilter: "",
     questDropPage: 1,
     questDropPageSize: 10,
     questDropPageCount: 1,
@@ -441,7 +441,7 @@
     typeSelect.addEventListener("change", () => {
       state.questDropTypeFilter = typeSelect.value;
       state.questDropChapterFilter = "";
-      state.questDropDifficultyFilter = "1";
+      state.questDropSubtypeFilter = "";
       state.questDropPage = 1;
       renderTypeFilters(currentTable());
       renderTable();
@@ -465,36 +465,48 @@
     chapterSelect.value = state.questDropChapterFilter;
     chapterSelect.addEventListener("change", () => {
       state.questDropChapterFilter = chapterSelect.value;
-      state.questDropDifficultyFilter = "1";
+      state.questDropSubtypeFilter = "";
       state.questDropPage = 1;
       renderTypeFilters(currentTable());
       renderTable();
     });
     chapterLabel.append(chapterSelect);
 
-    const difficultyLabel = document.createElement("label");
-    difficultyLabel.textContent = "难度";
-    const difficultySelect = document.createElement("select");
-    difficultySelect.dataset.field = "QuestDropDifficulty";
-    const difficultyValues = [...new Set(editor.quests
+    container.append(typeLabel, chapterLabel);
+    const usesDifficultyFilter = state.questDropTypeFilter === "main";
+    const usesSubcategoryFilter = state.questDropTypeFilter === "event-7";
+    if (!usesDifficultyFilter && !usesSubcategoryFilter) {
+      state.questDropSubtypeFilter = "";
+      return;
+    }
+
+    const subtypeLabel = document.createElement("label");
+    subtypeLabel.textContent = usesSubcategoryFilter ? "关卡类型" : "难度";
+    const subtypeSelect = document.createElement("select");
+    subtypeSelect.dataset.field = usesSubcategoryFilter ? "QuestDropSubcategory" : "QuestDropDifficulty";
+    const subtypeValues = [...new Set(editor.quests
       .filter((quest) => quest.typeId === state.questDropTypeFilter
         && `${quest.typeId}:${quest.chapterId}` === state.questDropChapterFilter)
-      .map((quest) => Number(quest.difficultyType)))]
+      .map((quest) => Number(usesSubcategoryFilter ? quest.subcategoryType : quest.difficultyType))
+      .filter((value) => value > 0))]
       .sort((left, right) => left - right);
-    difficultyValues.forEach((value) => {
-      difficultySelect.append(new Option(`${value}. ${questDropDifficultyLabel({ difficultyType: value })}`, String(value)));
+    subtypeValues.forEach((value) => {
+      const name = usesSubcategoryFilter
+        ? questDropCharacterQuestCategoryLabel(value)
+        : questDropDifficultyLabel({ difficultyType: value });
+      subtypeSelect.append(new Option(`${value}. ${name}`, String(value)));
     });
-    if (!difficultyValues.some((value) => String(value) === state.questDropDifficultyFilter)) {
-      state.questDropDifficultyFilter = difficultyValues.includes(1) ? "1" : String(difficultyValues[0] || "");
+    if (!subtypeValues.some((value) => String(value) === state.questDropSubtypeFilter)) {
+      state.questDropSubtypeFilter = subtypeValues.includes(1) ? "1" : String(subtypeValues[0] || "");
     }
-    difficultySelect.value = state.questDropDifficultyFilter;
-    difficultySelect.addEventListener("change", () => {
-      state.questDropDifficultyFilter = difficultySelect.value;
+    subtypeSelect.value = state.questDropSubtypeFilter;
+    subtypeSelect.addEventListener("change", () => {
+      state.questDropSubtypeFilter = subtypeSelect.value;
       state.questDropPage = 1;
       renderTable();
     });
-    difficultyLabel.append(difficultySelect);
-    container.append(typeLabel, chapterLabel, difficultyLabel);
+    subtypeLabel.append(subtypeSelect);
+    container.append(subtypeLabel);
   }
 
   const searchableSelectControllers = new WeakMap();
@@ -1305,6 +1317,11 @@
     return labels[String(quest.difficultyType)] || `难度 ${quest.difficultyType}`;
   }
 
+  function questDropCharacterQuestCategoryLabel(value) {
+    const labels = { "1": "真暗ノ巣窟", "2": "真暗ノコイン", "3": "EXガチャチケット" };
+    return labels[String(value)] || `分类 ${value}`;
+  }
+
   function renderQuestDropPickupPreview(quest) {
     const preview = document.createElement("div");
     preview.className = "quest-drop-pickup-preview";
@@ -1444,7 +1461,12 @@
     const visible = editor.quests.filter((quest) => {
       if (state.questDropTypeFilter && quest.typeId !== state.questDropTypeFilter) return false;
       if (state.questDropChapterFilter && `${quest.typeId}:${quest.chapterId}` !== state.questDropChapterFilter) return false;
-      if (state.questDropDifficultyFilter && String(quest.difficultyType) !== state.questDropDifficultyFilter) return false;
+      if (state.questDropSubtypeFilter) {
+        if (state.questDropTypeFilter === "main"
+          && String(quest.difficultyType) !== state.questDropSubtypeFilter) return false;
+        if (state.questDropTypeFilter === "event-7"
+          && String(quest.subcategoryType) !== state.questDropSubtypeFilter) return false;
+      }
       if (!query) return true;
       return `${quest.questId} ${questDropChapterLabel(quest)} ${questDropStageLabel(quest)} ${questDropTypeLabel(quest.typeId)}`.toLocaleLowerCase().includes(query);
     });

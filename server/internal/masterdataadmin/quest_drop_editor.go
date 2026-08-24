@@ -39,6 +39,7 @@ type QuestDropQuest struct {
 	TypeID                   string                `json:"typeId"`
 	ChapterID                int32                 `json:"chapterId"`
 	DifficultyType           int32                 `json:"difficultyType"`
+	SubcategoryType          int32                 `json:"subcategoryType,omitempty"`
 	SortOrder                int32                 `json:"sortOrder"`
 	Names                    map[string]string     `json:"names,omitempty"`
 	DropCount                int32                 `json:"dropCount"`
@@ -68,12 +69,13 @@ type QuestDropEditorCatalog struct {
 }
 
 type questPlacement struct {
-	questID        int32
-	typeID         string
-	chapterID      int32
-	difficultyType int32
-	sortOrder      int32
-	names          map[string]string
+	questID         int32
+	typeID          string
+	chapterID       int32
+	difficultyType  int32
+	subcategoryType int32
+	sortOrder       int32
+	names           map[string]string
 }
 
 type questDropQuestMetadata struct {
@@ -99,6 +101,18 @@ var questDropTypes = []QuestDropType{
 	{ID: "event-6", Value: 6, Label: "CHARACTER"},
 	{ID: "event-7", Value: 7, Label: "CHARACTER_QUEST"},
 	{ID: "event-8", Value: 8, Label: "CAGE"},
+}
+
+var questDropCanonicalJapaneseCharacterNames = map[int64]string{
+	1022: "サリュ",
+	1023: "プリエ",
+	1024: "マリー",
+	1025: "ユリィ",
+	1027: "ユディル",
+	1026: "サラーファ",
+	1020: "明城陽那",
+	1021: "暮染佑月",
+	1048: "10H",
 }
 
 // MainQuestChapterId identifies internal route segments, not the 1-30 chapter
@@ -165,7 +179,8 @@ func loadQuestDropEditor(file *memorydb.File, resolver *titleResolver) QuestDrop
 		}
 		result.Quests = append(result.Quests, QuestDropQuest{
 			QuestID: placement.questID, TypeID: placement.typeID, ChapterID: placement.chapterID,
-			DifficultyType: placement.difficultyType, SortOrder: placement.sortOrder,
+			DifficultyType: placement.difficultyType, SubcategoryType: placement.subcategoryType,
+			SortOrder:                placement.sortOrder,
 			Names:                    placement.names,
 			QuestPickupRewardGroupID: groupID, RoutePossessions: routesByQuest[placement.questID],
 		})
@@ -433,6 +448,13 @@ func normalizeQuestDropPlacements(
 			placement.chapterID = weaponType
 			placement.sortOrder = guerrillaStageByQuest[placement.questID]
 			placement.names = questDropLevelNames(resolver, placement.sortOrder)
+		case "event-7":
+			category, level := questDropCharacterQuestStage(metadata[placement.questID].nameTextID)
+			if category != 0 && level != 0 {
+				placement.subcategoryType = category
+				placement.sortOrder = level
+				placement.names = questDropLevelNames(resolver, level)
+			}
 		}
 		result = append(result, placement)
 	}
@@ -524,10 +546,38 @@ func questDropCharacterNamesByChapter(file *memorydb.File, resolver *titleResolv
 		chapterID, chapterOK := integerAt(row, 0)
 		characterID, characterOK := integerAt(row, 1)
 		if chapterOK && characterOK {
-			result[int32(chapterID)] = cloneTitles(resolver.characterTitlesByID[characterID])
+			names := cloneTitles(resolver.characterTitlesByID[characterID])
+			if japanese := questDropCanonicalJapaneseCharacterNames[characterID]; japanese != "" {
+				if names == nil {
+					names = make(map[string]string)
+				}
+				names["ja"] = japanese
+			}
+			result[int32(chapterID)] = names
 		}
 	}
 	return result
+}
+
+func questDropCharacterQuestStage(nameTextID int32) (category, level int32) {
+	// The three original levels use one ID range per category; the three
+	// super-level names were appended later as 110011-110013.
+	switch nameTextID {
+	case 110001, 110002, 110003:
+		return 1, nameTextID - 110000
+	case 110011:
+		return 1, 4
+	case 110004, 110005, 110006:
+		return 2, nameTextID - 110003
+	case 110012:
+		return 2, 4
+	case 110008, 110009, 110010:
+		return 3, nameTextID - 110007
+	case 110013:
+		return 3, 4
+	default:
+		return 0, 0
+	}
 }
 
 func rankedQuestStages(groups map[int32][]questPlacement) map[int32]int32 {

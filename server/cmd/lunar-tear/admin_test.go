@@ -294,14 +294,19 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 		}
 	}
 	for _, required := range []string{
-		`typeLabel.textContent = "副本类型"`, `chapterLabel.textContent = "章节"`, `difficultyLabel.textContent = "难度"`,
+		`typeLabel.textContent = "副本类型"`, `chapterLabel.textContent = "章节"`,
+		`const usesDifficultyFilter = state.questDropTypeFilter === "main"`,
+		`const usesSubcategoryFilter = state.questDropTypeFilter === "event-7"`,
+		`if (!usesDifficultyFilter && !usesSubcategoryFilter)`,
+		`subtypeLabel.textContent = usesSubcategoryFilter ? "关卡类型" : "难度"`,
+		`const labels = { "1": "真暗ノ巣窟", "2": "真暗ノコイン", "3": "EXガチャチケット" }`,
 		"new Option(`${definition.value}. ${definition.label}`, definition.id)",
 		"Number(left.value) - Number(right.value)",
 		"Number(left.chapterId) - Number(right.chapterId)",
 		"Number(left.battleDropRewardId) - Number(right.battleDropRewardId)",
 		`state.questDropTypeFilter = editor.types[0]?.id || ""`,
 		`state.questDropChapterFilter = chapterSelect.options[0]?.value || ""`,
-		`questDropDifficultyFilter: "1"`, `difficultyValues.includes(1) ? "1"`,
+		`questDropSubtypeFilter: ""`, `subtypeValues.includes(1) ? "1"`,
 		`function questDropRewardOptions()`, `function renderQuestDropPickupPreview(quest)`,
 		`function renderQuestDropRoutePreview(quest)`, `row.append(identity, content, preview, routePreview)`,
 		`function setQuestDropPreviewReward(questID, rewardID, included)`, `toggle.type = "checkbox"`,
@@ -336,6 +341,7 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 		`state.questDropGroupIndex.get(String(quest.questPickupRewardGroupId))?.rewards || []`,
 		"`${possession.possessionType}:${possession.possessionId}.",
 		`function setQuestDropGuaranteed(`, `guaranteedInput.type = "checkbox"`, `.quest-drop-guaranteed input`,
+		`questDropDifficultyFilter`,
 	} {
 		if strings.Contains(html, obsolete) || strings.Contains(css, obsolete) || strings.Contains(javascript, obsolete) {
 			t.Fatalf("quest drop editor still contains obsolete presentation: %s", obsolete)
