@@ -4348,6 +4348,7 @@
     state.gachaDraft.groupWeights.weaponOnly ||= { "2": 8000, "3": 1000, "4": 300 };
     recalculateTwoStarWeaponProbability();
     recalculateAllBoxUnlimitedProbabilities();
+    removeAllLimitedRewardWeights();
     state.gachaDraft.sourceMasterDataHash = state.gachaCatalog?.masterDataHash || "";
     state.gachaDirty = false;
   }
@@ -4830,6 +4831,17 @@
     });
   }
 
+  function removeLimitedRewardWeights(box) {
+    (box?.limitedRewards || []).forEach((reward) => delete reward.weight);
+  }
+
+  function removeAllLimitedRewardWeights() {
+    Object.values(state.gachaDraft.chapterBanners).forEach(removeLimitedRewardWeights);
+    Object.values(state.gachaDraft.eventBanners).forEach((event) => {
+      (event.boxes || []).forEach(removeLimitedRewardWeights);
+    });
+  }
+
   function formatGroupProbability(weight) {
     return (weight / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
   }
@@ -4962,6 +4974,7 @@
     recalculateBoxUnlimitedProbability(selection.box);
     selection.box.limitedRewards ||= [];
     selection.box.unlimitedRewards ||= [];
+    removeLimitedRewardWeights(selection.box);
     elements.boxLimitedProbability.value = formatGroupProbability(Number(selection.box.groupWeights.limited || 0));
     elements.boxUnlimitedProbability.value = formatGroupProbability(Number(selection.box.groupWeights.unlimited || 0));
     elements.boxLimitedRewardBody.replaceChildren();
@@ -4989,7 +5002,7 @@
     const reference = references[Math.min(offset, Math.max(references.length - 1, 0))] || { possessionType: 5, possessionId: 100001, rarityType: 1 };
     return {
       possessionType: Number(reference.possessionType), possessionId: Number(reference.possessionId), rarityType: Number(reference.rarityType || 0),
-      count: 1, ...(limited ? { maxCount: 1 } : {}), weight: 100, featured: false, ...(limited && event ? { jackpot: true } : {})
+      count: 1, ...(limited ? { maxCount: 1 } : { weight: 100 }), featured: false, ...(limited && event ? { jackpot: true } : {})
     };
   }
 
@@ -5068,8 +5081,8 @@
       tr.append(cell);
     };
     appendNumber("count", "单次获得数量", 1);
-    if (limited) appendNumber("maxCount", "有限库存", 1);
-    appendNumber("weight", "奖励权重", 1, refreshBoxProbabilityPreviews);
+    if (limited) appendNumber("maxCount", "有限库存", 1, refreshBoxProbabilityPreviews);
+    if (!limited) appendNumber("weight", "奖励权重", 1, refreshBoxProbabilityPreviews);
 
     const probabilityCell = document.createElement("td");
     const probability = document.createElement("strong");
@@ -5123,11 +5136,12 @@
     const unlimitedWeight = Number(box.groupWeights?.unlimited || 0);
     const groupTotal = limitedWeight + unlimitedWeight;
     [["limited", box.limitedRewards || [], limitedWeight], ["unlimited", box.unlimitedRewards || [], unlimitedWeight]].forEach(([group, rewards, groupWeight]) => {
-      const rewardTotal = rewards.reduce((sum, reward) => sum + Math.max(0, Number(reward.weight || 0)), 0);
+      const selectionSize = (reward) => Math.max(0, Number(group === "limited" ? reward.maxCount : reward.weight) || 0);
+      const rewardTotal = rewards.reduce((sum, reward) => sum + selectionSize(reward), 0);
       rewards.forEach((reward, index) => {
         const target = document.querySelector(`[data-box-probability="${group}:${index}"]`);
         if (!target) return;
-        const probability = groupTotal > 0 && rewardTotal > 0 ? groupWeight / groupTotal * Math.max(0, Number(reward.weight || 0)) / rewardTotal * 100 : 0;
+        const probability = groupTotal > 0 && rewardTotal > 0 ? groupWeight / groupTotal * selectionSize(reward) / rewardTotal * 100 : 0;
         target.textContent = `${probability.toFixed(1)}%`;
       });
     });
@@ -5220,7 +5234,7 @@
           if (!knownRewards.has(`${reward.possessionType}:${reward.possessionId}`)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 不在主数据奖励列表中`);
           if (!Number.isInteger(Number(reward.count)) || Number(reward.count) <= 0) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 单次数量必须为正整数`);
           if (limited && (!Number.isInteger(Number(reward.maxCount)) || Number(reward.maxCount) <= 0)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的有限奖励 ${index + 1} 库存必须为正整数`);
-          if (!Number.isInteger(Number(reward.weight)) || Number(reward.weight) <= 0) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 权重必须为正整数`);
+          if (!limited && (!Number.isInteger(Number(reward.weight)) || Number(reward.weight) <= 0)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的无限奖励 ${index + 1} 权重必须为正整数`);
           if ((!event || !limited) && reward.jackpot) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱只有 Event 有限奖励可以设为大奖`);
         });
       });
@@ -5676,6 +5690,7 @@
     elements.gachaDiscard.disabled = true;
     showNotice("正在校验、写入并热更新 Gacha 配置…", false, { persistent: true });
     try {
+      removeAllLimitedRewardWeights();
       await api("/api/admin/gacha-config", {
         method: "POST",
         body: JSON.stringify({ expectedContentHash: state.gachaCatalog.contentHash, config: state.gachaDraft })
