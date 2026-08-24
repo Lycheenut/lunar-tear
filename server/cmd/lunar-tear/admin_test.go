@@ -456,6 +456,57 @@ func TestAdminBoxGachaDerivesUnlimitedProbability(t *testing.T) {
 	}
 }
 
+func TestAdminBoxGachaUsesSearchableRewardSelectorsWithIcons(t *testing.T) {
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`.box-reward-selector { display: grid; grid-template-columns: 90px 34px minmax(0, 1fr);`,
+		`.reward-search-option-icon`,
+		`.reward-search-option-label`,
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("Box Gacha reward selector CSS is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`function renderRewardSearchOption(option, definition)`,
+		`populateRewardIDSelect(itemSelect, references, String(reward.possessionId || 0), definition);`,
+		`options: lazySearchOptions(() => rewardSelectorOptions(references, definition)),`,
+		`renderOption: (option) => renderRewardSearchOption(option, definition)`,
+		`editor.append(typeSelect, icon, searchable);`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("Box Gacha reward selector is missing %s", required)
+		}
+	}
+}
+
+func TestAdminBoxGachaRewardGroupsUseCompactTwoColumnLayout(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	css := adminAssetBody(t, "/admin/admin.css")
+
+	for _, required := range []string{
+		`class="box-reward-table box-limited-reward-table"`,
+		`class="box-reward-table box-unlimited-reward-table"`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("Box Gacha reward table is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`.box-gacha-editor-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));`,
+		`.box-group-probabilities, .box-gacha-rule-note { grid-column: 1 / -1; }`,
+		`.box-limited-reward-table { min-width: 700px; }`,
+		`.box-unlimited-reward-table { min-width: 590px; }`,
+		`.box-gacha-editor-body { grid-template-columns: minmax(0, 1fr); }`,
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("Box Gacha compact reward layout is missing %s", required)
+		}
+	}
+}
+
 func TestAdminMissionTermUsesRequestedLayout(t *testing.T) {
 	css := adminAssetBody(t, "/admin/admin.css")
 

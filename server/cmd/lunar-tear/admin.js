@@ -614,7 +614,7 @@
               const group = String(entry.group || "");
               if (!groupOrder.has(group)) groupOrder.set(group, groupOrder.size);
               return {
-                value: String(entry.value), label: String(entry.label), group,
+                source: entry, value: String(entry.value), label: String(entry.label), group,
                 groupOrder: groupOrder.get(group), searchText: String(entry.searchText || ""),
                 disabled: Boolean(entry.disabled), index
               };
@@ -675,7 +675,15 @@
           button.setAttribute("role", "option");
           button.setAttribute("aria-selected", String(entry.value === select.value));
           button.dataset.optionValue = entry.value;
-          button.textContent = entry.label;
+          const visual = typeof controller.config.renderOption === "function"
+            ? controller.config.renderOption(entry.source || entry)
+            : null;
+          if (visual) {
+            button.classList.add("with-visual");
+            button.append(visual);
+          } else {
+            button.textContent = entry.label;
+          }
           button.title = entry.label;
           button.addEventListener("pointerdown", (event) => {
             event.preventDefault();
@@ -4205,7 +4213,8 @@
     return references.map((reference) => ({
       value: String(reference.possessionId),
       label: rewardReferenceOptionLabel(reference, definition),
-      searchText: `${reference.possessionId} ${Object.values(reference.names || {}).join(" ")} ${Object.values(reference.costumeNames || {}).join(" ")}`
+      searchText: `${reference.possessionId} ${Object.values(reference.names || {}).join(" ")} ${Object.values(reference.costumeNames || {}).join(" ")}`,
+      reference
     }));
   }
 
@@ -4238,6 +4247,16 @@
       definition?.glyph || "奖",
       className
     );
+  }
+
+  function renderRewardSearchOption(option, definition) {
+    const content = document.createElement("span");
+    content.className = "reward-search-option";
+    const label = document.createElement("span");
+    label.className = "reward-search-option-label";
+    label.textContent = option.label;
+    content.append(renderRewardIcon(option.reference, definition, "reward-search-option-icon"), label);
+    return content;
   }
 
   async function switchAdminSection(section, navigate = true) {
@@ -4998,36 +5017,37 @@
     });
     typeSelect.value = String(reward.possessionType);
     const itemSelect = document.createElement("select");
-    const renderOptions = () => {
-      itemSelect.replaceChildren();
-      const references = rewardReferencesForPossessionType(typeSelect.value);
-      references.forEach((reference) => {
-        const option = document.createElement("option");
-        option.value = String(reference.possessionId);
-        option.textContent = idNameLabel(
-          reference.possessionId || "—",
-          gachaLocalizedText(reference.names) || rewardDefinitionForPossessionType(reference.possessionType)?.fallbackName || "未命名奖励"
-        );
-        itemSelect.append(option);
-      });
-      itemSelect.value = String(reward.possessionId || 0);
-      if (!itemSelect.value && references.length) {
-        setRewardFromReference(reward, references[0]);
-        itemSelect.value = String(reward.possessionId || 0);
-      }
-    };
-    renderOptions();
+    const definition = rewardDefinitionForPossessionType(typeSelect.value);
+    const references = rewardReferencesForPossessionType(typeSelect.value);
+    let reference = references.find((item) => item.possessionId === Number(reward.possessionId));
+    if (!reference && references.length) {
+      reference = references[0];
+      setRewardFromReference(reward, reference);
+    }
+    populateRewardIDSelect(itemSelect, references, String(reward.possessionId || 0), definition);
+    let icon = renderRewardIcon(reference, definition, "reward-field-icon");
     typeSelect.addEventListener("change", () => {
       const reference = rewardReferencesForPossessionType(typeSelect.value)[0];
       if (reference) setRewardFromReference(reward, reference);
       markBoxGachaDirty(true);
     });
     itemSelect.addEventListener("change", () => {
-      const reference = rewardReferencesForPossessionType(typeSelect.value).find((item) => item.possessionId === Number(itemSelect.value));
+      reference = references.find((item) => item.possessionId === Number(itemSelect.value));
       if (reference) setRewardFromReference(reward, reference);
+      const nextIcon = renderRewardIcon(reference, definition, "reward-field-icon");
+      icon.replaceWith(nextIcon);
+      icon = nextIcon;
       markBoxGachaDirty(false);
     });
-    editor.append(typeSelect, itemSelect);
+    const searchable = createSearchableSelect(itemSelect, {
+      options: lazySearchOptions(() => rewardSelectorOptions(references, definition)),
+      placeholder: "搜索奖励对象 ID 或名称",
+      ariaLabel: `搜索并选择第 ${index + 1} 个${limited ? "有限" : "无限"}奖励`,
+      emptyText: "没有匹配的奖励对象。",
+      limit: 50,
+      renderOption: (option) => renderRewardSearchOption(option, definition)
+    });
+    editor.append(typeSelect, icon, searchable);
     rewardCell.append(editor);
     tr.append(rewardCell);
 

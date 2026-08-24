@@ -265,6 +265,11 @@ input:focus, select:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.searchable-select-option.with-visual { padding: 5px 8px; }
+.reward-search-option { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; }
+.reward-search-option-icon { display: grid; place-items: center; width: 32px; height: 32px; overflow: hidden; color: var(--muted); border: 1px solid var(--line); border-radius: 7px; background: #091015; font-size: 11px; font-weight: 800; }
+.reward-search-option-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.reward-search-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .searchable-select-option:hover,
 .searchable-select-option[aria-selected="true"] { color: var(--accent-strong); background: rgba(71, 169, 146, .15); }
 .searchable-select-group {
@@ -990,28 +995,37 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .box-gacha-toolbar select { width: 100%; }
 .box-gacha-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .button.danger { color: #ffaaa1; border-color: rgba(255, 111, 97, .35); }
-.box-gacha-editor-body { display: grid; gap: 16px; padding: 16px; }
+.box-gacha-editor-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 16px; }
 .box-group-probabilities { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); align-items: center; gap: 10px 28px; }
+.box-group-probabilities, .box-gacha-rule-note { grid-column: 1 / -1; }
 .box-group-probabilities > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
 .box-group-probabilities > label { display: grid; grid-template-columns: minmax(0, 1fr) 120px; align-items: center; gap: 10px; }
 .box-group-probabilities > label.calculated input { color: var(--accent-strong); border-style: dashed; background: rgba(32, 55, 62, .45); cursor: not-allowed; }
-.box-reward-group { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: rgba(10, 17, 21, .38); }
+.box-reward-group { align-self: start; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: rgba(10, 17, 21, .38); }
 .data-heading.compact { min-height: 64px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .data-heading.compact h3 { margin: 3px 0 0; font-size: 15px; }
 .box-reward-scroll { max-height: 480px; }
-.box-reward-table { min-width: 940px; table-layout: fixed; }
-.box-reward-table th:first-child { width: 410px; }
-.box-reward-table th:nth-child(2), .box-reward-table th:nth-child(3), .box-reward-table th:nth-child(4) { width: 92px; }
-.box-reward-table th:nth-last-child(1) { width: 58px; }
+.box-reward-table { table-layout: fixed; }
+.box-limited-reward-table { min-width: 700px; }
+.box-unlimited-reward-table { min-width: 590px; }
+.box-reward-table th, .box-reward-table td { padding-right: 8px; padding-left: 8px; }
+.box-reward-table th:first-child { width: 280px; }
+.box-limited-reward-table th:nth-child(2), .box-limited-reward-table th:nth-child(3), .box-limited-reward-table th:nth-child(4),
+.box-unlimited-reward-table th:nth-child(2), .box-unlimited-reward-table th:nth-child(3) { width: 64px; }
+.box-limited-reward-table th:nth-child(5), .box-unlimited-reward-table th:nth-child(4) { width: 72px; }
+.box-limited-reward-table th:nth-child(6), .box-unlimited-reward-table th:nth-child(5) { width: 62px; }
+.box-limited-reward-table th:nth-child(7) { width: 48px; }
+.box-reward-table th:nth-last-child(1) { width: 44px; }
 .box-reward-table td { vertical-align: middle; }
 .box-reward-table td:first-child, .box-reward-table th:first-child { position: static; min-width: 0; background: inherit; }
 .box-reward-table th:first-child { background: #121b20; }
-.box-reward-table input[type="number"] { width: 100%; min-width: 72px; }
+.box-reward-table input[type="number"] { width: 100%; min-width: 0; padding-right: 7px; padding-left: 7px; }
 .box-reward-table input[type="checkbox"] { display: block; width: 16px; height: 16px; min-height: 16px; margin: 0 auto; padding: 0; }
-.box-reward-selector { display: grid; grid-template-columns: 100px minmax(240px, 1fr); gap: 8px; }
+.box-reward-selector { display: grid; grid-template-columns: 90px 34px minmax(0, 1fr); align-items: center; gap: 6px; }
+.box-reward-selector .reward-field-icon { width: 34px; height: 34px; }
 .box-reward-selector select { width: 100%; min-width: 0; }
 .box-probability-preview { color: var(--accent-strong); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.box-remove-reward { color: #ffaaa1; }
+.box-remove-reward { padding-right: 0; padding-left: 0; color: #ffaaa1; white-space: nowrap; }
 .box-gacha-rule-note { margin: 0; padding: 11px 13px; color: #d8bd88; border: 1px solid rgba(216, 189, 136, .2); border-radius: 9px; background: rgba(216, 189, 136, .06); font-size: 11px; line-height: 1.55; }
 
 .confirm-dialog {
@@ -1076,6 +1090,7 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 }
 
 @media (max-width: 1100px) {
+  .box-gacha-editor-body { grid-template-columns: minmax(0, 1fr); }
   .mission-term-editor {
     grid-template-columns: 1fr;
     grid-template-rows: repeat(2, minmax(0, 1fr));
