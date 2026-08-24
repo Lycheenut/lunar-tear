@@ -4328,6 +4328,7 @@
     state.gachaDraft.groupWeights.characterWeapon ||= { "3": 500, "4": 200 };
     state.gachaDraft.groupWeights.weaponOnly ||= { "2": 8000, "3": 1000, "4": 300 };
     recalculateTwoStarWeaponProbability();
+    recalculateAllBoxUnlimitedProbabilities();
     state.gachaDraft.sourceMasterDataHash = state.gachaCatalog?.masterDataHash || "";
     state.gachaDirty = false;
   }
@@ -4797,6 +4798,19 @@
     state.gachaDraft.groupWeights.weaponOnly["2"] = 10000 - allocated;
   }
 
+  function recalculateBoxUnlimitedProbability(box) {
+    box.groupWeights ||= {};
+    box.groupWeights.limited = Number(box.groupWeights.limited ?? 8000);
+    box.groupWeights.unlimited = 10000 - box.groupWeights.limited;
+  }
+
+  function recalculateAllBoxUnlimitedProbabilities() {
+    Object.values(state.gachaDraft.chapterBanners).forEach(recalculateBoxUnlimitedProbability);
+    Object.values(state.gachaDraft.eventBanners).forEach((event) => {
+      (event.boxes || []).forEach(recalculateBoxUnlimitedProbability);
+    });
+  }
+
   function formatGroupProbability(weight) {
     return (weight / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
   }
@@ -4926,7 +4940,7 @@
     elements.boxGachaEditorBody.classList.toggle("hidden", !selection.box);
     if (!selection.box) return;
 
-    selection.box.groupWeights ||= { limited: 8000, unlimited: 2000 };
+    recalculateBoxUnlimitedProbability(selection.box);
     selection.box.limitedRewards ||= [];
     selection.box.unlimitedRewards ||= [];
     elements.boxLimitedProbability.value = formatGroupProbability(Number(selection.box.groupWeights.limited || 0));
@@ -5607,13 +5621,8 @@
     const box = currentEditableBox();
     if (!box) return;
     box.groupWeights.limited = Math.round(Number(elements.boxLimitedProbability.value || 0) * 100);
-    markBoxGachaDirty(false);
-    refreshBoxProbabilityPreviews();
-  });
-  elements.boxUnlimitedProbability.addEventListener("input", () => {
-    const box = currentEditableBox();
-    if (!box) return;
-    box.groupWeights.unlimited = Math.round(Number(elements.boxUnlimitedProbability.value || 0) * 100);
+    recalculateBoxUnlimitedProbability(box);
+    elements.boxUnlimitedProbability.value = formatGroupProbability(box.groupWeights.unlimited);
     markBoxGachaDirty(false);
     refreshBoxProbabilityPreviews();
   });

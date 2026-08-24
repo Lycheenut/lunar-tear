@@ -426,6 +426,36 @@ func TestAdminChapterBoxToolbarReservesActionWidth(t *testing.T) {
 	}
 }
 
+func TestAdminBoxGachaDerivesUnlimitedProbability(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`id="box-unlimited-probability" type="number" min="0" max="100" step="0.01" readonly`,
+		`无限奖励组自动使用 100% 减去有限奖励组`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("Box Gacha probability editor is missing %s", required)
+		}
+	}
+	if !strings.Contains(css, `.gacha-probability-input input { width: 100%; min-width: 0;`) {
+		t.Fatal("Gacha probability input does not reserve space for its percent suffix")
+	}
+	for _, required := range []string{
+		`recalculateAllBoxUnlimitedProbabilities();`,
+		`box.groupWeights.unlimited = 10000 - box.groupWeights.limited;`,
+		`elements.boxUnlimitedProbability.value = formatGroupProbability(box.groupWeights.unlimited);`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("Box Gacha unlimited probability calculation is missing %s", required)
+		}
+	}
+	if strings.Contains(javascript, `elements.boxUnlimitedProbability.addEventListener("input"`) {
+		t.Fatal("Box Gacha unlimited probability is still manually editable")
+	}
+}
+
 func TestAdminMissionTermUsesRequestedLayout(t *testing.T) {
 	css := adminAssetBody(t, "/admin/admin.css")
 

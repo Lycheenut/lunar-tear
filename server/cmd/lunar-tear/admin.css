@@ -955,7 +955,7 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .gacha-probability-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; align-items: center; gap: 10px; }
 .gacha-probability-row > span:first-child { color: var(--text); font-size: 12px; font-weight: 650; }
 .gacha-probability-input { position: relative; }
-.gacha-probability-input input { min-height: 34px; padding-right: 25px; text-align: right; font-variant-numeric: tabular-nums; }
+.gacha-probability-input input { width: 100%; min-width: 0; min-height: 34px; padding-right: 25px; text-align: right; font-variant-numeric: tabular-nums; }
 .gacha-probability-input span { position: absolute; top: 50%; right: 9px; color: var(--muted); font-size: 11px; transform: translateY(-50%); pointer-events: none; }
 .gacha-probability-row.calculated input { color: var(--accent-strong); border-style: dashed; background: rgba(32, 55, 62, .45); cursor: not-allowed; }
 .gacha-probability-row.invalid input { color: #ff9d91; border-color: rgba(255, 111, 97, .7); }
@@ -994,6 +994,7 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .box-group-probabilities { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); align-items: center; gap: 10px 28px; }
 .box-group-probabilities > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
 .box-group-probabilities > label { display: grid; grid-template-columns: minmax(0, 1fr) 120px; align-items: center; gap: 10px; }
+.box-group-probabilities > label.calculated input { color: var(--accent-strong); border-style: dashed; background: rgba(32, 55, 62, .45); cursor: not-allowed; }
 .box-reward-group { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: rgba(10, 17, 21, .38); }
 .data-heading.compact { min-height: 64px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .data-heading.compact h3 { margin: 3px 0 0; font-size: 15px; }
