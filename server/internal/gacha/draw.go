@@ -150,41 +150,49 @@ func drawChapterWithIntn(items []store.GachaBoxItemEntry, drewCounts map[int32]i
 
 	result := make([]DrawnItem, 0, count)
 	for range count {
-		limitedWeight := 0
+		limitedCount := 0
 		unlimitedWeight := 0
 		for i, item := range items {
 			counterId := chapterCounterId(item, i)
-			if item.Weight > 0 && (item.MaxCount <= 0 || drewCounts[counterId] < item.MaxCount) {
-				if item.MaxCount > 0 {
-					limitedWeight += int(item.Weight)
-				} else {
-					unlimitedWeight += int(item.Weight)
+			if item.MaxCount > 0 {
+				remaining := item.MaxCount - drewCounts[counterId]
+				if remaining > 0 {
+					limitedCount += int(remaining)
 				}
+			} else if item.Weight > 0 {
+				unlimitedWeight += int(item.Weight)
 			}
 		}
-		if limitedWeight <= 0 && unlimitedWeight <= 0 {
+		if limitedCount <= 0 && unlimitedWeight <= 0 {
 			return nil, fmt.Errorf("chapter Gacha has no available rewards")
 		}
 
-		drawLimited := limitedWeight > 0
-		if limitedWeight > 0 && unlimitedWeight > 0 {
+		drawLimited := limitedCount > 0
+		if limitedCount > 0 && unlimitedWeight > 0 {
 			drawLimited = intn(chapterProbabilityTotal) < chapterLimitedProbability
-		} else if limitedWeight <= 0 {
+		} else if limitedCount <= 0 {
 			drawLimited = false
 		}
 		totalWeight := unlimitedWeight
 		if drawLimited {
-			totalWeight = limitedWeight
+			totalWeight = limitedCount
 		}
 		roll := intn(totalWeight)
 		selected := -1
 		for i, item := range items {
 			counterId := chapterCounterId(item, i)
-			if item.Weight <= 0 || (item.MaxCount > 0) != drawLimited || (item.MaxCount > 0 && drewCounts[counterId] >= item.MaxCount) {
+			if (item.MaxCount > 0) != drawLimited {
 				continue
 			}
-			if roll >= int(item.Weight) {
-				roll -= int(item.Weight)
+			selectionSize := int(item.Weight)
+			if drawLimited {
+				selectionSize = int(item.MaxCount - drewCounts[counterId])
+			}
+			if selectionSize <= 0 {
+				continue
+			}
+			if roll >= selectionSize {
+				roll -= selectionSize
 				continue
 			}
 			selected = i
