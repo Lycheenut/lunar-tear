@@ -11,7 +11,7 @@ func TestValidateEventBoxesRequiresJackpot(t *testing.T) {
 	config := DefaultConfig()
 	config.EventBanners[300001] = EventBoxConfig{Boxes: []BoxConfig{{
 		GroupWeights:   BoxGroupWeights{Limited: GroupWeightTotal},
-		LimitedRewards: []BoxRewardConfig{{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 1, Weight: 1}},
+		LimitedRewards: []BoxRewardConfig{{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 1}},
 	}}}
 	entries := []store.GachaCatalogEntry{{GachaId: 300001, GachaLabelType: model.GachaLabelEvent}}
 	if err := validateBoxConfigs(config, entries, nil); err == nil {
@@ -52,11 +52,42 @@ func TestApplyConfiguredBoxesUsesFeaturedRewards(t *testing.T) {
 	}
 	entries := []store.GachaCatalogEntry{{GachaId: 200001, GachaLabelType: model.GachaLabelChapter}}
 	ApplyConfiguredBoxes(entries, config)
-	if len(entries[0].BoxItems) != 2 || entries[0].BoxItems[0].Weight != 7 || entries[0].BoxItems[1].MaxCount != 0 {
+	if len(entries[0].BoxItems) != 2 || entries[0].BoxItems[0].Weight != 0 || entries[0].BoxItems[1].Weight != 2 || entries[0].BoxItems[1].MaxCount != 0 {
 		t.Fatalf("configured box items = %+v", entries[0].BoxItems)
 	}
 	if len(entries[0].PromotionItems) != 1 || entries[0].PromotionItems[0].PossessionId != 100 {
 		t.Fatalf("configured featured rewards = %+v", entries[0].PromotionItems)
+	}
+}
+
+func TestValidateBoxRewardsOnlyRequiresUnlimitedWeights(t *testing.T) {
+	config := DefaultConfig()
+	config.ChapterBanners[200001] = BoxConfig{
+		GroupWeights: BoxGroupWeights{Limited: 8000, Unlimited: 2000},
+		LimitedRewards: []BoxRewardConfig{{
+			PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 2,
+		}},
+		UnlimitedRewards: []BoxRewardConfig{{
+			PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 200, Count: 1, Weight: 1,
+		}},
+	}
+	entries := []store.GachaCatalogEntry{{GachaId: 200001, GachaLabelType: model.GachaLabelChapter}}
+	if err := validateBoxConfigs(config, entries, nil); err != nil {
+		t.Fatalf("limited reward without weight was rejected: %v", err)
+	}
+
+	box := config.ChapterBanners[200001]
+	box.UnlimitedRewards[0].Weight = 0
+	config.ChapterBanners[200001] = box
+	if err := validateBoxConfigs(config, entries, nil); err == nil {
+		t.Fatal("unlimited reward without weight was accepted")
+	}
+}
+
+func TestAvailableConfiguredBoxDrawCountIncludesWeightlessLimitedStock(t *testing.T) {
+	items := []store.GachaBoxItemEntry{{MaxCount: 2, CounterId: 1}}
+	if got := availableConfiguredBoxDrawCount(items, BoxGroupWeights{Limited: GroupWeightTotal}, nil); got != 2 {
+		t.Fatalf("available draw count = %d, want 2", got)
 	}
 }
 

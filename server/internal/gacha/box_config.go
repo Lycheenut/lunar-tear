@@ -19,7 +19,7 @@ type BoxRewardConfig struct {
 	RarityType     int32 `json:"rarityType,omitempty"`
 	Count          int32 `json:"count"`
 	MaxCount       int32 `json:"maxCount,omitempty"`
-	Weight         int32 `json:"weight"`
+	Weight         int32 `json:"weight,omitempty"`
 	Featured       bool  `json:"featured,omitempty"`
 	Jackpot        bool  `json:"jackpot,omitempty"`
 }
@@ -115,15 +115,17 @@ func validateRewardGroup(gachaId int32, boxNumber int, group string, rewards []B
 		if !limited && reward.MaxCount != 0 {
 			return fmt.Errorf("Gacha %d box %d unlimited reward %d must not specify stock", gachaId, boxNumber, i+1)
 		}
-		if reward.Weight <= 0 {
-			return fmt.Errorf("Gacha %d box %d %s reward %d weight must be positive", gachaId, boxNumber, group, i+1)
+		if !limited {
+			if reward.Weight <= 0 {
+				return fmt.Errorf("Gacha %d box %d %s reward %d weight must be positive", gachaId, boxNumber, group, i+1)
+			}
+			totalWeight += int64(reward.Weight)
+			if totalWeight > math.MaxInt {
+				return fmt.Errorf("Gacha %d box %d %s reward weights are too large", gachaId, boxNumber, group)
+			}
 		}
 		if reward.Jackpot && (!event || !limited) {
 			return fmt.Errorf("Gacha %d box %d reward %d can only be a jackpot in an Event Gacha limited group", gachaId, boxNumber, i+1)
-		}
-		totalWeight += int64(reward.Weight)
-		if totalWeight > math.MaxInt {
-			return fmt.Errorf("Gacha %d box %d %s reward weights are too large", gachaId, boxNumber, group)
 		}
 	}
 	return nil
@@ -144,8 +146,11 @@ func boxItems(box BoxConfig) []store.GachaBoxItemEntry {
 	appendRewards := func(rewards []BoxRewardConfig, limited bool) {
 		for _, reward := range rewards {
 			maxCount := int32(0)
+			weight := int32(0)
 			if limited {
 				maxCount = reward.MaxCount
+			} else {
+				weight = reward.Weight
 			}
 			items = append(items, store.GachaBoxItemEntry{
 				PossessionType: reward.PossessionType,
@@ -154,7 +159,7 @@ func boxItems(box BoxConfig) []store.GachaBoxItemEntry {
 				Count:          reward.Count,
 				MaxCount:       maxCount,
 				CounterId:      int32(len(items) + 1),
-				Weight:         reward.Weight,
+				Weight:         weight,
 				IsFeatured:     reward.Featured,
 				IsJackpot:      reward.Jackpot,
 			})

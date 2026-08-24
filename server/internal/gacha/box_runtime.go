@@ -81,11 +81,8 @@ func boxResettable(items []store.GachaBoxItemEntry, state *store.GachaBannerStat
 func availableConfiguredBoxDrawCount(items []store.GachaBoxItemEntry, weights BoxGroupWeights, state *store.GachaBannerState) int64 {
 	var available int64
 	for i, item := range items {
-		if item.Weight <= 0 {
-			continue
-		}
 		if item.MaxCount <= 0 {
-			if weights.Unlimited > 0 {
+			if item.Weight > 0 && weights.Unlimited > 0 {
 				return math.MaxInt64
 			}
 			continue

@@ -291,7 +291,7 @@ func TestChapterDrawRenormalizesAfterMonthlyRewardCap(t *testing.T) {
 	if drewCounts[1] != 1 || drewCounts[model.ChapterGachaMonthCounterId] != 202608 {
 		t.Fatalf("chapter counters = %v", drewCounts)
 	}
-	wantBounds := [...]int{100, 10, 90}
+	wantBounds := [...]int{100, 1, 90}
 	if len(bounds) != len(wantBounds) {
 		t.Fatalf("random bounds = %v, want %v", bounds, wantBounds)
 	}
@@ -299,6 +299,26 @@ func TestChapterDrawRenormalizesAfterMonthlyRewardCap(t *testing.T) {
 		if bounds[i] != wantBounds[i] {
 			t.Fatalf("random bounds = %v, want %v", bounds, wantBounds)
 		}
+	}
+}
+
+func TestChapterDrawTreatsEachRemainingLimitedItemEqually(t *testing.T) {
+	items := []store.GachaBoxItemEntry{
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 100, Count: 1, MaxCount: 3, CounterId: 1, Weight: 9999},
+		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 101, Count: 1, MaxCount: 1, CounterId: 2},
+	}
+	drewCounts := map[int32]int32{model.ChapterGachaMonthCounterId: 202608, 1: 1}
+	result, err := drawChapterWithIntn(items, BoxGroupWeights{Limited: GroupWeightTotal}, drewCounts, 1, 202608, func(bound int) int {
+		if bound != 3 {
+			t.Fatalf("limited draw bound = %d, want 3 remaining items", bound)
+		}
+		return 2
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].PossessionId != 101 {
+		t.Fatalf("chapter draw result = %+v, want the third remaining item", result)
 	}
 }
 
