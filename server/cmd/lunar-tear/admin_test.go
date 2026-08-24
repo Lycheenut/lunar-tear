@@ -72,6 +72,31 @@ func TestAdminSearchableSelectLoadsAroundSelectionAndExtendsAtEdges(t *testing.T
 	}
 }
 
+func TestAdminSearchableSelectUsesViewportOverlay(t *testing.T) {
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`position: fixed;`,
+		`z-index: 1000;`,
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("searchable select overlay CSS is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`document.body.append(list)`,
+		`document.documentElement.clientWidth`,
+		`document.documentElement.clientHeight`,
+		`window.addEventListener("scroll", repositionList, true)`,
+		`wrapper.insertBefore(list, select)`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("searchable select viewport overlay is missing %s", required)
+		}
+	}
+}
+
 func TestAdminQuestDropUsesSharedOuterPanelAndBottomSavebar(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")

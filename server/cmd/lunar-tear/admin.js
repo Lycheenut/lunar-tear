@@ -531,9 +531,70 @@
       select.classList.add("searchable-select-source");
       wrapper.append(input, list, select);
 
+      const listGap = 6;
+      const viewportMargin = 8;
+      let trackingViewport = false;
+      const positionList = () => {
+        if (list.parentNode !== document.body || list.classList.contains("hidden")) return;
+        const anchor = input.getBoundingClientRect();
+        const viewportWidth = document.documentElement.clientWidth;
+        const viewportHeight = document.documentElement.clientHeight;
+        const width = Math.min(anchor.width, Math.max(0, viewportWidth - viewportMargin * 2));
+        const left = Math.min(
+          Math.max(anchor.left, viewportMargin),
+          Math.max(viewportMargin, viewportWidth - viewportMargin - width)
+        );
+        list.style.right = "auto";
+        list.style.left = `${left}px`;
+        list.style.width = `${width}px`;
+        const availableBelow = Math.max(0, viewportHeight - anchor.bottom - listGap - viewportMargin);
+        const availableAbove = Math.max(0, anchor.top - listGap - viewportMargin);
+        list.style.maxHeight = "none";
+        const desiredHeight = Math.min(330, list.scrollHeight);
+        const placeAbove = availableBelow < desiredHeight && availableAbove > availableBelow;
+        const availableHeight = placeAbove ? availableAbove : availableBelow;
+
+        list.style.maxHeight = `${Math.min(330, availableHeight)}px`;
+        if (placeAbove) {
+          list.style.top = "auto";
+          list.style.bottom = `${viewportHeight - anchor.top + listGap}px`;
+        } else {
+          list.style.top = `${anchor.bottom + listGap}px`;
+          list.style.bottom = "auto";
+        }
+      };
+      const repositionList = () => {
+        if (wrapper.isConnected) positionList();
+        else close();
+      };
+      const stopTrackingViewport = () => {
+        if (!trackingViewport) return;
+        trackingViewport = false;
+        window.removeEventListener("resize", repositionList);
+        window.removeEventListener("scroll", repositionList, true);
+        window.visualViewport?.removeEventListener("resize", repositionList);
+      };
+      const startTrackingViewport = () => {
+        if (trackingViewport) return;
+        trackingViewport = true;
+        window.addEventListener("resize", repositionList);
+        window.addEventListener("scroll", repositionList, true);
+        window.visualViewport?.addEventListener("resize", repositionList);
+      };
       const close = () => {
         list.classList.add("hidden");
         input.setAttribute("aria-expanded", "false");
+        stopTrackingViewport();
+        list.removeAttribute("style");
+        if (wrapper.isConnected) wrapper.insertBefore(list, select);
+        else list.remove();
+      };
+      const open = () => {
+        if (list.parentNode !== document.body) document.body.append(list);
+        list.classList.remove("hidden");
+        input.setAttribute("aria-expanded", "true");
+        startTrackingViewport();
+        positionList();
       };
       const selectedOption = () => [...select.options].find((option) => option.value === select.value);
       const restoreSelection = () => {
@@ -659,13 +720,11 @@
       input.addEventListener("focus", () => {
         input.select();
         renderOptions("", true);
-        list.classList.remove("hidden");
-        input.setAttribute("aria-expanded", "true");
+        open();
       });
       input.addEventListener("input", () => {
         renderOptions(input.value);
-        list.classList.remove("hidden");
-        input.setAttribute("aria-expanded", "true");
+        open();
       });
       list.addEventListener("scroll", () => {
         if (controller.positioning || !controller.matches.length) return;
