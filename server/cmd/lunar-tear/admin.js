@@ -92,7 +92,9 @@
     boxAddLimitedReward: $("#box-add-limited-reward"), boxAddUnlimitedReward: $("#box-add-unlimited-reward"),
     boxLimitedRewardBody: $("#box-limited-reward-body"), boxUnlimitedRewardBody: $("#box-unlimited-reward-body"),
     boxGachaRuleNote: $("#box-gacha-rule-note"), boxGachaCopyDialog: $("#box-gacha-copy-dialog"),
-    boxGachaCopySummary: $("#box-gacha-copy-summary"), boxGachaCopySource: $("#box-gacha-copy-source"),
+    boxGachaCopyTitle: $("#box-gacha-copy-title"), boxGachaCopySummary: $("#box-gacha-copy-summary"),
+    boxGachaCopyField: $("#box-gacha-copy-field"), boxGachaCopySource: $("#box-gacha-copy-source"),
+    boxGachaCopyError: $("#box-gacha-copy-error"),
     boxGachaCopyCancel: $("#box-gacha-copy-cancel"), boxGachaCopyConfirm: $("#box-gacha-copy-confirm")
   };
 
@@ -151,6 +153,8 @@
     gachaKind: "premium",
     boxSelections: {},
     boxGachaCopyTargetID: 0,
+    boxGachaCopySourceID: 0,
+    boxGachaCopyConfirming: false,
     pendingMasterChanges: null
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
@@ -4933,50 +4937,76 @@
     return { box: boxNumber ? event.boxes[boxNumber - 1] : null, boxNumber, boxCount };
   }
 
-  function chapterBoxCopyCandidates(targetGachaId) {
-    return (state.gachaCatalog.boxBanners || []).filter((banner) =>
-      banner.gachaLabelType === 3
-      && banner.gachaId !== targetGachaId
-      && Object.prototype.hasOwnProperty.call(state.gachaDraft.chapterBanners, String(banner.gachaId))
-    );
+  function setChapterBoxCopyError(message) {
+    elements.boxGachaCopyError.textContent = message;
+    elements.boxGachaCopyError.classList.toggle("hidden", !message);
+  }
+
+  function resetChapterBoxCopyDialog() {
+    state.boxGachaCopyTargetID = 0;
+    state.boxGachaCopySourceID = 0;
+    state.boxGachaCopyConfirming = false;
+    elements.boxGachaCopySource.value = "";
+    elements.boxGachaCopyField.classList.remove("hidden");
+    elements.boxGachaCopyConfirm.textContent = "读取并复制";
+    setChapterBoxCopyError("");
   }
 
   function openChapterBoxCopyDialog(targetBanner) {
-    const candidates = chapterBoxCopyCandidates(targetBanner.gachaId);
-    if (!candidates.length) {
-      showNotice("没有其他已配置的 Chapter Gacha 可供复制。", true);
-      return;
-    }
+    resetChapterBoxCopyDialog();
     state.boxGachaCopyTargetID = targetBanner.gachaId;
-    elements.boxGachaCopySource.replaceChildren();
-    candidates.forEach((banner) => {
-      const option = document.createElement("option");
-      option.value = String(banner.gachaId);
-      const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || `Chapter ${banner.relatedMainQuestChapterId}`;
-      option.textContent = idNameLabel(banner.gachaId, name);
-      elements.boxGachaCopySource.append(option);
-    });
-    createSearchableSelect(elements.boxGachaCopySource, { placeholder: "搜索来源章节 ID 或名称" });
-    elements.boxGachaCopySummary.textContent = `将覆盖 Chapter Gacha ${targetBanner.gachaId} 的当前奖励配置。`;
+    elements.boxGachaCopyTitle.textContent = "从其他章节复制";
+    elements.boxGachaCopySummary.textContent = `当前章节卡池：${targetBanner.gachaId}`;
     elements.boxGachaCopyDialog.showModal();
-    elements.boxGachaCopySource.closest(".searchable-select")?.querySelector("input")?.focus();
+    elements.boxGachaCopySource.focus();
   }
 
-  function copyChapterBoxConfig() {
+  function applyChapterBoxCopy() {
     const targetGachaId = state.boxGachaCopyTargetID;
-    const sourceGachaId = Number(elements.boxGachaCopySource.value);
+    const sourceGachaId = state.boxGachaCopySourceID;
     const source = state.gachaDraft.chapterBanners[String(sourceGachaId)];
-    if (!targetGachaId || !source || sourceGachaId === targetGachaId) return;
+    if (!targetGachaId || !source) return;
     const copied = JSON.parse(JSON.stringify(source));
     removeLimitedRewardWeights(copied);
     state.gachaDraft.chapterBanners[String(targetGachaId)] = copied;
     elements.boxGachaCopyDialog.close();
     markBoxGachaDirty(true);
-    showNotice(`已将 Chapter Gacha ${sourceGachaId} 的奖励配置复制到 ${targetGachaId}。`);
+    showNotice(`已将章节卡池 ${sourceGachaId} 的 Chapter Gacha 配置复制到当前卡池。`);
   }
 
-  function resetChapterBoxCopyDialog() {
-    state.boxGachaCopyTargetID = 0;
+  function copyChapterBoxConfig() {
+    if (state.boxGachaCopyConfirming) {
+      applyChapterBoxCopy();
+      return;
+    }
+    const normalized = elements.boxGachaCopySource.value.trim();
+    if (!/^\d+$/.test(normalized)) {
+      setChapterBoxCopyError("请输入有效的来源章节卡池 ID。");
+      return;
+    }
+    const sourceGachaId = Number(normalized);
+    const sourceBanner = (state.gachaCatalog.boxBanners || []).find((banner) =>
+      banner.gachaLabelType === 3 && banner.gachaId === sourceGachaId
+    );
+    if (!sourceBanner) {
+      setChapterBoxCopyError(`来源章节卡池 ${sourceGachaId} 不存在。`);
+      return;
+    }
+    if (sourceBanner.gachaId === state.boxGachaCopyTargetID) {
+      setChapterBoxCopyError("来源章节卡池不能与当前章节卡池相同。");
+      return;
+    }
+    if (!state.gachaDraft.chapterBanners[String(sourceBanner.gachaId)]) {
+      setChapterBoxCopyError(`来源章节卡池 ${sourceGachaId} 尚未配置 Chapter Gacha。`);
+      return;
+    }
+    state.boxGachaCopySourceID = sourceBanner.gachaId;
+    state.boxGachaCopyConfirming = true;
+    elements.boxGachaCopyTitle.textContent = "确认覆盖当前 Chapter 配置？";
+    elements.boxGachaCopySummary.textContent = `将使用来源章节卡池 ${sourceGachaId} 覆盖当前卡池的 Chapter Gacha 奖励配置。`;
+    elements.boxGachaCopyField.classList.add("hidden");
+    elements.boxGachaCopyConfirm.textContent = "确认覆盖";
+    setChapterBoxCopyError("");
   }
 
   function renderBoxGachaEditor() {
@@ -5706,6 +5736,11 @@
 	  elements.boxGachaRemoveBox.addEventListener("click", removeConfiguredBox);
   elements.boxGachaCopyCancel.addEventListener("click", () => elements.boxGachaCopyDialog.close());
   elements.boxGachaCopyConfirm.addEventListener("click", copyChapterBoxConfig);
+  elements.boxGachaCopySource.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    copyChapterBoxConfig();
+  });
   elements.boxGachaCopyDialog.addEventListener("close", resetChapterBoxCopyDialog);
   elements.boxAddLimitedReward.addEventListener("click", () => addBoxReward("limited"));
   elements.boxAddUnlimitedReward.addEventListener("click", () => addBoxReward("unlimited"));

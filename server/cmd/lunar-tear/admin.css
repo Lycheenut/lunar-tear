@@ -1041,9 +1041,6 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .quest-drop-copy-field { display: grid; gap: 7px; margin-top: 18px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .quest-drop-copy-field input { width: 100%; min-height: 38px; }
 .quest-drop-copy-error { margin: 10px 0 0; color: var(--danger) !important; font-size: 11px !important; }
-.box-gacha-copy-field { display: grid; gap: 7px; margin-top: 18px; color: var(--muted); font-size: 11px; font-weight: 700; }
-.box-gacha-copy-field .searchable-select { width: 100%; }
-
 .impact-dialog {
   width: min(900px, calc(100% - 32px));
   max-width: 900px;

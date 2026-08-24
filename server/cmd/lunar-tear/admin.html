@@ -660,12 +660,13 @@
       <h2 id="box-gacha-copy-title">从其他章节复制</h2>
       <p id="box-gacha-copy-summary"></p>
     </div>
-    <label class="box-gacha-copy-field">来源 Chapter Gacha
-      <select id="box-gacha-copy-source"></select>
+    <label id="box-gacha-copy-field" class="quest-drop-copy-field">来源章节卡池 ID
+      <input id="box-gacha-copy-source" type="text" inputmode="numeric" autocomplete="off" aria-describedby="box-gacha-copy-error">
     </label>
+    <p id="box-gacha-copy-error" class="quest-drop-copy-error hidden" role="alert"></p>
     <div class="save-actions">
       <button id="box-gacha-copy-cancel" class="button ghost" type="button">取消</button>
-      <button id="box-gacha-copy-confirm" class="button primary" type="button">确认复制</button>
+      <button id="box-gacha-copy-confirm" class="button primary" type="button">读取并复制</button>
     </div>
   </dialog>
 
