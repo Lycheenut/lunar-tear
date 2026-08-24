@@ -97,6 +97,26 @@ func TestAdminSearchableSelectUsesViewportOverlay(t *testing.T) {
 	}
 }
 
+func TestAdminSearchableSelectPreservesScrollWhileLoadingMoreOptions(t *testing.T) {
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`if (event?.type === "scroll" && event.target === list) return;`,
+		`list.scrollTop = previousTop;`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("searchable select scroll preservation is missing %s", required)
+		}
+	}
+	if strings.Contains(javascript, `list.style.maxHeight = "none";`) {
+		t.Fatal("searchable select still expands its height during internal scrolling")
+	}
+	if !strings.Contains(css, `overflow-anchor: none;`) {
+		t.Fatal("searchable select does not disable browser scroll anchoring")
+	}
+}
+
 func TestAdminQuestDropUsesSharedOuterPanelAndBottomSavebar(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")

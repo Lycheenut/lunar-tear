@@ -245,6 +245,7 @@ input:focus, select:focus {
   display: grid;
   max-height: 330px;
   overflow-y: auto;
+  overflow-anchor: none;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;

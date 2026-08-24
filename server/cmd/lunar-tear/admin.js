@@ -549,7 +549,6 @@
         list.style.width = `${width}px`;
         const availableBelow = Math.max(0, viewportHeight - anchor.bottom - listGap - viewportMargin);
         const availableAbove = Math.max(0, anchor.top - listGap - viewportMargin);
-        list.style.maxHeight = "none";
         const desiredHeight = Math.min(330, list.scrollHeight);
         const placeAbove = availableBelow < desiredHeight && availableAbove > availableBelow;
         const availableHeight = placeAbove ? availableAbove : availableBelow;
@@ -563,7 +562,8 @@
           list.style.bottom = "auto";
         }
       };
-      const repositionList = () => {
+      const repositionList = (event) => {
+        if (event?.type === "scroll" && event.target === list) return;
         if (wrapper.isConnected) positionList();
         else close();
       };
@@ -750,11 +750,13 @@
         }
         if (list.scrollTop + list.clientHeight >= list.scrollHeight - 8
           && controller.windowEnd < controller.matches.length) {
+          const previousTop = list.scrollTop;
           renderOptionWindow(
             controller.matches,
             controller.windowStart,
             Math.min(controller.matches.length, controller.windowEnd + batchSize)
           );
+          list.scrollTop = previousTop;
         }
       });
       input.addEventListener("keydown", (event) => {
