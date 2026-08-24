@@ -489,21 +489,32 @@ func TestAdminBoxGachaRewardGroupsUseCompactTwoColumnLayout(t *testing.T) {
 	for _, required := range []string{
 		`class="box-reward-table box-limited-reward-table"`,
 		`class="box-reward-table box-unlimited-reward-table"`,
+		`<th>实时概率</th><th>精选</th>`,
 	} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("Box Gacha reward table is missing %s", required)
 		}
 	}
 	for _, required := range []string{
-		`.box-gacha-editor-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));`,
+		`.box-gacha-editor-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);`,
 		`.box-group-probabilities, .box-gacha-rule-note { grid-column: 1 / -1; }`,
-		`.box-limited-reward-table { min-width: 700px; }`,
-		`.box-unlimited-reward-table { min-width: 590px; }`,
+		`.box-limited-reward-table { min-width: 650px; }`,
+		`.box-unlimited-reward-table { min-width: 530px; }`,
+		`.box-limited-reward-table th:nth-child(5), .box-unlimited-reward-table th:nth-child(4) { width: 60px; }`,
+		`.box-limited-reward-table th:nth-child(6), .box-unlimited-reward-table th:nth-child(5) { width: 46px; }`,
 		`.box-gacha-editor-body { grid-template-columns: minmax(0, 1fr); }`,
 	} {
 		if !strings.Contains(css, required) {
 			t.Fatalf("Box Gacha compact reward layout is missing %s", required)
 		}
+	}
+}
+
+func TestAdminBoxGachaProbabilityPreviewUsesOneDecimalPlace(t *testing.T) {
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	if !strings.Contains(javascript, "target.textContent = `${probability.toFixed(1)}%`;") {
+		t.Fatal("Box Gacha probability preview is not limited to one decimal place")
 	}
 }
 

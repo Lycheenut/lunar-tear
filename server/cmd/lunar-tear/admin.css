@@ -995,7 +995,7 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .box-gacha-toolbar select { width: 100%; }
 .box-gacha-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .button.danger { color: #ffaaa1; border-color: rgba(255, 111, 97, .35); }
-.box-gacha-editor-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 16px; }
+.box-gacha-editor-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 16px; padding: 16px; }
 .box-group-probabilities { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); align-items: center; gap: 10px 28px; }
 .box-group-probabilities, .box-gacha-rule-note { grid-column: 1 / -1; }
 .box-group-probabilities > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
@@ -1006,16 +1006,16 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .data-heading.compact h3 { margin: 3px 0 0; font-size: 15px; }
 .box-reward-scroll { max-height: 480px; }
 .box-reward-table { table-layout: fixed; }
-.box-limited-reward-table { min-width: 700px; }
-.box-unlimited-reward-table { min-width: 590px; }
+.box-limited-reward-table { min-width: 650px; }
+.box-unlimited-reward-table { min-width: 530px; }
 .box-reward-table th, .box-reward-table td { padding-right: 8px; padding-left: 8px; }
-.box-reward-table th:first-child { width: 280px; }
+.box-reward-table th:first-child { width: 260px; }
 .box-limited-reward-table th:nth-child(2), .box-limited-reward-table th:nth-child(3), .box-limited-reward-table th:nth-child(4),
-.box-unlimited-reward-table th:nth-child(2), .box-unlimited-reward-table th:nth-child(3) { width: 64px; }
-.box-limited-reward-table th:nth-child(5), .box-unlimited-reward-table th:nth-child(4) { width: 72px; }
-.box-limited-reward-table th:nth-child(6), .box-unlimited-reward-table th:nth-child(5) { width: 62px; }
-.box-limited-reward-table th:nth-child(7) { width: 48px; }
-.box-reward-table th:nth-last-child(1) { width: 44px; }
+.box-unlimited-reward-table th:nth-child(2), .box-unlimited-reward-table th:nth-child(3) { width: 60px; }
+.box-limited-reward-table th:nth-child(5), .box-unlimited-reward-table th:nth-child(4) { width: 60px; }
+.box-limited-reward-table th:nth-child(6), .box-unlimited-reward-table th:nth-child(5) { width: 46px; }
+.box-limited-reward-table th:nth-child(7) { width: 44px; }
+.box-reward-table th:nth-last-child(1) { width: 40px; }
 .box-reward-table td { vertical-align: middle; }
 .box-reward-table td:first-child, .box-reward-table th:first-child { position: static; min-width: 0; background: inherit; }
 .box-reward-table th:first-child { background: #121b20; }

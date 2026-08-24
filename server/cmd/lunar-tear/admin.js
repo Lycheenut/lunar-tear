@@ -5128,7 +5128,7 @@
         const target = document.querySelector(`[data-box-probability="${group}:${index}"]`);
         if (!target) return;
         const probability = groupTotal > 0 && rewardTotal > 0 ? groupWeight / groupTotal * Math.max(0, Number(reward.weight || 0)) / rewardTotal * 100 : 0;
-        target.textContent = `${probability.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}%`;
+        target.textContent = `${probability.toFixed(1)}%`;
       });
     });
   }
