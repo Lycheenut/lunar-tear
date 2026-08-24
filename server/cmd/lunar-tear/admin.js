@@ -91,7 +91,9 @@
     boxLimitedProbability: $("#box-limited-probability"), boxUnlimitedProbability: $("#box-unlimited-probability"),
     boxAddLimitedReward: $("#box-add-limited-reward"), boxAddUnlimitedReward: $("#box-add-unlimited-reward"),
     boxLimitedRewardBody: $("#box-limited-reward-body"), boxUnlimitedRewardBody: $("#box-unlimited-reward-body"),
-    boxGachaRuleNote: $("#box-gacha-rule-note")
+    boxGachaRuleNote: $("#box-gacha-rule-note"), boxGachaCopyDialog: $("#box-gacha-copy-dialog"),
+    boxGachaCopySummary: $("#box-gacha-copy-summary"), boxGachaCopySource: $("#box-gacha-copy-source"),
+    boxGachaCopyCancel: $("#box-gacha-copy-cancel"), boxGachaCopyConfirm: $("#box-gacha-copy-confirm")
   };
 
   const state = {
@@ -148,6 +150,7 @@
     gachaDirty: false,
     gachaKind: "premium",
     boxSelections: {},
+    boxGachaCopyTargetID: 0,
     pendingMasterChanges: null
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
@@ -4930,6 +4933,52 @@
     return { box: boxNumber ? event.boxes[boxNumber - 1] : null, boxNumber, boxCount };
   }
 
+  function chapterBoxCopyCandidates(targetGachaId) {
+    return (state.gachaCatalog.boxBanners || []).filter((banner) =>
+      banner.gachaLabelType === 3
+      && banner.gachaId !== targetGachaId
+      && Object.prototype.hasOwnProperty.call(state.gachaDraft.chapterBanners, String(banner.gachaId))
+    );
+  }
+
+  function openChapterBoxCopyDialog(targetBanner) {
+    const candidates = chapterBoxCopyCandidates(targetBanner.gachaId);
+    if (!candidates.length) {
+      showNotice("没有其他已配置的 Chapter Gacha 可供复制。", true);
+      return;
+    }
+    state.boxGachaCopyTargetID = targetBanner.gachaId;
+    elements.boxGachaCopySource.replaceChildren();
+    candidates.forEach((banner) => {
+      const option = document.createElement("option");
+      option.value = String(banner.gachaId);
+      const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || `Chapter ${banner.relatedMainQuestChapterId}`;
+      option.textContent = idNameLabel(banner.gachaId, name);
+      elements.boxGachaCopySource.append(option);
+    });
+    createSearchableSelect(elements.boxGachaCopySource, { placeholder: "搜索来源章节 ID 或名称" });
+    elements.boxGachaCopySummary.textContent = `将覆盖 Chapter Gacha ${targetBanner.gachaId} 的当前奖励配置。`;
+    elements.boxGachaCopyDialog.showModal();
+    elements.boxGachaCopySource.closest(".searchable-select")?.querySelector("input")?.focus();
+  }
+
+  function copyChapterBoxConfig() {
+    const targetGachaId = state.boxGachaCopyTargetID;
+    const sourceGachaId = Number(elements.boxGachaCopySource.value);
+    const source = state.gachaDraft.chapterBanners[String(sourceGachaId)];
+    if (!targetGachaId || !source || sourceGachaId === targetGachaId) return;
+    const copied = JSON.parse(JSON.stringify(source));
+    removeLimitedRewardWeights(copied);
+    state.gachaDraft.chapterBanners[String(targetGachaId)] = copied;
+    elements.boxGachaCopyDialog.close();
+    markBoxGachaDirty(true);
+    showNotice(`已将 Chapter Gacha ${sourceGachaId} 的奖励配置复制到 ${targetGachaId}。`);
+  }
+
+  function resetChapterBoxCopyDialog() {
+    state.boxGachaCopyTargetID = 0;
+  }
+
   function renderBoxGachaEditor() {
     const banners = boxBannersForCurrentKind();
     const previousBanner = elements.boxGachaBannerSelect.value;
@@ -4961,8 +5010,8 @@
       elements.boxGachaNumberSelect.append(option);
     }
     if (selection.boxNumber) elements.boxGachaNumberSelect.value = String(selection.boxNumber);
-	    elements.boxGachaAddBox.textContent = event ? "新增箱子" : "创建 Chapter 配置";
-	    elements.boxGachaAddBox.disabled = !event && Boolean(selection.box);
+	    elements.boxGachaAddBox.textContent = event ? "新增箱子" : selection.box ? "从其他章节复制" : "创建 Chapter 配置";
+	    elements.boxGachaAddBox.disabled = !banner;
 	    elements.boxGachaRemoveBox.textContent = event ? "删除当前箱子" : "删除 Chapter 配置";
 	    elements.boxGachaRemoveBox.disabled = !selection.box;
 	    elements.boxGachaState.textContent = selection.box ? `${selection.boxCount} 箱 · 当前第 ${selection.boxNumber} 箱` : "未配置";
@@ -5169,7 +5218,10 @@
 	    if (!banner) return;
 	    const key = String(banner.gachaId);
 	    if (state.gachaKind === "chapter") {
-	      if (state.gachaDraft.chapterBanners[key]) return;
+	      if (state.gachaDraft.chapterBanners[key]) {
+	        openChapterBoxCopyDialog(banner);
+	        return;
+	      }
 	      state.gachaDraft.chapterBanners[key] = newBoxConfig(false);
 	      markBoxGachaDirty(true);
 	      return;
@@ -5652,6 +5704,9 @@
   });
 	  elements.boxGachaAddBox.addEventListener("click", addConfiguredBox);
 	  elements.boxGachaRemoveBox.addEventListener("click", removeConfiguredBox);
+  elements.boxGachaCopyCancel.addEventListener("click", () => elements.boxGachaCopyDialog.close());
+  elements.boxGachaCopyConfirm.addEventListener("click", copyChapterBoxConfig);
+  elements.boxGachaCopyDialog.addEventListener("close", resetChapterBoxCopyDialog);
   elements.boxAddLimitedReward.addEventListener("click", () => addBoxReward("limited"));
   elements.boxAddUnlimitedReward.addEventListener("click", () => addBoxReward("unlimited"));
   elements.boxLimitedProbability.addEventListener("input", () => {

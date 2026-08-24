@@ -446,6 +446,43 @@ func TestAdminChapterBoxToolbarReservesActionWidth(t *testing.T) {
 	}
 }
 
+func TestAdminChapterBoxCanCopyAnotherConfiguredChapter(t *testing.T) {
+	html := adminAssetBody(t, "/admin/")
+	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
+
+	for _, required := range []string{
+		`id="box-gacha-copy-dialog"`,
+		`id="box-gacha-copy-source"`,
+		`id="box-gacha-copy-confirm"`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("Chapter Gacha copy dialog is missing %s", required)
+		}
+	}
+	if !strings.Contains(css, `.box-gacha-copy-field`) {
+		t.Fatal("Chapter Gacha copy dialog field is missing its layout")
+	}
+	for _, required := range []string{
+		`function chapterBoxCopyCandidates(targetGachaId)`,
+		`function openChapterBoxCopyDialog(targetBanner)`,
+		`function copyChapterBoxConfig()`,
+		`Object.prototype.hasOwnProperty.call(state.gachaDraft.chapterBanners, String(banner.gachaId))`,
+		`elements.boxGachaAddBox.textContent = event ? "新增箱子" : selection.box ? "从其他章节复制" : "创建 Chapter 配置";`,
+		`openChapterBoxCopyDialog(banner);`,
+		`const copied = JSON.parse(JSON.stringify(source));`,
+		`state.gachaDraft.chapterBanners[String(targetGachaId)] = copied;`,
+		`elements.boxGachaCopyConfirm.addEventListener("click", copyChapterBoxConfig);`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("Chapter Gacha copy flow is missing %s", required)
+		}
+	}
+	if strings.Contains(javascript, `elements.boxGachaAddBox.disabled = !event && Boolean(selection.box);`) {
+		t.Fatal("Chapter Gacha copy button remains disabled after configuration creation")
+	}
+}
+
 func TestAdminBoxGachaDerivesUnlimitedProbability(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")
