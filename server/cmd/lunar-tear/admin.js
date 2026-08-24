@@ -1387,7 +1387,7 @@
   }
 
   function questDropCharacterQuestCategoryLabel(value) {
-    const labels = { "1": "真暗ノ巣窟", "2": "真暗ノコイン", "3": "EXガチャチケット" };
+    const labels = { "1": "真暗ノコイン", "2": "EXガチャチケット", "3": "真暗ノ巣窟" };
     return labels[String(value)] || `分类 ${value}`;
   }
 
@@ -5102,9 +5102,9 @@
     featuredCell.append(featured);
     tr.append(featuredCell);
 
+    const jackpotCell = document.createElement("td");
+    jackpotCell.className = "jackpot-column";
     if (limited) {
-      const jackpotCell = document.createElement("td");
-      jackpotCell.className = "jackpot-column";
       const jackpot = document.createElement("input");
       jackpot.type = "checkbox";
       jackpot.checked = Boolean(reward.jackpot);
@@ -5112,9 +5112,10 @@
       jackpot.setAttribute("aria-label", "Event Gacha 大奖");
       jackpot.addEventListener("change", () => { reward.jackpot = jackpot.checked; markBoxGachaDirty(false); });
       jackpotCell.append(jackpot);
-      jackpotCell.classList.toggle("hidden", !event);
-      tr.append(jackpotCell);
     }
+    jackpotCell.classList.toggle("hidden", !event);
+    jackpotCell.setAttribute("aria-hidden", String(!limited || !event));
+    tr.append(jackpotCell);
 
     const removeCell = document.createElement("td");
     const remove = document.createElement("button");

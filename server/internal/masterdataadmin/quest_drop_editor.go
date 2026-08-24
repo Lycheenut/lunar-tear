@@ -450,11 +450,12 @@ func normalizeQuestDropPlacements(
 			placement.names = questDropLevelNames(resolver, placement.sortOrder)
 		case "event-7":
 			category, level := questDropCharacterQuestStage(metadata[placement.questID].nameTextID)
-			if category != 0 && level != 0 {
-				placement.subcategoryType = category
-				placement.sortOrder = level
-				placement.names = questDropLevelNames(resolver, level)
+			if category == 0 || level == 0 {
+				continue
 			}
+			placement.subcategoryType = category
+			placement.sortOrder = level
+			placement.names = questDropLevelNames(resolver, level)
 		}
 		result = append(result, placement)
 	}
@@ -560,21 +561,15 @@ func questDropCharacterNamesByChapter(file *memorydb.File, resolver *titleResolv
 }
 
 func questDropCharacterQuestStage(nameTextID int32) (category, level int32) {
-	// The three original levels use one ID range per category; the three
-	// super-level names were appended later as 110011-110013.
+	// Coin and EX ticket names alternate. One-off Dark Trial quests use
+	// 110011-110013 and are intentionally excluded from drop configuration.
 	switch nameTextID {
-	case 110001, 110002, 110003:
-		return 1, nameTextID - 110000
-	case 110011:
-		return 1, 4
-	case 110004, 110005, 110006:
-		return 2, nameTextID - 110003
-	case 110012:
-		return 2, 4
+	case 110001, 110003, 110005:
+		return 1, (nameTextID - 109999) / 2
+	case 110002, 110004, 110006:
+		return 2, (nameTextID - 110000) / 2
 	case 110008, 110009, 110010:
 		return 3, nameTextID - 110007
-	case 110013:
-		return 3, 4
 	default:
 		return 0, 0
 	}

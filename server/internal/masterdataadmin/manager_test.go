@@ -563,6 +563,7 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 	guerrillaStages := make(map[int32]map[int32]string)
 	characterQuestStages := make(map[int32]map[int32]map[int32]string)
 	wantStageNames := map[int32]string{1: "初級", 2: "中級", 3: "上級", 4: "超級"}
+	wantCharacterQuestStageNames := map[int32]string{1: "初級", 2: "中級", 3: "上級"}
 	for _, quest := range editor.Quests {
 		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" || quest.TypeID == "event-9" ||
 			quest.TypeID == "event-10" || quest.TypeID == "event-11" || quest.TypeID == "event-12" {
@@ -627,10 +628,10 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 			t.Fatalf("character quest chapter %d categories=%v, want three", chapterID, categories)
 		}
 		for category := int32(1); category <= 3; category++ {
-			if len(categories[category]) != 4 {
-				t.Fatalf("character quest chapter %d category %d stages=%v, want four", chapterID, category, categories[category])
+			if len(categories[category]) != 3 {
+				t.Fatalf("character quest chapter %d category %d stages=%v, want three", chapterID, category, categories[category])
 			}
-			for stage, want := range wantStageNames {
+			for stage, want := range wantCharacterQuestStageNames {
 				if got := categories[category][stage]; got != want {
 					t.Fatalf("character quest chapter %d category %d stage %d name=%q, want %q", chapterID, category, stage, got, want)
 				}

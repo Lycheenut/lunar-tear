@@ -344,7 +344,7 @@ func TestAdminQuestDropEditorUsesInlineRewardAndAcquisitionPreviews(t *testing.T
 		`const usesSubcategoryFilter = state.questDropTypeFilter === "event-7"`,
 		`if (!usesDifficultyFilter && !usesSubcategoryFilter)`,
 		`subtypeLabel.textContent = usesSubcategoryFilter ? "关卡类型" : "难度"`,
-		`const labels = { "1": "真暗ノ巣窟", "2": "真暗ノコイン", "3": "EXガチャチケット" }`,
+		`const labels = { "1": "真暗ノコイン", "2": "EXガチャチケット", "3": "真暗ノ巣窟" }`,
 		"new Option(`${definition.value}. ${definition.label}`, definition.id)",
 		"Number(left.value) - Number(right.value)",
 		"Number(left.chapterId) - Number(right.chapterId)",
@@ -505,10 +505,12 @@ func TestAdminBoxGachaUsesSearchableRewardSelectorsWithIcons(t *testing.T) {
 func TestAdminBoxGachaRewardGroupsUseCompactTwoColumnLayout(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")
+	javascript := adminAssetBody(t, "/admin/admin.js")
 
 	for _, required := range []string{
 		`class="box-reward-table box-limited-reward-table"`,
 		`class="box-reward-table box-unlimited-reward-table"`,
+		`<th>精选</th><th class="jackpot-column"></th><th></th>`,
 		`<th>实时概率</th><th>精选</th>`,
 		`<th>库存</th><th>实时概率</th>`,
 	} {
@@ -517,16 +519,26 @@ func TestAdminBoxGachaRewardGroupsUseCompactTwoColumnLayout(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		`.box-gacha-editor-body { display: grid; grid-template-columns: minmax(0, 1.06fr) minmax(0, .94fr);`,
+		`.box-gacha-editor-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));`,
 		`.box-group-probabilities, .box-gacha-rule-note { grid-column: 1 / -1; }`,
-		`.box-limited-reward-table { min-width: 590px; }`,
-		`.box-unlimited-reward-table { min-width: 530px; }`,
-		`.box-limited-reward-table th:nth-child(4), .box-unlimited-reward-table th:nth-child(4) { width: 60px; }`,
-		`.box-limited-reward-table th:nth-child(5), .box-unlimited-reward-table th:nth-child(5) { width: 46px; }`,
+		`.box-reward-table { min-width: 590px; table-layout: fixed; }`,
+		`.box-reward-table th:nth-child(2), .box-reward-table th:nth-child(3), .box-reward-table th:nth-child(4) { width: 60px; }`,
+		`.box-reward-table th:nth-child(5) { width: 46px; }`,
+		`.box-reward-table th:nth-child(6) { width: 44px; }`,
+		`.box-reward-table td { height: 58px; padding-top: 10px; padding-bottom: 10px; vertical-align: middle; }`,
 		`.box-gacha-editor-body { grid-template-columns: minmax(0, 1fr); }`,
 	} {
 		if !strings.Contains(css, required) {
 			t.Fatalf("Box Gacha compact reward layout is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`const jackpotCell = document.createElement("td");`,
+		`jackpotCell.setAttribute("aria-hidden", String(!limited || !event));`,
+		`tr.append(jackpotCell);`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("Box Gacha aligned reward layout is missing %s", required)
 		}
 	}
 }
