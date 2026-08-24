@@ -388,6 +388,19 @@ func TestAdminSearchableSelectAppliedToRequestedFilters(t *testing.T) {
 	}
 }
 
+func TestAdminChapterBoxToolbarReservesActionWidth(t *testing.T) {
+	css := adminAssetBody(t, "/admin/admin.css")
+
+	for _, required := range []string{
+		`.box-gacha-toolbar > * { min-width: 0; }`,
+		`.box-gacha-toolbar:has(#box-gacha-number-label.hidden) { grid-template-columns: minmax(260px, 1fr) auto; }`,
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("admin CSS is missing Chapter Box toolbar layout rule %s", required)
+		}
+	}
+}
+
 func TestAdminMissionTermUsesRequestedLayout(t *testing.T) {
 	css := adminAssetBody(t, "/admin/admin.css")
 
