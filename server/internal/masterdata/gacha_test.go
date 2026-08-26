@@ -14,11 +14,11 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 	entries := buildChapterGachaEntries()
 	wantChapterIds := [...]int32{2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13}
 	wantWeightTotals := [...]int32{9990, 9990, 10000, 9990, 9990, 10000, 10004, 10004, 10000, 10000, 10000}
-	if len(entries) != len(wantChapterIds) {
-		t.Fatalf("chapter Gacha count = %d, want %d", len(entries), len(wantChapterIds))
+	if len(entries) != len(wantChapterIds)+1 {
+		t.Fatalf("chapter Gacha count = %d, want %d", len(entries), len(wantChapterIds)+1)
 	}
 
-	for i, entry := range entries {
+	for i, entry := range entries[:len(wantChapterIds)] {
 		chapterNumber := int32(i + 1)
 		if entry.GachaId != chapterGachaIdBase+chapterNumber ||
 			entry.BannerAssetName != fmt.Sprintf("chapter_%d", chapterNumber) ||
@@ -58,6 +58,13 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 	if first.PossessionId != 100004 || first.Count != 5 || first.MaxCount != 20 || first.Weight != 200 {
 		t.Fatalf("unexpected first chapter reward row: %+v", first)
 	}
+
+	trueDark := entries[len(entries)-1]
+	if trueDark.GachaId != chapterGachaIdBase || trueDark.BannerAssetName != "chapter_ex" ||
+		trueDark.RelatedMainQuestChapterId != 0 || len(trueDark.PricePhases) != 2 ||
+		trueDark.PricePhases[0].PriceId != 1007 || trueDark.PricePhases[1].PriceId != 1007 {
+		t.Fatalf("unexpected true-dark chapter catalog entry: %+v", trueDark)
+	}
 }
 
 func TestChapterGachaPromotionsMatchCoverPickups(t *testing.T) {
@@ -77,7 +84,7 @@ func TestChapterGachaPromotionsMatchCoverPickups(t *testing.T) {
 		{330020, 330024},
 	}
 
-	for i, entry := range entries {
+	for i, entry := range entries[:len(wantChapterMaterials)] {
 		want := [...]struct {
 			id    int32
 			count int32
@@ -95,6 +102,9 @@ func TestChapterGachaPromotionsMatchCoverPickups(t *testing.T) {
 				t.Errorf("chapter %d promotion %d = %+v, want material %d x%d", i+1, j+1, pickup, want[j].id, want[j].count)
 			}
 		}
+	}
+	if got := entries[len(entries)-1].PromotionItems; len(got) != 0 {
+		t.Fatalf("true-dark chapter promotions = %+v, want none without configured rewards", got)
 	}
 }
 
@@ -114,6 +124,21 @@ func TestChapterGachaUnlocksWhenPlayerReachesChapter(t *testing.T) {
 	}
 	if got := entries[2].UnlockConditions; len(got) != 1 || got[0].ConditionValue != 31 {
 		t.Fatalf("chapter 3 unlock conditions = %+v, want final quest 31 of chapter 2", got)
+	}
+}
+
+func TestTrueDarkChapterGachaIsUnconditionallyUnlocked(t *testing.T) {
+	entries := buildChapterGachaEntries()
+	trueDarkIndex := len(entries) - 1
+	quests := &QuestCatalog{
+		OrderedQuestIds:             []int32{130},
+		MainQuestChapterIdByQuestId: map[int32]int32{130: 13},
+	}
+	EnrichGachaUnlockConditions(entries, quests)
+
+	conditions := entries[trueDarkIndex].UnlockConditions
+	if len(conditions) != 1 || conditions[0].GachaUnlockConditionType != model.GachaUnlockNone {
+		t.Fatalf("true-dark chapter unlock conditions = %+v, want unlocked", conditions)
 	}
 }
 

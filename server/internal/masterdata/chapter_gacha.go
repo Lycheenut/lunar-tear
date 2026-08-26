@@ -124,7 +124,7 @@ func consumableChapterItem(id, count, limit, weight int32) chapterWeightedItem {
 }
 
 func buildChapterGachaEntries() []store.GachaCatalogEntry {
-	entries := make([]store.GachaCatalogEntry, 0, len(chapterGachaSpecs))
+	entries := make([]store.GachaCatalogEntry, 0, len(chapterGachaSpecs)+1)
 	for i, spec := range chapterGachaSpecs {
 		chapterNumber := int32(i + 1)
 		gachaId := chapterGachaIdBase + chapterNumber
@@ -146,6 +146,21 @@ func buildChapterGachaEntries() []store.GachaCatalogEntry {
 			DescriptionTextId:         gachaId,
 		})
 	}
+	entries = append(entries, store.GachaCatalogEntry{
+		GachaId:              chapterGachaIdBase,
+		IsMamaBanner:         true,
+		GachaLabelType:       model.GachaLabelChapter,
+		GachaModeType:        model.GachaModeBox,
+		GachaAutoResetType:   model.GachaAutoResetMonthly,
+		GachaAutoResetPeriod: 1,
+		IsUserGachaUnlock:    true,
+		GachaDecorationType:  model.GachaDecorationNormal,
+		SortOrder:            int32(len(chapterGachaSpecs) + 1),
+		BannerAssetName:      "chapter_ex",
+		GroupId:              chapterGachaIdBase,
+		PricePhases:          buildChapterPricePhases(chapterGachaIdBase, 1007),
+		DescriptionTextId:    chapterGachaIdBase,
+	})
 	return entries
 }
 
@@ -238,6 +253,9 @@ func chapterGachaPrerequisiteMainQuestChapterId(
 		return 0
 	}
 	chapterId := entries[entryIndex].RelatedMainQuestChapterId
+	if chapterId == 0 {
+		return 0
+	}
 	routeId := quests.MainQuestRouteIdByChapterId[chapterId]
 	seasonId := quests.SeasonIdByRouteId[routeId]
 	var fallbackChapterId int32
