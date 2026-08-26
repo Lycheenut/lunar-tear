@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"lunar-tear/server/internal/campaign"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -59,5 +60,46 @@ func TestCurrentMasterDataQuestCampaignUsesUserStatus(t *testing.T) {
 	}
 	if got := h.appendBonusDrops(ordinary, nil, target, now); len(got) != 0 {
 		t.Fatalf("ordinary bonus drops = %v, want none", got)
+	}
+}
+
+func TestEventQuestSkipUsesEventStaminaCampaignAfterRecovery(t *testing.T) {
+	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
+		t.Fatalf("init master data: %v", err)
+	}
+	campaigns, err := campaign.Load()
+	if err != nil {
+		t.Fatalf("load campaigns: %v", err)
+	}
+	const (
+		questId   = 10
+		chapterId = 20
+		now       = int64(1_647_500_000_000)
+	)
+	h := &QuestHandler{
+		QuestCatalog: &masterdata.QuestCatalog{
+			QuestById:                 map[int32]masterdata.EntityMQuest{questId: {QuestId: questId, Stamina: 10, IsUsableSkipTicket: true}},
+			MaxStaminaByLevel:         map[int32]int32{1: 100},
+			EventQuestTypeByChapterId: map[int32]int32{chapterId: 4},
+			MissionIdsByQuestId:       map[int32][]int32{},
+			BattleDropsByQuestId:      map[int32][]masterdata.BattleDropInfo{},
+		},
+		Config:    &masterdata.GameConfig{ConsumableItemIdForQuestSkipTicket: 7},
+		Granter:   &store.PossessionGranter{},
+		Campaigns: campaigns,
+	}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Status.Level = 1
+	user.Status.StaminaMilliValue = 0
+	user.Status.StaminaUpdateDatetime = now
+	user.ConsumableItems[7] = 1
+	user.Quests[questId] = store.UserQuestState{QuestId: questId, QuestStateType: model.UserQuestStateTypeCleared}
+	store.RecoverStamina(user, 5_000, 100_000, now)
+
+	if _, err := h.HandleQuestSkip(user, questId, int32(model.QuestTypeEvent), chapterId, 1, now); err != nil {
+		t.Fatalf("event quest skip after stamina recovery failed: %v", err)
+	}
+	if user.Status.StaminaMilliValue != 0 || user.ConsumableItems[7] != 0 {
+		t.Fatalf("skip costs = stamina %d, tickets %d; want both 0", user.Status.StaminaMilliValue, user.ConsumableItems[7])
 	}
 }

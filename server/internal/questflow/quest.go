@@ -348,20 +348,28 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 	return outcome
 }
 
-func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, skipCount int32, nowMillis int64) (FinishOutcome, error) {
-	if err := h.validateQuestSkip(user, questId, skipCount, nowMillis); err != nil {
+func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, questType, chapterId, skipCount int32, nowMillis int64) (FinishOutcome, error) {
+	target := h.targetForSkip(questId, questType, chapterId)
+	if err := h.validateQuestSkip(user, questId, skipCount, target, nowMillis); err != nil {
 		return FinishOutcome{}, err
 	}
-	return h.applyQuestSkip(user, questId, skipCount, nowMillis)
+	return h.applyQuestSkip(user, questId, skipCount, target, nowMillis)
 }
 
-func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, skipCounts []int32, nowMillis int64) (FinishOutcome, error) {
-	if err := h.validateQuestSkipBulk(user, questIds, skipCounts, nowMillis); err != nil {
+func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, questTypes, chapterIds, skipCounts []int32, nowMillis int64) (FinishOutcome, error) {
+	if len(questIds) == 0 || len(questIds) != len(questTypes) || len(questIds) != len(chapterIds) || len(questIds) != len(skipCounts) {
+		return FinishOutcome{}, fmt.Errorf("invalid bulk skip request")
+	}
+	targets := make([]campaign.QuestTarget, len(questIds))
+	for i, questId := range questIds {
+		targets[i] = h.targetForSkip(questId, questTypes[i], chapterIds[i])
+	}
+	if err := h.validateQuestSkipBulk(user, questIds, skipCounts, targets, nowMillis); err != nil {
 		return FinishOutcome{}, err
 	}
 	var outcome FinishOutcome
 	for i, questId := range questIds {
-		result, err := h.applyQuestSkip(user, questId, skipCounts[i], nowMillis)
+		result, err := h.applyQuestSkip(user, questId, skipCounts[i], targets[i], nowMillis)
 		if err != nil {
 			return FinishOutcome{}, err
 		}
@@ -370,13 +378,12 @@ func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, skip
 	return outcome, nil
 }
 
-func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount int32, nowMillis int64) (FinishOutcome, error) {
+func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount int32, target campaign.QuestTarget, nowMillis int64) (FinishOutcome, error) {
 	questDef, ok := h.QuestById[questId]
 	if !ok {
 		return FinishOutcome{}, fmt.Errorf("unknown quest %d", questId)
 	}
 
-	target := h.targetForMain(questId)
 	maxMillis := h.MaxStaminaByLevel[user.Status.Level] * 1000
 	perSkipStamina := h.staminaWithCampaign(user, questDef.Stamina, target, nowMillis)
 	totalStamina, err := checkedProduct(perSkipStamina, skipCount)

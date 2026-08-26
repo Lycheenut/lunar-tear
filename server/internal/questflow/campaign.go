@@ -32,6 +32,19 @@ func (h *QuestHandler) targetForBigHunt(questId int32) campaign.QuestTarget {
 	return campaign.QuestTarget{QuestId: questId, QuestType: campaign.QuestTypeBigHunt}
 }
 
+func (h *QuestHandler) targetForSkip(questId, questType, chapterId int32) campaign.QuestTarget {
+	switch model.QuestType(questType) {
+	case model.QuestTypeEvent:
+		return h.targetForEvent(chapterId, questId)
+	case model.QuestTypeExtra:
+		return h.targetForExtra(questId)
+	case model.QuestTypeBigHunt:
+		return h.targetForBigHunt(questId)
+	default:
+		return h.targetForMain(questId)
+	}
+}
+
 func (h *QuestHandler) campaignFilter(user *store.UserState, nowMillis int64) campaign.Filter {
 	return h.Campaigns.FilterForUser(campaign.UserStatusContext{
 		NowMillis:                        nowMillis,
