@@ -99,3 +99,20 @@ func TestValidateMaterialWeaponsAllowsUnawakenedCopyOfAwakenedTarget(t *testing.
 		t.Fatalf("validated = %v, err=%v", validated, err)
 	}
 }
+
+func TestEvolvedWeaponAbilitiesPreserveExistingLevels(t *testing.T) {
+	abilities := evolvedWeaponAbilities("weapon", []store.WeaponAbilityState{
+		{UserWeaponUuid: "weapon", SlotNumber: 1, Level: 7},
+		{UserWeaponUuid: "weapon", SlotNumber: 3, Level: 4},
+	}, []int32{1, 2, 3})
+
+	wantLevels := []int32{7, 1, 4}
+	if len(abilities) != len(wantLevels) {
+		t.Fatalf("ability count = %d, want %d", len(abilities), len(wantLevels))
+	}
+	for i, ability := range abilities {
+		if ability.UserWeaponUuid != "weapon" || ability.SlotNumber != int32(i+1) || ability.Level != wantLevels[i] {
+			t.Errorf("ability %d = %+v, want uuid weapon, slot %d, level %d", i, ability, i+1, wantLevels[i])
+		}
+	}
+}

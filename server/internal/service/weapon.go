@@ -367,15 +367,11 @@ func (s *WeaponServiceServer) Evolve(ctx context.Context, req *pb.EvolveRequest)
 		evolvedMaster, ok := catalog.Weapons[evolvedId]
 		if ok {
 			if slots, ok := catalog.AbilitySlots[evolvedMaster.WeaponAbilityGroupId]; ok {
-				abilities := make([]store.WeaponAbilityState, len(slots))
-				for i, slot := range slots {
-					abilities[i] = store.WeaponAbilityState{
-						UserWeaponUuid: req.UserWeaponUuid,
-						SlotNumber:     slot,
-						Level:          1,
-					}
-				}
-				user.WeaponAbilities[req.UserWeaponUuid] = abilities
+				user.WeaponAbilities[req.UserWeaponUuid] = evolvedWeaponAbilities(
+					req.UserWeaponUuid,
+					user.WeaponAbilities[req.UserWeaponUuid],
+					slots,
+				)
 			}
 		}
 
@@ -391,6 +387,27 @@ func (s *WeaponServiceServer) Evolve(ctx context.Context, req *pb.EvolveRequest)
 	}
 
 	return &pb.EvolveResponse{}, nil
+}
+
+func evolvedWeaponAbilities(weaponUuid string, current []store.WeaponAbilityState, evolvedSlots []int32) []store.WeaponAbilityState {
+	levelsBySlot := make(map[int32]int32, len(current))
+	for _, ability := range current {
+		levelsBySlot[ability.SlotNumber] = ability.Level
+	}
+
+	abilities := make([]store.WeaponAbilityState, len(evolvedSlots))
+	for i, slot := range evolvedSlots {
+		level := int32(1)
+		if currentLevel, ok := levelsBySlot[slot]; ok {
+			level = currentLevel
+		}
+		abilities[i] = store.WeaponAbilityState{
+			UserWeaponUuid: weaponUuid,
+			SlotNumber:     slot,
+			Level:          level,
+		}
+	}
+	return abilities
 }
 
 func (s *WeaponServiceServer) EnhanceSkill(ctx context.Context, req *pb.EnhanceSkillRequest) (*pb.EnhanceSkillResponse, error) {
