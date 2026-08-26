@@ -72,6 +72,21 @@ func TestChapterGachaUnlocksWhenPlayerReachesChapter(t *testing.T) {
 	}
 }
 
+func TestTrueDarkChapterGachaIsUnconditionallyUnlocked(t *testing.T) {
+	entries := buildChapterGachaEntries()
+	trueDarkIndex := len(entries) - 1
+	quests := &QuestCatalog{
+		OrderedQuestIds:             []int32{130},
+		MainQuestChapterIdByQuestId: map[int32]int32{130: 13},
+	}
+	EnrichGachaUnlockConditions(entries, quests)
+
+	conditions := entries[trueDarkIndex].UnlockConditions
+	if len(conditions) != 1 || conditions[0].GachaUnlockConditionType != model.GachaUnlockNone {
+		t.Fatalf("true-dark chapter unlock conditions = %+v, want unlocked", conditions)
+	}
+}
+
 func TestChapterGachaBranchesUseTheirOwnPreviousChapter(t *testing.T) {
 	entries := []store.GachaCatalogEntry{
 		{GachaLabelType: model.GachaLabelChapter, RelatedMainQuestChapterId: 14},

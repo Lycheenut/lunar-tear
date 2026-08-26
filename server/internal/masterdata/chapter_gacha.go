@@ -88,6 +88,9 @@ func chapterGachaPrerequisiteMainQuestChapterId(
 		return 0
 	}
 	chapterId := entries[entryIndex].RelatedMainQuestChapterId
+	if chapterId == 0 {
+		return 0
+	}
 	routeId := quests.MainQuestRouteIdByChapterId[chapterId]
 	seasonId := quests.SeasonIdByRouteId[routeId]
 	var fallbackChapterId int32
