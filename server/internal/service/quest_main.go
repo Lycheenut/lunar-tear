@@ -296,7 +296,7 @@ func (s *QuestServiceServer) SkipQuest(ctx context.Context, req *pb.SkipQuestReq
 			validationErr = err
 			return
 		}
-		outcome, validationErr = engine.HandleQuestSkip(&candidate, req.QuestId, req.SkipCount, nowMillis)
+		outcome, validationErr = engine.HandleQuestSkip(&candidate, req.QuestId, req.QuestType, req.QuestChapterId, req.SkipCount, nowMillis)
 		if validationErr == nil {
 			*user = candidate
 		}
@@ -408,11 +408,14 @@ func (s *QuestServiceServer) SkipQuestBulk(ctx context.Context, req *pb.SkipQues
 			validationErr = err
 			return
 		}
-		questIds, counts := make([]int32, len(req.SkipQuestInfo)), make([]int32, len(req.SkipQuestInfo))
+		questIds := make([]int32, len(req.SkipQuestInfo))
+		questTypes := make([]int32, len(req.SkipQuestInfo))
+		chapterIds := make([]int32, len(req.SkipQuestInfo))
+		counts := make([]int32, len(req.SkipQuestInfo))
 		for i, info := range req.SkipQuestInfo {
-			questIds[i], counts[i] = info.QuestId, info.SkipCount
+			questIds[i], questTypes[i], chapterIds[i], counts[i] = info.QuestId, info.QuestType, info.QuestChapterId, info.SkipCount
 		}
-		outcome, validationErr = engine.HandleQuestSkipBulk(&candidate, questIds, counts, nowMillis)
+		outcome, validationErr = engine.HandleQuestSkipBulk(&candidate, questIds, questTypes, chapterIds, counts, nowMillis)
 		if validationErr == nil {
 			*user = candidate
 		}

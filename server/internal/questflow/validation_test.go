@@ -26,7 +26,7 @@ func TestHandleQuestSkipBulkAggregatesDuplicateQuestLimits(t *testing.T) {
 	user.ConsumableItems[7] = 10
 	user.Quests[10] = store.UserQuestState{QuestId: 10, QuestStateType: model.UserQuestStateTypeCleared, DailyClearCount: 2}
 
-	if _, err := h.HandleQuestSkipBulk(user, []int32{10, 10}, []int32{2, 2}, 100); err == nil {
+	if _, err := h.HandleQuestSkipBulk(user, []int32{10, 10}, []int32{1, 1}, []int32{0, 0}, []int32{2, 2}, 100); err == nil {
 		t.Fatal("duplicate quest entries bypassed the aggregate daily limit")
 	}
 	if user.Quests[10].DailyClearCount != 2 || user.ConsumableItems[7] != 10 || user.Status.StaminaMilliValue != 100_000 {
@@ -59,7 +59,7 @@ func TestDailyClearLimitResetsAfterServerDateChanges(t *testing.T) {
 	}
 
 	now := int64(2 * 24 * 60 * 60 * 1000)
-	if _, err := h.HandleQuestSkip(user, 10, 1, now); err != nil {
+	if _, err := h.HandleQuestSkip(user, 10, int32(model.QuestTypeMain), 0, 1, now); err != nil {
 		t.Fatalf("previous day's clears still consumed today's limit: %v", err)
 	}
 	if got := user.Quests[10].DailyClearCount; got != 1 {

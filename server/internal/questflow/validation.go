@@ -3,6 +3,7 @@ package questflow
 import (
 	"fmt"
 
+	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
@@ -121,7 +122,7 @@ func (h *QuestHandler) ValidateQuestContinuation(user *store.UserState, questId 
 	return fmt.Errorf("quest %d is not active", questId)
 }
 
-func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCount int32, nowMillis int64) error {
+func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCount int32, target campaign.QuestTarget, nowMillis int64) error {
 	quest, ok := h.QuestById[questId]
 	if !ok {
 		return fmt.Errorf("unknown quest %d", questId)
@@ -142,7 +143,7 @@ func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCou
 	if user.ConsumableItems[h.Config.ConsumableItemIdForQuestSkipTicket] < skipCount {
 		return fmt.Errorf("insufficient skip tickets")
 	}
-	cost, err := checkedProduct(h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis), skipCount)
+	cost, err := checkedProduct(h.staminaWithCampaign(user, quest.Stamina, target, nowMillis), skipCount)
 	if err != nil {
 		return err
 	}
@@ -152,17 +153,22 @@ func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCou
 	return nil
 }
 
-func (h *QuestHandler) validateQuestSkipBulk(user *store.UserState, questIds, skipCounts []int32, nowMillis int64) error {
-	if len(questIds) == 0 || len(questIds) != len(skipCounts) {
+func (h *QuestHandler) validateQuestSkipBulk(user *store.UserState, questIds, skipCounts []int32, targets []campaign.QuestTarget, nowMillis int64) error {
+	if len(questIds) == 0 || len(questIds) != len(skipCounts) || len(questIds) != len(targets) {
 		return fmt.Errorf("invalid bulk skip request")
 	}
 	countsByQuest := make(map[int32]int64, len(questIds))
+	targetsByQuest := make(map[int32]campaign.QuestTarget, len(questIds))
 	for i, questId := range questIds {
 		count := skipCounts[i]
 		if count <= 0 {
 			return fmt.Errorf("skip count must be positive")
 		}
+		if target, ok := targetsByQuest[questId]; ok && target != targets[i] {
+			return fmt.Errorf("inconsistent quest context for %d", questId)
+		}
 		countsByQuest[questId] += int64(count)
+		targetsByQuest[questId] = targets[i]
 		if countsByQuest[questId] > int64(^uint32(0)>>1) {
 			return fmt.Errorf("skip count is too large")
 		}
@@ -182,7 +188,7 @@ func (h *QuestHandler) validateQuestSkipBulk(user *store.UserState, questIds, sk
 			return err
 		}
 		totalTickets += totalCount
-		totalStamina += int64(h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis)) * totalCount
+		totalStamina += int64(h.staminaWithCampaign(user, quest.Stamina, targetsByQuest[questId], nowMillis)) * totalCount
 		if totalTickets > int64(^uint32(0)>>1) || totalStamina > int64(^uint32(0)>>1) {
 			return fmt.Errorf("bulk skip cost is too large")
 		}
