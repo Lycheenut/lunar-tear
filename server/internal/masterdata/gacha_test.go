@@ -45,7 +45,7 @@ func TestChapterGachaCatalogContainsMetadataWithoutRewards(t *testing.T) {
 	ex := entries[len(entries)-1]
 	if ex.GachaId != chapterGachaIdBase || ex.BannerAssetName != "chapter_ex" ||
 		ex.RelatedMainQuestChapterId != 0 || len(ex.PricePhases) != 2 ||
-		ex.PricePhases[0].PriceId != 1007 || ex.PricePhases[1].PriceId != 1007 {
+		ex.PricePhases[0].PriceId != 2002 || ex.PricePhases[1].PriceId != 2002 {
 		t.Fatalf("unexpected true-dark chapter catalog entry: %+v", ex)
 	}
 	if len(ex.BoxItems) != 0 || len(ex.PromotionItems) != 0 || ex.BoxCount != 0 {
