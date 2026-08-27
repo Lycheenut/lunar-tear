@@ -158,7 +158,7 @@ func buildChapterGachaEntries() []store.GachaCatalogEntry {
 		SortOrder:            int32(len(chapterGachaSpecs) + 1),
 		BannerAssetName:      "chapter_ex",
 		GroupId:              chapterGachaIdBase,
-		PricePhases:          buildChapterPricePhases(chapterGachaIdBase, 1007),
+		PricePhases:          buildChapterPricePhases(chapterGachaIdBase, model.ConsumableIdDarkMemorySummonTicket),
 		DescriptionTextId:    chapterGachaIdBase,
 	})
 	return entries

@@ -116,6 +116,7 @@ const (
 	ConsumableIdPremiumTicket                     int32 = 1
 	ConsumableIdGuaranteedThreeStarOrHigherTicket int32 = 1005
 	ConsumableIdGuaranteedFourStarTicket          int32 = 1006
+	ConsumableIdDarkMemorySummonTicket            int32 = 2002
 )
 
 // ChapterGachaMonthCounterId is reserved in a banner's box counters for the
