@@ -234,6 +234,9 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 		if change.Table == missionRewardTable && change.Field == "Count" && value.(int32) < 0 {
 			return nil, UpdateResult{}, fmt.Errorf("%s row %d field Count: cannot be negative", change.Table, change.Row)
 		}
+		if change.Table == bigHuntRewardGroupTable && change.Field == "Count" && value.(int32) <= 0 {
+			return nil, UpdateResult{}, fmt.Errorf("%s row %d field Count: must be greater than zero", change.Table, change.Row)
+		}
 		editKey := fmt.Sprintf("%s\x00%d\x00%s", change.Table, change.Row, change.Field)
 		if _, duplicate := seen[editKey]; duplicate {
 			return nil, UpdateResult{}, fmt.Errorf("duplicate change for %s row %d field %s", change.Table, change.Row, change.Field)
@@ -379,6 +382,11 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	candidateFile, err := memorydb.OpenBytes(candidate)
 	if err != nil {
 		return nil, UpdateResult{}, fmt.Errorf("verify candidate: %w", err)
+	}
+	if changesBigHuntRewards(request.Changes) {
+		if err := validateBigHuntRewardConfig(candidateFile); err != nil {
+			return nil, UpdateResult{}, fmt.Errorf("validate big hunt rewards: %w", err)
+		}
 	}
 	return candidate, UpdateResult{
 		Version:      candidateFile.Version(),

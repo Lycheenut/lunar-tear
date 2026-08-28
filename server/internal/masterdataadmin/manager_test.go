@@ -14,12 +14,14 @@ import (
 )
 
 func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
-	if got, want := len(activityTableSpecs), 41; got != want {
+	if got, want := len(activityTableSpecs), 46; got != want {
 		t.Fatalf("activity spec count = %d, want %d", got, want)
 	}
 	wantPrimary := map[string]bool{
 		"m_beginner_campaign": true, "m_big_hunt_schedule": true,
-		"m_comeback_campaign": true, "m_consumable_item_term": true,
+		"m_big_hunt_score_reward_group_schedule":                  true,
+		"m_big_hunt_weekly_attribute_score_reward_group_schedule": true,
+		"m_comeback_campaign":                                     true, "m_consumable_item_term": true,
 		"m_dokan": true, "m_enhance_campaign": true, "m_event_quest_chapter": true,
 		"m_event_quest_daily_group": true, "m_event_quest_labyrinth_season": true,
 		"m_login_bonus": true, "m_maintenance": true, "m_mission_term": true, "m_mom_banner": true,
@@ -28,6 +30,8 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_shop": true, "m_shop_item_cell_term": true, "m_tip": true,
 	}
 	wantRelated := map[string]bool{
+		"m_big_hunt_boss_quest":           true,
+		"m_big_hunt_score_reward_group":   true,
 		"m_enhance_campaign_target_group": true,
 		"m_event_quest_link":              true, "m_event_quest_display_item_group": true,
 		"m_event_quest_sequence_group":                true,
@@ -43,7 +47,8 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_quest_campaign_effect_group": true, "m_shop_item_cell_group": true,
 	}
 	wantDelivery := map[string]bool{
-		"m_login_bonus_stamp": true, "m_mission_reward": true,
+		"m_big_hunt_reward_group": true,
+		"m_login_bonus_stamp":     true, "m_mission_reward": true,
 		"m_shop_item_content_possession": true, "m_quest_pickup_reward_group": true,
 	}
 	seen := make(map[string]bool, len(activityTableSpecs))
@@ -94,8 +99,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 20 || catalog.RelatedCount != 17 || catalog.DeliveryCount != 4 {
-		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 20/17/4", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
+	if catalog.PrimaryCount != 22 || catalog.RelatedCount != 19 || catalog.DeliveryCount != 5 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 22/19/5", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")

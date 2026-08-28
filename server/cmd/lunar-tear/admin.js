@@ -167,6 +167,8 @@
   const simpleFieldNames = {
     m_beginner_campaign: ["BeginnerCampaignId", "GrantCampaignTermDayCount", "CampaignUnlockQuestId"],
     m_big_hunt_schedule: ["BigHuntScheduleId"],
+    m_big_hunt_score_reward_group_schedule: ["BigHuntScoreRewardGroupScheduleId", "GroupIndex", "BigHuntScoreRewardGroupId"],
+    m_big_hunt_weekly_attribute_score_reward_group_schedule: ["BigHuntWeeklyAttributeScoreRewardGroupScheduleId", "AttributeType", "GroupIndex", "BigHuntScoreRewardGroupId"],
     m_comeback_campaign: ["ComebackCampaignId", "ComebackJudgeDayCount", "GrantCampaignTermDayCount", "CampaignUnlockQuestId", "ComebackCampaignGradeGroupId"],
     m_consumable_item_term: ["ConsumableItemTermId"],
     m_dokan: ["DokanId", "SortOrder", "DokanType"],
@@ -374,6 +376,9 @@
     if (table.name === "m_login_bonus_stamp") {
       return table.fields.filter((field) => !["LoginBonusId", "LowerPageNumber"].includes(field.name));
     }
+    if (table.name === "m_big_hunt_reward_group") {
+      return table.fields.filter((field) => field.name !== "BigHuntRewardGroupId");
+    }
     if (["m_mission_reward", "m_mission_term"].includes(table.name)) {
       const idField = table.name === "m_mission_reward" ? "MissionRewardId" : "MissionTermId";
       return table.fields.filter((field) => field.name !== idField);
@@ -388,6 +393,11 @@
     elements.questDropFilters.classList.add("hidden");
     if (table?.name === "m_login_bonus_stamp") {
       renderLoginBonusStampFilters(table, previous);
+      elements.typeFilters.classList.remove("hidden");
+      return;
+    }
+    if (table?.name === "m_big_hunt_reward_group") {
+      renderBigHuntRewardGroupFilter(table, previous);
       elements.typeFilters.classList.remove("hidden");
       return;
     }
@@ -920,6 +930,29 @@
     });
   }
 
+  function renderBigHuntRewardGroupFilter(table, previous) {
+    const label = document.createElement("label");
+    label.textContent = "奖励组 · BigHuntRewardGroupId";
+    const select = document.createElement("select");
+    select.dataset.field = "BigHuntRewardGroupId";
+    const values = [...new Set(table.rows.map((row) => row.values.BigHuntRewardGroupId))];
+    values.sort(compareFieldValues);
+    values.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      select.append(option);
+    });
+    const selected = previous.get("BigHuntRewardGroupId");
+    if (values.includes(selected)) select.value = selected;
+    select.addEventListener("change", renderTable);
+    label.append(createSearchableSelect(select, {
+      placeholder: "搜索奖励组 ID",
+      emptyText: "没有匹配的讨伐战奖励组。"
+    }));
+    elements.typeFilters.append(label);
+  }
+
   function loginBonusSourceLabel(loginBonusID) {
     const loginBonusTable = state.catalog?.tables.find((table) => table.name === "m_login_bonus");
     const loginBonus = loginBonusTable?.rows.find((row) => row.values.LoginBonusId === loginBonusID);
@@ -1049,7 +1082,7 @@
 
     const query = state.section === "delivery" ? "" : elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
-    const hasSchedule = (table.pairs || []).length > 0;
+    const hasSchedule = tableHasSchedule(table);
     const hasArtwork = table.name === "m_dokan";
     const hasContent = table.name !== "m_mission_term" && (table.name === "m_mom_banner"
       || table.rows.some((row) => Object.keys(row.titles || {}).length > 0
@@ -4018,6 +4051,9 @@
 
   function validateShopFreeInput(tableName, fieldName, value) {
     const number = Number(value);
+    if (tableName === "m_big_hunt_reward_group" && fieldName === "Count" && number <= 0) {
+      return "Count 必须大于 0。";
+    }
     if (tableName === "m_mission_reward" && fieldName === "Count" && number < 0) {
       return "Count 不能为负数。";
     }
@@ -4043,7 +4079,7 @@
 
   function rowStatus(table, row) {
     const pair = (table.pairs || [])[0];
-    if (!pair) return "expired";
+    if (!pair) return versionScheduleRowStatus(table, row);
     const start = Number(effectiveValue(table.name, row, pair.start));
     const end = Number(effectiveValue(table.name, row, pair.end));
     const now = Date.now();
@@ -4051,6 +4087,33 @@
     if (now < start) return "upcoming";
     if (now <= end) return "active";
     return "expired";
+  }
+
+  function tableHasSchedule(table) {
+    return (table.pairs || []).length > 0 || Boolean(versionScheduleGroupFields(table.name));
+  }
+
+  function versionScheduleGroupFields(tableName) {
+    return {
+      m_big_hunt_score_reward_group_schedule: ["BigHuntScoreRewardGroupScheduleId"],
+      m_big_hunt_weekly_attribute_score_reward_group_schedule: ["AttributeType"]
+    }[tableName];
+  }
+
+  function versionScheduleRowStatus(table, row) {
+    const groupFields = versionScheduleGroupFields(table.name);
+    if (!groupFields) return "expired";
+    const start = Number(effectiveValue(table.name, row, "StartDatetime"));
+    const now = Date.now();
+    if (now < start) return "upcoming";
+    const latestStart = table.rows
+      .filter((candidate) => groupFields.every((field) => (
+        effectiveValue(table.name, candidate, field) === effectiveValue(table.name, row, field)
+      )))
+      .map((candidate) => Number(effectiveValue(table.name, candidate, "StartDatetime")))
+      .filter((candidateStart) => candidateStart <= now)
+      .reduce((latest, candidateStart) => Math.max(latest, candidateStart), Number.NEGATIVE_INFINITY);
+    return start === latestStart ? "active" : "expired";
   }
 
   function effectiveValue(table, row, field) {
