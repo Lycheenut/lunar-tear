@@ -115,6 +115,10 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	enhancedCostume, ok := catalog.CostumeEnhancedById[10103]
+	if !ok || enhancedCostume.CostumeId != 10103 || enhancedCostume.Level != 15 {
+		t.Fatalf("enhanced costume 10103 = %+v, found=%v, want costume=10103 level=15", enhancedCostume, ok)
+	}
 	for groupId, rewardIds := range catalog.PickupRewardIdsByGroupId {
 		classifiedCount := 0
 		for effectId, subset := range catalog.PickupRewardIdsByGroupAndEffectId[groupId] {

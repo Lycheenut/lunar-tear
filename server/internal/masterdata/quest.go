@@ -141,8 +141,9 @@ type QuestCatalog struct {
 	CostumeMaxLevelByRarity map[int32]NumericalFunc
 	MaxStaminaByLevel       map[int32]int32
 
-	CostumeById map[int32]EntityMCostume
-	WeaponById  map[int32]EntityMWeapon
+	CostumeById         map[int32]EntityMCostume
+	CostumeEnhancedById map[int32]EntityMCostumeEnhanced
+	WeaponById          map[int32]EntityMWeapon
 
 	WeaponSkillSlots   map[int32][]int32
 	WeaponAbilitySlots map[int32][]int32
@@ -543,6 +544,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load costume table: %w", err)
 	}
+	costumeEnhancedRows, err := utils.ReadTable[EntityMCostumeEnhanced]("m_costume_enhanced")
+	if err != nil {
+		return nil, fmt.Errorf("load enhanced costume table: %w", err)
+	}
 
 	costumeRarities, err := utils.ReadTable[EntityMCostumeRarity]("m_costume_rarity")
 	if err != nil {
@@ -661,6 +666,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	costumeById := make(map[int32]EntityMCostume, len(costumeMasters))
 	for _, cm := range costumeMasters {
 		costumeById[cm.CostumeId] = cm
+	}
+	costumeEnhancedById := make(map[int32]EntityMCostumeEnhanced, len(costumeEnhancedRows))
+	for _, enhanced := range costumeEnhancedRows {
+		costumeEnhancedById[enhanced.CostumeEnhancedId] = enhanced
 	}
 
 	weaponById := make(map[int32]EntityMWeapon, len(weapons))
@@ -1141,8 +1150,9 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		CostumeMaxLevelByRarity: costumeMaxLevelByRarity,
 		MaxStaminaByLevel:       maxStaminaByLevel,
 
-		CostumeById: costumeById,
-		WeaponById:  weaponById,
+		CostumeById:         costumeById,
+		CostumeEnhancedById: costumeEnhancedById,
+		WeaponById:          weaponById,
 
 		WeaponSkillSlots:   skillSlots,
 		WeaponAbilitySlots: abilitySlots,
