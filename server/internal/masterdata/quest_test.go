@@ -7,6 +7,7 @@ import (
 
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/store"
 )
 
 func TestBattleDropEffectIdUsesRewardRarity(t *testing.T) {
@@ -145,6 +146,28 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	}
 	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockConditions) == 0 {
 		t.Fatal("event chapters or normalized unlock quests were not loaded")
+	}
+	scarecrowQuest := catalog.QuestById[385]
+	linkedScarecrowQuest := catalog.QuestById[382]
+	if catalog.QuestReleased(store.SeedUserState(1, "locked", 1, model.ClientPlatform{}), scarecrowQuest) {
+		t.Fatal("scarecrow quest 385 was released without clearing a prerequisite quest")
+	}
+	for _, prerequisiteQuestId := range []int32{334, 434} {
+		user := store.SeedUserState(1, "prerequisite", 1, model.ClientPlatform{})
+		user.Quests[prerequisiteQuestId] = store.UserQuestState{
+			QuestId:        prerequisiteQuestId,
+			QuestStateType: model.UserQuestStateTypeCleared,
+		}
+		if !catalog.QuestReleased(user, scarecrowQuest) {
+			t.Fatalf("scarecrow quest 385 was not released after clearing prerequisite quest %d", prerequisiteQuestId)
+		}
+		if catalog.QuestReleased(user, linkedScarecrowQuest) {
+			t.Fatal("scarecrow quest 382 was released before quest 385 was challenged")
+		}
+		user.Quests[385] = store.UserQuestState{QuestId: 385, QuestStateType: model.UserQuestStateTypeChallenged}
+		if !catalog.QuestReleased(user, linkedScarecrowQuest) {
+			t.Fatal("scarecrow quest 382 was not released after quest 385 was challenged")
+		}
 	}
 	labyrinth := LoadLabyrinthCatalog()
 	for _, chapter := range labyrinth.ChaptersByOrder {

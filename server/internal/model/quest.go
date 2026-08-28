@@ -170,9 +170,24 @@ const (
 type UserQuestStateType int32
 
 const (
-	UserQuestStateTypeUnknown UserQuestStateType = 0
-	UserQuestStateTypeActive  UserQuestStateType = 1
-	UserQuestStateTypeCleared UserQuestStateType = 2
+	UserQuestStateTypeUnknown    UserQuestStateType = 0
+	UserQuestStateTypeActive     UserQuestStateType = 1
+	UserQuestStateTypeCleared    UserQuestStateType = 2
+	UserQuestStateTypeChallenged UserQuestStateType = 4
+)
+
+type QuestReleaseConditionType int32
+
+const (
+	QuestReleaseConditionTypeQuestClear     QuestReleaseConditionType = 4
+	QuestReleaseConditionTypeQuestChallenge QuestReleaseConditionType = 7
+)
+
+type ConditionOperationType int32
+
+const (
+	ConditionOperationTypeAnd ConditionOperationType = 1
+	ConditionOperationTypeOr  ConditionOperationType = 2
 )
 
 type SideStoryQuestStateType int32

@@ -88,6 +88,7 @@ type QuestCatalog struct {
 	SceneById                          map[int32]EntityMQuestScene
 	MissionById                        map[int32]EntityMQuestMission
 	QuestById                          map[int32]EntityMQuest
+	QuestReleaseConditionsByListId     map[int32]QuestReleaseConditionGroup
 	MissionIdsByQuestId                map[int32][]int32
 	RouteIdByQuestId                   map[int32]int32
 	MainQuestDifficultyTypeByQuestId   map[int32]int32
@@ -356,6 +357,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	quests, err := utils.ReadTable[EntityMQuest]("m_quest")
 	if err != nil {
 		return nil, fmt.Errorf("load quest table: %w", err)
+	}
+	questReleaseConditionsByListId, err := loadQuestReleaseConditions()
+	if err != nil {
+		return nil, err
 	}
 	questBonuses, err := utils.ReadTable[EntityMQuestBonus]("m_quest_bonus")
 	if err != nil {
@@ -1097,6 +1102,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		SceneById:                          sceneById,
 		MissionById:                        missionById,
 		QuestById:                          questById,
+		QuestReleaseConditionsByListId:     questReleaseConditionsByListId,
 		MissionIdsByQuestId:                missionIdsByQuestId,
 		RouteIdByQuestId:                   routeIdByQuestId,
 		MainQuestDifficultyTypeByQuestId:   mainQuestDifficultyTypeByQuestId,

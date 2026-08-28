@@ -63,7 +63,7 @@ func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int
 		store.RecoverStamina(user, refund*1000, maxMillis, nowMillis)
 	}
 
-	restoreClearedAfterRetire(user, questId, isRetired)
+	restoreExtraQuestAfterFailure(user, questId, isRetired || isAnnihilated)
 
 	user.ExtraQuest.CurrentQuestId = 0
 	user.ExtraQuest.CurrentQuestSceneId = 0
@@ -71,6 +71,22 @@ func (h *QuestHandler) HandleExtraQuestFinish(user *store.UserState, questId int
 	clearBattleCheckpoint(user)
 
 	return outcome
+}
+
+func restoreExtraQuestAfterFailure(user *store.UserState, questId int32, failed bool) {
+	if !failed {
+		return
+	}
+	state := user.Quests[questId]
+	if state.QuestStateType != model.UserQuestStateTypeActive {
+		return
+	}
+	if state.ClearCount > 0 {
+		state.QuestStateType = model.UserQuestStateTypeCleared
+	} else {
+		state.QuestStateType = model.UserQuestStateTypeChallenged
+	}
+	user.Quests[questId] = state
 }
 
 func (h *QuestHandler) HandleExtraQuestRestart(user *store.UserState, questId int32, nowMillis int64) error {
