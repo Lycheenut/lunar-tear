@@ -307,6 +307,16 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 			lastSceneId := h.getLastMainFlowSceneId(questId)
 			h.advanceMainFlowScene(user, questId, lastSceneId)
 		}
+		if isMainQuestPlayable(quest) && !wasMenuReplay && wasReplay {
+			mainFlowQuestId, ok := h.MainFlowQuestIdByQuestId[questId]
+			if ok {
+				lastSceneId := h.getLastMainFlowSceneId(mainFlowQuestId)
+				h.advanceReplayFlowScene(user, lastSceneId)
+				user.MainQuest.LatestVersion = nowMillis
+				log.Printf("[HandleQuestFinish] advanced replay quest %d through main-flow quest %d to scene %d",
+					questId, mainFlowQuestId, lastSceneId)
+			}
+		}
 	}
 
 	consumed := h.staminaWithCampaign(user, quest.Stamina, h.targetForMain(questId), nowMillis)
