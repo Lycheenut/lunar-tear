@@ -144,6 +144,11 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 			t.Fatalf("main quest chapter %d route = %d, want %d", chapterId, got, catalog.RouteIdByQuestId[questId])
 		}
 	}
+	for questId, wantMainFlowQuestId := range map[int32]int32{334: 334, 30330: 334, 40330: 334, 10330: 334} {
+		if got := catalog.MainFlowQuestIdByQuestId[questId]; got != wantMainFlowQuestId {
+			t.Fatalf("quest %d main-flow relation = %d, want %d", questId, got, wantMainFlowQuestId)
+		}
+	}
 	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockConditions) == 0 {
 		t.Fatal("event chapters or normalized unlock quests were not loaded")
 	}

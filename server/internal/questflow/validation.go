@@ -136,7 +136,13 @@ func (h *QuestHandler) ValidateMainQuestContinuation(user *store.UserState, ques
 		return fmt.Errorf("main quest %d has no active progress scene", questId)
 	}
 	if scene.QuestId != questId {
-		return fmt.Errorf("main quest %d does not match progress quest %d at scene %d", questId, scene.QuestId, sceneId)
+		requestedMainFlowQuestId, requestedRelated := h.MainFlowQuestIdByQuestId[questId]
+		progressMainFlowQuestId, progressRelated := h.MainFlowQuestIdByQuestId[scene.QuestId]
+		isRelatedReplay := model.IsReplayQuestFlowType(user.MainQuest.CurrentQuestFlowType) &&
+			requestedRelated && progressRelated && requestedMainFlowQuestId == progressMainFlowQuestId
+		if !isRelatedReplay {
+			return fmt.Errorf("main quest %d does not match progress quest %d at scene %d", questId, scene.QuestId, sceneId)
+		}
 	}
 	return nil
 }
