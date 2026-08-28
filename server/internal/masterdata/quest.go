@@ -92,6 +92,7 @@ type QuestCatalog struct {
 	MissionIdsByQuestId                map[int32][]int32
 	RouteIdByQuestId                   map[int32]int32
 	MainQuestDifficultyTypeByQuestId   map[int32]int32
+	MainFlowQuestIdByQuestId           map[int32]int32
 	SceneIdsByQuestId                  map[int32][]int32
 	OrderedQuestIds                    []int32
 	FirstClearRewardsByGroupId         map[int32][]EntityMQuestFirstClearRewardGroup
@@ -421,6 +422,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	sequenceGroups, err := utils.ReadTable[EntityMMainQuestSequenceGroup]("m_main_quest_sequence_group")
 	if err != nil {
 		return nil, fmt.Errorf("load main quest sequence group table: %w", err)
+	}
+	questRelations, err := utils.ReadTable[EntityMQuestRelationMainFlow]("m_quest_relation_main_flow")
+	if err != nil {
+		return nil, fmt.Errorf("load quest relation main flow table: %w", err)
 	}
 
 	chapters, err := utils.ReadTable[EntityMMainQuestChapter]("m_main_quest_chapter")
@@ -797,6 +802,14 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 			mainQuestDifficultyTypeByQuestId[sequence.QuestId] = difficultyTypeBySequenceId[sequence.MainQuestSequenceId]
 		}
 	}
+	mainFlowQuestIdByQuestId := make(map[int32]int32, len(questRelations)*3)
+	for _, relation := range questRelations {
+		for _, questId := range []int32{relation.MainFlowQuestId, relation.ReplayFlowQuestId, relation.SubFlowQuestId} {
+			if questId != 0 {
+				mainFlowQuestIdByQuestId[questId] = relation.MainFlowQuestId
+			}
+		}
+	}
 
 	eventChapters, err := utils.ReadTable[EntityMEventQuestChapter]("m_event_quest_chapter")
 	if err != nil {
@@ -1106,6 +1119,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		MissionIdsByQuestId:                missionIdsByQuestId,
 		RouteIdByQuestId:                   routeIdByQuestId,
 		MainQuestDifficultyTypeByQuestId:   mainQuestDifficultyTypeByQuestId,
+		MainFlowQuestIdByQuestId:           mainFlowQuestIdByQuestId,
 		SceneIdsByQuestId:                  sceneIdsByQuestId,
 		OrderedQuestIds:                    orderedQuestIds,
 		FirstClearRewardsByGroupId:         firstClearRewardsByGroupId,

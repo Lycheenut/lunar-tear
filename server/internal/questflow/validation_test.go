@@ -191,6 +191,70 @@ func TestValidateMainQuestContinuationAllowsMatchingActiveProgress(t *testing.T)
 	}
 }
 
+func TestValidateMainQuestContinuationAllowsReplayVariantProgressScene(t *testing.T) {
+	const (
+		mainFlowQuestId   int32 = 334
+		replayFlowQuestId int32 = 30330
+		progressSceneId   int32 = 845
+	)
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			mainFlowQuestId:   {QuestId: mainFlowQuestId},
+			replayFlowQuestId: {QuestId: replayFlowQuestId},
+		},
+		SceneById: map[int32]masterdata.EntityMQuestScene{
+			progressSceneId: {QuestSceneId: progressSceneId, QuestId: mainFlowQuestId},
+		},
+		MainFlowQuestIdByQuestId: map[int32]int32{
+			mainFlowQuestId:   mainFlowQuestId,
+			replayFlowQuestId: mainFlowQuestId,
+		},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Quests[replayFlowQuestId] = store.UserQuestState{
+		QuestId:        replayFlowQuestId,
+		QuestStateType: model.UserQuestStateTypeActive,
+	}
+	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeReplayFlow)
+	user.MainQuest.ProgressQuestSceneId = progressSceneId
+
+	if err := h.ValidateMainQuestContinuation(user, replayFlowQuestId); err != nil {
+		t.Fatalf("validate replay variant progress: %v", err)
+	}
+}
+
+func TestValidateMainQuestContinuationRejectsRelatedQuestOutsideReplayFlow(t *testing.T) {
+	const (
+		mainFlowQuestId   int32 = 334
+		replayFlowQuestId int32 = 30330
+		progressSceneId   int32 = 845
+	)
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			mainFlowQuestId:   {QuestId: mainFlowQuestId},
+			replayFlowQuestId: {QuestId: replayFlowQuestId},
+		},
+		SceneById: map[int32]masterdata.EntityMQuestScene{
+			progressSceneId: {QuestSceneId: progressSceneId, QuestId: mainFlowQuestId},
+		},
+		MainFlowQuestIdByQuestId: map[int32]int32{
+			mainFlowQuestId:   mainFlowQuestId,
+			replayFlowQuestId: mainFlowQuestId,
+		},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Quests[replayFlowQuestId] = store.UserQuestState{
+		QuestId:        replayFlowQuestId,
+		QuestStateType: model.UserQuestStateTypeActive,
+	}
+	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
+	user.MainQuest.ProgressQuestSceneId = progressSceneId
+
+	if err := h.ValidateMainQuestContinuation(user, replayFlowQuestId); err == nil {
+		t.Fatal("related replay quest bypassed main-flow continuation validation")
+	}
+}
+
 func TestHandleQuestRestartRejectsMismatchedProgressWithoutMutation(t *testing.T) {
 	const (
 		requestedQuestId int32 = 100021
