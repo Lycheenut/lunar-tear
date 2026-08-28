@@ -46,6 +46,29 @@ func TestPossessionGranterGrantFullHonorsEquipmentCountAndDuplicates(t *testing.
 	}
 }
 
+func TestPossessionGranterGrantFullPreservesEnhancedCostumeLevel(t *testing.T) {
+	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
+	granter := &PossessionGranter{
+		CostumeById: map[int32]CostumeRef{
+			10103: {CharacterId: 101},
+		},
+		CostumeEnhancedById: map[int32]CostumeEnhancedRef{
+			9001: {CostumeId: 10103, Level: 15, Exp: 1234},
+		},
+	}
+
+	granter.GrantFull(user, model.PossessionTypeCostumeEnhanced, 9001, 1, 1000)
+
+	if len(user.Costumes) != 1 {
+		t.Fatalf("costumes = %d, want 1", len(user.Costumes))
+	}
+	for _, costume := range user.Costumes {
+		if costume.CostumeId != 10103 || costume.Level != 15 || costume.Exp != 1234 {
+			t.Fatalf("enhanced costume = %+v, want id=10103 level=15 exp=1234", costume)
+		}
+	}
+}
+
 func TestDeductPossessionsIsAtomic(t *testing.T) {
 	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
 	user.Materials[100] = 5

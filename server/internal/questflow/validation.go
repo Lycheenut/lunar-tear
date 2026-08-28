@@ -30,6 +30,9 @@ func (h *QuestHandler) validateExtraQuestStart(user *store.UserState, questId in
 	if !ok {
 		return fmt.Errorf("unknown quest %d", questId)
 	}
+	if !h.QuestReleased(user, quest) {
+		return fmt.Errorf("quest %d is locked", questId)
+	}
 	if err := validateDailyClearLimit(user.Quests[questId], quest, 1, nowMillis); err != nil {
 		return err
 	}

@@ -612,6 +612,85 @@ func TestSpecificEarlyMainQuestOptionsDoNotCollideWithEventTypes(t *testing.T) {
 	}
 }
 
+func TestActivityMissionUsesMissionGroupChapterWhenLinkHasNoChapter(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionGroupId: 90, MissionLinkId: 1,
+		MissionClearConditionType:          int32(model.MissionClearConditionTypeQuestClearByCount),
+		MissionClearConditionOptionGroupId: 196, ClearConditionValue: 10,
+	}
+	catalogs := testCatalog(mission)
+	catalogs.Mission.GroupById[90] = masterdata.EntityMMissionGroup{MissionGroupId: 90, AssetId: 501}
+	catalogs.Mission.LinkById = map[int32]masterdata.EntityMMissionLink{
+		1: {MissionLinkId: 1, DestinationDomainType: missionLinkDestinationQuest},
+	}
+	catalogs.Quest = &masterdata.QuestCatalog{
+		EventQuestTypeByChapterId: map[int32]int32{
+			501: eventQuestTypeMarathon,
+			502: eventQuestTypeMarathon,
+			1:   eventQuestTypeDayOfTheWeek,
+			2:   eventQuestTypeGuerrilla,
+		},
+		EventQuestIdsByChapterId: map[int32][]int32{
+			501: {5011},
+			502: {5021},
+			1:   {4001},
+			2:   {5001},
+		},
+	}
+
+	if !questMissionMatches(catalogs, mission, 5011) {
+		t.Fatal("quest from the mission group's activity chapter did not match")
+	}
+	for _, questId := range []int32{5021, 4001, 5001} {
+		if questMissionMatches(catalogs, mission, questId) {
+			t.Errorf("unrelated quest %d matched the activity-scoped mission", questId)
+		}
+	}
+
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Missions[mission.MissionId] = store.UserMissionState{
+		MissionId: mission.MissionId, ProgressValue: 10,
+		MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress),
+	}
+	user.Quests[5011] = store.UserQuestState{QuestId: 5011, ClearCount: 1}
+	user.Quests[5021] = store.UserQuestState{QuestId: 5021, ClearCount: 2}
+	user.Quests[4001] = store.UserQuestState{QuestId: 4001, ClearCount: 3}
+	user.Quests[5001] = store.UserQuestState{QuestId: 5001, ClearCount: 4}
+	Sync(catalogs, user, 100)
+	if state := user.Missions[mission.MissionId]; state.ProgressValue != 1 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
+		t.Fatalf("activity-scoped mission accumulated unrelated clears: %+v", state)
+	}
+}
+
+func TestActivityMissionKeepsDeckContextProgress(t *testing.T) {
+	mission := masterdata.EntityMMission{
+		MissionId: 1, MissionGroupId: 90, MissionLinkId: 1,
+		MissionClearConditionType:          int32(model.MissionClearConditionTypeQuestClearByCount),
+		MissionClearConditionOptionGroupId: 900001, ClearConditionValue: 2,
+	}
+	catalogs := testCatalog(mission)
+	catalogs.Mission.GroupById[90] = masterdata.EntityMMissionGroup{MissionGroupId: 90, AssetId: 501}
+	catalogs.Mission.LinkById = map[int32]masterdata.EntityMMissionLink{
+		1: {MissionLinkId: 1, DestinationDomainType: missionLinkDestinationQuest},
+	}
+	catalogs.Quest = &masterdata.QuestCatalog{
+		EventQuestTypeByChapterId: map[int32]int32{501: eventQuestTypeMarathon},
+		EventQuestIdsByChapterId:  map[int32][]int32{501: {5011}},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Missions[mission.MissionId] = store.UserMissionState{
+		MissionId: mission.MissionId, ProgressValue: 1,
+		MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress),
+	}
+
+	Sync(catalogs, user, 100)
+	if state := user.Missions[mission.MissionId]; state.ProgressValue != 1 {
+		t.Fatalf("activity deck-context progress was overwritten: %+v", state)
+	}
+}
+
 func TestUnknownQuestConditionGroupDoesNotBecomeAQuestId(t *testing.T) {
 	mission := masterdata.EntityMMission{
 		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount),
@@ -770,6 +849,63 @@ func TestCurrentMasterFateBoardOptionRejectsGuerrillaCollision(t *testing.T) {
 		return
 	}
 	t.Fatal("current master has no Fate Board quest to verify")
+}
+
+func TestCurrentMasterActivityAllQuestMissionsRejectDailyAndGuerrilla(t *testing.T) {
+	resolver := loadConditionResolver(t)
+	parts, err := masterdata.LoadPartsCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	questCatalog, err := masterdata.LoadQuestCatalog(parts, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missionCatalog, err := masterdata.LoadMissionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogs := &runtime.Catalogs{Mission: missionCatalog, Quest: questCatalog}
+
+	var excludedQuestIds []int32
+	for chapterId, eventQuestType := range questCatalog.EventQuestTypeByChapterId {
+		if eventQuestType == eventQuestTypeDayOfTheWeek || eventQuestType == eventQuestTypeGuerrilla {
+			excludedQuestIds = append(excludedQuestIds, questCatalog.EventQuestIdsByChapterId[chapterId]...)
+		}
+	}
+	if len(excludedQuestIds) == 0 {
+		t.Fatal("current master has no Day of the Week or Guerrilla quests to verify")
+	}
+
+	checked := 0
+	for _, mission := range missionCatalog.OrderedMissions {
+		if mission.MissionClearConditionType != int32(model.MissionClearConditionTypeQuestClearByCount) {
+			continue
+		}
+		selector, ok := eventSelectorForOption(mission.MissionClearConditionOptionGroupId)
+		if !ok || !selector.all {
+			continue
+		}
+		chapterId := missionScopedEventQuestChapterId(catalogs, mission)
+		eventQuestType := questCatalog.EventQuestTypeByChapterId[chapterId]
+		if eventQuestType != eventQuestTypeMarathon && eventQuestType != eventQuestTypeHunt {
+			continue
+		}
+		checked++
+		for _, questId := range questCatalog.EventQuestIdsByChapterId[chapterId] {
+			if !questMissionMatches(catalogs, mission, questId) {
+				t.Errorf("mission %d did not match quest %d from its activity chapter %d", mission.MissionId, questId, chapterId)
+			}
+		}
+		for _, questId := range excludedQuestIds {
+			if questMissionMatches(catalogs, mission, questId) {
+				t.Errorf("mission %d for activity chapter %d matched Day of the Week or Guerrilla quest %d", mission.MissionId, chapterId, questId)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("current master has no activity-scoped all-quest missions to verify")
+	}
 }
 
 func TestCurrentMasterSpecificQuestTargets(t *testing.T) {

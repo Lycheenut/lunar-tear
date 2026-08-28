@@ -151,6 +151,12 @@ type CostumeRef struct {
 	CharacterId int32
 }
 
+type CostumeEnhancedRef struct {
+	CostumeId int32
+	Level     int32
+	Exp       int32
+}
+
 type WeaponRef struct {
 	WeaponSkillGroupId                 int32
 	WeaponAbilityGroupId               int32
@@ -181,11 +187,12 @@ type PartsStatusSubDef struct {
 }
 
 type PossessionGranter struct {
-	CostumeById        map[int32]CostumeRef
-	WeaponById         map[int32]WeaponRef
-	WeaponSkillSlots   map[int32][]int32
-	WeaponAbilitySlots map[int32][]int32
-	ReleaseConditions  map[int32][]WeaponStoryReleaseCond
+	CostumeById         map[int32]CostumeRef
+	CostumeEnhancedById map[int32]CostumeEnhancedRef
+	WeaponById          map[int32]WeaponRef
+	WeaponSkillSlots    map[int32][]int32
+	WeaponAbilitySlots  map[int32][]int32
+	ReleaseConditions   map[int32][]WeaponStoryReleaseCond
 
 	PartsById                            map[int32]PartsRef
 	DefaultPartsStatusMainByLotteryGroup map[int32]int32
@@ -219,9 +226,13 @@ func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.Poss
 	}
 	result := GrantResult{Status: GrantStatusGranted}
 	switch possessionType {
-	case model.PossessionTypeCostume, model.PossessionTypeCostumeEnhanced:
+	case model.PossessionTypeCostume:
 		for range count {
 			g.GrantCostume(user, possessionId, nowMillis)
+		}
+	case model.PossessionTypeCostumeEnhanced:
+		for range count {
+			g.GrantEnhancedCostume(user, possessionId, nowMillis)
 		}
 	case model.PossessionTypeWeapon, model.PossessionTypeWeaponEnhanced:
 		for range count {
@@ -256,6 +267,19 @@ func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.Poss
 }
 
 func (g *PossessionGranter) GrantCostume(user *UserState, costumeId int32, nowMillis int64) {
+	g.grantCostume(user, costumeId, 1, 0, nowMillis)
+}
+
+func (g *PossessionGranter) GrantEnhancedCostume(user *UserState, costumeEnhancedId int32, nowMillis int64) {
+	enhanced, ok := g.CostumeEnhancedById[costumeEnhancedId]
+	if !ok {
+		g.GrantCostume(user, costumeEnhancedId, nowMillis)
+		return
+	}
+	g.grantCostume(user, enhanced.CostumeId, enhanced.Level, enhanced.Exp, nowMillis)
+}
+
+func (g *PossessionGranter) grantCostume(user *UserState, costumeId, level, exp int32, nowMillis int64) {
 	for _, row := range user.Costumes {
 		if row.CostumeId == costumeId {
 			grantDuplicateExchange(user, g.CostumeDupExchange[costumeId])
@@ -274,7 +298,8 @@ func (g *PossessionGranter) GrantCostume(user *UserState, costumeId int32, nowMi
 	user.Costumes[key] = CostumeState{
 		UserCostumeUuid:     key,
 		CostumeId:           costumeId,
-		Level:               1,
+		Level:               level,
+		Exp:                 exp,
 		HeadupDisplayViewId: 1,
 		AcquisitionDatetime: nowMillis,
 	}

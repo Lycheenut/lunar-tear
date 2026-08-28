@@ -103,7 +103,7 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 			if state.MissionProgressStatusType >= int32(model.MissionProgressStatusTypeClear) {
 				continue
 			}
-			if value, ok := absoluteProgress(catalogs, user, mission, state, nowMillis); ok && absoluteProgressImproved(mission, state.ProgressValue, value) {
+			if value, ok := absoluteProgress(catalogs, user, mission, state, nowMillis); ok && absoluteProgressImproved(catalogs, mission, state.ProgressValue, value) {
 				state.ProgressValue = value
 				state.LatestVersion = nowMillis
 				user.Missions[mission.MissionId] = state
@@ -124,8 +124,15 @@ func reconcile(catalogs *runtime.Catalogs, user *store.UserState, nowMillis int6
 	}
 }
 
-func absoluteProgressImproved(mission masterdata.EntityMMission, current, candidate int32) bool {
-	if model.MissionClearConditionType(mission.MissionClearConditionType) == model.MissionClearConditionTypePvpRank {
+func absoluteProgressImproved(catalogs *runtime.Catalogs, mission masterdata.EntityMMission, current, candidate int32) bool {
+	conditionType := model.MissionClearConditionType(mission.MissionClearConditionType)
+	if conditionType == model.MissionClearConditionTypeQuestClearByCount &&
+		missionScopedEventQuestChapterId(catalogs, mission) != 0 &&
+		requiredDeckCharacterByOption[mission.MissionClearConditionOptionGroupId] == 0 &&
+		requiredDeckCostumeByOption[mission.MissionClearConditionOptionGroupId] == 0 {
+		return candidate != current
+	}
+	if conditionType == model.MissionClearConditionTypePvpRank {
 		return candidate > 0 && (current == 0 || candidate < current)
 	}
 	return candidate > current
@@ -625,6 +632,10 @@ func questMissionMatches(catalogs *runtime.Catalogs, mission masterdata.EntityMM
 	if catalogs == nil || catalogs.Quest == nil {
 		return false
 	}
+	if chapterId := missionScopedEventQuestChapterId(catalogs, mission); chapterId != 0 &&
+		!catalogs.Quest.EventQuestBelongsToChapter(chapterId, questId) {
+		return false
+	}
 	if detail := mission.MissionClearConditionOptionDetailGroupId; detail != 0 {
 		if targetIds, ok := mainQuestTargetsByDetail[detail]; ok {
 			return containsTarget(targetIds, questId)
@@ -749,6 +760,28 @@ func eventQuestChapterIds(catalogs *runtime.Catalogs, mission masterdata.EntityM
 		return nil, true
 	}
 	return chapterIds, false
+}
+
+func missionScopedEventQuestChapterId(catalogs *runtime.Catalogs, mission masterdata.EntityMMission) int32 {
+	if catalogs.Mission == nil || catalogs.Quest == nil {
+		return 0
+	}
+	if link, ok := catalogs.Mission.LinkById[mission.MissionLinkId]; ok && link.DestinationDomainType == missionLinkDestinationQuest {
+		if link.DestinationDomainId != 0 {
+			if len(catalogs.Quest.EventQuestIdsByChapterId[link.DestinationDomainId]) != 0 {
+				return link.DestinationDomainId
+			}
+			return 0
+		}
+	}
+
+	chapterId := catalogs.Mission.GroupById[mission.MissionGroupId].AssetId
+	eventQuestType := catalogs.Quest.EventQuestTypeByChapterId[chapterId]
+	if (eventQuestType == eventQuestTypeMarathon || eventQuestType == eventQuestTypeHunt) &&
+		len(catalogs.Quest.EventQuestIdsByChapterId[chapterId]) != 0 {
+		return chapterId
+	}
+	return 0
 }
 
 func eventQuestSelectorMatchesAnyChapter(catalog *masterdata.QuestCatalog, selector eventQuestSelector, questId int32) bool {

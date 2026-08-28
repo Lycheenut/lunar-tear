@@ -7,6 +7,8 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
+const trueDarkMemoryQuestChapterId int32 = 901
+
 type chapterGachaSpec struct {
 	mainQuestChapterId int32
 	ticketId           int32
@@ -62,19 +64,20 @@ func buildChapterGachaEntries() []store.GachaCatalogEntry {
 		})
 	}
 	entries = append(entries, store.GachaCatalogEntry{
-		GachaId:              chapterGachaIdBase,
-		IsMamaBanner:         true,
-		GachaLabelType:       model.GachaLabelChapter,
-		GachaModeType:        model.GachaModeBox,
-		GachaAutoResetType:   model.GachaAutoResetMonthly,
-		GachaAutoResetPeriod: 1,
-		IsUserGachaUnlock:    true,
-		GachaDecorationType:  model.GachaDecorationNormal,
-		SortOrder:            int32(len(chapterGachaSpecs) + 1),
-		BannerAssetName:      "chapter_ex",
-		GroupId:              chapterGachaIdBase,
-		PricePhases:          buildChapterPricePhases(chapterGachaIdBase, model.ConsumableIdDarkMemorySummonTicket),
-		DescriptionTextId:    chapterGachaIdBase,
+		GachaId:                    chapterGachaIdBase,
+		IsMamaBanner:               true,
+		GachaLabelType:             model.GachaLabelChapter,
+		GachaModeType:              model.GachaModeBox,
+		GachaAutoResetType:         model.GachaAutoResetMonthly,
+		GachaAutoResetPeriod:       1,
+		IsUserGachaUnlock:          true,
+		RelatedEventQuestChapterId: trueDarkMemoryQuestChapterId,
+		GachaDecorationType:        model.GachaDecorationNormal,
+		SortOrder:                  int32(len(chapterGachaSpecs) + 1),
+		BannerAssetName:            "chapter_ex",
+		GroupId:                    chapterGachaIdBase,
+		PricePhases:                buildChapterPricePhases(chapterGachaIdBase, model.ConsumableIdDarkMemorySummonTicket),
+		DescriptionTextId:          chapterGachaIdBase,
 	})
 	return entries
 }

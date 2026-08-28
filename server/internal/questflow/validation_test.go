@@ -8,6 +8,64 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
+func TestStrayScarecrowUnlockFlow(t *testing.T) {
+	h := &QuestHandler{
+		QuestCatalog: &masterdata.QuestCatalog{
+			QuestById: map[int32]masterdata.EntityMQuest{
+				334: {QuestId: 334},
+				382: {QuestId: 382, QuestReleaseConditionListId: 385},
+				385: {QuestId: 385, QuestReleaseConditionListId: 120140},
+				434: {QuestId: 434},
+			},
+			QuestReleaseConditionsByListId: map[int32]masterdata.QuestReleaseConditionGroup{
+				385: {
+					OperationType: model.ConditionOperationTypeAnd,
+					Conditions: []masterdata.QuestReleaseCondition{{
+						ConditionType: model.QuestReleaseConditionTypeQuestChallenge,
+						QuestId:       385,
+					}},
+				},
+				120140: {
+					OperationType: model.ConditionOperationTypeOr,
+					Conditions: []masterdata.QuestReleaseCondition{
+						{ConditionType: model.QuestReleaseConditionTypeQuestClear, QuestId: 334},
+						{ConditionType: model.QuestReleaseConditionTypeQuestClear, QuestId: 434},
+					},
+				},
+			},
+			MaxStaminaByLevel:    map[int32]int32{1: 100},
+			MissionIdsByQuestId:  map[int32][]int32{},
+			BattleDropsByQuestId: map[int32][]masterdata.BattleDropInfo{},
+		},
+	}
+	user := store.SeedUserState(1, "scarecrow", 1, model.ClientPlatform{})
+	user.Status.Level = 1
+	user.Status.StaminaMilliValue = 100_000
+
+	if err := h.HandleExtraQuestStart(user, 385, 1, 100); err == nil {
+		t.Fatal("quest 385 started before either prerequisite quest was cleared")
+	}
+	if user.ExtraQuest.CurrentQuestId != 0 {
+		t.Fatal("rejected quest start mutated the current extra quest")
+	}
+
+	user.Quests[434] = store.UserQuestState{QuestId: 434, QuestStateType: model.UserQuestStateTypeCleared}
+	if err := h.HandleExtraQuestStart(user, 385, 1, 100); err != nil {
+		t.Fatalf("quest 385 did not start after clearing OR prerequisite 434: %v", err)
+	}
+	if err := h.HandleExtraQuestStart(user, 382, 1, 100); err == nil {
+		t.Fatal("quest 382 started before quest 385 was challenged")
+	}
+
+	h.HandleExtraQuestFinish(user, 385, true, false, 200)
+	if got := user.Quests[385].QuestStateType; got != model.UserQuestStateTypeChallenged {
+		t.Fatalf("retired quest 385 state = %d, want challenged", got)
+	}
+	if err := h.HandleExtraQuestStart(user, 382, 1, 200); err != nil {
+		t.Fatalf("quest 382 did not start after quest 385 was challenged: %v", err)
+	}
+}
+
 func TestHandleQuestSkipBulkAggregatesDuplicateQuestLimits(t *testing.T) {
 	h := &QuestHandler{
 		QuestCatalog: &masterdata.QuestCatalog{

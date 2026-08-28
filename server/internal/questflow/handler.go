@@ -65,6 +65,21 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 	for id, cm := range catalog.CostumeById {
 		costumeById[id] = store.CostumeRef{CharacterId: cm.CharacterId}
 	}
+	costumeEnhancedById := make(map[int32]store.CostumeEnhancedRef, len(catalog.CostumeEnhancedById))
+	for id, enhanced := range catalog.CostumeEnhancedById {
+		var exp int32
+		if costume, ok := catalog.CostumeById[enhanced.CostumeId]; ok {
+			thresholds := catalog.CostumeExpByRarity[costume.RarityType]
+			if enhanced.Level >= 0 && int(enhanced.Level) < len(thresholds) {
+				exp = thresholds[enhanced.Level]
+			}
+		}
+		costumeEnhancedById[id] = store.CostumeEnhancedRef{
+			CostumeId: enhanced.CostumeId,
+			Level:     enhanced.Level,
+			Exp:       exp,
+		}
+	}
 	weaponById := make(map[int32]store.WeaponRef, len(catalog.WeaponById))
 	for id, wm := range catalog.WeaponById {
 		weaponById[id] = store.WeaponRef{
@@ -131,6 +146,7 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 
 	return &store.PossessionGranter{
 		CostumeById:                          costumeById,
+		CostumeEnhancedById:                  costumeEnhancedById,
 		WeaponById:                           weaponById,
 		WeaponSkillSlots:                     catalog.WeaponSkillSlots,
 		WeaponAbilitySlots:                   catalog.WeaponAbilitySlots,

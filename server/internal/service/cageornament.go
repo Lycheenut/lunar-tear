@@ -76,17 +76,31 @@ func (s *CageOrnamentServiceServer) RecordAccess(ctx context.Context, req *pb.Re
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		access := user.CageOrnamentAccesses[req.CageOrnamentId]
-		access.CageOrnamentId = req.CageOrnamentId
-		if access.FirstAccessDatetime == 0 {
-			access.FirstAccessDatetime = nowMillis
-		}
-		access.LatestAccessDatetime = nowMillis
-		access.LatestVersion = nowMillis
-		user.CageOrnamentAccesses[req.CageOrnamentId] = access
+		recordCageOrnamentAccess(user, req.CageOrnamentId, nowMillis)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("record cage ornament access: %w", err)
 	}
 	return &pb.RecordAccessResponse{}, nil
+}
+
+func recordCageOrnamentAccess(user *store.UserState, cageOrnamentId int32, nowMillis int64) {
+	access := user.CageOrnamentAccesses[cageOrnamentId]
+	access.CageOrnamentId = cageOrnamentId
+	if access.FirstAccessDatetime == 0 {
+		access.FirstAccessDatetime = nowMillis
+	}
+	access.LatestAccessDatetime = nowMillis
+	access.LatestVersion = nowMillis
+	user.CageOrnamentAccesses[cageOrnamentId] = access
+
+	// Second-season photo spots use RecordAccess instead of ReceiveReward. The
+	// client reads this table to decide which photos appear in its gallery.
+	if _, exists := user.CageOrnamentRewards[cageOrnamentId]; !exists {
+		user.CageOrnamentRewards[cageOrnamentId] = store.CageOrnamentRewardState{
+			CageOrnamentId:      cageOrnamentId,
+			AcquisitionDatetime: nowMillis,
+			LatestVersion:       nowMillis,
+		}
+	}
 }
