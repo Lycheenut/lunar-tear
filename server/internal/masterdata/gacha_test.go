@@ -61,7 +61,8 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 
 	trueDark := entries[len(entries)-1]
 	if trueDark.GachaId != chapterGachaIdBase || trueDark.BannerAssetName != "chapter_ex" ||
-		trueDark.RelatedMainQuestChapterId != 0 || len(trueDark.PricePhases) != 2 ||
+		trueDark.RelatedMainQuestChapterId != 0 || trueDark.RelatedEventQuestChapterId != trueDarkMemoryQuestChapterId ||
+		len(trueDark.PricePhases) != 2 ||
 		trueDark.PricePhases[0].PriceId != 2002 || trueDark.PricePhases[1].PriceId != 2002 {
 		t.Fatalf("unexpected true-dark chapter catalog entry: %+v", trueDark)
 	}
