@@ -420,7 +420,7 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 }
 
 func (h *QuestHandler) HandleQuestRestart(user *store.UserState, questId int32, nowMillis int64) error {
-	if err := h.ValidateQuestContinuation(user, questId); err != nil {
+	if err := h.ValidateMainQuestContinuation(user, questId); err != nil {
 		return err
 	}
 	h.restartQuest(user, questId, nowMillis)

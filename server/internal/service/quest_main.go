@@ -192,7 +192,7 @@ func (s *QuestServiceServer) FinishMainQuest(ctx context.Context, req *pb.Finish
 	var loopEnded bool
 	var validationErr error
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
-		if err := engine.ValidateQuestContinuation(user, req.QuestId); err != nil {
+		if err := engine.ValidateMainQuestContinuation(user, req.QuestId); err != nil {
 			validationErr = err
 			return
 		}
