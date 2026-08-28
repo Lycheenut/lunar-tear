@@ -122,6 +122,22 @@ func (h *QuestHandler) ValidateQuestContinuation(user *store.UserState, questId 
 	return fmt.Errorf("quest %d is not active", questId)
 }
 
+func (h *QuestHandler) ValidateMainQuestContinuation(user *store.UserState, questId int32) error {
+	if err := h.ValidateQuestContinuation(user, questId); err != nil {
+		return err
+	}
+
+	sceneId := user.MainQuest.ProgressQuestSceneId
+	scene, ok := h.SceneById[sceneId]
+	if !ok {
+		return fmt.Errorf("main quest %d has no active progress scene", questId)
+	}
+	if scene.QuestId != questId {
+		return fmt.Errorf("main quest %d does not match progress quest %d at scene %d", questId, scene.QuestId, sceneId)
+	}
+	return nil
+}
+
 func (h *QuestHandler) validateQuestSkip(user *store.UserState, questId, skipCount int32, target campaign.QuestTarget, nowMillis int64) error {
 	quest, ok := h.QuestById[questId]
 	if !ok {

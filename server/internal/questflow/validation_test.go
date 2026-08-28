@@ -106,8 +106,61 @@ func TestValidateQuestContinuationAllowsClearedMenuReplay(t *testing.T) {
 	if got := user.Quests[questId].QuestStateType; got != model.UserQuestStateTypeCleared {
 		t.Fatalf("stored quest state = %d, want cleared", got)
 	}
-	if err := h.ValidateQuestContinuation(user, questId); err != nil {
+	if err := h.ValidateMainQuestContinuation(user, questId); err != nil {
 		t.Fatalf("validate cleared menu replay: %v", err)
+	}
+}
+
+func TestValidateMainQuestContinuationAllowsMatchingActiveProgress(t *testing.T) {
+	const (
+		questId int32 = 13
+		sceneId int32 = 22
+	)
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			questId: {QuestId: questId},
+		},
+		SceneById: map[int32]masterdata.EntityMQuestScene{
+			sceneId: {QuestSceneId: sceneId, QuestId: questId},
+		},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Quests[questId] = store.UserQuestState{QuestId: questId, QuestStateType: model.UserQuestStateTypeActive}
+	user.MainQuest.ProgressQuestSceneId = sceneId
+
+	if err := h.ValidateMainQuestContinuation(user, questId); err != nil {
+		t.Fatalf("validate matching active progress: %v", err)
+	}
+}
+
+func TestHandleQuestRestartRejectsMismatchedProgressWithoutMutation(t *testing.T) {
+	const (
+		requestedQuestId int32 = 100021
+		progressQuestId  int32 = 210019
+		progressSceneId  int32 = 210019
+	)
+	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
+		QuestById: map[int32]masterdata.EntityMQuest{
+			requestedQuestId: {QuestId: requestedQuestId},
+			progressQuestId:  {QuestId: progressQuestId},
+		},
+		SceneById: map[int32]masterdata.EntityMQuestScene{
+			progressSceneId: {QuestSceneId: progressSceneId, QuestId: progressQuestId},
+		},
+	}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Quests[requestedQuestId] = store.UserQuestState{
+		QuestId:             requestedQuestId,
+		QuestStateType:      model.UserQuestStateTypeActive,
+		LatestStartDatetime: 10,
+	}
+	user.MainQuest.ProgressQuestSceneId = progressSceneId
+
+	if err := h.HandleQuestRestart(user, requestedQuestId, 100); err == nil {
+		t.Fatal("mismatched progress quest was restarted")
+	}
+	if got := user.Quests[requestedQuestId].LatestStartDatetime; got != 10 {
+		t.Fatalf("latest start datetime = %d, want unchanged value 10", got)
 	}
 }
 
