@@ -21,6 +21,7 @@ type repairConfig struct {
 	stuckQuestId        int32
 	stuckSceneId        int32
 	replayQuestId       int32
+	replayFinalSceneId  int32
 	orphanActiveQuestId int32
 	apply               bool
 }
@@ -30,7 +31,8 @@ func main() {
 	userId := flag.Int64("user-id", 8, "target user ID")
 	stuckQuestId := flag.Int("stuck-quest-id", 210019, "quest referenced by the stale progress scene")
 	stuckSceneId := flag.Int("stuck-scene-id", 210019, "stale progress scene ID")
-	replayQuestId := flag.Int("replay-quest-id", 0, "active replay quest to preserve; enables replay residue repair")
+	replayQuestId := flag.Int("replay-quest-id", 0, "replay quest involved in the diagnosed residue")
+	replayFinalSceneId := flag.Int("replay-final-scene-id", 0, "final scene to apply after a completed replay remained on its battle result")
 	orphanActiveQuestId := flag.Int("orphan-active-quest-id", 100021, "unrelated active quest to reset")
 	apply := flag.Bool("apply", false, "apply the repair; default is read-only dry-run")
 	flag.Parse()
@@ -40,6 +42,7 @@ func main() {
 		stuckQuestId:        int32(*stuckQuestId),
 		stuckSceneId:        int32(*stuckSceneId),
 		replayQuestId:       int32(*replayQuestId),
+		replayFinalSceneId:  int32(*replayFinalSceneId),
 		orphanActiveQuestId: int32(*orphanActiveQuestId),
 		apply:               *apply,
 	}
@@ -51,8 +54,12 @@ func main() {
 }
 
 func run(cfg repairConfig, out io.Writer) error {
-	if cfg.userId <= 0 || cfg.stuckQuestId <= 0 || cfg.stuckSceneId <= 0 || cfg.replayQuestId < 0 || cfg.orphanActiveQuestId <= 0 {
+	if cfg.userId <= 0 || cfg.stuckQuestId <= 0 || cfg.stuckSceneId <= 0 || cfg.replayQuestId < 0 ||
+		cfg.replayFinalSceneId < 0 || cfg.orphanActiveQuestId <= 0 {
 		return fmt.Errorf("user and quest identifiers must be positive")
+	}
+	if cfg.replayFinalSceneId != 0 && cfg.replayQuestId == 0 {
+		return fmt.Errorf("replay-final-scene-id requires replay-quest-id")
 	}
 	if cfg.replayQuestId != 0 &&
 		(cfg.replayQuestId == cfg.stuckQuestId || cfg.replayQuestId == cfg.orphanActiveQuestId || cfg.stuckQuestId == cfg.orphanActiveQuestId) {
@@ -119,6 +126,9 @@ func openDatabase(path string, readOnly bool) (*sql.DB, error) {
 }
 
 func validateRepairTarget(user *store.UserState, cfg repairConfig) error {
+	if cfg.replayFinalSceneId != 0 {
+		return validateCompletedReplayTarget(user, cfg)
+	}
 	if cfg.replayQuestId != 0 {
 		return validateReplayExtraResidueTarget(user, cfg)
 	}
@@ -147,6 +157,44 @@ func validateRepairTarget(user *store.UserState, cfg repairConfig) error {
 	return nil
 }
 
+func validateCompletedReplayTarget(user *store.UserState, cfg repairConfig) error {
+	main := user.MainQuest
+	if !model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
+		main.ProgressQuestFlowType != main.CurrentQuestFlowType ||
+		main.ProgressQuestSceneId != 0 ||
+		main.ProgressHeadQuestSceneId != 0 ||
+		main.ReplayFlowCurrentQuestSceneId != cfg.stuckSceneId ||
+		main.ReplayFlowHeadQuestSceneId != cfg.stuckSceneId ||
+		main.SavedContext.Active ||
+		cfg.replayFinalSceneId == cfg.stuckSceneId {
+		return fmt.Errorf("user %d completed replay no longer matches the diagnosed state", cfg.userId)
+	}
+
+	progress, ok := user.Quests[cfg.stuckQuestId]
+	if !ok || progress.QuestStateType != model.UserQuestStateTypeCleared || progress.ClearCount == 0 {
+		return fmt.Errorf("progress quest %d is not the expected cleared quest", cfg.stuckQuestId)
+	}
+	replay, ok := user.Quests[cfg.replayQuestId]
+	if !ok || replay.QuestStateType != model.UserQuestStateTypeCleared || replay.ClearCount == 0 {
+		return fmt.Errorf("replay quest %d is not the expected cleared quest", cfg.replayQuestId)
+	}
+	orphan, ok := user.Quests[cfg.orphanActiveQuestId]
+	expectedOrphanState := model.UserQuestStateTypeChallenged
+	if orphan.ClearCount > 0 {
+		expectedOrphanState = model.UserQuestStateTypeCleared
+	}
+	if !ok || orphan.QuestStateType != expectedOrphanState {
+		return fmt.Errorf("quest %d is not in the expected repaired state", cfg.orphanActiveQuestId)
+	}
+	if eventQuestProgressActive(user) {
+		return fmt.Errorf("event quest progress is active; refusing to repair")
+	}
+	if extraQuestProgressActive(user) {
+		return fmt.Errorf("extra quest progress is active; refusing to repair")
+	}
+	return nil
+}
+
 func validateReplayExtraResidueTarget(user *store.UserState, cfg repairConfig) error {
 	main := user.MainQuest
 	if !model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
@@ -169,19 +217,35 @@ func validateReplayExtraResidueTarget(user *store.UserState, cfg repairConfig) e
 	if !ok || orphan.QuestStateType != model.UserQuestStateTypeActive {
 		return fmt.Errorf("quest %d is not the expected active extra-quest residue", cfg.orphanActiveQuestId)
 	}
-	event := user.EventQuest
-	if event.CurrentEventQuestChapterId != 0 || event.CurrentQuestId != 0 ||
-		event.CurrentQuestSceneId != 0 || event.HeadQuestSceneId != 0 {
+	if eventQuestProgressActive(user) {
 		return fmt.Errorf("event quest progress is active; refusing to repair")
 	}
-	extra := user.ExtraQuest
-	if extra.CurrentQuestId != 0 || extra.CurrentQuestSceneId != 0 || extra.HeadQuestSceneId != 0 {
+	if extraQuestProgressActive(user) {
 		return fmt.Errorf("extra quest progress is active; refusing to repair")
 	}
 	return nil
 }
 
+func eventQuestProgressActive(user *store.UserState) bool {
+	event := user.EventQuest
+	return event.CurrentEventQuestChapterId != 0 || event.CurrentQuestId != 0 ||
+		event.CurrentQuestSceneId != 0 || event.HeadQuestSceneId != 0
+}
+
+func extraQuestProgressActive(user *store.UserState) bool {
+	extra := user.ExtraQuest
+	return extra.CurrentQuestId != 0 || extra.CurrentQuestSceneId != 0 || extra.HeadQuestSceneId != 0
+}
+
 func applyRepair(user *store.UserState, cfg repairConfig, nowMillis int64) {
+	if cfg.replayFinalSceneId != 0 {
+		user.MainQuest.ReplayFlowCurrentQuestSceneId = cfg.replayFinalSceneId
+		user.MainQuest.ReplayFlowHeadQuestSceneId = cfg.replayFinalSceneId
+		user.MainQuest.LatestVersion = nowMillis
+		user.BattleBinary = nil
+		user.Battle.LastBattleBinarySize = 0
+		return
+	}
 	if cfg.replayQuestId != 0 {
 		orphan := user.Quests[cfg.orphanActiveQuestId]
 		if orphan.ClearCount > 0 {
@@ -229,9 +293,10 @@ func printState(out io.Writer, label string, user *store.UserState, cfg repairCo
 	replay := user.Quests[cfg.replayQuestId]
 	orphan := user.Quests[cfg.orphanActiveQuestId]
 	fmt.Fprintf(out,
-		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d stuckQuestState=%d replayQuest=%d replayQuestState=%d orphanQuestState=%d orphanStart=%d checkpointBytes=%d savedContext=%v\n",
+		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d replayScene=%d replayHead=%d stuckQuestState=%d replayQuest=%d replayQuestState=%d orphanQuestState=%d orphanStart=%d checkpointBytes=%d savedContext=%v\n",
 		label, user.UserId, user.MainQuest.CurrentQuestFlowType, user.MainQuest.ProgressQuestSceneId,
 		user.MainQuest.ProgressHeadQuestSceneId, user.MainQuest.ProgressQuestFlowType,
+		user.MainQuest.ReplayFlowCurrentQuestSceneId, user.MainQuest.ReplayFlowHeadQuestSceneId,
 		stuck.QuestStateType, cfg.replayQuestId, replay.QuestStateType, orphan.QuestStateType, orphan.LatestStartDatetime,
 		len(user.BattleBinary), user.MainQuest.SavedContext.Active)
 }

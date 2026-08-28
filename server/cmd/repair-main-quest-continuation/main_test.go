@@ -159,6 +159,60 @@ func TestRepairReplayExtraResidueRefusesActiveExtraQuestProgress(t *testing.T) {
 	}
 }
 
+func TestRepairCompletedReplayAdvancesPastBattleResult(t *testing.T) {
+	cfg := repairConfig{
+		userId:              2,
+		stuckQuestId:        334,
+		stuckSceneId:        845,
+		replayQuestId:       30330,
+		replayFinalSceneId:  848,
+		orphanActiveQuestId: 381,
+	}
+	user := diagnosedCompletedReplayState(cfg)
+	user.BattleBinary = []byte("stale replay checkpoint")
+	user.Battle.LastBattleBinarySize = int32(len(user.BattleBinary))
+
+	if err := validateRepairTarget(user, cfg); err != nil {
+		t.Fatalf("validate completed replay: %v", err)
+	}
+	applyRepair(user, cfg, 123)
+
+	if user.MainQuest.ReplayFlowCurrentQuestSceneId != cfg.replayFinalSceneId ||
+		user.MainQuest.ReplayFlowHeadQuestSceneId != cfg.replayFinalSceneId ||
+		user.MainQuest.LatestVersion != 123 {
+		t.Fatalf("completed replay was not advanced: %+v", user.MainQuest)
+	}
+	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeReplayFlow) ||
+		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeReplayFlow) {
+		t.Fatalf("completed replay flow type changed: %+v", user.MainQuest)
+	}
+	if got := user.Quests[cfg.replayQuestId].QuestStateType; got != model.UserQuestStateTypeCleared {
+		t.Fatalf("replay quest state = %d, want cleared", got)
+	}
+	if len(user.BattleBinary) != 0 || user.Battle.LastBattleBinarySize != 0 {
+		t.Fatal("stale replay checkpoint was not cleared")
+	}
+}
+
+func TestRepairCompletedReplayRefusesActiveReplayQuest(t *testing.T) {
+	cfg := repairConfig{
+		userId:              2,
+		stuckQuestId:        334,
+		stuckSceneId:        845,
+		replayQuestId:       30330,
+		replayFinalSceneId:  848,
+		orphanActiveQuestId: 381,
+	}
+	user := diagnosedCompletedReplayState(cfg)
+	replay := user.Quests[cfg.replayQuestId]
+	replay.QuestStateType = model.UserQuestStateTypeActive
+	user.Quests[cfg.replayQuestId] = replay
+
+	if err := validateRepairTarget(user, cfg); err == nil {
+		t.Fatal("completed replay repair accepted an active replay quest")
+	}
+}
+
 func TestRunDryRunThenApplyAgainstSQLite(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "game.db")
 	db, err := database.Open(dbPath)
@@ -338,6 +392,29 @@ func diagnosedReplayExtraResidueState(cfg repairConfig) *store.UserState {
 		QuestId:             cfg.orphanActiveQuestId,
 		QuestStateType:      model.UserQuestStateTypeActive,
 		LatestStartDatetime: 10,
+	}
+	return user
+}
+
+func diagnosedCompletedReplayState(cfg repairConfig) *store.UserState {
+	user := store.SeedUserState(cfg.userId, "test", 1, model.ClientPlatform{})
+	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeReplayFlow)
+	user.MainQuest.ProgressQuestFlowType = int32(model.QuestFlowTypeReplayFlow)
+	user.MainQuest.ReplayFlowCurrentQuestSceneId = cfg.stuckSceneId
+	user.MainQuest.ReplayFlowHeadQuestSceneId = cfg.stuckSceneId
+	user.Quests[cfg.stuckQuestId] = store.UserQuestState{
+		QuestId:        cfg.stuckQuestId,
+		QuestStateType: model.UserQuestStateTypeCleared,
+		ClearCount:     1,
+	}
+	user.Quests[cfg.replayQuestId] = store.UserQuestState{
+		QuestId:        cfg.replayQuestId,
+		QuestStateType: model.UserQuestStateTypeCleared,
+		ClearCount:     1,
+	}
+	user.Quests[cfg.orphanActiveQuestId] = store.UserQuestState{
+		QuestId:        cfg.orphanActiveQuestId,
+		QuestStateType: model.UserQuestStateTypeChallenged,
 	}
 	return user
 }
