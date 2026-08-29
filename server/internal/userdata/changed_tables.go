@@ -538,6 +538,8 @@ func keyFieldsForTable(table string) []string {
 		return []string{"userId", "sideStoryQuestId"}
 	case "IUserMainQuestSeasonRoute":
 		return []string{"userId", "mainQuestSeasonId", "mainQuestRouteId"}
+	case "IUserMainQuestReplayFlowStatus":
+		return []string{"userId"}
 	case "IUserQuestLimitContentStatus":
 		return []string{"userId", "questId"}
 	case "IUserBigHuntMaxScore":
