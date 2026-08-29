@@ -98,6 +98,35 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 	for _, b := range boards {
 		catalog.BoardById[b.CharacterBoardId] = b
 	}
+	// Mission option groups follow the mission text order, which differs from
+	// the character-board UI order between Levania and Noelle.
+	missionCharacterIds := [...]int32{
+		1008, // Rion
+		1009, // Gayle
+		1007, // Dimos
+		1015, // Akeha
+		1006, // Argo
+		1011, // 063y
+		1012, // F66x
+		1013, // Lars
+		1014, // Griff
+		1010, // Noelle
+		1004, // Levania
+		1019, // Fio
+		1022, // Saryu
+		1023, // Priyet
+		1024, // Marie
+		1025, // Yurie
+		1027, // Yudil
+		1026, // Sarafa
+		1020, // Hina
+		1021, // Yuzuki
+		1048, // 10H
+	}
+	missionOptionBaseByCharacterId := make(map[int32]int32, len(missionCharacterIds))
+	for index, characterId := range missionCharacterIds {
+		missionOptionBaseByCharacterId[characterId] = 310001 + int32(index)*2
+	}
 	characterByCategoryId := make(map[int32]int32, len(assignments))
 	missionOptionBaseByCategoryId := make(map[int32]int32, len(assignments))
 	for _, assignment := range assignments {
@@ -105,8 +134,8 @@ func LoadCharacterBoardCatalog() (*CharacterBoardCatalog, error) {
 			return nil, fmt.Errorf("character board category %d has multiple character assignments", assignment.CharacterBoardCategoryId)
 		}
 		characterByCategoryId[assignment.CharacterBoardCategoryId] = assignment.CharacterId
-		if assignment.CharacterBoardAssignmentType == 1 && assignment.SortOrder > 0 {
-			missionOptionBaseByCategoryId[assignment.CharacterBoardCategoryId] = 310001 + (assignment.SortOrder-1)*2
+		if assignment.CharacterBoardAssignmentType == 1 {
+			missionOptionBaseByCategoryId[assignment.CharacterBoardCategoryId] = missionOptionBaseByCharacterId[assignment.CharacterId]
 		}
 	}
 	categoryByGroupId := make(map[int32]int32, len(groups))
