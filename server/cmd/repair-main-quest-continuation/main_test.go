@@ -228,6 +228,10 @@ func TestRepairCompletedReplayExitsToPortal(t *testing.T) {
 		orphanActiveQuestId: 381,
 	}
 	user := diagnosedCompletedReplayState(cfg)
+	for _, missionId := range []int32{1, 2, 3, 101} {
+		key := store.QuestMissionKey{QuestId: cfg.replayQuestId, QuestMissionId: missionId}
+		user.QuestMissions[key] = store.UserQuestMissionState{QuestId: cfg.replayQuestId, QuestMissionId: missionId}
+	}
 	user.BattleBinary = []byte("stale replay checkpoint")
 	user.Battle.LastBattleBinarySize = int32(len(user.BattleBinary))
 
@@ -251,6 +255,38 @@ func TestRepairCompletedReplayExitsToPortal(t *testing.T) {
 	}
 	if len(user.BattleBinary) != 0 || user.Battle.LastBattleBinarySize != 0 {
 		t.Fatal("stale replay checkpoint was not cleared")
+	}
+	for key := range user.QuestMissions {
+		if key.QuestId == cfg.replayQuestId {
+			t.Fatalf("replay quest mission residue remains: %+v", key)
+		}
+	}
+}
+
+func TestRepairCompletedReplayAcceptsNormalizedPortalState(t *testing.T) {
+	cfg := repairConfig{
+		userId:              2,
+		stuckQuestId:        334,
+		stuckSceneId:        845,
+		replayQuestId:       30330,
+		replayFinalSceneId:  848,
+		orphanActiveQuestId: 381,
+	}
+	user := diagnosedCompletedReplayState(cfg)
+	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
+	user.MainQuest.ProgressQuestFlowType = int32(model.QuestFlowTypeUnknown)
+	user.MainQuest.ReplayFlowCurrentQuestSceneId = 0
+	user.MainQuest.ReplayFlowHeadQuestSceneId = 0
+	user.PortalCageStatus.IsCurrentProgress = true
+	key := store.QuestMissionKey{QuestId: cfg.replayQuestId, QuestMissionId: 1}
+	user.QuestMissions[key] = store.UserQuestMissionState{QuestId: cfg.replayQuestId, QuestMissionId: 1}
+
+	if err := validateRepairTarget(user, cfg); err != nil {
+		t.Fatalf("validate normalized completed replay: %v", err)
+	}
+	applyRepair(user, cfg, 123)
+	if _, ok := user.QuestMissions[key]; ok {
+		t.Fatal("normalized replay mission residue was not removed")
 	}
 }
 

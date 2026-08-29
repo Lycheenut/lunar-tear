@@ -168,12 +168,20 @@ func validateCompletedReplayTarget(user *store.UserState, cfg repairConfig) erro
 		user.PortalCageStatus.IsCurrentProgress
 	replaySceneMatches := main.ReplayFlowCurrentQuestSceneId == cfg.stuckSceneId ||
 		main.ReplayFlowCurrentQuestSceneId == cfg.replayFinalSceneId
-	if !model.IsReplayQuestFlowType(replayFlowType) ||
-		(!activeReplay && !partialPortalTransition) ||
-		main.ProgressQuestSceneId != 0 ||
-		main.ProgressHeadQuestSceneId != 0 ||
-		!replaySceneMatches ||
-		main.ReplayFlowHeadQuestSceneId != main.ReplayFlowCurrentQuestSceneId ||
+	completedReplayResidue := model.IsReplayQuestFlowType(replayFlowType) &&
+		(activeReplay || partialPortalTransition) &&
+		main.ProgressQuestSceneId == 0 &&
+		main.ProgressHeadQuestSceneId == 0 &&
+		replaySceneMatches &&
+		main.ReplayFlowHeadQuestSceneId == main.ReplayFlowCurrentQuestSceneId
+	alreadyNormalizedPortal := main.CurrentQuestFlowType == int32(model.QuestFlowTypeMainFlow) &&
+		main.ProgressQuestFlowType == int32(model.QuestFlowTypeUnknown) &&
+		main.ProgressQuestSceneId == 0 &&
+		main.ProgressHeadQuestSceneId == 0 &&
+		main.ReplayFlowCurrentQuestSceneId == 0 &&
+		main.ReplayFlowHeadQuestSceneId == 0 &&
+		user.PortalCageStatus.IsCurrentProgress
+	if (!completedReplayResidue && !alreadyNormalizedPortal) ||
 		main.SavedContext.Active ||
 		cfg.replayFinalSceneId == cfg.stuckSceneId {
 		return fmt.Errorf("user %d completed replay no longer matches the diagnosed state", cfg.userId)
@@ -247,6 +255,13 @@ func extraQuestProgressActive(user *store.UserState) bool {
 }
 
 func applyRepair(user *store.UserState, cfg repairConfig, nowMillis int64) {
+	if cfg.replayQuestId != 0 {
+		for key := range user.QuestMissions {
+			if key.QuestId == cfg.replayQuestId {
+				delete(user.QuestMissions, key)
+			}
+		}
+	}
 	if cfg.replayFinalSceneId != 0 {
 		user.MainQuest.ReplayFlowCurrentQuestSceneId = 0
 		user.MainQuest.ReplayFlowHeadQuestSceneId = 0
@@ -309,13 +324,19 @@ func printState(out io.Writer, label string, user *store.UserState, cfg repairCo
 	stuck := user.Quests[cfg.stuckQuestId]
 	replay := user.Quests[cfg.replayQuestId]
 	orphan := user.Quests[cfg.orphanActiveQuestId]
+	replayQuestMissionCount := 0
+	for key := range user.QuestMissions {
+		if key.QuestId == cfg.replayQuestId {
+			replayQuestMissionCount++
+		}
+	}
 	fmt.Fprintf(out,
-		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d replayScene=%d replayHead=%d portal=%v stuckQuestState=%d stuckClear=%d replayQuest=%d replayQuestState=%d orphanQuestState=%d orphanClear=%d orphanStart=%d eventQuest=%d eventScene=%d extraQuest=%d extraScene=%d checkpointBytes=%d savedContext=%v\n",
+		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d replayScene=%d replayHead=%d portal=%v stuckQuestState=%d stuckClear=%d replayQuest=%d replayQuestState=%d replayQuestMissions=%d orphanQuestState=%d orphanClear=%d orphanStart=%d eventQuest=%d eventScene=%d extraQuest=%d extraScene=%d checkpointBytes=%d savedContext=%v\n",
 		label, user.UserId, user.MainQuest.CurrentQuestFlowType, user.MainQuest.ProgressQuestSceneId,
 		user.MainQuest.ProgressHeadQuestSceneId, user.MainQuest.ProgressQuestFlowType,
 		user.MainQuest.ReplayFlowCurrentQuestSceneId, user.MainQuest.ReplayFlowHeadQuestSceneId,
 		user.PortalCageStatus.IsCurrentProgress,
-		stuck.QuestStateType, stuck.ClearCount, cfg.replayQuestId, replay.QuestStateType, orphan.QuestStateType, orphan.ClearCount, orphan.LatestStartDatetime,
+		stuck.QuestStateType, stuck.ClearCount, cfg.replayQuestId, replay.QuestStateType, replayQuestMissionCount, orphan.QuestStateType, orphan.ClearCount, orphan.LatestStartDatetime,
 		user.EventQuest.CurrentQuestId, user.EventQuest.CurrentQuestSceneId, user.ExtraQuest.CurrentQuestId, user.ExtraQuest.CurrentQuestSceneId,
 		len(user.BattleBinary), user.MainQuest.SavedContext.Active)
 }
