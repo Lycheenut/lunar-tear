@@ -20,9 +20,27 @@ func TestRecoverCompletedReplayOnLoginReturnsToPortal(t *testing.T) {
 		user.PortalCageStatus.LatestVersion != 456 {
 		t.Fatalf("completed replay did not return to portal: %+v", user.MainQuest)
 	}
-	if user.MainQuest.ReplayFlowCurrentQuestSceneId != 848 ||
-		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeReplayFlow) {
-		t.Fatalf("sticky replay fields were changed: %+v", user.MainQuest)
+	if user.MainQuest.ReplayFlowCurrentQuestSceneId != 0 ||
+		user.MainQuest.ReplayFlowHeadQuestSceneId != 0 ||
+		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeUnknown) {
+		t.Fatalf("completed replay residue was not cleared: %+v", user.MainQuest)
+	}
+}
+
+func TestRecoverCompletedReplayOnLoginFinishesPartialPortalTransition(t *testing.T) {
+	h, user := completedReplayRecoveryFixture()
+	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
+	user.PortalCageStatus.IsCurrentProgress = true
+
+	if !h.RecoverCompletedReplayOnLogin(user, 456) {
+		t.Fatal("partially recovered replay was not normalized")
+	}
+	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
+		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeUnknown) ||
+		user.MainQuest.ReplayFlowCurrentQuestSceneId != 0 ||
+		user.MainQuest.ReplayFlowHeadQuestSceneId != 0 ||
+		!user.PortalCageStatus.IsCurrentProgress {
+		t.Fatalf("partially recovered replay residue remains: %+v", user.MainQuest)
 	}
 }
 
