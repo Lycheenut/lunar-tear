@@ -30,6 +30,7 @@ type RewardReferenceCatalog struct {
 	Materials       []RewardReference `json:"materials"`
 	Weapons         []RewardReference `json:"weapons"`
 	Companions      []RewardReference `json:"companions"`
+	Parts           []RewardReference `json:"parts"`
 	ConsumableItems []RewardReference `json:"consumableItems"`
 	ImportantItems  []RewardReference `json:"importantItems"`
 	FreeGems        []RewardReference `json:"freeGems"`
@@ -75,6 +76,19 @@ func LoadRewardReferenceCatalog(
 			result.Companions = append(result.Companions, reference)
 		}
 	}
+	partsGroupAssets := make(map[int64]int64)
+	for _, row := range readRows(file, "m_parts_group") {
+		groupID, groupOK := integerAt(row, 0)
+		assetID, assetOK := integerAt(row, 3)
+		if groupOK && assetOK {
+			partsGroupAssets[groupID] = assetID
+		}
+	}
+	for _, row := range readRows(file, "m_parts") {
+		if reference, ok := partsRewardReference(row, resolver, partsGroupAssets); ok {
+			result.Parts = append(result.Parts, reference)
+		}
+	}
 	for _, row := range readRows(file, "m_consumable_item") {
 		if reference, ok := consumableRewardReference(row, resolver); ok {
 			result.ConsumableItems = append(result.ConsumableItems, reference)
@@ -99,6 +113,9 @@ func LoadRewardReferenceCatalog(
 	})
 	sort.Slice(result.Companions, func(i, j int) bool {
 		return result.Companions[i].PossessionId < result.Companions[j].PossessionId
+	})
+	sort.Slice(result.Parts, func(i, j int) bool {
+		return result.Parts[i].PossessionId < result.Parts[j].PossessionId
 	})
 	sort.Slice(result.ConsumableItems, func(i, j int) bool {
 		return result.ConsumableItems[i].PossessionId < result.ConsumableItems[j].PossessionId
@@ -186,6 +203,24 @@ func companionRewardReference(row []interface{}, resolver *titleResolver) (Rewar
 		Names:          resolver.byKey("companion.name." + assetName),
 		IconPath:       path.Join("companion", assetName, assetName+"_standard.png"),
 		AttributeType:  int32(attributeType),
+	}, true
+}
+
+func partsRewardReference(row []interface{}, resolver *titleResolver, groupAssets map[int64]int64) (RewardReference, bool) {
+	id, idOK := integerAt(row, 0)
+	rarityType, rarityOK := integerAt(row, 1)
+	groupID, groupOK := integerAt(row, 2)
+	assetID, assetOK := groupAssets[groupID]
+	if !idOK || !rarityOK || !groupOK || !assetOK || assetID <= 0 {
+		return RewardReference{}, false
+	}
+	assetName := fmt.Sprintf("memory%03d", assetID)
+	return RewardReference{
+		PossessionType: int32(model.PossessionTypeParts),
+		PossessionId:   int32(id),
+		Names:          resolver.byKey(fmt.Sprintf("parts.group.name.%d", groupID)),
+		IconPath:       path.Join("memory", assetName, assetName+"_standard.png"),
+		RarityType:     int32(rarityType),
 	}, true
 }
 

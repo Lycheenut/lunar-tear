@@ -9,7 +9,7 @@ import (
 	"lunar-tear/server/internal/masterdata"
 )
 
-func TestInstalledRewardCatalogResolvesCommemorativeImportantItem(t *testing.T) {
+func TestInstalledRewardCatalogResolvesCommemorativeRewards(t *testing.T) {
 	masterDataPath := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if _, err := os.Stat(masterDataPath); errors.Is(err, os.ErrNotExist) {
 		t.Skip("repository master data is not installed")
@@ -21,6 +21,7 @@ func TestInstalledRewardCatalogResolvesCommemorativeImportantItem(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	foundImportantItem := false
 	for _, item := range catalog.ImportantItems {
 		if item.PossessionId != 310010 {
 			continue
@@ -31,9 +32,26 @@ func TestInstalledRewardCatalogResolvesCommemorativeImportantItem(t *testing.T) 
 		if item.IconPath != "important_item/important310010/important310010_standard.png" {
 			t.Fatalf("important item 310010 icon = %q", item.IconPath)
 		}
+		foundImportantItem = true
+		break
+	}
+	if !foundImportantItem {
+		t.Fatal("reward catalog is missing important item 310010")
+	}
+
+	for _, item := range catalog.Parts {
+		if item.PossessionId != 728 {
+			continue
+		}
+		if item.Names["en"] == "" || item.Names["ja"] == "" {
+			t.Fatalf("parts 728 has incomplete names: %+v", item.Names)
+		}
+		if item.IconPath != "memory/memory037/memory037_standard.png" {
+			t.Fatalf("parts 728 icon = %q", item.IconPath)
+		}
 		return
 	}
-	t.Fatal("reward catalog is missing important item 310010")
+	t.Fatal("reward catalog is missing parts 728")
 }
 
 func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
@@ -43,6 +61,7 @@ func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 			"weapon.name.wp001002.1":      "Nameless Blade",
 			"costume.name.ch003004":       "Abstract Hunter",
 			"companion.name.cm001002":     "Bear: Precious",
+			"parts.group.name.37":         "Beauty Potion",
 			"consumable_item.name.110004": "Gold Automata Medal",
 			"important_item.name.310010":  "Record: The Girl and the Monster",
 		},
@@ -80,6 +99,14 @@ func TestRewardReferencesResolveNamesIconsAndFilters(t *testing.T) {
 	}, resolver)
 	if !ok || companion.Names["en"] != "Bear: Precious" || companion.IconPath != "companion/cm001002/cm001002_standard.png" {
 		t.Fatalf("unexpected companion reference: %+v", companion)
+	}
+
+	parts, ok := partsRewardReference([]interface{}{
+		int32(728), int32(20), int32(37), int32(1), int32(2), int32(3),
+	}, resolver, map[int64]int64{37: 37})
+	if !ok || parts.Names["en"] != "Beauty Potion" || parts.IconPath != "memory/memory037/memory037_standard.png" ||
+		parts.RarityType != 20 || parts.PossessionType != 4 {
+		t.Fatalf("unexpected parts reference: %+v", parts)
 	}
 
 	consumable, ok := consumableRewardReference([]interface{}{

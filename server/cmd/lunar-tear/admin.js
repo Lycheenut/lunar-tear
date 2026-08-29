@@ -4250,6 +4250,7 @@
     { key: "material", catalogKey: "materials", possessionType: "5", label: "道具", fallbackName: "未命名道具", glyph: "具" },
     { key: "weapon", catalogKey: "weapons", possessionType: "2", label: "武器", fallbackName: "未命名武器", glyph: "武" },
     { key: "companion", catalogKey: "companions", possessionType: "3", label: "伙伴", fallbackName: "未命名伙伴", glyph: "伙" },
+    { key: "parts", catalogKey: "parts", possessionType: "4", label: "回忆", fallbackName: "未命名回忆", glyph: "忆" },
     { key: "consumable", catalogKey: "consumableItems", possessionType: "6", label: "消耗品", fallbackName: "未命名消耗品", glyph: "消" },
     { key: "important_item", catalogKey: "importantItems", possessionType: "13", label: "重要道具", fallbackName: "未命名重要道具", glyph: "重" },
     { key: "free_gem", catalogKey: "freeGems", possessionType: "12", label: "免费宝石", fallbackName: "免费宝石", glyph: "石" }
