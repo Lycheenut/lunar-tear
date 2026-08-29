@@ -159,7 +159,7 @@ func TestRepairReplayExtraResidueRefusesActiveExtraQuestProgress(t *testing.T) {
 	}
 }
 
-func TestRepairCompletedReplayAdvancesPastBattleResult(t *testing.T) {
+func TestRepairCompletedReplayExitsToPortal(t *testing.T) {
 	cfg := repairConfig{
 		userId:              2,
 		stuckQuestId:        334,
@@ -182,15 +182,40 @@ func TestRepairCompletedReplayAdvancesPastBattleResult(t *testing.T) {
 		user.MainQuest.LatestVersion != 123 {
 		t.Fatalf("completed replay was not advanced: %+v", user.MainQuest)
 	}
-	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeReplayFlow) ||
-		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeReplayFlow) {
-		t.Fatalf("completed replay flow type changed: %+v", user.MainQuest)
+	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
+		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeReplayFlow) ||
+		!user.PortalCageStatus.IsCurrentProgress || user.PortalCageStatus.LatestVersion != 123 {
+		t.Fatalf("completed replay did not exit to portal: %+v", user.MainQuest)
 	}
 	if got := user.Quests[cfg.replayQuestId].QuestStateType; got != model.UserQuestStateTypeCleared {
 		t.Fatalf("replay quest state = %d, want cleared", got)
 	}
 	if len(user.BattleBinary) != 0 || user.Battle.LastBattleBinarySize != 0 {
 		t.Fatal("stale replay checkpoint was not cleared")
+	}
+}
+
+func TestRepairCompletedReplayAcceptsAlreadyAdvancedEndingScene(t *testing.T) {
+	cfg := repairConfig{
+		userId:              2,
+		stuckQuestId:        334,
+		stuckSceneId:        845,
+		replayQuestId:       30330,
+		replayFinalSceneId:  848,
+		orphanActiveQuestId: 381,
+	}
+	user := diagnosedCompletedReplayState(cfg)
+	user.MainQuest.ReplayFlowCurrentQuestSceneId = cfg.replayFinalSceneId
+	user.MainQuest.ReplayFlowHeadQuestSceneId = cfg.replayFinalSceneId
+
+	if err := validateRepairTarget(user, cfg); err != nil {
+		t.Fatalf("validate already advanced replay: %v", err)
+	}
+	applyRepair(user, cfg, 123)
+
+	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
+		!user.PortalCageStatus.IsCurrentProgress {
+		t.Fatalf("already advanced replay did not exit to portal: %+v", user.MainQuest)
 	}
 }
 
