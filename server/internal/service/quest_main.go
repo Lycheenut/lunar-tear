@@ -193,6 +193,10 @@ func (s *QuestServiceServer) FinishMainQuest(ctx context.Context, req *pb.Finish
 	var validationErr error
 	_, updateErr := s.users.UpdateUser(userId, func(user *store.UserState) {
 		if err := engine.ValidateMainQuestContinuation(user, req.QuestId); err != nil {
+			if req.IsRetired && engine.HandleStaleMainQuestRetire(user, req.QuestId, nowMillis) {
+				endedDrops, loopEnded = finishAutoOrbit(user, req.IsAutoOrbit, true, false, model.QuestTypeMain, 0, req.QuestId, nowMillis, nil)
+				return
+			}
 			validationErr = err
 			return
 		}
