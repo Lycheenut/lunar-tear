@@ -177,13 +177,13 @@ func TestRepairCompletedReplayExitsToPortal(t *testing.T) {
 	}
 	applyRepair(user, cfg, 123)
 
-	if user.MainQuest.ReplayFlowCurrentQuestSceneId != cfg.replayFinalSceneId ||
-		user.MainQuest.ReplayFlowHeadQuestSceneId != cfg.replayFinalSceneId ||
+	if user.MainQuest.ReplayFlowCurrentQuestSceneId != 0 ||
+		user.MainQuest.ReplayFlowHeadQuestSceneId != 0 ||
 		user.MainQuest.LatestVersion != 123 {
-		t.Fatalf("completed replay was not advanced: %+v", user.MainQuest)
+		t.Fatalf("completed replay position was not cleared: %+v", user.MainQuest)
 	}
 	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
-		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeReplayFlow) ||
+		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeUnknown) ||
 		!user.PortalCageStatus.IsCurrentProgress || user.PortalCageStatus.LatestVersion != 123 {
 		t.Fatalf("completed replay did not exit to portal: %+v", user.MainQuest)
 	}
@@ -216,6 +216,35 @@ func TestRepairCompletedReplayAcceptsAlreadyAdvancedEndingScene(t *testing.T) {
 	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
 		!user.PortalCageStatus.IsCurrentProgress {
 		t.Fatalf("already advanced replay did not exit to portal: %+v", user.MainQuest)
+	}
+}
+
+func TestRepairCompletedReplayAcceptsPartialPortalTransition(t *testing.T) {
+	cfg := repairConfig{
+		userId:              2,
+		stuckQuestId:        334,
+		stuckSceneId:        845,
+		replayQuestId:       30330,
+		replayFinalSceneId:  848,
+		orphanActiveQuestId: 381,
+	}
+	user := diagnosedCompletedReplayState(cfg)
+	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
+	user.MainQuest.ReplayFlowCurrentQuestSceneId = cfg.replayFinalSceneId
+	user.MainQuest.ReplayFlowHeadQuestSceneId = cfg.replayFinalSceneId
+	user.PortalCageStatus.IsCurrentProgress = true
+
+	if err := validateRepairTarget(user, cfg); err != nil {
+		t.Fatalf("validate partial portal transition: %v", err)
+	}
+	applyRepair(user, cfg, 123)
+
+	if user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
+		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeUnknown) ||
+		user.MainQuest.ReplayFlowCurrentQuestSceneId != 0 ||
+		user.MainQuest.ReplayFlowHeadQuestSceneId != 0 ||
+		!user.PortalCageStatus.IsCurrentProgress {
+		t.Fatalf("partial portal transition was not normalized: %+v", user.MainQuest)
 	}
 }
 

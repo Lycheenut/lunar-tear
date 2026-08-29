@@ -32,7 +32,7 @@ func main() {
 	stuckQuestId := flag.Int("stuck-quest-id", 210019, "quest referenced by the stale progress scene")
 	stuckSceneId := flag.Int("stuck-scene-id", 210019, "stale progress scene ID")
 	replayQuestId := flag.Int("replay-quest-id", 0, "replay quest involved in the diagnosed residue")
-	replayFinalSceneId := flag.Int("replay-final-scene-id", 0, "final scene to retain while returning a completed replay to the portal")
+	replayFinalSceneId := flag.Int("replay-final-scene-id", 0, "final scene identifying a completed replay that should return to the portal")
 	orphanActiveQuestId := flag.Int("orphan-active-quest-id", 100021, "unrelated active quest to reset")
 	apply := flag.Bool("apply", false, "apply the repair; default is read-only dry-run")
 	flag.Parse()
@@ -159,10 +159,14 @@ func validateRepairTarget(user *store.UserState, cfg repairConfig) error {
 
 func validateCompletedReplayTarget(user *store.UserState, cfg repairConfig) error {
 	main := user.MainQuest
+	replayFlowType := main.ProgressQuestFlowType
+	activeReplay := main.CurrentQuestFlowType == replayFlowType
+	partialPortalTransition := main.CurrentQuestFlowType == int32(model.QuestFlowTypeMainFlow) &&
+		user.PortalCageStatus.IsCurrentProgress
 	replaySceneMatches := main.ReplayFlowCurrentQuestSceneId == cfg.stuckSceneId ||
 		main.ReplayFlowCurrentQuestSceneId == cfg.replayFinalSceneId
-	if !model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
-		main.ProgressQuestFlowType != main.CurrentQuestFlowType ||
+	if !model.IsReplayQuestFlowType(replayFlowType) ||
+		(!activeReplay && !partialPortalTransition) ||
 		main.ProgressQuestSceneId != 0 ||
 		main.ProgressHeadQuestSceneId != 0 ||
 		!replaySceneMatches ||
@@ -241,8 +245,9 @@ func extraQuestProgressActive(user *store.UserState) bool {
 
 func applyRepair(user *store.UserState, cfg repairConfig, nowMillis int64) {
 	if cfg.replayFinalSceneId != 0 {
-		user.MainQuest.ReplayFlowCurrentQuestSceneId = cfg.replayFinalSceneId
-		user.MainQuest.ReplayFlowHeadQuestSceneId = cfg.replayFinalSceneId
+		user.MainQuest.ReplayFlowCurrentQuestSceneId = 0
+		user.MainQuest.ReplayFlowHeadQuestSceneId = 0
+		user.MainQuest.ProgressQuestFlowType = int32(model.QuestFlowTypeUnknown)
 		user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
 		user.MainQuest.LatestVersion = nowMillis
 		user.PortalCageStatus.IsCurrentProgress = true
