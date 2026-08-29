@@ -110,6 +110,34 @@ func TestHandleStaleMainQuestRetireClearsNonActiveProgressWithoutClearHistory(t 
 	}
 }
 
+func TestHandleStaleMainQuestRetireRestoresSavedContext(t *testing.T) {
+	h, user := mismatchedContinuationFixture()
+	user.Quests[10014] = store.UserQuestState{
+		QuestId:        10014,
+		QuestStateType: model.UserQuestStateTypeChallenged,
+	}
+	user.MainQuest.SavedContext = store.SavedQuestContext{
+		Active:                  true,
+		CurrentQuestSceneId:     548,
+		HeadQuestSceneId:        550,
+		CurrentMainQuestRouteId: 1,
+		MainQuestSeasonId:       2,
+		CurrentQuestFlowType:    int32(model.QuestFlowTypeMainFlow),
+		PortalCageInProgress:    true,
+	}
+
+	if !h.HandleStaleMainQuestRetire(user, 10014, 123) {
+		t.Fatal("stale menu replay progress was not retired")
+	}
+	if user.MainQuest.SavedContext.Active ||
+		user.MainQuest.CurrentQuestSceneId != 548 ||
+		user.MainQuest.HeadQuestSceneId != 550 ||
+		user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
+		!user.PortalCageStatus.IsCurrentProgress {
+		t.Fatalf("saved context was not restored: main=%+v portal=%+v", user.MainQuest, user.PortalCageStatus)
+	}
+}
+
 func mismatchedContinuationFixture() (*QuestHandler, *store.UserState) {
 	h := &QuestHandler{QuestCatalog: &masterdata.QuestCatalog{
 		QuestById: map[int32]masterdata.EntityMQuest{
