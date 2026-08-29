@@ -81,6 +81,7 @@ func run(cfg repairConfig, out io.Writer) error {
 		return fmt.Errorf("load user %d: %w", cfg.userId, err)
 	}
 	if err := validateRepairTarget(&user, cfg); err != nil {
+		printState(out, "rejected", &user, cfg)
 		return err
 	}
 	printState(out, "matched", &user, cfg)
@@ -138,21 +139,23 @@ func validateRepairTarget(user *store.UserState, cfg repairConfig) error {
 		main.ProgressQuestFlowType != int32(model.QuestFlowTypeSubFlow) ||
 		main.ProgressQuestSceneId != cfg.stuckSceneId ||
 		main.ProgressHeadQuestSceneId != cfg.stuckSceneId {
-		return fmt.Errorf("user %d main quest progress no longer matches the diagnosed state", cfg.userId)
+		return fmt.Errorf("user %d main quest progress no longer matches the diagnosed state: flow=%d progressScene=%d progressHead=%d progressFlow=%d", cfg.userId,
+			main.CurrentQuestFlowType, main.ProgressQuestSceneId, main.ProgressHeadQuestSceneId, main.ProgressQuestFlowType)
 	}
 
 	stuck, ok := user.Quests[cfg.stuckQuestId]
 	if !ok || stuck.QuestStateType != model.UserQuestStateTypeCleared || stuck.ClearCount == 0 {
-		return fmt.Errorf("quest %d is not the expected cleared quest", cfg.stuckQuestId)
+		return fmt.Errorf("quest %d is not the expected cleared quest: present=%v state=%d clear=%d", cfg.stuckQuestId, ok, stuck.QuestStateType, stuck.ClearCount)
 	}
 	orphan, ok := user.Quests[cfg.orphanActiveQuestId]
 	if !ok || orphan.QuestStateType != model.UserQuestStateTypeActive {
-		return fmt.Errorf("quest %d is not the expected active residue", cfg.orphanActiveQuestId)
+		return fmt.Errorf("quest %d is not the expected active residue: present=%v state=%d clear=%d", cfg.orphanActiveQuestId, ok, orphan.QuestStateType, orphan.ClearCount)
 	}
 	event := user.EventQuest
 	if event.CurrentEventQuestChapterId != 0 || event.CurrentQuestId != 0 ||
 		event.CurrentQuestSceneId != 0 || event.HeadQuestSceneId != 0 {
-		return fmt.Errorf("event quest progress is active; refusing to repair")
+		return fmt.Errorf("event quest progress is active; refusing to repair: chapter=%d quest=%d scene=%d head=%d",
+			event.CurrentEventQuestChapterId, event.CurrentQuestId, event.CurrentQuestSceneId, event.HeadQuestSceneId)
 	}
 	return nil
 }
@@ -307,11 +310,12 @@ func printState(out io.Writer, label string, user *store.UserState, cfg repairCo
 	replay := user.Quests[cfg.replayQuestId]
 	orphan := user.Quests[cfg.orphanActiveQuestId]
 	fmt.Fprintf(out,
-		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d replayScene=%d replayHead=%d portal=%v stuckQuestState=%d stuckClear=%d replayQuest=%d replayQuestState=%d orphanQuestState=%d orphanClear=%d orphanStart=%d checkpointBytes=%d savedContext=%v\n",
+		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d replayScene=%d replayHead=%d portal=%v stuckQuestState=%d stuckClear=%d replayQuest=%d replayQuestState=%d orphanQuestState=%d orphanClear=%d orphanStart=%d eventQuest=%d eventScene=%d extraQuest=%d extraScene=%d checkpointBytes=%d savedContext=%v\n",
 		label, user.UserId, user.MainQuest.CurrentQuestFlowType, user.MainQuest.ProgressQuestSceneId,
 		user.MainQuest.ProgressHeadQuestSceneId, user.MainQuest.ProgressQuestFlowType,
 		user.MainQuest.ReplayFlowCurrentQuestSceneId, user.MainQuest.ReplayFlowHeadQuestSceneId,
 		user.PortalCageStatus.IsCurrentProgress,
 		stuck.QuestStateType, stuck.ClearCount, cfg.replayQuestId, replay.QuestStateType, orphan.QuestStateType, orphan.ClearCount, orphan.LatestStartDatetime,
+		user.EventQuest.CurrentQuestId, user.EventQuest.CurrentQuestSceneId, user.ExtraQuest.CurrentQuestId, user.ExtraQuest.CurrentQuestSceneId,
 		len(user.BattleBinary), user.MainQuest.SavedContext.Active)
 }

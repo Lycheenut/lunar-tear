@@ -82,6 +82,42 @@ func TestRepairRefusesChangedAccountState(t *testing.T) {
 	}
 }
 
+func TestRunPrintsObservedStateWhenValidationRejects(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "game.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Up(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	repo := sqlite.New(db, nil)
+	userId, err := repo.CreateUser("rejected-repair-test", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := repairConfig{
+		dbPath:              dbPath,
+		userId:              userId,
+		stuckQuestId:        10014,
+		stuckSceneId:        10014,
+		orphanActiveQuestId: 210031,
+	}
+	var output bytes.Buffer
+	if err := run(cfg, &output); err == nil {
+		t.Fatal("repair accepted an unrelated account state")
+	}
+	if !bytes.Contains(output.Bytes(), []byte("rejected user=")) ||
+		!bytes.Contains(output.Bytes(), []byte("progressScene=")) ||
+		!bytes.Contains(output.Bytes(), []byte("orphanClear=")) {
+		t.Fatalf("rejected state output = %q", output.String())
+	}
+}
+
 func TestRepairRestoresSavedMainQuestContext(t *testing.T) {
 	cfg := repairConfig{
 		userId:              8,
