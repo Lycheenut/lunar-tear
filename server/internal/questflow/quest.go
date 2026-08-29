@@ -338,24 +338,32 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 	}
 
 	if wasMenuReplay {
-		ctx := user.MainQuest.SavedContext
-		user.MainQuest.CurrentQuestSceneId = ctx.CurrentQuestSceneId
-		user.MainQuest.HeadQuestSceneId = ctx.HeadQuestSceneId
-		user.MainQuest.CurrentMainQuestRouteId = ctx.CurrentMainQuestRouteId
-		user.MainQuest.MainQuestSeasonId = ctx.MainQuestSeasonId
-		user.MainQuest.IsReachedLastQuestScene = ctx.IsReachedLastQuestScene
-		user.MainQuest.CurrentQuestFlowType = ctx.CurrentQuestFlowType
-		user.PortalCageStatus.IsCurrentProgress = ctx.PortalCageInProgress
-		user.PortalCageStatus.LatestVersion = nowMillis
-		user.MainQuest.SavedContext = store.SavedQuestContext{}
-		user.MainQuest.LatestVersion = nowMillis
-		log.Printf("[HandleQuestFinish] restored snapshot for quest %d (route=%d season=%d scene=%d head=%d cage=%v flow=%d)",
-			questId, ctx.CurrentMainQuestRouteId, ctx.MainQuestSeasonId,
-			ctx.CurrentQuestSceneId, ctx.HeadQuestSceneId, ctx.PortalCageInProgress, ctx.CurrentQuestFlowType)
+		restoreSavedMainQuestContext(user, questId, nowMillis)
 	}
 	clearBattleCheckpoint(user)
 
 	return outcome
+}
+
+func restoreSavedMainQuestContext(user *store.UserState, questId int32, nowMillis int64) bool {
+	if !user.MainQuest.SavedContext.Active {
+		return false
+	}
+	ctx := user.MainQuest.SavedContext
+	user.MainQuest.CurrentQuestSceneId = ctx.CurrentQuestSceneId
+	user.MainQuest.HeadQuestSceneId = ctx.HeadQuestSceneId
+	user.MainQuest.CurrentMainQuestRouteId = ctx.CurrentMainQuestRouteId
+	user.MainQuest.MainQuestSeasonId = ctx.MainQuestSeasonId
+	user.MainQuest.IsReachedLastQuestScene = ctx.IsReachedLastQuestScene
+	user.MainQuest.CurrentQuestFlowType = ctx.CurrentQuestFlowType
+	user.PortalCageStatus.IsCurrentProgress = ctx.PortalCageInProgress
+	user.PortalCageStatus.LatestVersion = nowMillis
+	user.MainQuest.SavedContext = store.SavedQuestContext{}
+	user.MainQuest.LatestVersion = nowMillis
+	log.Printf("[HandleQuestFinish] restored snapshot for quest %d (route=%d season=%d scene=%d head=%d cage=%v flow=%d)",
+		questId, ctx.CurrentMainQuestRouteId, ctx.MainQuestSeasonId,
+		ctx.CurrentQuestSceneId, ctx.HeadQuestSceneId, ctx.PortalCageInProgress, ctx.CurrentQuestFlowType)
+	return true
 }
 
 func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, questType, chapterId, skipCount int32, nowMillis int64) (FinishOutcome, error) {
@@ -484,8 +492,7 @@ func (h *QuestHandler) recoverStaleMainQuestContinuation(user *store.UserState, 
 func (h *QuestHandler) HandleStaleMainQuestRetire(user *store.UserState, questId int32, nowMillis int64) bool {
 	main := &user.MainQuest
 	if model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
-		model.IsReplayQuestFlowType(main.ProgressQuestFlowType) ||
-		main.SavedContext.Active {
+		model.IsReplayQuestFlowType(main.ProgressQuestFlowType) {
 		return false
 	}
 	progressScene, ok := h.SceneById[main.ProgressQuestSceneId]
@@ -503,6 +510,7 @@ func (h *QuestHandler) HandleStaleMainQuestRetire(user *store.UserState, questId
 	main.ProgressQuestFlowType = int32(model.QuestFlowTypeUnknown)
 	main.CurrentQuestFlowType = int32(model.QuestFlowTypeUnknown)
 	main.LatestVersion = nowMillis
+	restoreSavedMainQuestContext(user, questId, nowMillis)
 	clearBattleCheckpoint(user)
 	log.Printf("[HandleQuestFinish] cleared stale retired continuation quest=%d scene=%d", questId, oldSceneId)
 	return true
