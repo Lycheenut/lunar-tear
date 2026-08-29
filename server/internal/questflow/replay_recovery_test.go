@@ -89,6 +89,42 @@ func TestRecoverCompletedReplayOnLoginPreservesIncompleteReplay(t *testing.T) {
 	}
 }
 
+func TestRemoveReplayQuestMissionResidue(t *testing.T) {
+	h, user := completedReplayRecoveryFixture()
+	user.QuestMissions[store.QuestMissionKey{QuestId: 30330, QuestMissionId: 1}] = store.UserQuestMissionState{
+		QuestId: 30330, QuestMissionId: 1,
+	}
+	user.QuestMissions[store.QuestMissionKey{QuestId: 334, QuestMissionId: 1}] = store.UserQuestMissionState{
+		QuestId: 334, QuestMissionId: 1,
+	}
+
+	if removed := h.RemoveReplayQuestMissionResidue(user); removed != 1 {
+		t.Fatalf("removed replay quest mission rows = %d, want 1", removed)
+	}
+	if _, ok := user.QuestMissions[store.QuestMissionKey{QuestId: 30330, QuestMissionId: 1}]; ok {
+		t.Fatal("replay quest mission residue remains")
+	}
+	if _, ok := user.QuestMissions[store.QuestMissionKey{QuestId: 334, QuestMissionId: 1}]; !ok {
+		t.Fatal("main-flow quest mission was removed")
+	}
+}
+
+func TestInitQuestStateDoesNotCreateReplayQuestMissions(t *testing.T) {
+	h, user := completedReplayRecoveryFixture()
+	h.MissionIdsByQuestId = map[int32][]int32{30330: {1, 2, 3, 101}}
+
+	h.initQuestState(user, 30330)
+
+	if _, ok := user.Quests[30330]; !ok {
+		t.Fatal("replay quest state was not initialized")
+	}
+	for key := range user.QuestMissions {
+		if key.QuestId == 30330 {
+			t.Fatalf("replay quest mission was initialized: %+v", key)
+		}
+	}
+}
+
 func completedReplayRecoveryFixture() (*QuestHandler, *store.UserState) {
 	const (
 		mainQuestId   = int32(334)

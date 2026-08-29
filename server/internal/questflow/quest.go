@@ -27,6 +27,9 @@ func (h *QuestHandler) initQuestState(user *store.UserState, questId int32) {
 	quest.QuestId = questId
 	user.Quests[questId] = quest
 
+	if h.isReplayQuestId(questId) {
+		return
+	}
 	for _, missionId := range h.MissionIdsByQuestId[questId] {
 		key := store.QuestMissionKey{QuestId: questId, QuestMissionId: missionId}
 		mission := user.QuestMissions[key]
@@ -34,6 +37,17 @@ func (h *QuestHandler) initQuestState(user *store.UserState, questId int32) {
 		mission.QuestMissionId = missionId
 		user.QuestMissions[key] = mission
 	}
+}
+
+func (h *QuestHandler) isReplayQuestId(questId int32) bool {
+	for _, replayQuestIds := range h.ReplayQuestIdsByMainQuestId {
+		for _, replayQuestId := range replayQuestIds {
+			if replayQuestId == questId {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isMainQuestPlayable(quest masterdata.EntityMQuest) bool {
@@ -535,6 +549,9 @@ func (h *QuestHandler) restartQuest(user *store.UserState, questId int32, nowMil
 	quest.LatestStartDatetime = nowMillis
 	user.Quests[questId] = quest
 
+	if h.isReplayQuestId(questId) {
+		return
+	}
 	for _, missionId := range h.MissionIdsByQuestId[questId] {
 		key := store.QuestMissionKey{QuestId: questId, QuestMissionId: missionId}
 		m := user.QuestMissions[key]

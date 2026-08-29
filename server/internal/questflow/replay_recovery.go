@@ -5,6 +5,20 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
+// RemoveReplayQuestMissionResidue removes rows created by older servers for
+// replay-variant quest ids. The client has no corresponding mission master
+// rows for those variants and cannot load the user table when they remain.
+func (h *QuestHandler) RemoveReplayQuestMissionResidue(user *store.UserState) int {
+	removed := 0
+	for key := range user.QuestMissions {
+		if h.isReplayQuestId(key.QuestId) {
+			delete(user.QuestMissions, key)
+			removed++
+		}
+	}
+	return removed
+}
+
 // RecoverCompletedReplayOnLogin finishes the portal transition when the
 // client disconnected after FinishMainQuest but before reporting the return
 // to Mama's Room. Leaving this state in ReplayFlow makes the client try to
