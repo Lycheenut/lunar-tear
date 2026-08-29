@@ -11,8 +11,12 @@ import (
 // restore the final, non-playable scene during startup.
 func (h *QuestHandler) RecoverCompletedReplayOnLogin(user *store.UserState, nowMillis int64) bool {
 	main := &user.MainQuest
-	if !model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
-		main.ProgressQuestFlowType != main.CurrentQuestFlowType ||
+	replayFlowType := main.ProgressQuestFlowType
+	activeReplay := main.CurrentQuestFlowType == replayFlowType
+	partialPortalTransition := main.CurrentQuestFlowType == int32(model.QuestFlowTypeMainFlow) &&
+		user.PortalCageStatus.IsCurrentProgress
+	if !model.IsReplayQuestFlowType(replayFlowType) ||
+		(!activeReplay && !partialPortalTransition) ||
 		main.ProgressQuestSceneId != 0 ||
 		main.ProgressHeadQuestSceneId != 0 ||
 		main.SavedContext.Active ||
@@ -38,6 +42,9 @@ func (h *QuestHandler) RecoverCompletedReplayOnLogin(user *store.UserState, nowM
 	}
 
 	main.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
+	main.ProgressQuestFlowType = int32(model.QuestFlowTypeUnknown)
+	main.ReplayFlowCurrentQuestSceneId = 0
+	main.ReplayFlowHeadQuestSceneId = 0
 	main.LatestVersion = nowMillis
 	user.PortalCageStatus.IsCurrentProgress = true
 	user.PortalCageStatus.LatestVersion = nowMillis
