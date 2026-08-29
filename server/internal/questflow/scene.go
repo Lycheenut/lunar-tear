@@ -209,6 +209,24 @@ func (h *QuestHandler) HandleMainQuestSceneProgress(user *store.UserState, quest
 		return fmt.Errorf("unknown quest %d for scene %d", scene.QuestId, questSceneId)
 	}
 
+	isReplay := model.IsReplayQuestFlowType(user.MainQuest.CurrentQuestFlowType)
+	if isMainQuestPlayable(quest) && !isReplay {
+		questState := user.Quests[quest.QuestId]
+		isMenuReplay := false
+		if user.MainQuest.SavedContext.Active {
+			if progressScene, ok := h.SceneById[user.MainQuest.ProgressQuestSceneId]; ok {
+				isMenuReplay = progressScene.QuestId == quest.QuestId
+			}
+		}
+		if questState.QuestStateType != model.UserQuestStateTypeActive && !isMenuReplay {
+			if questState.QuestStateType == model.UserQuestStateTypeCleared && questState.ClearCount > 0 {
+				log.Printf("[HandleMainQuestSceneProgress] ignored stale cleared quest scene quest=%d scene=%d", quest.QuestId, questSceneId)
+				return nil
+			}
+			return fmt.Errorf("quest %d is not active", quest.QuestId)
+		}
+	}
+
 	if prevSceneId := user.MainQuest.ProgressQuestSceneId; prevSceneId != 0 {
 		if prevScene, ok := h.SceneById[prevSceneId]; ok && prevScene.QuestId != quest.QuestId {
 			// Skip if the previous quest is playable — it has its own FinishMainQuest;
@@ -218,8 +236,6 @@ func (h *QuestHandler) HandleMainQuestSceneProgress(user *store.UserState, quest
 			}
 		}
 	}
-
-	isReplay := model.IsReplayQuestFlowType(user.MainQuest.CurrentQuestFlowType)
 
 	if isMainQuestPlayable(quest) {
 		user.MainQuest.ProgressQuestSceneId = questSceneId
