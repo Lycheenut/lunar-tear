@@ -40,6 +40,21 @@ func TestHandleQuestRestartDoesNotReplaceAnotherActiveProgress(t *testing.T) {
 	}
 }
 
+func TestHandleQuestRestartRecoversNonActiveProgressWithoutClearHistory(t *testing.T) {
+	h, user := mismatchedContinuationFixture()
+	user.Quests[10014] = store.UserQuestState{
+		QuestId:        10014,
+		QuestStateType: model.UserQuestStateTypeChallenged,
+	}
+
+	if err := h.HandleQuestRestart(user, 210031, 123); err != nil {
+		t.Fatalf("restart non-active continuation: %v", err)
+	}
+	if user.MainQuest.ProgressQuestSceneId != 210031 {
+		t.Fatalf("non-active continuation was not rebound: %+v", user.MainQuest)
+	}
+}
+
 func TestHandleStaleMainQuestRetireClearsOnlyProgress(t *testing.T) {
 	h, user := mismatchedContinuationFixture()
 	user.BattleBinary = []byte("stale")
@@ -74,6 +89,24 @@ func TestHandleStaleMainQuestRetireRejectsReplayFlow(t *testing.T) {
 	}
 	if user.MainQuest.ProgressQuestSceneId != 10014 {
 		t.Fatal("rejected replay-flow cleanup mutated progress")
+	}
+}
+
+func TestHandleStaleMainQuestRetireClearsNonActiveProgressWithoutClearHistory(t *testing.T) {
+	h, user := mismatchedContinuationFixture()
+	user.Quests[10014] = store.UserQuestState{
+		QuestId:        10014,
+		QuestStateType: model.UserQuestStateTypeUnknown,
+	}
+
+	if !h.HandleStaleMainQuestRetire(user, 10014, 123) {
+		t.Fatal("non-active progress without clear history was not retired")
+	}
+	if user.MainQuest.ProgressQuestSceneId != 0 {
+		t.Fatalf("non-active progress was not cleared: %+v", user.MainQuest)
+	}
+	if got := user.Quests[10014]; got.QuestStateType != model.UserQuestStateTypeUnknown {
+		t.Fatalf("quest state was changed: %+v", got)
 	}
 }
 
