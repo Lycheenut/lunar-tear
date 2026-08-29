@@ -648,6 +648,7 @@ func TestAdminMissionRewardUsesRestrictedStructuralUpdates(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
+		`.table-scroll.mission-reward-mode { height: clamp(520px, calc(100vh - 330px), 860px); max-height: none; overflow: hidden;`,
 		".mission-reward-row-actions", ".mission-reward-delete:disabled", ".mission-reward-unreferenced-filter",
 	} {
 		if !strings.Contains(css, required) {
