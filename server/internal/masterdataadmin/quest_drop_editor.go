@@ -96,6 +96,7 @@ type mainQuestChapterDefinition struct {
 
 var questDropTypes = []QuestDropType{
 	{ID: "main", Value: 1, Label: "MAIN_QUEST"},
+	{ID: "event-3", Value: 3, Label: "DUNGEON"},
 	{ID: "event-4", Value: 4, Label: "DAY_OF_THE_WEEK"},
 	{ID: "event-5", Value: 5, Label: "GUERRILLA"},
 	{ID: "event-6", Value: 6, Label: "CHARACTER"},
@@ -331,7 +332,7 @@ func nonEventQuestPlacements(file *memorydb.File, resolver *titleResolver) ([]qu
 		sortOrder, sortOK := integerAt(row, 2)
 		nameTextID, nameOK := integerAt(row, 3)
 		groupID, groupOK := integerAt(row, 7)
-		if !chapterOK || !typeOK || !sortOK || !groupOK || eventType < 4 || eventType > 8 {
+		if !chapterOK || !typeOK || !sortOK || !groupOK || eventType < 3 || eventType > 8 {
 			continue
 		}
 		var names map[string]string

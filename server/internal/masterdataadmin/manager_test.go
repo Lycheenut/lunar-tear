@@ -399,6 +399,7 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 	}
 	expectedTypes := map[string]QuestDropType{
 		"main":    {ID: "main", Value: 1, Label: "MAIN_QUEST"},
+		"event-3": {ID: "event-3", Value: 3, Label: "DUNGEON"},
 		"event-4": {ID: "event-4", Value: 4, Label: "DAY_OF_THE_WEEK"},
 		"event-5": {ID: "event-5", Value: 5, Label: "GUERRILLA"},
 		"event-6": {ID: "event-6", Value: 6, Label: "CHARACTER"},
@@ -563,6 +564,7 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 		}
 	}
 	foundRoutePossession := false
+	foundDungeonQuest := false
 	mainChapterByQuestID := make(map[int32]int32)
 	weekdayStages := make(map[int32]map[int32]string)
 	guerrillaStages := make(map[int32]map[int32]string)
@@ -570,7 +572,7 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 	wantStageNames := map[int32]string{1: "初級", 2: "中級", 3: "上級", 4: "超級"}
 	wantCharacterQuestStageNames := map[int32]string{1: "初級", 2: "中級", 3: "上級"}
 	for _, quest := range editor.Quests {
-		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-3" || quest.TypeID == "event-9" ||
+		if quest.TypeID == "event-1" || quest.TypeID == "event-2" || quest.TypeID == "event-9" ||
 			quest.TypeID == "event-10" || quest.TypeID == "event-11" || quest.TypeID == "event-12" {
 			t.Fatalf("event quest %d of excluded type %s is configurable", quest.QuestID, quest.TypeID)
 		}
@@ -580,7 +582,9 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 		if len(quest.RoutePossessions) > 0 {
 			foundRoutePossession = true
 		}
-		if quest.TypeID == "main" {
+		if quest.TypeID == "event-3" {
+			foundDungeonQuest = true
+		} else if quest.TypeID == "main" {
 			mainChapterByQuestID[quest.QuestID] = quest.ChapterID
 		} else if quest.TypeID == "event-4" && quest.QuestID < 400000 {
 			if weekdayStages[quest.ChapterID] == nil {
@@ -601,6 +605,9 @@ func TestQuestDropEditorCatalogSeparatesPickupPreviewsAndAcquisitionRoutes(t *te
 			}
 			characterQuestStages[quest.ChapterID][quest.SubcategoryType][quest.SortOrder] = quest.Names["ja"]
 		}
+	}
+	if !foundDungeonQuest {
+		t.Fatal("no Dungeon quest is configurable")
 	}
 	if _, exists := mainChapterByQuestID[1]; exists {
 		t.Fatal("main-flow quest 1 is configurable")
