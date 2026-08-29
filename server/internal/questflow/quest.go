@@ -491,10 +491,8 @@ func (h *QuestHandler) recoverStaleMainQuestContinuation(user *store.UserState, 
 // finish: it does not grant rewards, refund stamina, or alter quest state.
 func (h *QuestHandler) HandleStaleMainQuestRetire(user *store.UserState, questId int32, nowMillis int64) bool {
 	main := &user.MainQuest
-	if model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
-		model.IsReplayQuestFlowType(main.ProgressQuestFlowType) {
-		return false
-	}
+	wasReplay := model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
+		model.IsReplayQuestFlowType(main.ProgressQuestFlowType)
 	progressScene, ok := h.SceneById[main.ProgressQuestSceneId]
 	if !ok || progressScene.QuestId != questId {
 		return false
@@ -510,7 +508,13 @@ func (h *QuestHandler) HandleStaleMainQuestRetire(user *store.UserState, questId
 	main.ProgressQuestFlowType = int32(model.QuestFlowTypeUnknown)
 	main.CurrentQuestFlowType = int32(model.QuestFlowTypeUnknown)
 	main.LatestVersion = nowMillis
-	restoreSavedMainQuestContext(user, questId, nowMillis)
+	if !restoreSavedMainQuestContext(user, questId, nowMillis) && wasReplay {
+		main.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
+		main.ReplayFlowCurrentQuestSceneId = 0
+		main.ReplayFlowHeadQuestSceneId = 0
+		user.PortalCageStatus.IsCurrentProgress = true
+		user.PortalCageStatus.LatestVersion = nowMillis
+	}
 	clearBattleCheckpoint(user)
 	log.Printf("[HandleQuestFinish] cleared stale retired continuation quest=%d scene=%d", questId, oldSceneId)
 	return true
