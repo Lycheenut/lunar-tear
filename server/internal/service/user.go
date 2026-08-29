@@ -86,6 +86,9 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	nowMillis := gametime.NowMillis()
 	catalogs := s.holder.Get()
 	user, err := s.users.UpdateUser(session.UserId, func(user *store.UserState) {
+		if catalogs.QuestHandler.RecoverCompletedReplayOnLogin(user, nowMillis) {
+			log.Printf("[UserService] recovered completed replay for userId=%d", user.UserId)
+		}
 		ensureBeginnerCampaign(catalogs.Campaign, user, nowMillis)
 		ensureComebackCampaign(catalogs.Campaign, user, nowMillis)
 		newComeback := activateComebackCampaign(catalogs.Campaign, user, nowMillis, user.Login.LastLoginDatetime)

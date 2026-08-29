@@ -149,6 +149,16 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 			t.Fatalf("quest %d main-flow relation = %d, want %d", questId, got, wantMainFlowQuestId)
 		}
 	}
+	foundReplayQuest := false
+	for _, questId := range catalog.ReplayQuestIdsByMainQuestId[334] {
+		if questId == 30330 {
+			foundReplayQuest = true
+			break
+		}
+	}
+	if !foundReplayQuest {
+		t.Fatal("main quest 334 is missing replay quest 30330")
+	}
 	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockConditions) == 0 {
 		t.Fatal("event chapters or normalized unlock quests were not loaded")
 	}
