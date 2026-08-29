@@ -44,6 +44,29 @@ func TestRepairDiagnosedMainQuestContinuationState(t *testing.T) {
 	}
 }
 
+func TestRepairDiagnosedRechallengeRestoresClearedQuest(t *testing.T) {
+	cfg := repairConfig{
+		userId:              8,
+		stuckQuestId:        10014,
+		stuckSceneId:        10014,
+		orphanActiveQuestId: 210031,
+	}
+	user := diagnosedUserState(cfg)
+	orphan := user.Quests[cfg.orphanActiveQuestId]
+	orphan.ClearCount = 2
+	user.Quests[cfg.orphanActiveQuestId] = orphan
+
+	if err := validateRepairTarget(user, cfg); err != nil {
+		t.Fatalf("validate diagnosed rechallenge: %v", err)
+	}
+	applyRepair(user, cfg, 123)
+
+	repaired := user.Quests[cfg.orphanActiveQuestId]
+	if repaired.QuestStateType != model.UserQuestStateTypeCleared || repaired.ClearCount != 2 {
+		t.Fatalf("previously cleared active quest was not restored: %+v", repaired)
+	}
+}
+
 func TestRepairRefusesChangedAccountState(t *testing.T) {
 	cfg := repairConfig{
 		userId:              8,

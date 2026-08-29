@@ -146,8 +146,8 @@ func validateRepairTarget(user *store.UserState, cfg repairConfig) error {
 		return fmt.Errorf("quest %d is not the expected cleared quest", cfg.stuckQuestId)
 	}
 	orphan, ok := user.Quests[cfg.orphanActiveQuestId]
-	if !ok || orphan.QuestStateType != model.UserQuestStateTypeActive || orphan.ClearCount != 0 {
-		return fmt.Errorf("quest %d is not the expected uncleared active residue", cfg.orphanActiveQuestId)
+	if !ok || orphan.QuestStateType != model.UserQuestStateTypeActive {
+		return fmt.Errorf("quest %d is not the expected active residue", cfg.orphanActiveQuestId)
 	}
 	event := user.EventQuest
 	if event.CurrentEventQuestChapterId != 0 || event.CurrentQuestId != 0 ||
@@ -288,7 +288,11 @@ func applyRepair(user *store.UserState, cfg repairConfig, nowMillis int64) {
 	main.LatestVersion = nowMillis
 
 	orphan := user.Quests[cfg.orphanActiveQuestId]
-	orphan.QuestStateType = model.UserQuestStateTypeUnknown
+	if orphan.ClearCount > 0 {
+		orphan.QuestStateType = model.UserQuestStateTypeCleared
+	} else {
+		orphan.QuestStateType = model.UserQuestStateTypeUnknown
+	}
 	orphan.IsBattleOnly = false
 	orphan.UserDeckNumber = 0
 	orphan.LatestStartDatetime = 0
@@ -303,11 +307,11 @@ func printState(out io.Writer, label string, user *store.UserState, cfg repairCo
 	replay := user.Quests[cfg.replayQuestId]
 	orphan := user.Quests[cfg.orphanActiveQuestId]
 	fmt.Fprintf(out,
-		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d replayScene=%d replayHead=%d portal=%v stuckQuestState=%d replayQuest=%d replayQuestState=%d orphanQuestState=%d orphanStart=%d checkpointBytes=%d savedContext=%v\n",
+		"%s user=%d flow=%d progressScene=%d progressHead=%d progressFlow=%d replayScene=%d replayHead=%d portal=%v stuckQuestState=%d stuckClear=%d replayQuest=%d replayQuestState=%d orphanQuestState=%d orphanClear=%d orphanStart=%d checkpointBytes=%d savedContext=%v\n",
 		label, user.UserId, user.MainQuest.CurrentQuestFlowType, user.MainQuest.ProgressQuestSceneId,
 		user.MainQuest.ProgressHeadQuestSceneId, user.MainQuest.ProgressQuestFlowType,
 		user.MainQuest.ReplayFlowCurrentQuestSceneId, user.MainQuest.ReplayFlowHeadQuestSceneId,
 		user.PortalCageStatus.IsCurrentProgress,
-		stuck.QuestStateType, cfg.replayQuestId, replay.QuestStateType, orphan.QuestStateType, orphan.LatestStartDatetime,
+		stuck.QuestStateType, stuck.ClearCount, cfg.replayQuestId, replay.QuestStateType, orphan.QuestStateType, orphan.ClearCount, orphan.LatestStartDatetime,
 		len(user.BattleBinary), user.MainQuest.SavedContext.Active)
 }
