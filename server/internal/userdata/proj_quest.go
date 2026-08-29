@@ -290,7 +290,7 @@ func init() {
 		sort.Ints(ids)
 		for _, id := range ids {
 			row := user.QuestReplayFlowRewards[int32(id)]
-			records = append(records, map[string]any{"userId": user.UserId, "questReplayFlowRewardGroupId": row.QuestReplayFlowRewardGroupId, "rewardReceiveDatetime": row.RewardReceiveDatetime, "latestVersion": row.LatestVersion})
+			records = append(records, map[string]any{"userId": user.UserId, "questReplayFlowRewardGroupId": row.QuestReplayFlowRewardGroupId, "receiveDatetime": row.RewardReceiveDatetime, "latestVersion": row.LatestVersion})
 		}
 		s, _ := utils.EncodeJSONMaps(records...)
 		return s

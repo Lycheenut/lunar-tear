@@ -88,6 +88,9 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	nowMillis := gametime.NowMillis()
 	catalogs := s.holder.Get()
 	user, err := s.users.UpdateUser(session.UserId, func(user *store.UserState) {
+		if removed := catalogs.QuestHandler.RemoveReplayQuestMissionResidue(user); removed > 0 {
+			log.Printf("[UserService] removed %d replay quest mission rows for userId=%d", removed, user.UserId)
+		}
 		if catalogs.QuestHandler.RecoverCompletedReplayOnLogin(user, nowMillis) {
 			log.Printf("[UserService] recovered completed replay for userId=%d", user.UserId)
 		}
