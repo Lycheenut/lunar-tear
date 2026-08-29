@@ -431,10 +431,81 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 
 func (h *QuestHandler) HandleQuestRestart(user *store.UserState, questId int32, nowMillis int64) error {
 	if err := h.ValidateMainQuestContinuation(user, questId); err != nil {
-		return err
+		if !h.recoverStaleMainQuestContinuation(user, questId, nowMillis) {
+			return err
+		}
 	}
 	h.restartQuest(user, questId, nowMillis)
 	return nil
+}
+
+func (h *QuestHandler) recoverStaleMainQuestContinuation(user *store.UserState, questId int32, nowMillis int64) bool {
+	main := &user.MainQuest
+	if model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
+		model.IsReplayQuestFlowType(main.ProgressQuestFlowType) ||
+		main.SavedContext.Active {
+		return false
+	}
+
+	quest, ok := h.QuestById[questId]
+	questState := user.Quests[questId]
+	if !ok || !isMainQuestPlayable(quest) || questState.QuestStateType != model.UserQuestStateTypeActive {
+		return false
+	}
+
+	if main.ProgressQuestSceneId != 0 {
+		progressScene, ok := h.SceneById[main.ProgressQuestSceneId]
+		if !ok || progressScene.QuestId == questId {
+			return false
+		}
+		progressQuest := user.Quests[progressScene.QuestId]
+		if progressQuest.QuestStateType != model.UserQuestStateTypeCleared || progressQuest.ClearCount == 0 {
+			return false
+		}
+	}
+
+	sceneId := h.menuPickSceneId(questId, questState.IsBattleOnly)
+	if sceneId == 0 {
+		return false
+	}
+	oldSceneId := main.ProgressQuestSceneId
+	main.ProgressQuestSceneId = sceneId
+	main.ProgressHeadQuestSceneId = sceneId
+	main.ProgressQuestFlowType = int32(model.QuestFlowTypeSubFlow)
+	main.CurrentQuestFlowType = int32(model.QuestFlowTypeSubFlow)
+	main.LatestVersion = nowMillis
+	log.Printf("[HandleQuestRestart] recovered stale continuation quest=%d scene=%d oldScene=%d", questId, sceneId, oldSceneId)
+	return true
+}
+
+// HandleStaleMainQuestRetire treats abandoning an already-cleared progress
+// scene as an idempotent cleanup. This is deliberately narrower than a normal
+// finish: it does not grant rewards, refund stamina, or alter quest state.
+func (h *QuestHandler) HandleStaleMainQuestRetire(user *store.UserState, questId int32, nowMillis int64) bool {
+	main := &user.MainQuest
+	if model.IsReplayQuestFlowType(main.CurrentQuestFlowType) ||
+		model.IsReplayQuestFlowType(main.ProgressQuestFlowType) ||
+		main.SavedContext.Active {
+		return false
+	}
+	progressScene, ok := h.SceneById[main.ProgressQuestSceneId]
+	if !ok || progressScene.QuestId != questId {
+		return false
+	}
+	quest := user.Quests[questId]
+	if quest.QuestStateType != model.UserQuestStateTypeCleared || quest.ClearCount == 0 {
+		return false
+	}
+
+	oldSceneId := main.ProgressQuestSceneId
+	main.ProgressQuestSceneId = 0
+	main.ProgressHeadQuestSceneId = 0
+	main.ProgressQuestFlowType = int32(model.QuestFlowTypeUnknown)
+	main.CurrentQuestFlowType = int32(model.QuestFlowTypeUnknown)
+	main.LatestVersion = nowMillis
+	clearBattleCheckpoint(user)
+	log.Printf("[HandleQuestFinish] cleared stale retired continuation quest=%d scene=%d", questId, oldSceneId)
+	return true
 }
 
 func (h *QuestHandler) restartQuest(user *store.UserState, questId int32, nowMillis int64) {
