@@ -459,7 +459,7 @@ func (h *QuestHandler) recoverStaleMainQuestContinuation(user *store.UserState, 
 			return false
 		}
 		progressQuest := user.Quests[progressScene.QuestId]
-		if progressQuest.QuestStateType != model.UserQuestStateTypeCleared || progressQuest.ClearCount == 0 {
+		if progressQuest.QuestStateType == model.UserQuestStateTypeActive {
 			return false
 		}
 	}
@@ -478,8 +478,8 @@ func (h *QuestHandler) recoverStaleMainQuestContinuation(user *store.UserState, 
 	return true
 }
 
-// HandleStaleMainQuestRetire treats abandoning an already-cleared progress
-// scene as an idempotent cleanup. This is deliberately narrower than a normal
+// HandleStaleMainQuestRetire treats abandoning a non-active progress scene as
+// an idempotent cleanup. This is deliberately narrower than a normal
 // finish: it does not grant rewards, refund stamina, or alter quest state.
 func (h *QuestHandler) HandleStaleMainQuestRetire(user *store.UserState, questId int32, nowMillis int64) bool {
 	main := &user.MainQuest
@@ -493,7 +493,7 @@ func (h *QuestHandler) HandleStaleMainQuestRetire(user *store.UserState, questId
 		return false
 	}
 	quest := user.Quests[questId]
-	if quest.QuestStateType != model.UserQuestStateTypeCleared || quest.ClearCount == 0 {
+	if quest.QuestStateType == model.UserQuestStateTypeActive {
 		return false
 	}
 
