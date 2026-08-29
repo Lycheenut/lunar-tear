@@ -80,15 +80,27 @@ func TestHandleStaleMainQuestRetireClearsOnlyProgress(t *testing.T) {
 	}
 }
 
-func TestHandleStaleMainQuestRetireRejectsReplayFlow(t *testing.T) {
+func TestHandleStaleMainQuestRetireExitsReplayFlow(t *testing.T) {
 	h, user := mismatchedContinuationFixture()
 	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeReplayFlow)
-
-	if h.HandleStaleMainQuestRetire(user, 10014, 123) {
-		t.Fatal("replay-flow progress was cleared as stale")
+	user.MainQuest.ProgressQuestFlowType = int32(model.QuestFlowTypeReplayFlow)
+	user.MainQuest.ReplayFlowCurrentQuestSceneId = 10014
+	user.MainQuest.ReplayFlowHeadQuestSceneId = 10014
+	user.Quests[10014] = store.UserQuestState{
+		QuestId:        10014,
+		QuestStateType: model.UserQuestStateTypeChallenged,
 	}
-	if user.MainQuest.ProgressQuestSceneId != 10014 {
-		t.Fatal("rejected replay-flow cleanup mutated progress")
+
+	if !h.HandleStaleMainQuestRetire(user, 10014, 123) {
+		t.Fatal("stale replay-flow progress was not retired")
+	}
+	if user.MainQuest.ProgressQuestSceneId != 0 ||
+		user.MainQuest.ProgressQuestFlowType != int32(model.QuestFlowTypeUnknown) ||
+		user.MainQuest.CurrentQuestFlowType != int32(model.QuestFlowTypeMainFlow) ||
+		user.MainQuest.ReplayFlowCurrentQuestSceneId != 0 ||
+		user.MainQuest.ReplayFlowHeadQuestSceneId != 0 ||
+		!user.PortalCageStatus.IsCurrentProgress {
+		t.Fatalf("stale replay flow was not exited: main=%+v portal=%+v", user.MainQuest, user.PortalCageStatus)
 	}
 }
 
