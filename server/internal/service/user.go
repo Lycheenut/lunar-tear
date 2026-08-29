@@ -16,7 +16,9 @@ import (
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
+	"lunar-tear/server/internal/userdata"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -26,6 +28,14 @@ import (
 )
 
 const missionOptionTitleScreen int32 = 395
+
+var authMainQuestSyncTables = []string{
+	"IUserMainQuestFlowStatus",
+	"IUserMainQuestMainFlowStatus",
+	"IUserMainQuestProgressStatus",
+	"IUserMainQuestReplayFlowStatus",
+	"IUserPortalCageStatus",
+}
 
 type UserServiceServer struct {
 	pb.UnimplementedUserServiceServer
@@ -92,12 +102,33 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 		return nil, fmt.Errorf("update login state: %w", err)
 	}
 
+	diff := buildAuthMainQuestDiff(user)
+	if err := grpc.SetTrailer(ctx, metadata.Pairs(
+		"x-apb-update-user-data-names",
+		userdata.SortedChangedNames(authMainQuestSyncTables),
+	)); err != nil {
+		log.Printf("[UserService] failed to set auth main quest sync trailer: %v", err)
+	}
+
 	return &pb.AuthUserResponse{
 		SessionKey:     session.SessionKey,
 		ExpireDatetime: timestamppb.New(session.ExpireAt),
 		Signature:      req.Signature,
 		UserId:         user.UserId,
+		DiffUserData:   diff,
 	}, nil
+}
+
+func buildAuthMainQuestDiff(user store.UserState) map[string]*pb.DiffData {
+	tables := userdata.ProjectTables(user, authMainQuestSyncTables)
+	diff := userdata.NewDiffSet(tables)
+	if tables["IUserMainQuestReplayFlowStatus"] == "[]" {
+		diff.WithDeletes(
+			"IUserMainQuestReplayFlowStatus",
+			fmt.Sprintf(`[{"userId":%d}]`, user.UserId),
+		)
+	}
+	return diff.Build()
 }
 
 func advanceLoginState(login *store.UserLoginState, nowMillis int64) {
