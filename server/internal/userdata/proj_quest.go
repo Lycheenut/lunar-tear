@@ -295,21 +295,16 @@ func init() {
 		s, _ := utils.EncodeJSONMaps(records...)
 		return s
 	})
-	projectChoices := func(user store.UserState, rows map[store.QuestSceneChoiceKey]store.QuestSceneChoiceState) string {
+	projectChoices := func(user store.UserState, rows map[int32]store.QuestSceneChoiceState) string {
 		records := make([]map[string]any, 0, len(rows))
-		keys := make([]store.QuestSceneChoiceKey, 0, len(rows))
-		for key := range rows {
-			keys = append(keys, key)
+		ids := make([]int, 0, len(rows))
+		for groupingId := range rows {
+			ids = append(ids, int(groupingId))
 		}
-		sort.Slice(keys, func(i, j int) bool {
-			if keys[i].QuestSceneId != keys[j].QuestSceneId {
-				return keys[i].QuestSceneId < keys[j].QuestSceneId
-			}
-			return keys[i].QuestFlowType < keys[j].QuestFlowType
-		})
-		for _, key := range keys {
-			row := rows[key]
-			records = append(records, map[string]any{"userId": user.UserId, "questSceneId": row.QuestSceneId, "questFlowType": row.QuestFlowType, "choiceNumber": row.ChoiceNumber, "choiceDatetime": row.ChoiceDatetime, "latestVersion": row.LatestVersion})
+		sort.Ints(ids)
+		for _, id := range ids {
+			row := rows[int32(id)]
+			records = append(records, map[string]any{"userId": user.UserId, "questSceneChoiceGroupingId": row.QuestSceneChoiceGroupingId, "questSceneChoiceEffectId": row.QuestSceneChoiceEffectId, "latestVersion": row.LatestVersion})
 		}
 		s, _ := utils.EncodeJSONMaps(records...)
 		return s
@@ -317,22 +312,14 @@ func init() {
 	register("IUserQuestSceneChoice", func(user store.UserState) string { return projectChoices(user, user.QuestSceneChoices) })
 	register("IUserQuestSceneChoiceHistory", func(user store.UserState) string {
 		records := make([]map[string]any, 0, len(user.QuestSceneChoiceHistory))
-		keys := make([]store.QuestSceneChoiceHistoryKey, 0, len(user.QuestSceneChoiceHistory))
-		for key := range user.QuestSceneChoiceHistory {
-			keys = append(keys, key)
+		ids := make([]int, 0, len(user.QuestSceneChoiceHistory))
+		for effectId := range user.QuestSceneChoiceHistory {
+			ids = append(ids, int(effectId))
 		}
-		sort.Slice(keys, func(i, j int) bool {
-			if keys[i].QuestSceneId != keys[j].QuestSceneId {
-				return keys[i].QuestSceneId < keys[j].QuestSceneId
-			}
-			if keys[i].QuestFlowType != keys[j].QuestFlowType {
-				return keys[i].QuestFlowType < keys[j].QuestFlowType
-			}
-			return keys[i].ChoiceNumber < keys[j].ChoiceNumber
-		})
-		for _, key := range keys {
-			row := user.QuestSceneChoiceHistory[key]
-			records = append(records, map[string]any{"userId": user.UserId, "questSceneId": row.QuestSceneId, "questFlowType": row.QuestFlowType, "choiceNumber": row.ChoiceNumber, "choiceDatetime": row.ChoiceDatetime, "latestVersion": row.LatestVersion})
+		sort.Ints(ids)
+		for _, id := range ids {
+			row := user.QuestSceneChoiceHistory[int32(id)]
+			records = append(records, map[string]any{"userId": user.UserId, "questSceneChoiceEffectId": row.QuestSceneChoiceEffectId, "choiceDatetime": row.ChoiceDatetime, "latestVersion": row.LatestVersion})
 		}
 		s, _ := utils.EncodeJSONMaps(records...)
 		return s

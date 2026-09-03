@@ -12,9 +12,11 @@ import (
 const defaultGroupIndex = 1
 
 type ConditionResolver struct {
-	requiredQuestByCondId map[int32]int32
-	conditionsById        map[int32]EntityMEvaluateCondition
-	valuesByGroupId       map[int32][]EntityMEvaluateConditionValueGroup
+	requiredQuestByCondId       map[int32]int32
+	conditionsById              map[int32]EntityMEvaluateCondition
+	valuesByGroupId             map[int32][]EntityMEvaluateConditionValueGroup
+	sceneChoiceEffectByKey      map[QuestSceneChoiceKey]int32
+	sceneChoiceGroupingByEffect map[int32]int32
 }
 
 func LoadConditionResolver() (*ConditionResolver, error) {
@@ -25,6 +27,14 @@ func LoadConditionResolver() (*ConditionResolver, error) {
 	valueGroups, err := utils.ReadTable[EntityMEvaluateConditionValueGroup]("m_evaluate_condition_value_group")
 	if err != nil {
 		return nil, fmt.Errorf("load evaluate condition value group table: %w", err)
+	}
+	sceneChoices, err := utils.ReadTable[EntityMQuestSceneChoice]("m_quest_scene_choice")
+	if err != nil {
+		return nil, fmt.Errorf("load quest scene choice table: %w", err)
+	}
+	sceneChoiceEffects, err := utils.ReadTable[EntityMQuestSceneChoiceEffect]("m_quest_scene_choice_effect")
+	if err != nil {
+		return nil, fmt.Errorf("load quest scene choice effect table: %w", err)
 	}
 
 	condById := make(map[int32]EntityMEvaluateCondition, len(conditions))
@@ -59,11 +69,22 @@ func LoadConditionResolver() (*ConditionResolver, error) {
 			return valuesByGroupId[groupId][i].GroupIndex < valuesByGroupId[groupId][j].GroupIndex
 		})
 	}
+	sceneChoiceEffectByKey := make(map[QuestSceneChoiceKey]int32, len(sceneChoices))
+	for _, choice := range sceneChoices {
+		key := QuestSceneChoiceKey{QuestSceneId: choice.MainFlowQuestSceneId, QuestFlowType: choice.QuestFlowType, ChoiceNumber: choice.ChoiceNumber}
+		sceneChoiceEffectByKey[key] = choice.QuestSceneChoiceEffectId
+	}
+	sceneChoiceGroupingByEffect := make(map[int32]int32, len(sceneChoiceEffects))
+	for _, effect := range sceneChoiceEffects {
+		sceneChoiceGroupingByEffect[effect.QuestSceneChoiceEffectId] = effect.QuestSceneChoiceGroupingId
+	}
 
 	return &ConditionResolver{
-		requiredQuestByCondId: resolved,
-		conditionsById:        condById,
-		valuesByGroupId:       valuesByGroupId,
+		requiredQuestByCondId:       resolved,
+		conditionsById:              condById,
+		valuesByGroupId:             valuesByGroupId,
+		sceneChoiceEffectByKey:      sceneChoiceEffectByKey,
+		sceneChoiceGroupingByEffect: sceneChoiceGroupingByEffect,
 	}, nil
 }
 
@@ -148,8 +169,16 @@ func (r *ConditionResolver) satisfied(conditionId int32, user *store.UserState, 
 		if !sceneOK || !flowOK || !choiceOK {
 			return false
 		}
-		choice, exists := user.QuestSceneChoices[store.QuestSceneChoiceKey{QuestSceneId: int32(questSceneId), QuestFlowType: int32(questFlowType)}]
-		return exists && choice.ChoiceNumber == int32(choiceNumber)
+		effectId, exists := r.sceneChoiceEffectByKey[QuestSceneChoiceKey{QuestSceneId: int32(questSceneId), QuestFlowType: int32(questFlowType), ChoiceNumber: int32(choiceNumber)}]
+		if !exists {
+			return false
+		}
+		groupingId, exists := r.sceneChoiceGroupingByEffect[effectId]
+		if !exists {
+			return false
+		}
+		choice, exists := user.QuestSceneChoices[groupingId]
+		return exists && choice.QuestSceneChoiceEffectId == effectId
 	default:
 		return false
 	}

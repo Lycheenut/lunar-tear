@@ -459,9 +459,9 @@ func keyFieldsForTable(table string) []string {
 	case "IUserQuestReplayFlowRewardGroup":
 		return []string{"userId", "questReplayFlowRewardGroupId"}
 	case "IUserQuestSceneChoice":
-		return []string{"userId", "questSceneId", "questFlowType"}
+		return []string{"userId", "questSceneChoiceGroupingId"}
 	case "IUserQuestSceneChoiceHistory":
-		return []string{"userId", "questSceneId", "questFlowType", "choiceNumber"}
+		return []string{"userId", "questSceneChoiceEffectId"}
 	case "IUserEventQuestDailyGroupCompleteReward":
 		return []string{"userId", "eventQuestDailyGroupId"}
 	case "IUserWebviewPanelMission":

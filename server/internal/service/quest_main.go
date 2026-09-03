@@ -378,20 +378,38 @@ func (s *QuestServiceServer) SetRoute(ctx context.Context, req *pb.SetRouteReque
 	return &pb.SetRouteResponse{}, nil
 }
 
+func applyQuestSceneChoice(user *store.UserState, effect masterdata.EntityMQuestSceneChoiceEffect, nowMillis int64) {
+	groupingId := effect.QuestSceneChoiceGroupingId
+	user.QuestSceneChoices[groupingId] = store.QuestSceneChoiceState{
+		QuestSceneChoiceGroupingId: groupingId,
+		QuestSceneChoiceEffectId:   effect.QuestSceneChoiceEffectId,
+		LatestVersion:              nowMillis,
+	}
+	if _, exists := user.QuestSceneChoiceHistory[effect.QuestSceneChoiceEffectId]; !exists {
+		user.QuestSceneChoiceHistory[effect.QuestSceneChoiceEffectId] = store.QuestSceneChoiceHistoryState{
+			QuestSceneChoiceEffectId: effect.QuestSceneChoiceEffectId,
+			ChoiceDatetime:           nowMillis,
+			LatestVersion:            nowMillis,
+		}
+	}
+}
+
 func (s *QuestServiceServer) SetQuestSceneChoice(ctx context.Context, req *pb.SetQuestSceneChoiceRequest) (*pb.SetQuestSceneChoiceResponse, error) {
 	log.Printf("[QuestService] SetQuestSceneChoice: questSceneId=%d choiceNumber=%d",
 		req.QuestSceneId, req.ChoiceNumber)
-	key := store.QuestSceneChoiceKey{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType}
-	_, ok := s.holder.Get().Quest.SceneChoiceByKey[masterdata.QuestSceneChoiceKey{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType, ChoiceNumber: req.ChoiceNumber}]
+	catalog := s.holder.Get().Quest
+	choice, ok := catalog.SceneChoiceByKey[masterdata.QuestSceneChoiceKey{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType, ChoiceNumber: req.ChoiceNumber}]
 	if !ok {
 		return nil, status.Error(codes.InvalidArgument, "invalid quest scene choice")
+	}
+	effect, ok := catalog.SceneChoiceEffectById[choice.QuestSceneChoiceEffectId]
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "quest scene choice effect is unavailable")
 	}
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		state := store.QuestSceneChoiceState{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType, ChoiceNumber: req.ChoiceNumber, ChoiceDatetime: nowMillis, LatestVersion: nowMillis}
-		user.QuestSceneChoices[key] = state
-		user.QuestSceneChoiceHistory[store.QuestSceneChoiceHistoryKey{QuestSceneId: req.QuestSceneId, QuestFlowType: req.QuestFlowType, ChoiceNumber: req.ChoiceNumber}] = state
+		applyQuestSceneChoice(user, effect, nowMillis)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("set quest scene choice: %w", err)

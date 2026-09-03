@@ -162,6 +162,16 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 	if len(catalog.EventChapterById) == 0 || len(catalog.EventUnlockConditions) == 0 {
 		t.Fatal("event chapters or normalized unlock quests were not loaded")
 	}
+	for choiceNumber, wantEffectId := range map[int32]int32{1: 1, 2: 2, 3: 3} {
+		choice, ok := catalog.SceneChoiceByKey[QuestSceneChoiceKey{QuestSceneId: 1113, QuestFlowType: 3, ChoiceNumber: choiceNumber}]
+		if !ok || choice.QuestSceneChoiceEffectId != wantEffectId {
+			t.Fatalf("ending choice %d = %+v, found=%v, want effect %d", choiceNumber, choice, ok, wantEffectId)
+		}
+		effect, ok := catalog.SceneChoiceEffectById[wantEffectId]
+		if !ok || effect.QuestSceneChoiceGroupingId != 1 {
+			t.Fatalf("ending effect %d = %+v, found=%v, want grouping 1", wantEffectId, effect, ok)
+		}
+	}
 	scarecrowQuest := catalog.QuestById[385]
 	linkedScarecrowQuest := catalog.QuestById[382]
 	if catalog.QuestReleased(store.SeedUserState(1, "locked", 1, model.ClientPlatform{}), scarecrowQuest) {
