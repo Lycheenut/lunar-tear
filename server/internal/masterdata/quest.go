@@ -101,6 +101,7 @@ type QuestCatalog struct {
 	MissionRewardsByMissionId          map[int32][]EntityMQuestMissionReward
 	MissionConditionValuesByGroupId    map[int32][]int32
 	SceneChoiceByKey                   map[QuestSceneChoiceKey]EntityMQuestSceneChoice
+	SceneChoiceEffectById              map[int32]EntityMQuestSceneChoiceEffect
 	WeaponIdsByReleaseConditionGroupId map[int32][]int32
 	ReleaseConditionsByGroupId         map[int32][]EntityMWeaponStoryReleaseConditionGroup
 	SceneGrantsBySceneId               map[int32][]EntityMUserQuestSceneGrantPossession
@@ -354,6 +355,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	sceneChoices, err := utils.ReadTable[EntityMQuestSceneChoice]("m_quest_scene_choice")
 	if err != nil {
 		return nil, fmt.Errorf("load quest scene choices: %w", err)
+	}
+	sceneChoiceEffects, err := utils.ReadTable[EntityMQuestSceneChoiceEffect]("m_quest_scene_choice_effect")
+	if err != nil {
+		return nil, fmt.Errorf("load quest scene choice effects: %w", err)
 	}
 
 	quests, err := utils.ReadTable[EntityMQuest]("m_quest")
@@ -723,6 +728,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	sceneChoiceByKey := make(map[QuestSceneChoiceKey]EntityMQuestSceneChoice)
 	for _, row := range sceneChoices {
 		sceneChoiceByKey[QuestSceneChoiceKey{QuestSceneId: row.MainFlowQuestSceneId, QuestFlowType: row.QuestFlowType, ChoiceNumber: row.ChoiceNumber}] = row
+	}
+	sceneChoiceEffectById := make(map[int32]EntityMQuestSceneChoiceEffect, len(sceneChoiceEffects))
+	for _, row := range sceneChoiceEffects {
+		sceneChoiceEffectById[row.QuestSceneChoiceEffectId] = row
 	}
 
 	questById := make(map[int32]EntityMQuest, len(quests))
@@ -1134,6 +1143,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		MissionRewardsByMissionId:          missionRewardsByMissionId,
 		MissionConditionValuesByGroupId:    missionConditionValuesByGroupId,
 		SceneChoiceByKey:                   sceneChoiceByKey,
+		SceneChoiceEffectById:              sceneChoiceEffectById,
 		WeaponIdsByReleaseConditionGroupId: weaponIdsByReleaseConditionGroupId,
 		ReleaseConditionsByGroupId:         releaseConditionsByGroupId,
 		SceneGrantsBySceneId:               sceneGrantsBySceneId,

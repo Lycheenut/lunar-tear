@@ -34,3 +34,27 @@ func TestConditionResolverUsesPersistedMissionState(t *testing.T) {
 		t.Fatal("real mission states did not satisfy condition")
 	}
 }
+
+func TestConditionResolverUsesCurrentQuestSceneChoiceEffect(t *testing.T) {
+	resolver := &ConditionResolver{
+		conditionsById: map[int32]EntityMEvaluateCondition{
+			1: {EvaluateConditionId: 1, EvaluateConditionFunctionType: int32(model.EvaluateConditionFunctionTypeQuestSceneChoice), EvaluateConditionValueGroupId: 10},
+		},
+		valuesByGroupId: map[int32][]EntityMEvaluateConditionValueGroup{
+			10: {{GroupIndex: 1, Value: 1113}, {GroupIndex: 2, Value: 3}, {GroupIndex: 3, Value: 2}},
+		},
+		sceneChoiceEffectByKey: map[QuestSceneChoiceKey]int32{
+			{QuestSceneId: 1113, QuestFlowType: 3, ChoiceNumber: 2}: 2,
+		},
+		sceneChoiceGroupingByEffect: map[int32]int32{2: 1},
+	}
+	user := store.SeedUserState(2, "ending-player", 2, model.ClientPlatform{})
+	user.QuestSceneChoices[1] = store.QuestSceneChoiceState{QuestSceneChoiceGroupingId: 1, QuestSceneChoiceEffectId: 2}
+	if !resolver.Satisfied(1, user) {
+		t.Fatal("matching current scene choice effect did not satisfy condition")
+	}
+	user.QuestSceneChoices[1] = store.QuestSceneChoiceState{QuestSceneChoiceGroupingId: 1, QuestSceneChoiceEffectId: 1}
+	if resolver.Satisfied(1, user) {
+		t.Fatal("a different current scene choice effect satisfied condition")
+	}
+}

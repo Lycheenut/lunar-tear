@@ -82,8 +82,8 @@ type UserState struct {
 	QuestMissions              map[QuestMissionKey]UserQuestMissionState
 	Missions                   map[int32]UserMissionState
 	QuestReplayFlowRewards     map[int32]QuestReplayFlowRewardState
-	QuestSceneChoices          map[QuestSceneChoiceKey]QuestSceneChoiceState
-	QuestSceneChoiceHistory    map[QuestSceneChoiceHistoryKey]QuestSceneChoiceState
+	QuestSceneChoices          map[int32]QuestSceneChoiceState
+	QuestSceneChoiceHistory    map[int32]QuestSceneChoiceHistoryState
 	EventQuestDailyRewards     map[int32]EventQuestDailyRewardState
 	MissionPassPoints          map[int32]MissionPassPointState
 	MissionPassRewards         map[MissionPassRewardKey]MissionPassRewardState
@@ -281,10 +281,10 @@ func (u *UserState) EnsureMaps() {
 		u.QuestReplayFlowRewards = make(map[int32]QuestReplayFlowRewardState)
 	}
 	if u.QuestSceneChoices == nil {
-		u.QuestSceneChoices = make(map[QuestSceneChoiceKey]QuestSceneChoiceState)
+		u.QuestSceneChoices = make(map[int32]QuestSceneChoiceState)
 	}
 	if u.QuestSceneChoiceHistory == nil {
-		u.QuestSceneChoiceHistory = make(map[QuestSceneChoiceHistoryKey]QuestSceneChoiceState)
+		u.QuestSceneChoiceHistory = make(map[int32]QuestSceneChoiceHistoryState)
 	}
 	if u.EventQuestDailyRewards == nil {
 		u.EventQuestDailyRewards = make(map[int32]EventQuestDailyRewardState)
@@ -973,49 +973,16 @@ type QuestReplayFlowRewardState struct {
 	LatestVersion                int64
 }
 
-type QuestSceneChoiceKey struct {
-	QuestSceneId  int32
-	QuestFlowType int32
-}
-
-func (k QuestSceneChoiceKey) MarshalText() ([]byte, error) {
-	return marshalKey(int64(k.QuestSceneId), int64(k.QuestFlowType)), nil
-}
-
-func (k *QuestSceneChoiceKey) UnmarshalText(text []byte) error {
-	v, err := unmarshalKey(text, "QuestSceneChoiceKey", 2)
-	if err != nil {
-		return err
-	}
-	k.QuestSceneId, k.QuestFlowType = int32(v[0]), int32(v[1])
-	return nil
-}
-
 type QuestSceneChoiceState struct {
-	QuestSceneId   int32
-	QuestFlowType  int32
-	ChoiceNumber   int32
-	ChoiceDatetime int64
-	LatestVersion  int64
+	QuestSceneChoiceGroupingId int32
+	QuestSceneChoiceEffectId   int32
+	LatestVersion              int64
 }
 
-type QuestSceneChoiceHistoryKey struct {
-	QuestSceneId  int32
-	QuestFlowType int32
-	ChoiceNumber  int32
-}
-
-func (k QuestSceneChoiceHistoryKey) MarshalText() ([]byte, error) {
-	return marshalKey(int64(k.QuestSceneId), int64(k.QuestFlowType), int64(k.ChoiceNumber)), nil
-}
-
-func (k *QuestSceneChoiceHistoryKey) UnmarshalText(text []byte) error {
-	v, err := unmarshalKey(text, "QuestSceneChoiceHistoryKey", 3)
-	if err != nil {
-		return err
-	}
-	k.QuestSceneId, k.QuestFlowType, k.ChoiceNumber = int32(v[0]), int32(v[1]), int32(v[2])
-	return nil
+type QuestSceneChoiceHistoryState struct {
+	QuestSceneChoiceEffectId int32
+	ChoiceDatetime           int64
+	LatestVersion            int64
 }
 
 type EventQuestDailyRewardState struct {

@@ -39,10 +39,8 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 		user.DeckLimitContentRestricted["restricted"] = store.DeckLimitContentRestrictedState{DeckRestrictedUuid: "restricted", EventQuestChapterId: 30, QuestId: 31, PossessionType: 1, TargetUuid: "costume", LatestVersion: 3}
 		user.CageOrnamentAccesses[40] = store.CageOrnamentAccessState{CageOrnamentId: 40, FirstAccessDatetime: 4, LatestAccessDatetime: 5, LatestVersion: 5}
 		user.QuestReplayFlowRewards[50] = store.QuestReplayFlowRewardState{QuestReplayFlowRewardGroupId: 50, RewardReceiveDatetime: 6, LatestVersion: 6}
-		choiceKey := store.QuestSceneChoiceKey{QuestSceneId: 51, QuestFlowType: 2}
-		user.QuestSceneChoices[choiceKey] = store.QuestSceneChoiceState{QuestSceneId: 51, QuestFlowType: 2, ChoiceNumber: 3, ChoiceDatetime: 7, LatestVersion: 7}
-		historyKey := store.QuestSceneChoiceHistoryKey{QuestSceneId: 51, QuestFlowType: 2, ChoiceNumber: 3}
-		user.QuestSceneChoiceHistory[historyKey] = user.QuestSceneChoices[choiceKey]
+		user.QuestSceneChoices[51] = store.QuestSceneChoiceState{QuestSceneChoiceGroupingId: 51, QuestSceneChoiceEffectId: 3, LatestVersion: 7}
+		user.QuestSceneChoiceHistory[3] = store.QuestSceneChoiceHistoryState{QuestSceneChoiceEffectId: 3, ChoiceDatetime: 7, LatestVersion: 7}
 		user.EventQuestDailyRewards[52] = store.EventQuestDailyRewardState{EventQuestDailyGroupId: 52, RewardReceiveDatetime: 8, LatestVersion: 8}
 		user.MissionPassPoints[60] = store.MissionPassPointState{MissionPassId: 60, Point: 100, LatestVersion: 7}
 		rewardKey := store.MissionPassRewardKey{MissionPassId: 60, Level: 2, IsPremium: true}
@@ -83,11 +81,9 @@ func TestUserStateRoundTripForContentState(t *testing.T) {
 	if user.CageOrnamentAccesses[40].LatestAccessDatetime != 5 {
 		t.Fatal("cage ornament access was not persisted")
 	}
-	choiceKey := store.QuestSceneChoiceKey{QuestSceneId: 51, QuestFlowType: 2}
-	historyKey := store.QuestSceneChoiceHistoryKey{QuestSceneId: 51, QuestFlowType: 2, ChoiceNumber: 3}
 	rewardKey := store.MissionPassRewardKey{MissionPassId: 60, Level: 2, IsPremium: true}
 	if user.QuestReplayFlowRewards[50].RewardReceiveDatetime != 6 ||
-		user.QuestSceneChoices[choiceKey].ChoiceNumber != 3 || user.QuestSceneChoiceHistory[historyKey].ChoiceDatetime != 7 ||
+		user.QuestSceneChoices[51].QuestSceneChoiceEffectId != 3 || user.QuestSceneChoiceHistory[3].ChoiceDatetime != 7 ||
 		user.EventQuestDailyRewards[52].RewardReceiveDatetime != 8 || user.MissionPassPoints[60].Point != 100 ||
 		user.MissionPassRewards[rewardKey].RewardReceiveDatetime != 9 || !user.MissionPassRemaining[60].RewardReceived ||
 		user.Battle.MissionDetail.CriticalCount != 8 || !user.Battle.MissionDetail.CostumeResults[0].IsAlive ||

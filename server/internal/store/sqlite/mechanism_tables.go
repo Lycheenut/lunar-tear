@@ -16,15 +16,15 @@ func writeMechanismTables(tx *sql.Tx, uid int64, u *store.UserState) error {
 			return err
 		}
 	}
-	for key, v := range u.QuestSceneChoices {
-		if _, err := tx.Exec(`INSERT INTO user_quest_scene_choices (user_id, quest_scene_id, quest_flow_type, choice_number, choice_datetime, latest_version) VALUES (?,?,?,?,?,?)`,
-			uid, key.QuestSceneId, key.QuestFlowType, v.ChoiceNumber, v.ChoiceDatetime, v.LatestVersion); err != nil {
+	for groupingId, v := range u.QuestSceneChoices {
+		if _, err := tx.Exec(`INSERT INTO user_quest_scene_choices (user_id, quest_scene_choice_grouping_id, quest_scene_choice_effect_id, latest_version) VALUES (?,?,?,?)`,
+			uid, groupingId, v.QuestSceneChoiceEffectId, v.LatestVersion); err != nil {
 			return err
 		}
 	}
-	for key, v := range u.QuestSceneChoiceHistory {
-		if _, err := tx.Exec(`INSERT INTO user_quest_scene_choice_history (user_id, quest_scene_id, quest_flow_type, choice_number, choice_datetime, latest_version) VALUES (?,?,?,?,?,?)`,
-			uid, key.QuestSceneId, key.QuestFlowType, key.ChoiceNumber, v.ChoiceDatetime, v.LatestVersion); err != nil {
+	for effectId, v := range u.QuestSceneChoiceHistory {
+		if _, err := tx.Exec(`INSERT INTO user_quest_scene_choice_history (user_id, quest_scene_choice_effect_id, choice_datetime, latest_version) VALUES (?,?,?,?)`,
+			uid, effectId, v.ChoiceDatetime, v.LatestVersion); err != nil {
 			return err
 		}
 	}
@@ -106,15 +106,15 @@ func loadMechanismTables(db *sql.DB, uid int64, u *store.UserState) {
 		_ = rows.Scan(&v.QuestReplayFlowRewardGroupId, &v.RewardReceiveDatetime, &v.LatestVersion)
 		u.QuestReplayFlowRewards[v.QuestReplayFlowRewardGroupId] = v
 	})
-	queryRows(db, `SELECT quest_scene_id, quest_flow_type, choice_number, choice_datetime, latest_version FROM user_quest_scene_choices WHERE user_id=?`, uid, func(rows *sql.Rows) {
+	queryRows(db, `SELECT quest_scene_choice_grouping_id, quest_scene_choice_effect_id, latest_version FROM user_quest_scene_choices WHERE user_id=?`, uid, func(rows *sql.Rows) {
 		var v store.QuestSceneChoiceState
-		_ = rows.Scan(&v.QuestSceneId, &v.QuestFlowType, &v.ChoiceNumber, &v.ChoiceDatetime, &v.LatestVersion)
-		u.QuestSceneChoices[store.QuestSceneChoiceKey{QuestSceneId: v.QuestSceneId, QuestFlowType: v.QuestFlowType}] = v
+		_ = rows.Scan(&v.QuestSceneChoiceGroupingId, &v.QuestSceneChoiceEffectId, &v.LatestVersion)
+		u.QuestSceneChoices[v.QuestSceneChoiceGroupingId] = v
 	})
-	queryRows(db, `SELECT quest_scene_id, quest_flow_type, choice_number, choice_datetime, latest_version FROM user_quest_scene_choice_history WHERE user_id=?`, uid, func(rows *sql.Rows) {
-		var v store.QuestSceneChoiceState
-		_ = rows.Scan(&v.QuestSceneId, &v.QuestFlowType, &v.ChoiceNumber, &v.ChoiceDatetime, &v.LatestVersion)
-		u.QuestSceneChoiceHistory[store.QuestSceneChoiceHistoryKey{QuestSceneId: v.QuestSceneId, QuestFlowType: v.QuestFlowType, ChoiceNumber: v.ChoiceNumber}] = v
+	queryRows(db, `SELECT quest_scene_choice_effect_id, choice_datetime, latest_version FROM user_quest_scene_choice_history WHERE user_id=?`, uid, func(rows *sql.Rows) {
+		var v store.QuestSceneChoiceHistoryState
+		_ = rows.Scan(&v.QuestSceneChoiceEffectId, &v.ChoiceDatetime, &v.LatestVersion)
+		u.QuestSceneChoiceHistory[v.QuestSceneChoiceEffectId] = v
 	})
 	queryRows(db, `SELECT event_quest_daily_group_id, reward_receive_datetime, latest_version FROM user_event_quest_daily_rewards WHERE user_id=?`, uid, func(rows *sql.Rows) {
 		var v store.EventQuestDailyRewardState
@@ -200,19 +200,19 @@ func diffMechanismTables(tx *sql.Tx, uid int64, before, after *store.UserState) 
 		"webview_panel_mission_page_id, reward_receive_datetime, latest_version")
 }
 
-func diffQuestSceneChoices(tx *sql.Tx, uid int64, before, after map[store.QuestSceneChoiceKey]store.QuestSceneChoiceState) error {
-	for key, v := range after {
-		if old, ok := before[key]; ok && old == v {
+func diffQuestSceneChoices(tx *sql.Tx, uid int64, before, after map[int32]store.QuestSceneChoiceState) error {
+	for groupingId, v := range after {
+		if old, ok := before[groupingId]; ok && old == v {
 			continue
 		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO user_quest_scene_choices (user_id, quest_scene_id, quest_flow_type, choice_number, choice_datetime, latest_version) VALUES (?,?,?,?,?,?)`,
-			uid, key.QuestSceneId, key.QuestFlowType, v.ChoiceNumber, v.ChoiceDatetime, v.LatestVersion); err != nil {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO user_quest_scene_choices (user_id, quest_scene_choice_grouping_id, quest_scene_choice_effect_id, latest_version) VALUES (?,?,?,?)`,
+			uid, groupingId, v.QuestSceneChoiceEffectId, v.LatestVersion); err != nil {
 			return err
 		}
 	}
-	for key := range before {
-		if _, ok := after[key]; !ok {
-			if _, err := tx.Exec(`DELETE FROM user_quest_scene_choices WHERE user_id=? AND quest_scene_id=? AND quest_flow_type=?`, uid, key.QuestSceneId, key.QuestFlowType); err != nil {
+	for groupingId := range before {
+		if _, ok := after[groupingId]; !ok {
+			if _, err := tx.Exec(`DELETE FROM user_quest_scene_choices WHERE user_id=? AND quest_scene_choice_grouping_id=?`, uid, groupingId); err != nil {
 				return err
 			}
 		}
@@ -220,19 +220,19 @@ func diffQuestSceneChoices(tx *sql.Tx, uid int64, before, after map[store.QuestS
 	return nil
 }
 
-func diffQuestSceneChoiceHistory(tx *sql.Tx, uid int64, before, after map[store.QuestSceneChoiceHistoryKey]store.QuestSceneChoiceState) error {
-	for key, v := range after {
-		if old, ok := before[key]; ok && old == v {
+func diffQuestSceneChoiceHistory(tx *sql.Tx, uid int64, before, after map[int32]store.QuestSceneChoiceHistoryState) error {
+	for effectId, v := range after {
+		if old, ok := before[effectId]; ok && old == v {
 			continue
 		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO user_quest_scene_choice_history (user_id, quest_scene_id, quest_flow_type, choice_number, choice_datetime, latest_version) VALUES (?,?,?,?,?,?)`,
-			uid, key.QuestSceneId, key.QuestFlowType, key.ChoiceNumber, v.ChoiceDatetime, v.LatestVersion); err != nil {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO user_quest_scene_choice_history (user_id, quest_scene_choice_effect_id, choice_datetime, latest_version) VALUES (?,?,?,?)`,
+			uid, effectId, v.ChoiceDatetime, v.LatestVersion); err != nil {
 			return err
 		}
 	}
-	for key := range before {
-		if _, ok := after[key]; !ok {
-			if _, err := tx.Exec(`DELETE FROM user_quest_scene_choice_history WHERE user_id=? AND quest_scene_id=? AND quest_flow_type=? AND choice_number=?`, uid, key.QuestSceneId, key.QuestFlowType, key.ChoiceNumber); err != nil {
+	for effectId := range before {
+		if _, ok := after[effectId]; !ok {
+			if _, err := tx.Exec(`DELETE FROM user_quest_scene_choice_history WHERE user_id=? AND quest_scene_choice_effect_id=?`, uid, effectId); err != nil {
 				return err
 			}
 		}
