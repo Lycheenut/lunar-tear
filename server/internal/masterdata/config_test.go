@@ -18,4 +18,7 @@ func TestLoadGameConfigIncludesQuestMissionBigWinBonusPower(t *testing.T) {
 	if cfg.QuestMissionBigWinBonusPower != 30000 {
 		t.Fatalf("quest mission big win bonus power = %d, want 30000", cfg.QuestMissionBigWinBonusPower)
 	}
+	if cfg.FunctionUnlockQuestIdForDailyGacha != 61 {
+		t.Fatalf("daily Gacha unlock quest = %d, want 61", cfg.FunctionUnlockQuestIdForDailyGacha)
+	}
 }

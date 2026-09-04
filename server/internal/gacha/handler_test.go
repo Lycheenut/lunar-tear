@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -119,6 +120,58 @@ func TestHandleDrawConsumesGuaranteedTickets(t *testing.T) {
 				t.Fatalf("draw result = %+v, want rarity %d weapon %d", result.Items, tt.rarity, tt.weaponId)
 			}
 		})
+	}
+}
+
+func TestHandleDrawLimitsDailyGachaToOneExecutionPerBusinessDay(t *testing.T) {
+	banner := &PremiumBannerPool{
+		GachaId: model.GachaIdDaily,
+		Groups: []PremiumGroup{{
+			Id:        GroupWeaponOnly2,
+			GrantType: GrantWeaponOnly,
+			Rarity:    model.RarityRare,
+			Weight:    GroupWeightTotal,
+			NonPickup: []PoolItem{{WeaponId: 1, RarityType: model.RarityRare}},
+		}},
+	}
+	h := &GachaHandler{
+		Premium: &PremiumCatalog{Banners: map[int32]*PremiumBannerPool{model.GachaIdDaily: banner}},
+		Granter: &store.PossessionGranter{},
+	}
+	phaseId := model.GachaIdDaily*model.PhaseIdMultiplier + 1
+	entry := store.GachaCatalogEntry{
+		GachaId:            model.GachaIdDaily,
+		GachaLabelType:     model.GachaLabelPremium,
+		GachaModeType:      model.GachaModeBasic,
+		GachaAutoResetType: model.GachaAutoResetDaily,
+		PricePhases: []store.GachaPricePhaseEntry{{
+			PhaseId:        phaseId,
+			DrawCount:      model.DailyGachaDrawCount,
+			LimitExecCount: model.DailyGachaExecLimit,
+		}},
+	}
+	user := &store.UserState{}
+	user.EnsureMaps()
+
+	result, err := h.HandleDraw(user, entry, phaseId, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != int(model.DailyGachaDrawCount) {
+		t.Fatalf("daily draw count = %d, want %d", len(result.Items), model.DailyGachaDrawCount)
+	}
+	if _, err := h.HandleDraw(user, entry, phaseId, 1); err == nil {
+		t.Fatal("daily Gacha accepted a second execution on the same business day")
+	}
+
+	state := user.Gacha.BannerStates[model.GachaIdDaily]
+	state.BoxDrewCounts[model.DailyGachaDayCounterId] = gametime.BusinessDayKey(gametime.NowMillis()) - 1
+	user.Gacha.BannerStates[model.GachaIdDaily] = state
+	if _, err := h.HandleDraw(user, entry, phaseId, 1); err != nil {
+		t.Fatalf("daily Gacha did not reset on the next business day: %v", err)
+	}
+	if got := user.Gacha.BannerStates[model.GachaIdDaily].DrawCount; got != model.DailyGachaDrawCount {
+		t.Fatalf("daily draw count after reset = %d, want %d", got, model.DailyGachaDrawCount)
 	}
 }
 

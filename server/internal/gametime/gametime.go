@@ -32,6 +32,11 @@ func StartOfBusinessDayAtMillis(millis int64) int64 {
 	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, businessLocation).UnixMilli()
 }
 
+func BusinessDayKey(millis int64) int32 {
+	n := InBusinessLocation(millis)
+	return int32(n.Year()*10000 + int(n.Month())*100 + n.Day())
+}
+
 // BusinessMonthKey returns a compact key for the calendar month in UTC-8.
 func BusinessMonthKey(millis int64) int32 {
 	n := InBusinessLocation(millis)

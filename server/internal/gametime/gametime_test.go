@@ -36,6 +36,17 @@ func TestStartOfBusinessDayAtMillisUsesUTC0800Boundary(t *testing.T) {
 	}
 }
 
+func TestBusinessDayKeyUsesUTC0800Boundary(t *testing.T) {
+	before := time.Date(2026, time.September, 4, 7, 59, 0, 0, time.UTC)
+	at := time.Date(2026, time.September, 4, 8, 0, 0, 0, time.UTC)
+	if got := BusinessDayKey(before.UnixMilli()); got != 20260903 {
+		t.Fatalf("day before boundary = %d, want 20260903", got)
+	}
+	if got := BusinessDayKey(at.UnixMilli()); got != 20260904 {
+		t.Fatalf("day at boundary = %d, want 20260904", got)
+	}
+}
+
 func TestBusinessWeeklyVersionUsesMondayUTC0800Boundary(t *testing.T) {
 	cases := []struct {
 		name string

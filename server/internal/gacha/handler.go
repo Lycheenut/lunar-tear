@@ -87,6 +87,7 @@ func (h *GachaHandler) HandleDraw(
 		}
 	}
 
+	nowMillis := gametime.NowMillis()
 	bs := user.Gacha.BannerStates[entry.GachaId]
 	bs.GachaId = entry.GachaId
 	if bs.BoxDrewCounts != nil {
@@ -95,6 +96,16 @@ func (h *GachaHandler) HandleDraw(
 			cloned[counterId] = drewCount
 		}
 		bs.BoxDrewCounts = cloned
+	}
+	resetDailyGachaState(entry, &bs, nowMillis)
+	if model.IsDailyGacha(entry.GachaId) && phase.LimitExecCount > 0 {
+		userExecCount := int32(0)
+		if phase.DrawCount > 0 {
+			userExecCount = bs.DrawCount / phase.DrawCount
+		}
+		if int64(userExecCount)+int64(execCount) > int64(phase.LimitExecCount) {
+			return nil, fmt.Errorf("daily gacha %d execution limit reached", entry.GachaId)
+		}
 	}
 	if entry.GachaModeType == model.GachaModeStepup {
 		currentStep := bs.StepNumber
@@ -121,8 +132,6 @@ func (h *GachaHandler) HandleDraw(
 	totalCost := int32(totalCost64)
 
 	drawCount := int(drawCount64)
-	nowMillis := gametime.NowMillis()
-
 	var items []DrawnItem
 
 	switch entry.GachaLabelType {
@@ -198,6 +207,21 @@ func (h *GachaHandler) HandleDraw(
 	}
 
 	return result, nil
+}
+
+func resetDailyGachaState(entry store.GachaCatalogEntry, state *store.GachaBannerState, nowMillis int64) {
+	if !model.IsDailyGacha(entry.GachaId) || entry.GachaAutoResetType != model.GachaAutoResetDaily {
+		return
+	}
+	if state.BoxDrewCounts == nil {
+		state.BoxDrewCounts = make(map[int32]int32)
+	}
+	dayKey := gametime.BusinessDayKey(nowMillis)
+	if state.BoxDrewCounts[model.DailyGachaDayCounterId] == dayKey {
+		return
+	}
+	state.DrawCount = 0
+	state.BoxDrewCounts[model.DailyGachaDayCounterId] = dayKey
 }
 
 func (h *GachaHandler) HandleResetBox(

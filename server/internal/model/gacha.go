@@ -103,6 +103,11 @@ type DupExchangeEntry struct {
 const DefaultDailyDrawLimit int32 = 5
 
 const (
+	DailyGachaDrawCount int32 = 5
+	DailyGachaExecLimit int32 = 1
+)
+
+const (
 	BoxPoolMaxItems    int   = 50
 	BoxPoolMinItems    int   = 5
 	BoxItemDefaultMax  int32 = 10
@@ -124,10 +129,17 @@ const (
 const ChapterGachaMonthCounterId int32 = -1
 
 const (
+	GachaIdDaily                       int32 = 50001
 	GachaIdGuaranteedThreeStarOrHigher int32 = 60001
 	GachaIdGuaranteedFourStar          int32 = 60002
 )
 
+func IsDailyGacha(gachaId int32) bool {
+	return gachaId == GachaIdDaily
+}
+
 func IsGuaranteedTicketGacha(gachaId int32) bool {
 	return gachaId == GachaIdGuaranteedThreeStarOrHigher || gachaId == GachaIdGuaranteedFourStar
 }
+
+const DailyGachaDayCounterId int32 = -2

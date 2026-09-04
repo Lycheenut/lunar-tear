@@ -13,6 +13,33 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
+func TestDefaultPremiumAndDailyGroupWeights(t *testing.T) {
+	config := DefaultConfig()
+	wantPremium := GroupWeights{
+		CharacterWeapon: RarityWeights{ThreeStar: 500, FourStar: 200},
+		WeaponOnly:      RarityWeights{TwoStar: 8000, ThreeStar: 1000, FourStar: 300},
+	}
+	wantDaily := GroupWeights{
+		CharacterWeapon: RarityWeights{ThreeStar: 500, FourStar: 40},
+		WeaponOnly:      RarityWeights{TwoStar: 8400, ThreeStar: 1000, FourStar: 60},
+	}
+	if config.GroupWeights != wantPremium {
+		t.Fatalf("default Premium weights = %+v, want %+v", config.GroupWeights, wantPremium)
+	}
+	if config.DailyGroupWeights == nil || *config.DailyGroupWeights != wantDaily {
+		t.Fatalf("default daily weights = %+v, want %+v", config.DailyGroupWeights, wantDaily)
+	}
+}
+
+func TestNormalizeConfigDefaultsOmittedPremiumAndDailyGroupWeights(t *testing.T) {
+	config := &Config{Version: ConfigVersion}
+	normalizeConfig(config)
+	defaults := DefaultConfig()
+	if config.GroupWeights != defaults.GroupWeights || config.DailyGroupWeights == nil || *config.DailyGroupWeights != *defaults.DailyGroupWeights {
+		t.Fatalf("omitted weights were not defaulted: Premium=%+v daily=%+v", config.GroupWeights, config.DailyGroupWeights)
+	}
+}
+
 func TestBuildPremiumCatalogUsesDefaultStandardAndPerGroupPickup(t *testing.T) {
 	source, entries, config := testPremiumSource()
 	config.LimitedSets["limited_a"] = LimitedSetConfig{DisplayName: "Limited A"}
@@ -36,6 +63,79 @@ func TestBuildPremiumCatalogUsesDefaultStandardAndPerGroupPickup(t *testing.T) {
 	}
 	if _, exists := banner.ItemsByWeaponId[11]; exists {
 		t.Fatal("event weapon entered the banner pool")
+	}
+}
+
+func TestBuildPremiumCatalogUsesDailyWeightsAndOnlyStandardWeapons(t *testing.T) {
+	source, entries, config := testPremiumSource()
+	config.LimitedSets["limited_a"] = LimitedSetConfig{DisplayName: "Limited A"}
+	config.Weapons[1] = WeaponConfig{Availability: AvailabilityLimited, LimitedSet: "limited_a"}
+	entries = append(entries, store.GachaCatalogEntry{GachaId: model.GachaIdDaily, GachaLabelType: model.GachaLabelPremium})
+
+	catalog, err := BuildPremiumCatalog(config, source, entries, BuildOptions{
+		RequireComplete:       true,
+		CurrentMasterDataHash: "sha256:test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	daily := catalog.Banners[model.GachaIdDaily]
+	if daily == nil {
+		t.Fatal("daily Gacha pool was not built")
+	}
+	wantWeights := map[GroupId]int{
+		GroupCharacterWeapon4: 40,
+		GroupWeaponOnly4:      60,
+		GroupCharacterWeapon3: 500,
+		GroupWeaponOnly3:      1000,
+		GroupWeaponOnly2:      8400,
+	}
+	for _, group := range daily.Groups {
+		if group.Weight != wantWeights[group.Id] {
+			t.Fatalf("daily group %s weight = %d, want %d", group.Id, group.Weight, wantWeights[group.Id])
+		}
+	}
+	if _, ok := daily.ItemsByWeaponId[1]; ok {
+		t.Fatal("limited weapon entered the daily Gacha pool")
+	}
+	if _, ok := daily.ItemsByWeaponId[11]; ok {
+		t.Fatal("event weapon entered the daily Gacha pool")
+	}
+	for weaponId := int32(2); weaponId <= 10; weaponId++ {
+		if _, ok := daily.ItemsByWeaponId[weaponId]; !ok {
+			t.Fatalf("standard weapon %d is missing from the daily Gacha pool", weaponId)
+		}
+	}
+}
+
+func TestBuildPremiumCatalogAllowsDailyWeightOverride(t *testing.T) {
+	source, entries, config := testPremiumSource()
+	override := GroupWeights{
+		CharacterWeapon: RarityWeights{ThreeStar: 400, FourStar: 100},
+		WeaponOnly:      RarityWeights{TwoStar: 8000, ThreeStar: 1200, FourStar: 300},
+	}
+	config.DailyGroupWeights = &override
+	raw, _, err := EncodeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Config
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	config = &decoded
+	entries = append(entries, store.GachaCatalogEntry{GachaId: model.GachaIdDaily, GachaLabelType: model.GachaLabelPremium})
+
+	catalog, err := BuildPremiumCatalog(config, source, entries, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	daily := catalog.Banners[model.GachaIdDaily]
+	if got := findPremiumGroup(t, daily, GroupCharacterWeapon4).Weight; got != 100 {
+		t.Fatalf("overridden daily 4-star character-weapon weight = %d, want 100", got)
+	}
+	if got := findPremiumGroup(t, daily, GroupWeaponOnly2).Weight; got != 8000 {
+		t.Fatalf("overridden daily 2-star weapon weight = %d, want 8000", got)
 	}
 }
 
@@ -104,6 +204,7 @@ func TestApplyConfiguredPremiumBannersUsesConfigInventoryAndSchedule(t *testing.
 	entries := []store.GachaCatalogEntry{
 		{GachaId: 999, GachaLabelType: model.GachaLabelPremium, BannerAssetName: "limited_999"},
 		{GachaId: 200001, GachaLabelType: model.GachaLabelChapter},
+		{GachaId: model.GachaIdDaily, GachaLabelType: model.GachaLabelPremium, BannerAssetName: "daily_1"},
 		{GachaId: model.GachaIdGuaranteedFourStar, GachaLabelType: model.GachaLabelPremium},
 	}
 	medals := map[int32]masterdata.GachaMedalInfo{
@@ -129,6 +230,9 @@ func TestApplyConfiguredPremiumBannersUsesConfigInventoryAndSchedule(t *testing.
 	}
 	if _, ok := byId[200001]; !ok {
 		t.Fatal("non-premium catalog entry was removed")
+	}
+	if byId[model.GachaIdDaily].BannerAssetName != "daily_1" {
+		t.Fatal("daily Gacha was removed or replaced")
 	}
 	if _, ok := byId[model.GachaIdGuaranteedFourStar]; !ok {
 		t.Fatal("guaranteed ticket Gacha was removed")

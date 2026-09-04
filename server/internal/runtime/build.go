@@ -70,7 +70,7 @@ func buildCatalogs(gachaConfig *gacha.Config, questDropConfig *questdrop.Config)
 	questHandler.DropRewardsByQuestID = dropRewardsByQuestID
 	userdata.SetQuestHandler(questHandler)
 
-	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog()
+	gachaEntries, medalInfo, err := masterdata.LoadGachaCatalog(gameConfig.FunctionUnlockQuestIdForDailyGacha)
 	if err != nil {
 		return nil, fmt.Errorf("load gacha catalog: %w", err)
 	}
