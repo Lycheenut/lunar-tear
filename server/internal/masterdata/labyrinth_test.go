@@ -2,7 +2,7 @@ package masterdata
 
 import "testing"
 
-func TestLabyrinthSeasonUsesEndedSeasonRewardGroup(t *testing.T) {
+func TestLabyrinthSeasonUsesExactSeasonRewardGroup(t *testing.T) {
 	catalog := &LabyrinthCatalog{
 		SeasonsByChapter: map[int32]map[int32]EntityMEventQuestLabyrinthSeason{
 			10: {
@@ -16,12 +16,29 @@ func TestLabyrinthSeasonUsesEndedSeasonRewardGroup(t *testing.T) {
 			13: {{HeadQuestId: 130}},
 		},
 	}
-	season, ok := catalog.LatestEndedSeason(10, 250)
+	season, ok := catalog.Season(10, 2)
 	if !ok || season.SeasonNumber != 2 {
-		t.Fatalf("ended season = %+v, %v", season, ok)
+		t.Fatalf("exact season = %+v, %v", season, ok)
 	}
 	if milestones := catalog.SeasonMilestonesFor(season); len(milestones) != 1 || milestones[0].HeadQuestId != 120 {
 		t.Fatalf("season milestones = %+v", milestones)
+	}
+}
+
+func TestLabyrinthLatestStartedSeasonDoesNotSelectFutureSeason(t *testing.T) {
+	catalog := &LabyrinthCatalog{SeasonsByChapter: map[int32]map[int32]EntityMEventQuestLabyrinthSeason{
+		10: {
+			1: {EventQuestChapterId: 10, SeasonNumber: 1, StartDatetime: 100},
+			2: {EventQuestChapterId: 10, SeasonNumber: 2, StartDatetime: 200},
+			3: {EventQuestChapterId: 10, SeasonNumber: 3, StartDatetime: 300},
+		},
+	}}
+	season, ok := catalog.LatestStartedSeason(10, 250)
+	if !ok || season.SeasonNumber != 2 {
+		t.Fatalf("started season = %+v, %v", season, ok)
+	}
+	if exact, ok := catalog.Season(10, 1); !ok || exact.SeasonNumber != 1 {
+		t.Fatalf("exact season = %+v, %v", exact, ok)
 	}
 }
 

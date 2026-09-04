@@ -159,27 +159,20 @@ func (s *LabyrinthServiceServer) ReceiveStageClearReward(ctx context.Context, re
 }
 
 func (s *LabyrinthServiceServer) UpdateSeasonData(ctx context.Context, req *pb.UpdateSeasonDataRequest) (*pb.UpdateSeasonDataResponse, error) {
-	laby := s.holder.Get().Labyrinth
-
+	cat := s.holder.Get()
+	userId := CurrentUserId(ctx, s.users, s.sessions)
+	nowMillis := gametime.NowMillis()
 	var seasonResult []*pb.LabyrinthSeasonResult
-	for _, m := range laby.SeasonMilestones(req.EventQuestChapterId) {
-		rewards := make([]*pb.LabyrinthReward, 0, len(m.Rewards))
-		for _, it := range m.Rewards {
-			rewards = append(rewards, &pb.LabyrinthReward{
-				PossessionType: it.PossessionType,
-				PossessionId:   it.PossessionId,
-				Count:          it.Count,
-			})
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		if result := updateLabyrinthSeasonData(cat, user, req.EventQuestChapterId, nowMillis); result != nil {
+			seasonResult = append(seasonResult, result)
 		}
-		seasonResult = append(seasonResult, &pb.LabyrinthSeasonResult{
-			EventQuestChapterId: req.EventQuestChapterId,
-			HeadQuestId:         m.HeadQuestId,
-			SeasonReward:        rewards,
-			HeadStageOrder:      m.HeadStageOrder,
-		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("update labyrinth season data: %w", err)
 	}
 
-	log.Printf("[LabyrinthService] UpdateSeasonData: chapter=%d -> %d milestone(s)",
+	log.Printf("[LabyrinthService] UpdateSeasonData: chapter=%d -> %d result(s)",
 		req.EventQuestChapterId, len(seasonResult))
 	return &pb.UpdateSeasonDataResponse{SeasonResult: seasonResult}, nil
 }

@@ -60,14 +60,19 @@ func (c *LabyrinthCatalog) StageQuestIds(quests *QuestCatalog, chapterId, stageO
 	return questIds, len(questIds) > 0
 }
 
-func (c *LabyrinthCatalog) LatestEndedSeason(chapterId int32, nowMillis int64) (EntityMEventQuestLabyrinthSeason, bool) {
+func (c *LabyrinthCatalog) LatestStartedSeason(chapterId int32, nowMillis int64) (EntityMEventQuestLabyrinthSeason, bool) {
 	var latest EntityMEventQuestLabyrinthSeason
 	for _, season := range c.SeasonsByChapter[chapterId] {
-		if season.EndDatetime <= nowMillis && season.SeasonNumber > latest.SeasonNumber {
+		if season.StartDatetime <= nowMillis && season.SeasonNumber > latest.SeasonNumber {
 			latest = season
 		}
 	}
 	return latest, latest.SeasonNumber != 0
+}
+
+func (c *LabyrinthCatalog) Season(chapterId, seasonNumber int32) (EntityMEventQuestLabyrinthSeason, bool) {
+	season, ok := c.SeasonsByChapter[chapterId][seasonNumber]
+	return season, ok
 }
 
 func (c *LabyrinthCatalog) StageClearReward(chapterId, stageOrder int32) []RewardItem {
@@ -86,16 +91,6 @@ func (c *LabyrinthCatalog) CollectAccumulationRewards(chapterId, stageOrder, old
 		}
 	}
 	return items, highest
-}
-
-func (c *LabyrinthCatalog) SeasonMilestones(chapterId int32) []LabyrinthSeasonMilestone {
-	var latest EntityMEventQuestLabyrinthSeason
-	for _, season := range c.SeasonsByChapter[chapterId] {
-		if season.SeasonNumber > latest.SeasonNumber {
-			latest = season
-		}
-	}
-	return c.SeasonMilestonesFor(latest)
 }
 
 func (c *LabyrinthCatalog) SeasonMilestonesFor(season EntityMEventQuestLabyrinthSeason) []LabyrinthSeasonMilestone {
