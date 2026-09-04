@@ -195,6 +195,7 @@ func TestApplyConfiguredPremiumBannersUsesConfigInventoryAndSchedule(t *testing.
 		BannerAssetName: "limited_471",
 		StartDatetime:   1677542400000,
 		EndDatetime:     1678751999000,
+		GachaMedalId:    11,
 	}
 	config.Banners[588] = BannerConfig{
 		BannerAssetName: "limited_588",
@@ -208,7 +209,8 @@ func TestApplyConfiguredPremiumBannersUsesConfigInventoryAndSchedule(t *testing.
 		{GachaId: model.GachaIdGuaranteedFourStar, GachaLabelType: model.GachaLabelPremium},
 	}
 	medals := map[int32]masterdata.GachaMedalInfo{
-		588: {GachaMedalId: 12, ConsumableItemId: 34},
+		556001: {GachaMedalId: 11, ConsumableItemId: 33},
+		588:    {GachaMedalId: 12, ConsumableItemId: 34},
 	}
 
 	got := ApplyConfiguredPremiumBanners(config, entries, medals)
@@ -221,6 +223,12 @@ func TestApplyConfiguredPremiumBannersUsesConfigInventoryAndSchedule(t *testing.
 	}
 	if byId[471].BannerAssetName != "limited_471" || byId[471].StartDatetime != 1677542400000 || byId[471].EndDatetime != 1678751999000 {
 		t.Fatalf("unexpected configured Gacha 471: %+v", byId[471])
+	}
+	if byId[471].GachaMedalId != 11 || byId[471].MedalConsumableItemId != 33 {
+		t.Fatalf("configured Gacha 471 did not use its explicit medal: %+v", byId[471])
+	}
+	if medals[471].GachaMedalId != 11 {
+		t.Fatalf("explicit medal was not exposed for downstream lookup: %+v", medals[471])
 	}
 	if byId[588].GachaMedalId != 12 || byId[588].MedalConsumableItemId != 34 || len(byId[588].PricePhases) != 3 {
 		t.Fatalf("unexpected configured Gacha 588: %+v", byId[588])
@@ -463,6 +471,7 @@ func TestConfigWithoutAutomaticEventWeaponsRemovesOverridesAndPickups(t *testing
 	config.Weapons[12] = WeaponConfig{Availability: AvailabilityEvent}
 	config.Banners[100] = BannerConfig{
 		BannerAssetName: "limited_100",
+		GachaMedalId:    8151,
 		LimitedSets:     []string{"limited_a"},
 		PickupWeaponIds: []int32{1, 11, 12},
 	}
@@ -479,6 +488,9 @@ func TestConfigWithoutAutomaticEventWeaponsRemovesOverridesAndPickups(t *testing
 	}
 	if got := filtered.Banners[100].BannerAssetName; got != "limited_100" {
 		t.Fatalf("filtered banner asset = %q, want limited_100", got)
+	}
+	if got := filtered.Banners[100].GachaMedalId; got != 8151 {
+		t.Fatalf("filtered Gacha medal ID = %d, want 8151", got)
 	}
 	if _, exists := config.Weapons[11]; !exists {
 		t.Fatal("source config was mutated")
@@ -499,6 +511,9 @@ func TestConfigWithoutAutomaticEventWeaponsRemovesOverridesAndPickups(t *testing
 	}
 	if got := exported.Banners[100].PickupWeaponIds; len(got) != 2 || got[0] != 1 || got[1] != 12 {
 		t.Fatalf("exported pickup IDs = %v, want [1 12]", got)
+	}
+	if got := exported.Banners[100].GachaMedalId; got != 8151 {
+		t.Fatalf("exported Gacha medal ID = %d, want 8151", got)
 	}
 }
 
