@@ -3,9 +3,20 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 )
+
+func TestAdminGachaScheduleSubmission(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node.js is required for admin JavaScript regression tests")
+	}
+	if output, err := exec.Command(node, "--test", "admin_gacha.test.cjs").CombinedOutput(); err != nil {
+		t.Fatalf("admin Gacha regression tests failed: %v\n%s", err, output)
+	}
+}
 
 func TestAdminContentSecurityPolicyAllowsBannerPreviews(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/admin/", nil)

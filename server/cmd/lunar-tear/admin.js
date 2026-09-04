@@ -265,7 +265,7 @@
     const table = currentTable();
     if (!table) return table;
     if (table.name === "gacha") {
-      await ensureGachaCatalog();
+      await Promise.all([ensureGachaCatalog(), ensureRewardCatalog()]);
       if (!Array.isArray(table.rows)) populateGachaScheduleTable();
       return currentTable();
     }
@@ -5526,7 +5526,8 @@
       groups.forEach(([label, rewards, limited, groupWeight]) => {
         if (groupWeight > 0 && !rewards.length) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励组有概率但没有奖励`);
         rewards.forEach((reward, index) => {
-          if (!knownRewards.has(`${reward.possessionType}:${reward.possessionId}`)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 不在主数据奖励列表中`);
+          // Free gems use ID 0, which the server omits when encoding box rewards.
+          if (!knownRewards.has(`${reward.possessionType}:${reward.possessionId ?? 0}`)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 不在主数据奖励列表中`);
           if (!Number.isInteger(Number(reward.count)) || Number(reward.count) <= 0) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的${label}奖励 ${index + 1} 单次数量必须为正整数`);
           if (limited && (!Number.isInteger(Number(reward.maxCount)) || Number(reward.maxCount) <= 0)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的有限奖励 ${index + 1} 库存必须为正整数`);
           if (!limited && (!Number.isInteger(Number(reward.weight)) || Number(reward.weight) <= 0)) errors.push(`卡池 ${gachaId} 第 ${boxNumber} 箱的无限奖励 ${index + 1} 权重必须为正整数`);
