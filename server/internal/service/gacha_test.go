@@ -52,6 +52,23 @@ func TestIsNewWeaponInDrawMarksOnlyFirstDuplicateAsNew(t *testing.T) {
 	}
 }
 
+func TestRepeatedCostumeWeaponPairMarksOnlyFirstCopyAsNew(t *testing.T) {
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	ownedCostumes := map[int32]bool{}
+	acquiredWeapons := map[int32]bool{}
+	costume := gacha.DrawnItem{PossessionType: int32(model.PossessionTypeCostume), PossessionId: 100}
+	weapon := gacha.DrawnItem{PossessionType: int32(model.PossessionTypeWeapon), PossessionId: 200}
+
+	for copy, wantNew := range []bool{true, false} {
+		if got := isNewItemInDraw(costume, ownedCostumes, acquiredWeapons, *user); got != wantNew {
+			t.Fatalf("copy %d costume isNew = %v, want %v", copy+1, got, wantNew)
+		}
+		if got := isNewItemInDraw(weapon, ownedCostumes, acquiredWeapons, *user); got != wantNew {
+			t.Fatalf("copy %d weapon isNew = %v, want %v", copy+1, got, wantNew)
+		}
+	}
+}
+
 func TestAutoConvertExpiredMedalsUsesMedalDeadlineAndTarget(t *testing.T) {
 	const (
 		gachaId     = int32(614)
