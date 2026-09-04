@@ -300,7 +300,7 @@ func (s *QuestServiceServer) SkipQuest(ctx context.Context, req *pb.SkipQuestReq
 			validationErr = err
 			return
 		}
-		outcome, validationErr = engine.HandleQuestSkip(&candidate, req.QuestId, req.QuestType, req.QuestChapterId, req.SkipCount, nowMillis)
+		outcome, validationErr = engine.HandleQuestSkip(&candidate, req.QuestId, req.QuestType, req.QuestChapterId, req.UserDeckNumber, req.SkipCount, nowMillis)
 		if validationErr == nil {
 			*user = candidate
 		}
@@ -437,7 +437,7 @@ func (s *QuestServiceServer) SkipQuestBulk(ctx context.Context, req *pb.SkipQues
 		for i, info := range req.SkipQuestInfo {
 			questIds[i], questTypes[i], chapterIds[i], counts[i] = info.QuestId, info.QuestType, info.QuestChapterId, info.SkipCount
 		}
-		outcome, validationErr = engine.HandleQuestSkipBulk(&candidate, questIds, questTypes, chapterIds, counts, nowMillis)
+		outcome, validationErr = engine.HandleQuestSkipBulk(&candidate, questIds, questTypes, chapterIds, counts, req.UserDeckNumber, nowMillis)
 		if validationErr == nil {
 			*user = candidate
 		}

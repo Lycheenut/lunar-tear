@@ -96,7 +96,7 @@ func TestEventQuestSkipUsesEventStaminaCampaignAfterRecovery(t *testing.T) {
 	user.Quests[questId] = store.UserQuestState{QuestId: questId, QuestStateType: model.UserQuestStateTypeCleared}
 	store.RecoverStamina(user, 5_000, 100_000, now)
 
-	if _, err := h.HandleQuestSkip(user, questId, int32(model.QuestTypeEvent), chapterId, 1, now); err != nil {
+	if _, err := h.HandleQuestSkip(user, questId, int32(model.QuestTypeEvent), chapterId, 0, 1, now); err != nil {
 		t.Fatalf("event quest skip after stamina recovery failed: %v", err)
 	}
 	if user.Status.StaminaMilliValue != 0 || user.ConsumableItems[7] != 0 {
