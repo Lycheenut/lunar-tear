@@ -64,6 +64,7 @@ type BannerConfig struct {
 	BannerAssetName string   `json:"bannerAssetName"`
 	StartDatetime   int64    `json:"startDatetime"`
 	EndDatetime     int64    `json:"endDatetime"`
+	GachaMedalId    int32    `json:"gachaMedalId,omitempty"`
 	LimitedSets     []string `json:"limitedSets,omitempty"`
 	PickupWeaponIds []int32  `json:"pickupWeaponIds,omitempty"`
 }
@@ -254,6 +255,7 @@ func ConfigWithoutAutomaticEventWeapons(config *Config, source *masterdata.Gacha
 			BannerAssetName: banner.BannerAssetName,
 			StartDatetime:   banner.StartDatetime,
 			EndDatetime:     banner.EndDatetime,
+			GachaMedalId:    banner.GachaMedalId,
 			LimitedSets:     append([]string(nil), banner.LimitedSets...),
 		}
 		for _, weaponId := range banner.PickupWeaponIds {
@@ -270,6 +272,11 @@ func ConfigWithoutAutomaticEventWeapons(config *Config, source *masterdata.Gacha
 // limited_* inventory declared by gacha.json. m_mom_banner is intentionally not
 // consulted: MamaBanner responses are downstream of these catalog entries.
 func ApplyConfiguredPremiumBanners(config *Config, entries []store.GachaCatalogEntry, medals map[int32]masterdata.GachaMedalInfo) []store.GachaCatalogEntry {
+	medalsById := make(map[int32]masterdata.GachaMedalInfo, len(medals))
+	for _, medal := range medals {
+		medalsById[medal.GachaMedalId] = medal
+	}
+
 	result := make([]store.GachaCatalogEntry, 0, len(entries)+len(config.Banners))
 	for _, entry := range entries {
 		if entry.GachaLabelType != model.GachaLabelPremium || model.IsDailyGacha(entry.GachaId) || model.IsGuaranteedTicketGacha(entry.GachaId) {
@@ -288,6 +295,12 @@ func ApplyConfiguredPremiumBanners(config *Config, entries []store.GachaCatalogE
 	for _, gachaId := range gachaIds {
 		banner := config.Banners[gachaId]
 		medal := medals[gachaId]
+		if banner.GachaMedalId != 0 {
+			medal = medalsById[banner.GachaMedalId]
+			if medal.GachaMedalId != 0 {
+				medals[gachaId] = medal
+			}
+		}
 		result = append(result, store.GachaCatalogEntry{
 			GachaId:               gachaId,
 			IsMamaBanner:          true,
