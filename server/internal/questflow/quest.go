@@ -380,15 +380,15 @@ func restoreSavedMainQuestContext(user *store.UserState, questId int32, nowMilli
 	return true
 }
 
-func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, questType, chapterId, skipCount int32, nowMillis int64) (FinishOutcome, error) {
+func (h *QuestHandler) HandleQuestSkip(user *store.UserState, questId, questType, chapterId, userDeckNumber, skipCount int32, nowMillis int64) (FinishOutcome, error) {
 	target := h.targetForSkip(questId, questType, chapterId)
 	if err := h.validateQuestSkip(user, questId, skipCount, target, nowMillis); err != nil {
 		return FinishOutcome{}, err
 	}
-	return h.applyQuestSkip(user, questId, skipCount, target, nowMillis)
+	return h.applyQuestSkip(user, questId, userDeckNumber, skipCount, target, nowMillis)
 }
 
-func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, questTypes, chapterIds, skipCounts []int32, nowMillis int64) (FinishOutcome, error) {
+func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, questTypes, chapterIds, skipCounts []int32, userDeckNumber int32, nowMillis int64) (FinishOutcome, error) {
 	if len(questIds) == 0 || len(questIds) != len(questTypes) || len(questIds) != len(chapterIds) || len(questIds) != len(skipCounts) {
 		return FinishOutcome{}, fmt.Errorf("invalid bulk skip request")
 	}
@@ -401,7 +401,7 @@ func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, ques
 	}
 	var outcome FinishOutcome
 	for i, questId := range questIds {
-		result, err := h.applyQuestSkip(user, questId, skipCounts[i], targets[i], nowMillis)
+		result, err := h.applyQuestSkip(user, questId, userDeckNumber, skipCounts[i], targets[i], nowMillis)
 		if err != nil {
 			return FinishOutcome{}, err
 		}
@@ -410,7 +410,7 @@ func (h *QuestHandler) HandleQuestSkipBulk(user *store.UserState, questIds, ques
 	return outcome, nil
 }
 
-func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount int32, target campaign.QuestTarget, nowMillis int64) (FinishOutcome, error) {
+func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, userDeckNumber, skipCount int32, target campaign.QuestTarget, nowMillis int64) (FinishOutcome, error) {
 	questDef, ok := h.QuestById[questId]
 	if !ok {
 		return FinishOutcome{}, fmt.Errorf("unknown quest %d", questId)
@@ -428,6 +428,11 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, skipCount 
 
 	skipTicketId := h.Config.ConsumableItemIdForQuestSkipTicket
 	user.ConsumableItems[skipTicketId] -= skipCount
+	if userDeckNumber != 0 {
+		questState := user.Quests[questId]
+		questState.UserDeckNumber = userDeckNumber
+		user.Quests[questId] = questState
+	}
 	raritySet, rankSet := parseAutoSaleRules(user.AutoSaleSettings)
 	var allDrops []RewardGrant
 	goldPerSkip := h.goldWithCampaign(user, questDef.Gold, target, nowMillis)
