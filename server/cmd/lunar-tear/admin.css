@@ -556,6 +556,8 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .dokan-carousel-dot[aria-current="true"] { background: var(--accent-strong); box-shadow: 0 0 0 2px rgba(119, 222, 199, .15); }
 .status-cell { min-width: 104px; }
 .notes-cell { min-width: 270px; max-width: 430px; }
+.gacha-medal-cell { min-width: 260px; max-width: 360px; }
+.gacha-medal-field-editor { min-width: 240px; }
 .time-column { min-width: 215px; }
 .identity { display: grid; gap: 4px; }
 .identity-meta { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-line; }

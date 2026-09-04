@@ -310,6 +310,7 @@
         const values = {
           GachaId: String(gachaId),
           BannerAssetName: String(banner.bannerAssetName || reference?.bannerAssetName || ""),
+          GachaMedalId: String(banner.gachaMedalId || 0),
           StartDatetime: String(banner.startDatetime || 0),
           EndDatetime: String(banner.endDatetime || 0)
         };
@@ -1175,6 +1176,7 @@
       ["ID", "内容"].forEach((label) => headerRow.append(makeCell("th", label)));
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       ["状态", "备注"].forEach((label) => headerRow.append(makeCell("th", label)));
+      if (table.name === "gacha") headerRow.append(makeCell("th", "碎片"));
       simpleTimeFields(table).forEach((field) => headerRow.append(makeCell("th", field.name)));
       elements.head.append(headerRow);
       visibleRows.forEach((row) => elements.body.append(renderSimpleRow(table, row)));
@@ -1184,7 +1186,7 @@
       if (hasArtwork) headerRow.append(makeCell("th", "配图"));
       if (hasSchedule) headerRow.append(makeCell("th", "状态"));
       displayedFields.forEach((field) => {
-        const header = makeCell("th", field.name);
+        const header = makeCell("th", table.name === "gacha" && field.name === "GachaMedalId" ? "碎片" : field.name);
         header.dataset.field = field.name;
         header.title = `${field.type}${field.primaryKey ? " · 主键（只读）" : ""}`;
         headerRow.append(header);
@@ -3388,6 +3390,14 @@
     notesCell.append(renderSimpleNotes(table, row));
     tr.append(notesCell);
 
+    if (table.name === "gacha") {
+      const medalCell = document.createElement("td");
+      medalCell.className = "gacha-medal-cell";
+      const medalField = table.fields.find((field) => field.name === "GachaMedalId");
+      if (medalField) medalCell.append(renderGachaMedalFieldEditor(table, row, medalField));
+      tr.append(medalCell);
+    }
+
     simpleTimeFields(table).forEach((field) => {
       const td = document.createElement("td");
       td.className = "time-column";
@@ -3723,6 +3733,10 @@
       return wrapper;
     }
 
+    if (table.name === "gacha" && field.name === "GachaMedalId") {
+      return renderGachaMedalFieldEditor(table, row, field);
+    }
+
     const rewardPair = rewardFieldPair(table, field.name);
     if (rewardPair) return renderRewardFieldEditor(table, row, field, rewardPair);
 
@@ -3757,6 +3771,48 @@
     const eventName = field.datetime || field.kind === "bool" ? "change" : "input";
     input.addEventListener(eventName, () => onFieldChange(table, row, field, input));
     wrapper.append(input);
+    return wrapper;
+  }
+
+  function gachaMedalOptionLabel(medal) {
+    if (!medal || Number(medal.gachaMedalId) === 0) return idNameLabel(0, "无碎片");
+    const name = gachaLocalizedText(medal.names).replace(/\s*\n\s*/g, " ") || "未命名碎片";
+    return idNameLabel(medal.gachaMedalId, name);
+  }
+
+  function gachaMedalSelectorOptions() {
+    return [
+      { value: "0", label: gachaMedalOptionLabel(null), searchText: "无碎片" },
+      ...(state.gachaCatalog?.medals || []).map((medal) => ({
+        value: String(medal.gachaMedalId),
+        label: gachaMedalOptionLabel(medal),
+        searchText: Object.values(medal.names || {}).join(" ")
+      }))
+    ];
+  }
+
+  function renderGachaMedalFieldEditor(table, row, field) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "field-editor gacha-medal-field-editor";
+    const current = effectiveValue(table.name, row, field.name) || "0";
+    const medal = (state.gachaCatalog?.medals || [])
+      .find((candidate) => String(candidate.gachaMedalId) === current);
+    const editor = createLazySearchSelect(
+      current,
+      medal ? gachaMedalOptionLabel(medal) : idNameLabel(current, current === "0" ? "无碎片" : "未知碎片"),
+      gachaMedalSelectorOptions,
+      (_value, select) => {
+        onFieldChange(table, row, field, select);
+        editor.input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field.name)));
+      },
+      {
+        placeholder: "搜索碎片 ID 或名称",
+        ariaLabel: `Gacha ${row.values.GachaId} 的碎片`
+      }
+    );
+    configureFieldInput(editor.select, table, row, field);
+    editor.input.classList.toggle("changed", state.dirty.has(changeKey(table.name, row.index, field.name)));
+    wrapper.append(editor.wrapper);
     return wrapper;
   }
 
@@ -4141,8 +4197,15 @@
     else state.dirty.set(key, { table: table.name, row: row.index, field: field.name, value });
     if (table.name === "gacha") {
       const banner = state.gachaDraft?.banners?.[String(row.values.GachaId)];
-      const property = { StartDatetime: "startDatetime", EndDatetime: "endDatetime" }[field.name];
-      if (banner && property) banner[property] = Number(value);
+      const property = {
+        GachaMedalId: "gachaMedalId",
+        StartDatetime: "startDatetime",
+        EndDatetime: "endDatetime"
+      }[field.name];
+      if (banner && property) {
+        if (field.name === "GachaMedalId" && Number(value) === 0) delete banner[property];
+        else banner[property] = Number(value);
+      }
       state.gachaDirty = JSON.stringify(state.gachaDraft) !== JSON.stringify(state.gachaCatalog?.config || {});
       if (state.section === "gacha") updateGachaDirtyUI();
     }
@@ -5496,6 +5559,7 @@
     Object.entries(state.gachaDraft.limitedSets).forEach(([id, definition]) => {
       if (!id.trim() || !definition.displayName?.trim()) errors.push(`限定集合 ${id || "<空>"} 缺少稳定键或显示名称`);
     });
+    const knownMedals = new Set((state.gachaCatalog.medals || []).map((medal) => Number(medal.gachaMedalId)));
     Object.entries(state.gachaDraft.banners).forEach(([gachaId, banner]) => {
       const assetMatch = /^limited_(\d+)$/.exec(banner.bannerAssetName || "");
       if (!assetMatch || Number(assetMatch[1]) !== Number(gachaId)) errors.push(`卡池 ${gachaId} 的限定资产名称无效`);
@@ -5503,6 +5567,10 @@
       const end = Number(banner.endDatetime || 0);
       if (!Number.isSafeInteger(start) || start <= 0 || !Number.isSafeInteger(end) || end <= 0) errors.push(`卡池 ${gachaId} 必须配置起止时间`);
       else if (end < start) errors.push(`卡池 ${gachaId} 的结束时间早于开始时间`);
+      const medalId = Number(banner.gachaMedalId || 0);
+      if (!Number.isInteger(medalId) || medalId < 0 || (medalId !== 0 && !knownMedals.has(medalId))) {
+        errors.push(`卡池 ${gachaId} 的碎片 ${banner.gachaMedalId} 不在主数据中`);
+      }
     });
     state.gachaCatalog.banners.forEach((banner) => {
       const stats = groupStatsForBanner(banner);

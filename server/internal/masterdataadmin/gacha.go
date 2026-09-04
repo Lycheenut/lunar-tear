@@ -35,6 +35,11 @@ type GachaBannerReference struct {
 	EndDatetime     int64             `json:"endDatetime"`
 }
 
+type GachaMedalReference struct {
+	GachaMedalId int32             `json:"gachaMedalId"`
+	Names        map[string]string `json:"names,omitempty"`
+}
+
 type GachaBoxBannerReference struct {
 	GachaId                    int32             `json:"gachaId"`
 	GachaLabelType             int32             `json:"gachaLabelType"`
@@ -57,6 +62,7 @@ type GachaEditorCatalog struct {
 	Config          *gacha.Config             `json:"config"`
 	Weapons         []GachaWeaponReference    `json:"weapons"`
 	Banners         []GachaBannerReference    `json:"banners"`
+	Medals          []GachaMedalReference     `json:"medals"`
 	BoxBanners      []GachaBoxBannerReference `json:"boxBanners"`
 	Warnings        []string                  `json:"warnings,omitempty"`
 }
@@ -138,6 +144,7 @@ func LoadGachaEditorCatalog(
 		DefaultLanguage: "en",
 		Languages:       append([]string(nil), supportedLanguages...),
 		Config:          gacha.ConfigWithoutAutomaticEventWeapons(config, pool),
+		Medals:          loadGachaMedalReferences(file, resolver),
 	}
 
 	weaponIds := make([]int32, 0, len(pool.EligibleWeaponById))
@@ -232,6 +239,35 @@ func LoadGachaEditorCatalog(
 		result.Warnings = append(result.Warnings, "Gacha 配置基于旧版主数据；新增可抽取武器已按常驻处理，请检查后重新发布。")
 	}
 	return result, nil
+}
+
+func loadGachaMedalReferences(file *memorydb.File, resolver *titleResolver) []GachaMedalReference {
+	consumables := make(map[int64][]interface{})
+	for _, row := range readRows(file, "m_consumable_item") {
+		if id, ok := integerAt(row, 0); ok {
+			consumables[id] = row
+		}
+	}
+
+	result := make([]GachaMedalReference, 0)
+	for _, row := range readRows(file, "m_gacha_medal") {
+		medalId, medalOK := integerAt(row, 0)
+		consumableId, consumableOK := integerAt(row, 2)
+		consumable := consumables[consumableId]
+		categoryId, categoryOK := integerAt(consumable, 6)
+		variationId, variationOK := integerAt(consumable, 7)
+		if !medalOK || !consumableOK || !categoryOK || !variationOK {
+			continue
+		}
+		result = append(result, GachaMedalReference{
+			GachaMedalId: int32(medalId),
+			Names: resolver.byKey(fmt.Sprintf(
+				"consumable_item.name.%03d%03d", categoryId, variationId,
+			)),
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].GachaMedalId < result[j].GachaMedalId })
+	return result
 }
 
 func weaponTitles(resolver *titleResolver, weapon masterdata.EntityMWeapon) map[string]string {

@@ -84,6 +84,26 @@ func TestAdminGachaScheduleUsesJSONConfigAndLimitedBannerArtwork(t *testing.T) {
 	}
 }
 
+func TestAdminGachaScheduleUsesSearchableMedalColumn(t *testing.T) {
+	javascript := adminAssetBody(t, "/admin/admin.js")
+	css := adminAssetBody(t, "/admin/admin.css")
+	for _, required := range []string{
+		`GachaMedalId: String(banner.gachaMedalId || 0)`,
+		`headerRow.append(makeCell("th", "碎片"))`,
+		`function renderGachaMedalFieldEditor(`,
+		`placeholder: "搜索碎片 ID 或名称"`,
+		`return idNameLabel(medal.gachaMedalId, name)`,
+		`GachaMedalId: "gachaMedalId"`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("Gacha medal schedule editor is missing %s", required)
+		}
+	}
+	if !strings.Contains(css, `.gacha-medal-cell {`) {
+		t.Fatal("Gacha medal schedule column CSS is missing")
+	}
+}
+
 func TestAdminSearchableSelectLoadsAroundSelectionAndExtendsAtEdges(t *testing.T) {
 	javascript := adminAssetBody(t, "/admin/admin.js")
 	for _, required := range []string{

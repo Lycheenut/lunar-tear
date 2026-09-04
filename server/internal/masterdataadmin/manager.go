@@ -135,6 +135,7 @@ func AppendGachaScheduleMetadata(catalog *Catalog, rowCount int) {
 		Fields: []Field{
 			{Name: "GachaId", Type: "int32", Kind: "int32", PrimaryKey: true},
 			{Name: "BannerAssetName", Type: "string", Kind: "string", PrimaryKey: true},
+			{Name: "GachaMedalId", Type: "int32", Kind: "int32"},
 			{Name: "StartDatetime", Type: "int64", Kind: "int64", Datetime: true},
 			{Name: "EndDatetime", Type: "int64", Kind: "int64", Datetime: true},
 		},
