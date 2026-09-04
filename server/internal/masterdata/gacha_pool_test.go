@@ -14,7 +14,7 @@ func TestGacha614PromotionFollowsExchangeShopCellOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries, medals, err := LoadGachaCatalog()
+	entries, medals, err := LoadGachaCatalog(61)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestPremiumBannerPromotionsMatchUniqueDrawableFeaturedPool(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
 		t.Fatal(err)
 	}
-	entries, _, err := LoadGachaCatalog()
+	entries, _, err := LoadGachaCatalog(61)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -100,6 +100,30 @@ func TestValidateMaterialWeaponsAllowsUnawakenedCopyOfAwakenedTarget(t *testing.
 	}
 }
 
+func TestWeaponLimitBreakStepsIncludesMaterialLimitBreaks(t *testing.T) {
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.Weapons["unbroken"] = store.WeaponState{UserWeaponUuid: "unbroken"}
+	user.Weapons["broken-once"] = store.WeaponState{UserWeaponUuid: "broken-once", LimitBreakCount: 1}
+	user.Weapons["broken-three-times"] = store.WeaponState{UserWeaponUuid: "broken-three-times", LimitBreakCount: 3}
+
+	for _, tc := range []struct {
+		name      string
+		materials []string
+		remaining int32
+		want      int32
+	}{
+		{name: "unbroken weapon counts as one", materials: []string{"unbroken"}, remaining: 4, want: 1},
+		{name: "each prior limit break counts as another weapon", materials: []string{"broken-once", "unbroken"}, remaining: 4, want: 3},
+		{name: "result is capped at remaining limit breaks", materials: []string{"broken-three-times"}, remaining: 2, want: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := weaponLimitBreakSteps(user, tc.materials, tc.remaining); got != tc.want {
+				t.Fatalf("weaponLimitBreakSteps() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEvolvedWeaponAbilitiesPreserveExistingLevels(t *testing.T) {
 	abilities := evolvedWeaponAbilities("weapon", []store.WeaponAbilityState{
 		{UserWeaponUuid: "weapon", SlotNumber: 1, Level: 7},

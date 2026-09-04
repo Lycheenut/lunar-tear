@@ -68,8 +68,8 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 		if entry.GachaLabelType == model.GachaLabelPortalCage || entry.GachaLabelType == model.GachaLabelRecycle {
 			continue
 		}
-		bs := user.Gacha.BannerStates[entry.GachaId]
 		entry = gachaForUser(cat, &user, entry, nowMillis)
+		bs := gachaBannerStateForUser(entry, user.Gacha.BannerStates[entry.GachaId], nowMillis)
 		gachaList = append(gachaList, toProtoGacha(handler.EntryForState(entry, &bs), &bs))
 	}
 
@@ -167,7 +167,7 @@ func (s *GachaServiceServer) GetGacha(ctx context.Context, req *pb.GetGachaReque
 				break
 			}
 			entry = gachaForUser(cat, &user, entry, nowMillis)
-			bs := user.Gacha.BannerStates[entry.GachaId]
+			bs := gachaBannerStateForUser(entry, user.Gacha.BannerStates[entry.GachaId], nowMillis)
 			byId[wantedId] = toProtoGacha(cat.GachaHandler.EntryForState(entry, &bs), &bs)
 			break
 		}
@@ -494,7 +494,7 @@ func gachaVisibleForUser(cat *runtime.Catalogs, user *store.UserState, entry sto
 	if !gachaVisible(cat, entry, nowMillis) {
 		return false
 	}
-	if entry.GachaLabelType == model.GachaLabelChapter && !gachaUnlocked(cat, user, entry, nowMillis) {
+	if (entry.GachaLabelType == model.GachaLabelChapter || model.IsDailyGacha(entry.GachaId)) && !gachaUnlocked(cat, user, entry, nowMillis) {
 		return false
 	}
 	return entry.RequiredConsumableItemId == 0 || user.ConsumableItems[entry.RequiredConsumableItemId] > 0
@@ -504,8 +504,18 @@ func gachaForUser(cat *runtime.Catalogs, user *store.UserState, entry store.Gach
 	entry.IsUserGachaUnlock = gachaUnlocked(cat, user, entry, nowMillis)
 	if entry.GachaAutoResetType == model.GachaAutoResetMonthly {
 		entry.NextAutoResetDatetime = gametime.StartOfNextBusinessMonthAtMillis(nowMillis)
+	} else if entry.GachaAutoResetType == model.GachaAutoResetDaily {
+		entry.NextAutoResetDatetime = gametime.StartOfBusinessDayAtMillis(nowMillis) + int64(24*time.Hour/time.Millisecond)
 	}
 	return entry
+}
+
+func gachaBannerStateForUser(entry store.GachaCatalogEntry, state store.GachaBannerState, nowMillis int64) store.GachaBannerState {
+	if model.IsDailyGacha(entry.GachaId) && entry.GachaAutoResetType == model.GachaAutoResetDaily &&
+		state.BoxDrewCounts[model.DailyGachaDayCounterId] != gametime.BusinessDayKey(nowMillis) {
+		state.DrawCount = 0
+	}
+	return state
 }
 
 func gachaUnlocked(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) bool {
@@ -673,6 +683,15 @@ func buildProtoPricePhases(entry store.GachaCatalogEntry, bs *store.GachaBannerS
 		if limitExec <= 0 {
 			limitExec = 999
 		}
+		userExecCount := int32(0)
+		eachMaxExecCount := p.DrawCount
+		if model.IsDailyGacha(entry.GachaId) && bs != nil && p.DrawCount > 0 {
+			userExecCount = bs.DrawCount / p.DrawCount
+			if p.LimitExecCount > 0 && userExecCount >= p.LimitExecCount {
+				isEnabled = false
+			}
+			eachMaxExecCount = model.DailyGachaExecLimit
+		}
 
 		phases = append(phases, &pb.GachaPricePhase{
 			GachaPricePhaseId: p.PhaseId,
@@ -684,7 +703,8 @@ func buildProtoPricePhases(entry store.GachaCatalogEntry, bs *store.GachaBannerS
 			RegularPrice:      p.RegularPrice,
 			DrawCount:         p.DrawCount,
 			LimitExecCount:    limitExec,
-			EachMaxExecCount:  p.DrawCount,
+			UserExecCount:     userExecCount,
+			EachMaxExecCount:  eachMaxExecCount,
 			GachaBonus:        bonuses,
 			GachaOddsFixedRarity: &pb.GachaOddsFixedRarity{
 				FixedRarityTypeLowerLimit: p.FixedRarityMin,

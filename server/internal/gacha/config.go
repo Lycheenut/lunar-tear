@@ -72,6 +72,7 @@ type Config struct {
 	Version              int                         `json:"version"`
 	SourceMasterDataHash string                      `json:"sourceMasterDataHash"`
 	GroupWeights         GroupWeights                `json:"groupWeights"`
+	DailyGroupWeights    *GroupWeights               `json:"dailyGroupWeights,omitempty"`
 	LimitedSets          map[string]LimitedSetConfig `json:"limitedSets"`
 	Weapons              map[int32]WeaponConfig      `json:"weapons"`
 	Banners              map[int32]BannerConfig      `json:"banners"`
@@ -161,17 +162,30 @@ var groupDefinitions = []groupDefinition{
 }
 
 func DefaultConfig() *Config {
+	dailyGroupWeights := defaultDailyGroupWeights()
 	return &Config{
-		Version: ConfigVersion,
-		GroupWeights: GroupWeights{
-			CharacterWeapon: RarityWeights{ThreeStar: 500, FourStar: 200},
-			WeaponOnly:      RarityWeights{TwoStar: 8000, ThreeStar: 1000, FourStar: 300},
-		},
-		LimitedSets:    make(map[string]LimitedSetConfig),
-		Weapons:        make(map[int32]WeaponConfig),
-		Banners:        make(map[int32]BannerConfig),
-		ChapterBanners: make(map[int32]BoxConfig),
-		EventBanners:   make(map[int32]EventBoxConfig),
+		Version:           ConfigVersion,
+		GroupWeights:      defaultPremiumGroupWeights(),
+		DailyGroupWeights: &dailyGroupWeights,
+		LimitedSets:       make(map[string]LimitedSetConfig),
+		Weapons:           make(map[int32]WeaponConfig),
+		Banners:           make(map[int32]BannerConfig),
+		ChapterBanners:    make(map[int32]BoxConfig),
+		EventBanners:      make(map[int32]EventBoxConfig),
+	}
+}
+
+func defaultPremiumGroupWeights() GroupWeights {
+	return GroupWeights{
+		CharacterWeapon: RarityWeights{ThreeStar: 500, FourStar: 200},
+		WeaponOnly:      RarityWeights{TwoStar: 8000, ThreeStar: 1000, FourStar: 300},
+	}
+}
+
+func defaultDailyGroupWeights() GroupWeights {
+	return GroupWeights{
+		CharacterWeapon: RarityWeights{ThreeStar: 500, FourStar: 40},
+		WeaponOnly:      RarityWeights{TwoStar: 8400, ThreeStar: 1000, FourStar: 60},
 	}
 }
 
@@ -224,6 +238,10 @@ func ConfigWithoutAutomaticEventWeapons(config *Config, source *masterdata.Gacha
 	}
 
 	result := *config
+	if config.DailyGroupWeights != nil {
+		dailyGroupWeights := *config.DailyGroupWeights
+		result.DailyGroupWeights = &dailyGroupWeights
+	}
 	result.Weapons = make(map[int32]WeaponConfig, len(config.Weapons))
 	for weaponId, weapon := range config.Weapons {
 		if !automaticEvent[weaponId] {
@@ -254,14 +272,14 @@ func ConfigWithoutAutomaticEventWeapons(config *Config, source *masterdata.Gacha
 func ApplyConfiguredPremiumBanners(config *Config, entries []store.GachaCatalogEntry, medals map[int32]masterdata.GachaMedalInfo) []store.GachaCatalogEntry {
 	result := make([]store.GachaCatalogEntry, 0, len(entries)+len(config.Banners))
 	for _, entry := range entries {
-		if entry.GachaLabelType != model.GachaLabelPremium || model.IsGuaranteedTicketGacha(entry.GachaId) {
+		if entry.GachaLabelType != model.GachaLabelPremium || model.IsDailyGacha(entry.GachaId) || model.IsGuaranteedTicketGacha(entry.GachaId) {
 			result = append(result, entry)
 		}
 	}
 
 	gachaIds := make([]int32, 0, len(config.Banners))
 	for gachaId := range config.Banners {
-		if model.IsGuaranteedTicketGacha(gachaId) {
+		if model.IsDailyGacha(gachaId) || model.IsGuaranteedTicketGacha(gachaId) {
 			continue
 		}
 		gachaIds = append(gachaIds, gachaId)
@@ -334,6 +352,12 @@ func applyGuaranteedTicketAvailability(entries []store.GachaCatalogEntry) {
 			endDatetime = entry.EndDatetime
 		}
 	}
+	if startDatetime == 0 {
+		startDatetime = DefaultBannerStartDatetime
+	}
+	if endDatetime == 0 {
+		endDatetime = DefaultBannerEndDatetime
+	}
 	for i := range entries {
 		if !model.IsGuaranteedTicketGacha(entries[i].GachaId) {
 			continue
@@ -385,6 +409,10 @@ func BuildPremiumCatalog(config *Config, source *masterdata.GachaCatalog, entrie
 			continue
 		}
 		bannerConfig := config.Banners[entry.GachaId]
+		groupWeights := config.GroupWeights
+		if model.IsDailyGacha(entry.GachaId) {
+			groupWeights = *config.DailyGroupWeights
+		}
 		if model.IsGuaranteedTicketGacha(entry.GachaId) {
 			bannerConfig = BannerConfig{}
 		}
@@ -398,7 +426,7 @@ func BuildPremiumCatalog(config *Config, source *masterdata.GachaCatalog, entrie
 				GrantType: definition.grantType,
 				Star:      definition.star,
 				Rarity:    definition.rarity,
-				Weight:    config.GroupWeights.weight(definition.grantType, definition.star),
+				Weight:    groupWeights.weight(definition.grantType, definition.star),
 			}
 			groupIndex[groupKey(definition.grantType, definition.rarity)] = i
 		}
@@ -568,19 +596,11 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 	if options.RequireComplete && options.CurrentMasterDataHash != "" && config.SourceMasterDataHash != options.CurrentMasterDataHash {
 		return fmt.Errorf("sourceMasterDataHash does not match the current master data")
 	}
-	if _, ok := config.GroupWeights.weaponOnlyTwoStarRemainder(); !ok {
-		return fmt.Errorf("Gacha group probabilities other than 2-star weapon must be non-negative and total at most 100%%")
+	if err := validateGroupWeights("Gacha", config.GroupWeights); err != nil {
+		return err
 	}
-	totalWeight := 0
-	for _, definition := range groupDefinitions {
-		weight := config.GroupWeights.weight(definition.grantType, definition.star)
-		if weight < 0 {
-			return fmt.Errorf("group %s has a negative weight", definition.id)
-		}
-		totalWeight += weight
-	}
-	if totalWeight != GroupWeightTotal {
-		return fmt.Errorf("Gacha group weights must total %d", GroupWeightTotal)
+	if err := validateGroupWeights("daily Gacha", *config.DailyGroupWeights); err != nil {
+		return err
 	}
 
 	for id, limitedSet := range config.LimitedSets {
@@ -625,13 +645,16 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 		}
 	}
 	for gachaId, banner := range config.Banners {
+		if model.IsDailyGacha(gachaId) {
+			return fmt.Errorf("daily Gacha %d must not be configured as a limited banner", gachaId)
+		}
 		if !premiumGachaIds[gachaId] {
 			return fmt.Errorf("configured Gacha %d is not a premium weapon banner", gachaId)
 		}
 		if banner.StartDatetime <= 0 || banner.EndDatetime <= 0 {
 			return fmt.Errorf("Gacha %d must have a start and end timestamp", gachaId)
 		}
-		if banner.EndDatetime != 0 && banner.EndDatetime < banner.StartDatetime {
+		if banner.EndDatetime < banner.StartDatetime {
 			return fmt.Errorf("Gacha %d ends before it starts", gachaId)
 		}
 		if !model.IsGuaranteedTicketGacha(gachaId) {
@@ -672,8 +695,17 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 }
 
 func normalizeConfig(config *Config) {
+	if config.GroupWeights == (GroupWeights{}) {
+		config.GroupWeights = defaultPremiumGroupWeights()
+	}
 	config.GroupWeights.CharacterWeapon.TwoStar = 0
 	config.GroupWeights.calculateWeaponOnlyTwoStar()
+	if config.DailyGroupWeights == nil {
+		dailyGroupWeights := defaultDailyGroupWeights()
+		config.DailyGroupWeights = &dailyGroupWeights
+	}
+	config.DailyGroupWeights.CharacterWeapon.TwoStar = 0
+	config.DailyGroupWeights.calculateWeaponOnlyTwoStar()
 	if config.LimitedSets == nil {
 		config.LimitedSets = make(map[string]LimitedSetConfig)
 	}
@@ -701,6 +733,24 @@ func normalizeConfig(config *Config) {
 	if config.EventBanners == nil {
 		config.EventBanners = make(map[int32]EventBoxConfig)
 	}
+}
+
+func validateGroupWeights(name string, weights GroupWeights) error {
+	if _, ok := weights.weaponOnlyTwoStarRemainder(); !ok {
+		return fmt.Errorf("%s group probabilities other than 2-star weapon must be non-negative and total at most 100%%", name)
+	}
+	totalWeight := 0
+	for _, definition := range groupDefinitions {
+		weight := weights.weight(definition.grantType, definition.star)
+		if weight < 0 {
+			return fmt.Errorf("%s group %s has a negative weight", name, definition.id)
+		}
+		totalWeight += weight
+	}
+	if totalWeight != GroupWeightTotal {
+		return fmt.Errorf("%s group weights must total %d", name, GroupWeightTotal)
+	}
+	return nil
 }
 
 func (weights GroupWeights) weaponOnlyTwoStarRemainder() (int, bool) {

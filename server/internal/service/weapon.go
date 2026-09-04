@@ -726,9 +726,9 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 			validationErr = materialErr
 			return
 		}
-		consumedCount := int32(len(materialUUIDs))
+		limitBreakSteps := weaponLimitBreakSteps(user, materialUUIDs, remaining)
 		if costFunc, ok := catalog.LimitBreakCostByWeaponByEnhanceId[wm.WeaponSpecificEnhanceId]; ok {
-			goldCost := costFunc.Evaluate(consumedCount)
+			goldCost := costFunc.Evaluate(limitBreakSteps)
 			if err := deductUpgradeCosts(user, "weapon limit break cost", []store.PossessionCost{
 				consumableCost(config.ConsumableItemIdForGold, goldCost),
 			}); err != nil {
@@ -756,7 +756,7 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 			delete(user.WeaponAwakens, uuid)
 		}
 
-		weapon.LimitBreakCount += consumedCount
+		weapon.LimitBreakCount += limitBreakSteps
 		weapon.LatestVersion = nowMillis
 		user.Weapons[req.UserWeaponUuid] = weapon
 
@@ -767,7 +767,7 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 			user.WeaponNotes[weapon.WeaponId] = note
 		}
 
-		log.Printf("[WeaponService] LimitBreakByWeapon: weaponId=%d limitBreak -> %d (consumed %d weapons)", weapon.WeaponId, weapon.LimitBreakCount, consumedCount)
+		log.Printf("[WeaponService] LimitBreakByWeapon: weaponId=%d limitBreak -> %d (consumed %d weapons, gained %d limit breaks)", weapon.WeaponId, weapon.LimitBreakCount, len(materialUUIDs), limitBreakSteps)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("weapon limit break by weapon: %w", err)
@@ -777,6 +777,17 @@ func (s *WeaponServiceServer) LimitBreakByWeapon(ctx context.Context, req *pb.Li
 	}
 
 	return &pb.LimitBreakByWeaponResponse{}, nil
+}
+
+func weaponLimitBreakSteps(user *store.UserState, materialUUIDs []string, remaining int32) int32 {
+	var steps int32
+	for _, uuid := range materialUUIDs {
+		steps += user.Weapons[uuid].LimitBreakCount + 1
+		if steps >= remaining {
+			return remaining
+		}
+	}
+	return steps
 }
 
 func (s *WeaponServiceServer) EnhanceByWeapon(ctx context.Context, req *pb.EnhanceByWeaponRequest) (*pb.EnhanceByWeaponResponse, error) {

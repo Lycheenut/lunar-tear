@@ -130,7 +130,7 @@ func TestLoadGachaCatalogIncludesEventMetadataWithoutSynthesizedInventory(t *tes
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
 		t.Fatal(err)
 	}
-	entries, _, err := LoadGachaCatalog()
+	entries, _, err := LoadGachaCatalog(61)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
 		t.Fatal(err)
 	}
-	entries, _, err := LoadGachaCatalog()
+	entries, _, err := LoadGachaCatalog(61)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,5 +226,42 @@ func TestLoadGachaCatalogIncludesGuaranteedTicketGachas(t *testing.T) {
 	}
 	if byId[model.GachaIdGuaranteedFourStar].SortOrder <= byId[model.GachaIdGuaranteedThreeStarOrHigher].SortOrder {
 		t.Fatal("four-star guaranteed Gacha was not ordered after the three-star guaranteed Gacha")
+	}
+}
+
+func TestLoadGachaCatalogIncludesDailyGachaWithConfiguredUnlockQuest(t *testing.T) {
+	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := LoadGachaCatalog(61)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var daily *store.GachaCatalogEntry
+	for i := range entries {
+		if entries[i].GachaId == model.GachaIdDaily {
+			daily = &entries[i]
+			break
+		}
+	}
+	if daily == nil {
+		t.Fatal("daily Gacha was not added to the catalog")
+	}
+	if daily.BannerAssetName != dailyGachaAssetName || daily.IsMamaBanner ||
+		daily.GachaLabelType != model.GachaLabelPremium || daily.GachaModeType != model.GachaModeBasic ||
+		daily.GachaAutoResetType != model.GachaAutoResetDaily || daily.GachaAutoResetPeriod != 1 {
+		t.Fatalf("unexpected daily Gacha: %+v", *daily)
+	}
+	if len(daily.UnlockConditions) != 1 ||
+		daily.UnlockConditions[0].GachaUnlockConditionType != model.GachaUnlockMainQuestClear ||
+		daily.UnlockConditions[0].ConditionValue != 61 {
+		t.Fatalf("daily Gacha unlock conditions = %+v, want quest 61", daily.UnlockConditions)
+	}
+	if len(daily.PricePhases) != 1 {
+		t.Fatalf("daily Gacha price phase count = %d, want 1", len(daily.PricePhases))
+	}
+	phase := daily.PricePhases[0]
+	if phase.Price != 0 || phase.DrawCount != model.DailyGachaDrawCount || phase.LimitExecCount != model.DailyGachaExecLimit {
+		t.Fatalf("unexpected daily Gacha price phase: %+v", phase)
 	}
 }

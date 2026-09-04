@@ -20,11 +20,12 @@ const chapterGachaIdBase int32 = 200000
 
 // These ticket-only Gachas have no m_mom_banner rows in this snapshot.
 const (
+	dailyGachaAssetName                       = "daily_1"
 	guaranteedThreeStarOrHigherGachaAssetName = "confirm_sr"
 	guaranteedFourStarGachaAssetName          = "confirm_ssr"
 )
 
-func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, error) {
+func LoadGachaCatalog(dailyUnlockQuestId int32) ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, error) {
 	medals, err := utils.ReadTable[EntityMGachaMedal]("m_gacha_medal")
 	if err != nil {
 		return nil, nil, fmt.Errorf("load gacha medal table: %w", err)
@@ -66,6 +67,9 @@ func LoadGachaCatalog() ([]store.GachaCatalogEntry, map[int32]GachaMedalInfo, er
 
 	entries := buildChapterGachaEntries()
 	entries = append(entries, buildEventGachaEntries(eventGachaChapters, eventGachaLinks)...)
+	if dailyUnlockQuestId > 0 {
+		entries = append(entries, buildDailyGacha(dailyUnlockQuestId))
+	}
 	entries = append(entries,
 		buildGuaranteedTicketGacha(
 			model.GachaIdGuaranteedThreeStarOrHigher,
@@ -146,6 +150,31 @@ func buildEventGachaEntries(chapters map[int32]EntityMEventQuestChapter, links m
 		})
 	}
 	return entries
+}
+
+func buildDailyGacha(unlockQuestId int32) store.GachaCatalogEntry {
+	return store.GachaCatalogEntry{
+		GachaId:              model.GachaIdDaily,
+		GachaLabelType:       model.GachaLabelPremium,
+		GachaModeType:        model.GachaModeBasic,
+		GachaAutoResetType:   model.GachaAutoResetDaily,
+		GachaAutoResetPeriod: 1,
+		IsUserGachaUnlock:    true,
+		GachaDecorationType:  model.GachaDecorationNormal,
+		SortOrder:            model.GachaIdDaily,
+		BannerAssetName:      dailyGachaAssetName,
+		GroupId:              model.GachaIdDaily,
+		UnlockConditions: []store.GachaUnlockConditionEntry{{
+			GachaUnlockConditionType: model.GachaUnlockMainQuestClear,
+			ConditionValue:           unlockQuestId,
+		}},
+		PricePhases: []store.GachaPricePhaseEntry{{
+			PhaseId:        model.GachaIdDaily*model.PhaseIdMultiplier + 1,
+			PriceType:      model.PriceTypeGem,
+			DrawCount:      model.DailyGachaDrawCount,
+			LimitExecCount: model.DailyGachaExecLimit,
+		}},
+	}
 }
 
 func buildGuaranteedTicketGacha(gachaId, ticketId int32, assetName string, minimumRarity model.RarityType) store.GachaCatalogEntry {
