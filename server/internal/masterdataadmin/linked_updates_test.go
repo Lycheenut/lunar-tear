@@ -103,11 +103,13 @@ func TestEventQuestPreviewIncludesAllCertainDownstreamTypes(t *testing.T) {
 	path, catalog := linkedUpdateTestCatalog(t)
 	chapter := catalogRowByID(t, catalog, "m_event_quest_chapter", "EventQuestChapterId", "508")
 	oldEnd := mustParseInt64(t, chapter.Values["EndDatetime"])
+	newEnd := oldEnd + 3600000
+	redemptionEnd := newEnd + 48*60*60*1000
 	preview, err := PreviewUpdate(path, UpdateRequest{
 		ExpectedVersion: catalog.Version,
 		Changes: []Change{{
 			Table: "m_event_quest_chapter", Row: chapter.Index, Field: "EndDatetime",
-			Value: strconv.FormatInt(oldEnd+3600000, 10),
+			Value: strconv.FormatInt(newEnd, 10),
 		}},
 	})
 	if err != nil {
@@ -115,6 +117,12 @@ func TestEventQuestPreviewIncludesAllCertainDownstreamTypes(t *testing.T) {
 	}
 	impact := impactByKind(t, preview, "EventQuestChapter")
 	assertGeneratedTarget(t, impact, "m_shop", "ShopId", "6005", "EndDatetime")
+	assertGeneratedChangeValue(t,
+		targetByIdentity(t, impact, "m_shop", "ShopId", "6005"),
+		"EndDatetime", strconv.FormatInt(redemptionEnd, 10))
+	assertGeneratedChangeValue(t,
+		targetByRelation(t, impact, "活动币有效期"),
+		"EndDatetime", strconv.FormatInt(redemptionEnd, 10))
 	assertGeneratedTarget(t, impact, "m_mom_banner", "MomBannerId", "33", "EndDatetime")
 	assertGeneratedTarget(t, impact, "m_navi_cut_in", "NaviCutInId", "15", "EndDatetime")
 	assertRelationExists(t, impact, "限时任务档期")

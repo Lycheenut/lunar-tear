@@ -19,7 +19,7 @@ const (
 	naviCutInFunctionEvent     int64 = 2
 	mamaMedalItemType          int64 = 110
 	mamaMedalAssetCategory     int64 = 117
-	gachaRedemptionGraceMillis       = int64(48 * 60 * 60 * 1000)
+	claimRedemptionGraceMillis       = int64(48 * 60 * 60 * 1000)
 )
 
 type CellChangePreview struct {
@@ -353,7 +353,7 @@ func (p *linkedUpdatePlanner) planGachaMomBanner(ref rowRef) error {
 			}
 			target := p.addTarget(impact, medal, "Gacha Medal", note)
 			if cascade {
-				if err := p.cascadeEndWithOffset(ref, target, "AutoConvertDatetime", gachaRedemptionGraceMillis); err != nil {
+				if err := p.cascadeEndWithOffset(ref, target, "AutoConvertDatetime", claimRedemptionGraceMillis); err != nil {
 					return err
 				}
 			}
@@ -379,7 +379,7 @@ func (p *linkedUpdatePlanner) planGachaMomBanner(ref rowRef) error {
 				}
 				target := p.addTarget(impact, shop, "天井兑换商店", note)
 				if cascade {
-					if err := p.cascadePairWithEndOffset(ref, target, gachaRedemptionGraceMillis); err != nil {
+					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
 						return err
 					}
 				}
@@ -404,7 +404,7 @@ func (p *linkedUpdatePlanner) planGachaMomBanner(ref rowRef) error {
 				}
 				target := p.addTarget(impact, term, "天井币有效期", note)
 				if cascade {
-					if err := p.cascadePairWithEndOffset(ref, target, gachaRedemptionGraceMillis); err != nil {
+					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
 						return err
 					}
 				}
@@ -486,7 +486,7 @@ func (p *linkedUpdatePlanner) planEventQuestChapter(ref rowRef) error {
 				}
 				target := p.addTarget(impact, shop, "活动商店", note)
 				if stable && linkID == eventLinkID {
-					if err := p.cascadePair(ref, target); err != nil {
+					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
 						return err
 					}
 				}
@@ -500,7 +500,7 @@ func (p *linkedUpdatePlanner) planEventQuestChapter(ref rowRef) error {
 				}
 				target := p.addTarget(impact, term, "活动币有效期", note)
 				if stable && linkID == eventLinkID {
-					if err := p.cascadePair(ref, target); err != nil {
+					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
 						return err
 					}
 				}
