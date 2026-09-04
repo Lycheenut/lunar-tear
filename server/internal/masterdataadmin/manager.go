@@ -124,6 +124,26 @@ func LoadMetadata(path string) (*Catalog, error) {
 	return catalog, nil
 }
 
+// AppendGachaScheduleMetadata exposes the JSON-backed limited Gacha inventory
+// alongside binary-backed operational schedules. Rows are loaded separately
+// from the Gacha configuration endpoint.
+func AppendGachaScheduleMetadata(catalog *Catalog, rowCount int) {
+	appendCatalogTable(catalog, Table{
+		Name:       "gacha",
+		EntityName: "Gacha",
+		Primary:    true,
+		Fields: []Field{
+			{Name: "GachaId", Type: "int32", Kind: "int32", PrimaryKey: true},
+			{Name: "BannerAssetName", Type: "string", Kind: "string", PrimaryKey: true},
+			{Name: "StartDatetime", Type: "int64", Kind: "int64", Datetime: true},
+			{Name: "EndDatetime", Type: "int64", Kind: "int64", Datetime: true},
+		},
+		TimeFields: []string{"StartDatetime", "EndDatetime"},
+		Pairs:      []timePair{{Start: "StartDatetime", End: "EndDatetime"}},
+		RowCount:   rowCount,
+	})
+}
+
 // LoadTable returns one table's rows and only the supporting data required by
 // that table's specialized editor. A small number of display-only dependency
 // tables are included for title and banner previews.

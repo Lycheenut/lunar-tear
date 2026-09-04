@@ -165,6 +165,7 @@
     "9": "任务通行证 · 每日", "10": "任务通行证 · 特殊"
   };
   const simpleFieldNames = {
+    gacha: ["GachaId", "BannerAssetName"],
     m_beginner_campaign: ["BeginnerCampaignId", "GrantCampaignTermDayCount", "CampaignUnlockQuestId"],
     m_big_hunt_schedule: ["BigHuntScheduleId"],
     m_big_hunt_score_reward_group_schedule: ["BigHuntScoreRewardGroupScheduleId", "GroupIndex", "BigHuntScoreRewardGroupId"],
@@ -262,7 +263,13 @@
 
   async function loadSelectedTable() {
     const table = currentTable();
-    if (!table || Array.isArray(table.rows)) return table;
+    if (!table) return table;
+    if (table.name === "gacha") {
+      await ensureGachaCatalog();
+      if (!Array.isArray(table.rows)) populateGachaScheduleTable();
+      return currentTable();
+    }
+    if (Array.isArray(table.rows)) return table;
     const requestedName = table.name;
     const payload = await api(`/api/admin/master-data/table?name=${encodeURIComponent(requestedName)}`);
     if (payload.version !== state.catalog.version) {
@@ -284,6 +291,43 @@
       state.catalog.questDropEditor = payload.questDropEditor;
     }
     return currentTable();
+  }
+
+  async function ensureGachaCatalog() {
+    if (!state.gachaCatalog) state.gachaCatalog = await api("/api/admin/gacha-config");
+    if (!state.gachaDraft) resetGachaDraft();
+    return state.gachaCatalog;
+  }
+
+  function populateGachaScheduleTable() {
+    const table = state.catalog?.tables.find((candidate) => candidate.name === "gacha");
+    if (!table || !state.gachaCatalog) return;
+    const references = new Map((state.gachaCatalog.banners || []).map((banner) => [String(banner.gachaId), banner]));
+    table.rows = Object.entries(state.gachaCatalog.config?.banners || {})
+      .sort(([left], [right]) => Number(left) - Number(right))
+      .map(([gachaId, banner], index) => {
+        const reference = references.get(gachaId);
+        const values = {
+          GachaId: String(gachaId),
+          BannerAssetName: String(banner.bannerAssetName || reference?.bannerAssetName || ""),
+          StartDatetime: String(banner.startDatetime || 0),
+          EndDatetime: String(banner.endDatetime || 0)
+        };
+        return {
+          index,
+          identity: [
+            { name: "GachaId", value: values.GachaId },
+            { name: "BannerAssetName", value: values.BannerAssetName }
+          ],
+          values,
+          times: {
+            StartDatetime: Number(values.StartDatetime),
+            EndDatetime: Number(values.EndDatetime)
+          },
+          titles: reference?.titles || {}
+        };
+      });
+    table.rowCount = table.rows.length;
   }
 
   function showWorkspace() {
@@ -1084,7 +1128,7 @@
     const statusFilter = elements.statusFilter.value;
     const hasSchedule = tableHasSchedule(table);
     const hasArtwork = table.name === "m_dokan";
-    const hasContent = table.name !== "m_mission_term" && (table.name === "m_mom_banner"
+    const hasContent = table.name !== "m_mission_term" && (["gacha", "m_mom_banner"].includes(table.name)
       || table.rows.some((row) => Object.keys(row.titles || {}).length > 0
         || Object.keys(row.contentBody || {}).length > 0
         || (row.contentFootnotes || []).length > 0));
@@ -3383,7 +3427,8 @@
   }
 
   function renderContentCell(table, row) {
-    if (table.name === "m_mom_banner") return renderMomBannerContentCell(row);
+    if (table.name === "gacha") return renderMomBannerContentCell(row, true);
+    if (table.name === "m_mom_banner") return renderMomBannerContentCell(row, false);
     if (table.name === "m_tip") return renderTipContentCell(row);
 
     const cell = document.createElement("td");
@@ -3424,13 +3469,13 @@
     return section;
   }
 
-  function renderMomBannerContentCell(row) {
+  function renderMomBannerContentCell(row, gachaSchedule = false) {
     const cell = document.createElement("td");
     const tooltip = [...new Set([
       localizedText(row.titles),
       ...(row.contentFootnotes || []).map(localizedInlineText)
     ].filter(Boolean))].join("\n") || "无文本说明";
-    const previewURLs = momBannerPreviewURLs(row);
+    const previewURLs = gachaSchedule ? gachaSchedulePreviewURLs(row) : momBannerPreviewURLs(row);
     if (!previewURLs.length) {
       cell.append(renderMomBannerPreviewMissing(tooltip));
       return cell;
@@ -3454,6 +3499,15 @@
     image.src = previewURLs[previewIndex];
     cell.append(image);
     return cell;
+  }
+
+  function gachaSchedulePreviewURLs(row) {
+    const assetName = effectiveValue("gacha", row, "BannerAssetName");
+    const languages = [...new Set([state.language, state.catalog.defaultLanguage, "en", "ja", "ko"].filter(Boolean))];
+    return languages.map((language) => {
+      const segments = ["gacha", language, assetName, "banner.png"];
+      return `${imagePreviewBaseURL}/${segments.map(encodeURIComponent).join("/")}`;
+    });
   }
 
   function momBannerPreviewURLs(row) {
@@ -4073,8 +4127,25 @@
     const key = changeKey(table.name, row.index, field.name);
     if (value === row.values[field.name]) state.dirty.delete(key);
     else state.dirty.set(key, { table: table.name, row: row.index, field: field.name, value });
+    if (table.name === "gacha") {
+      const banner = state.gachaDraft?.banners?.[String(row.values.GachaId)];
+      const property = { StartDatetime: "startDatetime", EndDatetime: "endDatetime" }[field.name];
+      if (banner && property) banner[property] = Number(value);
+      state.gachaDirty = JSON.stringify(state.gachaDraft) !== JSON.stringify(state.gachaCatalog?.config || {});
+      if (state.section === "gacha") updateGachaDirtyUI();
+    }
     input?.classList.toggle("changed", state.dirty.has(key));
     updateDirtyUI();
+  }
+
+  function clearGachaScheduleChanges() {
+    [...state.dirty.entries()].forEach(([key, change]) => {
+      if (change.table === "gacha") state.dirty.delete(key);
+    });
+  }
+
+  function gachaScheduleChanges() {
+    return [...state.dirty.values()].filter((change) => change.table === "gacha");
   }
 
   function rowStatus(table, row) {
@@ -4363,11 +4434,7 @@
     setBusy(true, isGacha ? "正在读取 Gacha 配置…" : isDrop ? "正在读取掉落配置…" : "正在读取当前数据表…");
     try {
       if (isGacha) {
-        const gachaRequest = state.gachaCatalog
-          ? Promise.resolve(state.gachaCatalog)
-          : api("/api/admin/gacha-config").then((catalog) => { state.gachaCatalog = catalog; });
-        await Promise.all([gachaRequest, ensureRewardCatalog()]);
-        if (!state.gachaDraft) resetGachaDraft();
+        await Promise.all([ensureGachaCatalog(), ensureRewardCatalog()]);
         renderGachaEditor();
         return;
       }
@@ -4424,6 +4491,10 @@
     removeAllLimitedRewardWeights();
     state.gachaDraft.sourceMasterDataHash = state.gachaCatalog?.masterDataHash || "";
     state.gachaDirty = false;
+  }
+
+  async function reloadPublishedGachaConfig() {
+    await loadCatalog();
   }
 
   function renderGachaEditor() {
@@ -5413,6 +5484,14 @@
     Object.entries(state.gachaDraft.limitedSets).forEach(([id, definition]) => {
       if (!id.trim() || !definition.displayName?.trim()) errors.push(`限定集合 ${id || "<空>"} 缺少稳定键或显示名称`);
     });
+    Object.entries(state.gachaDraft.banners).forEach(([gachaId, banner]) => {
+      const assetMatch = /^limited_(\d+)$/.exec(banner.bannerAssetName || "");
+      if (!assetMatch || Number(assetMatch[1]) !== Number(gachaId)) errors.push(`卡池 ${gachaId} 的限定资产名称无效`);
+      const start = Number(banner.startDatetime || 0);
+      const end = Number(banner.endDatetime || 0);
+      if (!Number.isSafeInteger(start) || start <= 0 || !Number.isSafeInteger(end) || end <= 0) errors.push(`卡池 ${gachaId} 必须配置起止时间`);
+      else if (end < start) errors.push(`卡池 ${gachaId} 的结束时间早于开始时间`);
+    });
     state.gachaCatalog.banners.forEach((banner) => {
       const stats = groupStatsForBanner(banner);
       stats.groups.forEach((group) => {
@@ -5697,6 +5776,10 @@
   elements.discard.addEventListener("click", () => {
     if (!confirm("放弃全部尚未应用的修改？")) return;
     state.dirty.clear();
+    if (state.gachaCatalog) {
+      resetGachaDraft();
+      populateGachaScheduleTable();
+    }
     resetShopCellGroupDraft();
     resetMissionRewardDraft();
     resetQuestDropDraft();
@@ -5707,8 +5790,22 @@
   });
   elements.save.addEventListener("click", async () => {
     const rewardStructural = missionRewardStructuralDirty();
-    const changes = [...state.dirty.values()].filter((change) => !(rewardStructural && change.table === "m_mission_reward"));
-    if (!changes.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
+    const scheduleChanges = gachaScheduleChanges();
+    const changes = [...state.dirty.values()].filter((change) => change.table !== "gacha" && !(rewardStructural && change.table === "m_mission_reward"));
+    if (!changes.length && !scheduleChanges.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
+    if (scheduleChanges.length) {
+      if (changes.length || rewardStructural || state.shopCellGroupDirty || shopItemCellStructuralDirty() || shopItemStructuralDirty()) {
+        showNotice("Gacha 日程会联动更新 MomBanner，不能与其他主数据修改同时发布；请先放弃其中一类修改。", true);
+        return;
+      }
+      const validationErrors = gachaValidationErrors();
+      if (validationErrors.length) {
+        showNotice(validationErrors[0], true);
+        return;
+      }
+      elements.gachaPublishDialog.showModal();
+      return;
+    }
     const request = { expectedVersion: state.catalog.version, changes };
     if (rewardStructural) {
       const table = state.catalog.tables.find((candidate) => candidate.name === "m_mission_reward");
@@ -5829,6 +5926,8 @@
   elements.gachaDiscard.addEventListener("click", () => {
     if (!confirm("放弃全部尚未发布的 Gacha 修改？")) return;
     resetGachaDraft();
+    clearGachaScheduleChanges();
+    populateGachaScheduleTable();
     renderGachaEditor();
     showNotice("已放弃本次 Gacha 修改。");
   });
@@ -5852,12 +5951,12 @@
         method: "POST",
         body: JSON.stringify({ expectedContentHash: state.gachaCatalog.contentHash, config: state.gachaDraft })
       });
-      await loadCatalog();
-      showNotice("Gacha 配置发布成功，新的抽取请求已使用新版本。");
+      await reloadPublishedGachaConfig();
+      showNotice("Gacha 配置与 MomBanner 日程发布成功，新的抽取请求已使用新版本。");
     } catch (error) {
       showNotice(error.message, true);
       if (error.status === 409) {
-        try { await loadCatalog(); } catch (_) { /* keep the conflict notice */ }
+        try { await reloadPublishedGachaConfig(); } catch (_) { /* keep the conflict notice */ }
       }
     } finally {
       updateGachaDirtyUI();

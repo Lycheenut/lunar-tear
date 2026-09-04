@@ -14,10 +14,17 @@ func TestGacha614PromotionFollowsExchangeShopCellOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries, _, err := LoadGachaCatalog()
+	entries, medals, err := LoadGachaCatalog()
 	if err != nil {
 		t.Fatal(err)
 	}
+	medal := medals[614]
+	entries = append(entries, store.GachaCatalogEntry{
+		GachaId:               614,
+		GachaLabelType:        model.GachaLabelPremium,
+		GachaMedalId:          medal.GachaMedalId,
+		MedalConsumableItemId: medal.ConsumableItemId,
+	})
 	pool, err := LoadGachaPool()
 	if err != nil {
 		t.Fatal(err)

@@ -56,6 +56,20 @@ func TestAdminConfigurationModulesUseSubroutesAndLazyData(t *testing.T) {
 	}
 }
 
+func TestAdminGachaScheduleUsesJSONConfigAndLimitedBannerArtwork(t *testing.T) {
+	javascript := adminAssetBody(t, "/admin/admin.js")
+	for _, required := range []string{
+		`table.name === "gacha"`,
+		`state.gachaCatalog.config?.banners`,
+		`const segments = ["gacha", language, assetName, "banner.png"]`,
+		`banner[property] = Number(value)`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Fatalf("Gacha operational schedule is missing %s", required)
+		}
+	}
+}
+
 func TestAdminSearchableSelectLoadsAroundSelectionAndExtendsAtEdges(t *testing.T) {
 	javascript := adminAssetBody(t, "/admin/admin.js")
 	for _, required := range []string{

@@ -178,6 +178,79 @@ func TestInstallGachaConfigPublishesValidatedSnapshot(t *testing.T) {
 	}
 }
 
+func TestInstallGachaConfigAndMasterDataPublishesSynchronizedMomBanner(t *testing.T) {
+	source := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	original, err := os.ReadFile(source)
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skip("repository master-data asset is not installed")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	masterDataPath := filepath.Join(directory, "current.bin.e")
+	configPath := filepath.Join(directory, "gacha.json")
+	if err := os.WriteFile(masterDataPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := runtime.NewHolderWithGachaConfig(masterDataPath, configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := holder.Get()
+	config := gacha.DefaultConfig()
+	config.Banners[588] = gacha.BannerConfig{
+		BannerAssetName: "limited_588",
+		StartDatetime:   gacha.DefaultBannerStartDatetime,
+		EndDatetime:     gacha.DefaultBannerEndDatetime,
+	}
+	masterCandidateRaw, _, err := masterdataadmin.BuildGachaMomBannerUpdate(masterDataPath, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.SourceMasterDataHash = gacha.ContentHash(masterCandidateRaw)
+	configCandidateRaw, configHash, err := gacha.EncodeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterCandidatePath := filepath.Join(directory, "master-candidate.bin.e")
+	configCandidatePath := filepath.Join(directory, "gacha-candidate.json")
+	if err := os.WriteFile(masterCandidatePath, masterCandidateRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configCandidatePath, configCandidateRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := holder.InstallGachaConfigAndMasterData(configCandidatePath, masterCandidatePath, before.GachaConfigHash, before.MasterDataHash); err != nil {
+		t.Fatal(err)
+	}
+	after := holder.Get()
+	if after.GachaConfigHash != configHash || after.MasterDataHash != config.SourceMasterDataHash {
+		t.Fatalf("published hashes = Gacha %q, master %q", after.GachaConfigHash, after.MasterDataHash)
+	}
+	if got := after.GachaConfig.Banners[588]; got.StartDatetime != gacha.DefaultBannerStartDatetime || got.EndDatetime != gacha.DefaultBannerEndDatetime {
+		t.Fatalf("published Gacha schedule = %+v", got)
+	}
+	catalog, err := masterdataadmin.LoadTable(masterDataPath, "m_mom_banner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range catalog.Tables {
+		if table.Name != "m_mom_banner" {
+			continue
+		}
+		for _, row := range table.Rows {
+			if row.Values["BannerAssetName"] == "limited_588" {
+				if row.Times["StartDatetime"] != gacha.DefaultBannerStartDatetime || row.Times["EndDatetime"] != gacha.DefaultBannerEndDatetime {
+					t.Fatalf("installed MomBanner schedule = %d..%d", row.Times["StartDatetime"], row.Times["EndDatetime"])
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("installed limited_588 MomBanner row was not found")
+}
+
 func TestInstallQuestDropConfigPublishesWeightedPools(t *testing.T) {
 	source := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	original, err := os.ReadFile(source)

@@ -61,6 +61,60 @@ type GachaEditorCatalog struct {
 	Warnings        []string                  `json:"warnings,omitempty"`
 }
 
+// BuildGachaMomBannerUpdate builds the binary master-data candidate that keeps
+// existing limited MomBanner rows synchronized with gacha.json schedules.
+// Assets without a MomBanner row remain valid Gacha entries and need no row to
+// be synthesized here.
+func BuildGachaMomBannerUpdate(masterDataPath string, config *gacha.Config) ([]byte, UpdateResult, error) {
+	if config == nil {
+		return nil, UpdateResult{}, fmt.Errorf("Gacha config is nil")
+	}
+	if _, _, err := gacha.EncodeConfig(config); err != nil {
+		return nil, UpdateResult{}, err
+	}
+	catalog, err := LoadTable(masterDataPath, "m_mom_banner")
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	var table *Table
+	for index := range catalog.Tables {
+		if catalog.Tables[index].Name == "m_mom_banner" {
+			table = &catalog.Tables[index]
+			break
+		}
+	}
+	if table == nil {
+		return nil, UpdateResult{}, fmt.Errorf("table %q is absent from the current master data", "m_mom_banner")
+	}
+
+	bannerByAsset := make(map[string]gacha.BannerConfig, len(config.Banners))
+	for _, banner := range config.Banners {
+		if strings.HasPrefix(banner.BannerAssetName, model.BannerPrefixLimited) {
+			bannerByAsset[banner.BannerAssetName] = banner
+		}
+	}
+	changes := make([]Change, 0)
+	for _, row := range table.Rows {
+		if row.Values["DestinationDomainType"] != fmt.Sprint(model.MomBannerDomainGacha) {
+			continue
+		}
+		banner, ok := bannerByAsset[row.Values["BannerAssetName"]]
+		if !ok {
+			continue
+		}
+		if row.Times["StartDatetime"] != banner.StartDatetime {
+			changes = append(changes, Change{Table: table.Name, Row: row.Index, Field: "StartDatetime", Value: banner.StartDatetime})
+		}
+		if row.Times["EndDatetime"] != banner.EndDatetime {
+			changes = append(changes, Change{Table: table.Name, Row: row.Index, Field: "EndDatetime", Value: banner.EndDatetime})
+		}
+	}
+	if len(changes) == 0 {
+		return nil, UpdateResult{Version: catalog.Version}, nil
+	}
+	return BuildUpdate(masterDataPath, UpdateRequest{ExpectedVersion: catalog.Version, Changes: changes})
+}
+
 func LoadGachaEditorCatalog(
 	masterDataPath string,
 	pool *masterdata.GachaCatalog,
@@ -141,6 +195,9 @@ func LoadGachaEditorCatalog(
 			continue
 		}
 		if entry.GachaLabelType != model.GachaLabelPremium {
+			continue
+		}
+		if !strings.HasPrefix(entry.BannerAssetName, model.BannerPrefixLimited) {
 			continue
 		}
 		if seenBanners[entry.GachaId] {

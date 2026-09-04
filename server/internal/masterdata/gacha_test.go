@@ -137,6 +137,9 @@ func TestLoadGachaCatalogIncludesEventMetadataWithoutSynthesizedInventory(t *tes
 	hasMamaBanner := false
 	eventCount := 0
 	for _, entry := range entries {
+		if entry.GachaLabelType == model.GachaLabelPremium && entry.IsMamaBanner {
+			t.Fatalf("premium Gacha %d was loaded from m_mom_banner", entry.GachaId)
+		}
 		if entry.GachaLabelType == model.GachaLabelEvent {
 			eventCount++
 			if len(entry.BoxItems) != 0 || entry.BoxCount != 0 || entry.RequiredConsumableItemId == 0 || entry.RelatedEventQuestChapterId == 0 {

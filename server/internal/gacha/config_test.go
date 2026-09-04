@@ -17,7 +17,7 @@ func TestBuildPremiumCatalogUsesDefaultStandardAndPerGroupPickup(t *testing.T) {
 	source, entries, config := testPremiumSource()
 	config.LimitedSets["limited_a"] = LimitedSetConfig{DisplayName: "Limited A"}
 	config.Weapons[1] = WeaponConfig{Availability: AvailabilityLimited, LimitedSet: "limited_a"}
-	config.Banners[100] = BannerConfig{LimitedSets: []string{"limited_a"}, PickupWeaponIds: []int32{1}}
+	config.Banners[100] = BannerConfig{BannerAssetName: "limited_100", LimitedSets: []string{"limited_a"}, PickupWeaponIds: []int32{1}}
 
 	catalog, err := BuildPremiumCatalog(config, source, entries, BuildOptions{
 		RequireComplete:       true,
@@ -41,7 +41,7 @@ func TestBuildPremiumCatalogUsesDefaultStandardAndPerGroupPickup(t *testing.T) {
 
 func TestConfiguredPromotionsFollowPickupOrderAndPairedWeapon(t *testing.T) {
 	source, entries, config := testPremiumSource()
-	config.Banners[100] = BannerConfig{PickupWeaponIds: []int32{3, 1}}
+	config.Banners[100] = BannerConfig{BannerAssetName: "limited_100", PickupWeaponIds: []int32{3, 1}}
 	catalog, err := BuildPremiumCatalog(config, source, entries, BuildOptions{
 		RequireComplete:       true,
 		CurrentMasterDataHash: "sha256:test",
@@ -64,7 +64,7 @@ func TestConfiguredPromotionsFollowPickupOrderAndPairedWeapon(t *testing.T) {
 
 func TestBuildPremiumCatalogRejectsAllPickupGroup(t *testing.T) {
 	source, entries, config := testPremiumSource()
-	config.Banners[100] = BannerConfig{PickupWeaponIds: []int32{1, 2}}
+	config.Banners[100] = BannerConfig{BannerAssetName: "limited_100", PickupWeaponIds: []int32{1, 2}}
 	_, err := BuildPremiumCatalog(config, source, entries, BuildOptions{
 		RequireComplete:       true,
 		CurrentMasterDataHash: "sha256:test",
@@ -86,6 +86,64 @@ func TestBuildPremiumCatalogDefaultsMissingWeaponToStandard(t *testing.T) {
 	}
 	if _, ok := catalog.Banners[100].ItemsByWeaponId[3]; !ok {
 		t.Fatal("weapon without an override did not enter the standard pool")
+	}
+}
+
+func TestApplyConfiguredPremiumBannersUsesConfigInventoryAndSchedule(t *testing.T) {
+	config := DefaultConfig()
+	config.Banners[471] = BannerConfig{
+		BannerAssetName: "limited_471",
+		StartDatetime:   1677542400000,
+		EndDatetime:     1678751999000,
+	}
+	config.Banners[588] = BannerConfig{
+		BannerAssetName: "limited_588",
+		StartDatetime:   1704067200000,
+		EndDatetime:     1705276799000,
+	}
+	entries := []store.GachaCatalogEntry{
+		{GachaId: 999, GachaLabelType: model.GachaLabelPremium, BannerAssetName: "limited_999"},
+		{GachaId: 200001, GachaLabelType: model.GachaLabelChapter},
+		{GachaId: model.GachaIdGuaranteedFourStar, GachaLabelType: model.GachaLabelPremium},
+	}
+	medals := map[int32]masterdata.GachaMedalInfo{
+		588: {GachaMedalId: 12, ConsumableItemId: 34},
+	}
+
+	got := ApplyConfiguredPremiumBanners(config, entries, medals)
+	byId := make(map[int32]store.GachaCatalogEntry, len(got))
+	for _, entry := range got {
+		byId[entry.GachaId] = entry
+	}
+	if _, ok := byId[999]; ok {
+		t.Fatal("master-data premium banner remained in the configured catalog")
+	}
+	if byId[471].BannerAssetName != "limited_471" || byId[471].StartDatetime != 1677542400000 || byId[471].EndDatetime != 1678751999000 {
+		t.Fatalf("unexpected configured Gacha 471: %+v", byId[471])
+	}
+	if byId[588].GachaMedalId != 12 || byId[588].MedalConsumableItemId != 34 || len(byId[588].PricePhases) != 3 {
+		t.Fatalf("unexpected configured Gacha 588: %+v", byId[588])
+	}
+	if !byId[471].IsMamaBanner || byId[471].GachaLabelType != model.GachaLabelPremium {
+		t.Fatalf("configured Gacha was not exposed as a premium Mama banner: %+v", byId[471])
+	}
+	if _, ok := byId[200001]; !ok {
+		t.Fatal("non-premium catalog entry was removed")
+	}
+	if _, ok := byId[model.GachaIdGuaranteedFourStar]; !ok {
+		t.Fatal("guaranteed ticket Gacha was removed")
+	}
+}
+
+func TestEncodeConfigDefaultsMissingBannerScheduleTo2099Window(t *testing.T) {
+	config := DefaultConfig()
+	config.Banners[471] = BannerConfig{BannerAssetName: "limited_471"}
+	if _, _, err := EncodeConfig(config); err != nil {
+		t.Fatal(err)
+	}
+	got := config.Banners[471]
+	if got.StartDatetime != DefaultBannerStartDatetime || got.EndDatetime != DefaultBannerEndDatetime {
+		t.Fatalf("default banner schedule = %d..%d, want %d..%d", got.StartDatetime, got.EndDatetime, DefaultBannerStartDatetime, DefaultBannerEndDatetime)
 	}
 }
 
@@ -285,6 +343,7 @@ func TestConfigWithoutAutomaticEventWeaponsRemovesOverridesAndPickups(t *testing
 	source, _, config := testPremiumSource()
 	config.Weapons[12] = WeaponConfig{Availability: AvailabilityEvent}
 	config.Banners[100] = BannerConfig{
+		BannerAssetName: "limited_100",
 		LimitedSets:     []string{"limited_a"},
 		PickupWeaponIds: []int32{1, 11, 12},
 	}
@@ -298,6 +357,9 @@ func TestConfigWithoutAutomaticEventWeaponsRemovesOverridesAndPickups(t *testing
 	}
 	if got := filtered.Banners[100].PickupWeaponIds; len(got) != 2 || got[0] != 1 || got[1] != 12 {
 		t.Fatalf("filtered pickup IDs = %v, want [1 12]", got)
+	}
+	if got := filtered.Banners[100].BannerAssetName; got != "limited_100" {
+		t.Fatalf("filtered banner asset = %q, want limited_100", got)
 	}
 	if _, exists := config.Weapons[11]; !exists {
 		t.Fatal("source config was mutated")

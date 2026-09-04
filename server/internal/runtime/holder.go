@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -147,6 +148,7 @@ func (h *Holder) InstallAndReload(candidatePath string) error {
 }
 
 var ErrGachaConfigConflict = errors.New("Gacha config changed since it was loaded")
+var ErrMasterDataConflict = errors.New("master data changed since it was loaded")
 
 func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 	h.mu.Lock()
@@ -179,6 +181,115 @@ func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 	}
 	h.publish(c)
 	return nil
+}
+
+// InstallGachaConfigAndMasterData validates a Gacha config together with its
+// derived MomBanner master-data candidate, then publishes both as one runtime
+// snapshot. If installing the config fails after the master-data replacement,
+// the original master data is restored before returning.
+func (h *Holder) InstallGachaConfigAndMasterData(gachaCandidatePath, masterDataCandidatePath, expectedGachaHash, expectedMasterDataHash string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.gachaConfigPath == "" {
+		return fmt.Errorf("Gacha config path is not configured")
+	}
+	current := h.cur.Load()
+	if current == nil || expectedGachaHash == "" || current.GachaConfigHash != expectedGachaHash {
+		return ErrGachaConfigConflict
+	}
+	if masterDataCandidatePath != "" && current.MasterDataHash != expectedMasterDataHash {
+		return ErrMasterDataConflict
+	}
+	if err := prepareReplacementCandidate(gachaCandidatePath, h.gachaConfigPath, "Gacha config"); err != nil {
+		return err
+	}
+	masterDataPath := h.binPath
+	if masterDataCandidatePath != "" {
+		if err := prepareReplacementCandidate(masterDataCandidatePath, h.binPath, "master data"); err != nil {
+			return err
+		}
+		masterDataPath = masterDataCandidatePath
+	}
+	catalogs, err := loadCatalogs(masterDataPath, gachaCandidatePath, h.questDropConfigPath, true, false)
+	if err != nil {
+		_ = memorydb.Init(h.binPath)
+		return fmt.Errorf("validate synchronized Gacha candidates: %w", err)
+	}
+
+	var originalMasterData []byte
+	var originalMasterDataMode os.FileMode
+	if masterDataCandidatePath != "" {
+		originalMasterData, err = os.ReadFile(h.binPath)
+		if err != nil {
+			_ = memorydb.Init(h.binPath)
+			return fmt.Errorf("back up master data: %w", err)
+		}
+		if info, statErr := os.Stat(h.binPath); statErr == nil {
+			originalMasterDataMode = info.Mode().Perm()
+		}
+		if err := replaceFile(masterDataCandidatePath, h.binPath); err != nil {
+			_ = memorydb.Init(h.binPath)
+			return fmt.Errorf("install synchronized master data: %w", err)
+		}
+	}
+	if err := replaceFile(gachaCandidatePath, h.gachaConfigPath); err != nil {
+		if masterDataCandidatePath != "" {
+			if rollbackErr := restoreFile(h.binPath, originalMasterData, originalMasterDataMode); rollbackErr != nil {
+				_ = memorydb.Init(h.binPath)
+				return fmt.Errorf("install Gacha config: %v; restore master data: %w", err, rollbackErr)
+			}
+		}
+		_ = memorydb.Init(h.binPath)
+		return fmt.Errorf("install Gacha config: %w", err)
+	}
+	h.publish(catalogs)
+	if masterDataCandidatePath != "" {
+		h.touch()
+	}
+	return nil
+}
+
+func prepareReplacementCandidate(candidatePath, targetPath, label string) error {
+	info, err := os.Stat(candidatePath)
+	if err != nil {
+		return fmt.Errorf("stat %s candidate: %w", label, err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("%s candidate is empty", label)
+	}
+	if currentInfo, statErr := os.Stat(targetPath); statErr == nil {
+		if err := os.Chmod(candidatePath, currentInfo.Mode().Perm()); err != nil {
+			return fmt.Errorf("preserve %s permissions: %w", label, err)
+		}
+	}
+	return nil
+}
+
+func restoreFile(targetPath string, data []byte, mode os.FileMode) (err error) {
+	file, err := os.CreateTemp(filepath.Dir(targetPath), ".rollback-*")
+	if err != nil {
+		return err
+	}
+	path := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(path)
+	}()
+	if _, err = file.Write(data); err != nil {
+		return err
+	}
+	if err = file.Sync(); err != nil {
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	if mode != 0 {
+		if err = os.Chmod(path, mode); err != nil {
+			return err
+		}
+	}
+	return replaceFile(path, targetPath)
 }
 
 var ErrQuestDropConfigConflict = errors.New("quest drop config changed since it was loaded")

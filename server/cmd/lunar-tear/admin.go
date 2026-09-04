@@ -63,6 +63,7 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 			writeAdminError(w, http.StatusInternalServerError, "读取主数据元信息失败")
 			return
 		}
+		masterdataadmin.AppendGachaScheduleMetadata(catalog, len(holder.Get().GachaConfig.Banners))
 		writeAdminJSON(w, http.StatusOK, catalog)
 	})
 	mux.HandleFunc("/api/admin/master-data/table", func(w http.ResponseWriter, r *http.Request) {
@@ -265,8 +266,24 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 				return
 			}
 			snapshot := holder.Get()
-			request.Config.SourceMasterDataHash = snapshot.MasterDataHash
 			filtered := gacha.ConfigWithoutAutomaticEventWeapons(&request.Config, snapshot.GachaPool)
+			masterDataCandidateRaw, masterDataUpdate, err := masterdataadmin.BuildGachaMomBannerUpdate(binPath, filtered)
+			if err != nil {
+				writeAdminError(w, http.StatusBadRequest, "生成 MomBanner 联动更新失败: "+err.Error())
+				return
+			}
+			filtered.SourceMasterDataHash = snapshot.MasterDataHash
+			masterDataCandidate := ""
+			if masterDataCandidateRaw != nil {
+				filtered.SourceMasterDataHash = gacha.ContentHash(masterDataCandidateRaw)
+				masterDataCandidate, err = writeCandidate(binPath, masterDataCandidateRaw)
+				if err != nil {
+					log.Printf("[admin] write synchronized MomBanner candidate failed: %v", err)
+					writeAdminError(w, http.StatusInternalServerError, "写入 MomBanner 候选主数据失败")
+					return
+				}
+				defer os.Remove(masterDataCandidate)
+			}
 			raw, _, err := gacha.EncodeConfig(filtered)
 			if err != nil {
 				writeAdminError(w, http.StatusBadRequest, err.Error())
@@ -279,9 +296,13 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 				return
 			}
 			defer os.Remove(candidate)
-			if err := holder.InstallGachaConfig(candidate, request.ExpectedContentHash); err != nil {
+			if err := holder.InstallGachaConfigAndMasterData(candidate, masterDataCandidate, request.ExpectedContentHash, snapshot.MasterDataHash); err != nil {
 				if errors.Is(err, runtime.ErrGachaConfigConflict) {
 					writeAdminError(w, http.StatusConflict, "Gacha 配置已被其他操作更新，请刷新后重试")
+					return
+				}
+				if errors.Is(err, runtime.ErrMasterDataConflict) {
+					writeAdminError(w, http.StatusConflict, "主数据已被其他操作更新，请刷新后重试")
 					return
 				}
 				writeAdminError(w, http.StatusBadRequest, err.Error())
@@ -290,8 +311,10 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 			updated := holder.Get()
 			log.Printf("[admin] installed Gacha config from %s: %d weapons, %d banners", r.RemoteAddr, len(updated.GachaConfig.Weapons), len(updated.GachaConfig.Banners))
 			writeAdminJSON(w, http.StatusOK, map[string]interface{}{
-				"contentHash":    updated.GachaConfigHash,
-				"masterDataHash": updated.MasterDataHash,
+				"contentHash":            updated.GachaConfigHash,
+				"masterDataHash":         updated.MasterDataHash,
+				"changedMasterDataRows":  masterDataUpdate.ChangedRows,
+				"changedMasterDataCells": masterDataUpdate.ChangedCells,
 			})
 		default:
 			w.Header().Set("Allow", "GET, POST")
