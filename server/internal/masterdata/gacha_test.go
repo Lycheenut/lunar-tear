@@ -189,18 +189,16 @@ func TestLoadGachaCatalogDoesNotSynthesizeEventBoxInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasMamaBanner := false
 	for _, entry := range entries {
 		if entry.GachaLabelType == model.GachaLabelEvent {
 			t.Fatalf("event gacha %d was exposed without authoritative inventory", entry.GachaId)
 		}
-		hasMamaBanner = hasMamaBanner || entry.IsMamaBanner
+		if entry.GachaLabelType == model.GachaLabelPremium && entry.IsMamaBanner {
+			t.Fatalf("premium Gacha %d was loaded from m_mom_banner", entry.GachaId)
+		}
 	}
 	if len(entries) == 0 {
 		t.Fatal("non-event gachas were removed with event gachas")
-	}
-	if !hasMamaBanner {
-		t.Fatal("m_mom_banner entries were not marked as Mama banners")
 	}
 }
 

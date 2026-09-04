@@ -74,6 +74,7 @@ func buildCatalogs(gachaConfig *gacha.Config, questDropConfig *questdrop.Config)
 	if err != nil {
 		return nil, fmt.Errorf("load gacha catalog: %w", err)
 	}
+	gachaEntries = gacha.ApplyConfiguredPremiumBanners(gachaConfig, gachaEntries, medalInfo)
 	masterdata.EnrichGachaUnlockConditions(gachaEntries, questCatalog)
 	log.Printf("gacha catalog loaded: %d entries", len(gachaEntries))
 

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"lunar-tear/server/internal/masterdata"
@@ -18,8 +19,10 @@ import (
 )
 
 const (
-	ConfigVersion    = 1
-	GroupWeightTotal = 10000
+	ConfigVersion              = 1
+	GroupWeightTotal           = 10000
+	DefaultBannerStartDatetime = int64(4070937600000) // 2099-01-01 16:00:00 +08:00
+	DefaultBannerEndDatetime   = int64(4086576000000) // 2099-07-01 16:00:00 +08:00
 )
 
 type Availability string
@@ -58,6 +61,9 @@ type WeaponConfig struct {
 }
 
 type BannerConfig struct {
+	BannerAssetName string   `json:"bannerAssetName"`
+	StartDatetime   int64    `json:"startDatetime"`
+	EndDatetime     int64    `json:"endDatetime"`
 	LimitedSets     []string `json:"limitedSets,omitempty"`
 	PickupWeaponIds []int32  `json:"pickupWeaponIds,omitempty"`
 }
@@ -221,7 +227,12 @@ func ConfigWithoutAutomaticEventWeapons(config *Config, source *masterdata.Gacha
 	}
 	result.Banners = make(map[int32]BannerConfig, len(config.Banners))
 	for gachaId, banner := range config.Banners {
-		filtered := BannerConfig{LimitedSets: append([]string(nil), banner.LimitedSets...)}
+		filtered := BannerConfig{
+			BannerAssetName: banner.BannerAssetName,
+			StartDatetime:   banner.StartDatetime,
+			EndDatetime:     banner.EndDatetime,
+			LimitedSets:     append([]string(nil), banner.LimitedSets...),
+		}
 		for _, weaponId := range banner.PickupWeaponIds {
 			if !automaticEvent[weaponId] {
 				filtered.PickupWeaponIds = append(filtered.PickupWeaponIds, weaponId)
@@ -230,6 +241,109 @@ func ConfigWithoutAutomaticEventWeapons(config *Config, source *masterdata.Gacha
 		result.Banners[gachaId] = filtered
 	}
 	return &result
+}
+
+// ApplyConfiguredPremiumBanners replaces master-data premium banners with the
+// limited_* inventory declared by gacha.json. m_mom_banner is intentionally not
+// consulted: MamaBanner responses are downstream of these catalog entries.
+func ApplyConfiguredPremiumBanners(config *Config, entries []store.GachaCatalogEntry, medals map[int32]masterdata.GachaMedalInfo) []store.GachaCatalogEntry {
+	result := make([]store.GachaCatalogEntry, 0, len(entries)+len(config.Banners))
+	for _, entry := range entries {
+		if entry.GachaLabelType != model.GachaLabelPremium || model.IsGuaranteedTicketGacha(entry.GachaId) {
+			result = append(result, entry)
+		}
+	}
+
+	gachaIds := make([]int32, 0, len(config.Banners))
+	for gachaId := range config.Banners {
+		if model.IsGuaranteedTicketGacha(gachaId) {
+			continue
+		}
+		gachaIds = append(gachaIds, gachaId)
+	}
+	sort.Slice(gachaIds, func(i, j int) bool { return gachaIds[i] < gachaIds[j] })
+	for _, gachaId := range gachaIds {
+		banner := config.Banners[gachaId]
+		medal := medals[gachaId]
+		result = append(result, store.GachaCatalogEntry{
+			GachaId:               gachaId,
+			IsMamaBanner:          true,
+			GachaLabelType:        model.GachaLabelPremium,
+			GachaModeType:         model.GachaModeBasic,
+			GachaAutoResetType:    model.GachaAutoResetNone,
+			IsUserGachaUnlock:     true,
+			StartDatetime:         banner.StartDatetime,
+			EndDatetime:           banner.EndDatetime,
+			GachaMedalId:          medal.GachaMedalId,
+			MedalConsumableItemId: medal.ConsumableItemId,
+			GachaDecorationType:   model.GachaDecorationFestival,
+			SortOrder:             gachaId,
+			BannerAssetName:       banner.BannerAssetName,
+			GroupId:               gachaId,
+			CeilingCount:          model.PityCeilingCount,
+			PricePhases:           premiumBasicPricePhases(gachaId),
+		})
+	}
+	applyGuaranteedTicketAvailability(result)
+	return result
+}
+
+func premiumBasicPricePhases(gachaId int32) []store.GachaPricePhaseEntry {
+	return []store.GachaPricePhaseEntry{
+		{
+			PhaseId:   gachaId*model.PhaseIdMultiplier + 1,
+			PriceType: model.PriceTypeGem,
+			DrawCount: 1,
+		},
+		{
+			PhaseId:        gachaId*model.PhaseIdMultiplier + 2,
+			PriceType:      model.PriceTypeGem,
+			DrawCount:      model.PremiumMultiPullCount,
+			FixedRarityMin: model.RaritySRare,
+			FixedCount:     1,
+		},
+		{
+			PhaseId:   gachaId*model.PhaseIdMultiplier + 3,
+			PriceType: model.PriceTypeConsumableItem,
+			PriceId:   model.ConsumableIdPremiumTicket,
+			DrawCount: 1,
+		},
+	}
+}
+
+func applyGuaranteedTicketAvailability(entries []store.GachaCatalogEntry) {
+	maxSortOrder := int32(0)
+	var startDatetime int64
+	var endDatetime int64
+	for _, entry := range entries {
+		if model.IsGuaranteedTicketGacha(entry.GachaId) {
+			continue
+		}
+		if entry.SortOrder > maxSortOrder {
+			maxSortOrder = entry.SortOrder
+		}
+		if entry.StartDatetime > 0 && (startDatetime == 0 || entry.StartDatetime < startDatetime) {
+			startDatetime = entry.StartDatetime
+		}
+		if entry.EndDatetime > endDatetime {
+			endDatetime = entry.EndDatetime
+		}
+	}
+	if startDatetime == 0 {
+		startDatetime = DefaultBannerStartDatetime
+	}
+	if endDatetime == 0 {
+		endDatetime = DefaultBannerEndDatetime
+	}
+	for i := range entries {
+		if !model.IsGuaranteedTicketGacha(entries[i].GachaId) {
+			continue
+		}
+		maxSortOrder++
+		entries[i].SortOrder = maxSortOrder
+		entries[i].StartDatetime = startDatetime
+		entries[i].EndDatetime = endDatetime
+	}
 }
 
 func ContentHash(raw []byte) string {
@@ -515,6 +629,18 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 		if !premiumGachaIds[gachaId] {
 			return fmt.Errorf("configured Gacha %d is not a premium weapon banner", gachaId)
 		}
+		if banner.StartDatetime <= 0 || banner.EndDatetime <= 0 {
+			return fmt.Errorf("Gacha %d must have a start and end timestamp", gachaId)
+		}
+		if banner.EndDatetime < banner.StartDatetime {
+			return fmt.Errorf("Gacha %d ends before it starts", gachaId)
+		}
+		if !model.IsGuaranteedTicketGacha(gachaId) {
+			assetGachaId, err := strconv.ParseInt(strings.TrimPrefix(banner.BannerAssetName, model.BannerPrefixLimited), 10, 32)
+			if err != nil || !strings.HasPrefix(banner.BannerAssetName, model.BannerPrefixLimited) || int32(assetGachaId) != gachaId {
+				return fmt.Errorf("Gacha %d has invalid limited banner asset %q", gachaId, banner.BannerAssetName)
+			}
+		}
 		seenSet := make(map[string]bool)
 		for _, limitedSet := range banner.LimitedSets {
 			if _, ok := config.LimitedSets[limitedSet]; !ok {
@@ -562,6 +688,13 @@ func normalizeConfig(config *Config) {
 	}
 	if config.Banners == nil {
 		config.Banners = make(map[int32]BannerConfig)
+	}
+	for gachaId, banner := range config.Banners {
+		if banner.StartDatetime == 0 && banner.EndDatetime == 0 {
+			banner.StartDatetime = DefaultBannerStartDatetime
+			banner.EndDatetime = DefaultBannerEndDatetime
+			config.Banners[gachaId] = banner
+		}
 	}
 }
 
