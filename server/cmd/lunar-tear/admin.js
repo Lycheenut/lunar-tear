@@ -3471,18 +3471,29 @@
 
   function renderMomBannerContentCell(row, gachaSchedule = false) {
     const cell = document.createElement("td");
-    const tooltip = [...new Set([
+    const tooltipParts = [
       localizedText(row.titles),
       ...(row.contentFootnotes || []).map(localizedInlineText)
-    ].filter(Boolean))].join("\n") || "无文本说明";
+    ];
+    if (gachaSchedule) {
+      const gachaId = effectiveValue("gacha", row, "GachaId");
+      const assetName = effectiveValue("gacha", row, "BannerAssetName");
+      tooltipParts.push(
+        gachaId ? `GachaId=${gachaId}` : "",
+        assetName ? `${assetName}/banner.png` : ""
+      );
+    }
+    const tooltip = [...new Set(tooltipParts.filter(Boolean))].join("\n") || "无文本说明";
+    cell.title = tooltip;
     const previewURLs = gachaSchedule ? gachaSchedulePreviewURLs(row) : momBannerPreviewURLs(row);
     if (!previewURLs.length) {
-      cell.append(renderMomBannerPreviewMissing(tooltip));
+      cell.append(renderMomBannerPreviewMissing(tooltip, gachaSchedule));
       return cell;
     }
 
     const image = document.createElement("img");
     image.className = "mom-banner-preview";
+    if (gachaSchedule) image.classList.add("gacha-banner-preview");
     image.alt = tooltip;
     image.title = tooltip;
     image.loading = "lazy";
@@ -3494,7 +3505,7 @@
         image.src = previewURLs[previewIndex];
         return;
       }
-      image.replaceWith(renderMomBannerPreviewMissing(tooltip));
+      image.replaceWith(renderMomBannerPreviewMissing(tooltip, gachaSchedule));
     });
     image.src = previewURLs[previewIndex];
     cell.append(image);
@@ -3552,9 +3563,10 @@
     return row ? String(effectiveValue(tableName, row, valueField) ?? "") : "";
   }
 
-  function renderMomBannerPreviewMissing(tooltip) {
+  function renderMomBannerPreviewMissing(tooltip, gachaSchedule = false) {
     const missing = document.createElement("span");
     missing.className = "mom-banner-preview-missing";
+    if (gachaSchedule) missing.classList.add("gacha-banner-preview-missing");
     missing.textContent = "预览不可用";
     missing.title = tooltip;
     return missing;

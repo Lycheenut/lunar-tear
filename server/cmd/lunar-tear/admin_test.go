@@ -58,14 +58,28 @@ func TestAdminConfigurationModulesUseSubroutesAndLazyData(t *testing.T) {
 
 func TestAdminGachaScheduleUsesJSONConfigAndLimitedBannerArtwork(t *testing.T) {
 	javascript := adminAssetBody(t, "/admin/admin.js")
+	css := adminAssetBody(t, "/admin/admin.css")
 	for _, required := range []string{
 		`table.name === "gacha"`,
 		`state.gachaCatalog.config?.banners`,
 		`const segments = ["gacha", language, assetName, "banner.png"]`,
+		"gachaId ? `GachaId=${gachaId}` : \"\"",
+		"assetName ? `${assetName}/banner.png` : \"\"",
+		`cell.title = tooltip`,
+		`image.classList.add("gacha-banner-preview")`,
 		`banner[property] = Number(value)`,
 	} {
 		if !strings.Contains(javascript, required) {
 			t.Fatalf("Gacha operational schedule is missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		`.gacha-banner-preview {`,
+		`max-width: 234px;`,
+		`aspect-ratio: 234 / 118;`,
+	} {
+		if !strings.Contains(css, required) {
+			t.Fatalf("Gacha banner preview CSS is missing %s", required)
 		}
 	}
 }
