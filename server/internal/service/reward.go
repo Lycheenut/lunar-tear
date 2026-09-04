@@ -178,39 +178,9 @@ func (s *RewardServiceServer) ReceiveLabyrinthSeasonReward(ctx context.Context, 
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		for _, chapter := range cat.Labyrinth.ChaptersByOrder {
 			chapterId := chapter.EventQuestChapterId
-			state := user.LabyrinthSeasons[chapterId]
-			season, ok := cat.Labyrinth.LatestEndedSeason(chapterId, nowMillis)
-			if !ok || season.SeasonNumber <= state.LastSeasonRewardReceivedSeasonNumber {
-				continue
+			if result := receivePendingLabyrinthSeasonReward(cat, user, chapterId, nowMillis); result != nil {
+				results = append(results, result)
 			}
-
-			milestones := cat.Labyrinth.SeasonMilestonesFor(season)
-			if len(milestones) == 0 {
-				continue
-			}
-			var earned masterdata.LabyrinthSeasonMilestone
-			hasEarnedReward := false
-			for _, milestone := range milestones {
-				quest, cleared := user.Quests[milestone.HeadQuestId]
-				if cleared && quest.QuestStateType == model.UserQuestStateTypeCleared && (!hasEarnedReward || milestone.HeadStageOrder > earned.HeadStageOrder) {
-					earned = milestone
-					hasEarnedReward = true
-				}
-			}
-			state.EventQuestChapterId = chapterId
-			state.LastSeasonRewardReceivedSeasonNumber = season.SeasonNumber
-			state.LatestVersion = nowMillis
-			user.LabyrinthSeasons[chapterId] = state
-			if !hasEarnedReward {
-				continue
-			}
-
-			result := &pb.LabyrinthSeasonResult{EventQuestChapterId: chapterId, HeadQuestId: earned.HeadQuestId, HeadStageOrder: earned.HeadStageOrder}
-			for _, reward := range earned.Rewards {
-				cat.QuestHandler.Granter.GrantFull(user, model.PossessionType(reward.PossessionType), reward.PossessionId, reward.Count, nowMillis)
-				result.SeasonReward = append(result.SeasonReward, &pb.LabyrinthReward{PossessionType: reward.PossessionType, PossessionId: reward.PossessionId, Count: reward.Count})
-			}
-			results = append(results, result)
 		}
 	})
 	if err != nil {
