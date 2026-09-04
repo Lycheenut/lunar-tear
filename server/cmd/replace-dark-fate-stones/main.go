@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 
 	"lunar-tear/server/internal/database"
+	"lunar-tear/server/internal/model"
 )
 
 const (
+	targetMissionID         = 3711
 	darkFateStoneMaterialID = 315002 // 真暗ノ天命石
 	darkFateStoneDeduction  = 630
 	supremeAdmirationID     = 300024 // 至高の憧憬
@@ -42,7 +44,7 @@ func main() {
 	}
 	defer db.Close()
 
-	stats, err := adjustAllPlayerMaterials(context.Background(), db, *apply)
+	stats, err := adjustEligiblePlayerMaterials(context.Background(), db, *apply)
 	if err != nil {
 		log.Fatalf("adjust player materials: %v", err)
 	}
@@ -50,8 +52,8 @@ func main() {
 	if *apply {
 		mode = "applied"
 	}
-	log.Printf("%s for %d players: 真暗ノ天命石 %d -> %d (%d players negative); 至高の憧憬 %d -> %d",
-		mode, stats.Players, stats.DarkFateStonesBefore, stats.DarkFateStonesAfter,
+	log.Printf("%s for %d players who received mission %d reward: 真暗ノ天命石 %d -> %d (%d players negative); 至高の憧憬 %d -> %d",
+		mode, stats.Players, targetMissionID, stats.DarkFateStonesBefore, stats.DarkFateStonesAfter,
 		stats.NegativeDarkFateStonePlayers, stats.SupremeAdmirationBefore, stats.SupremeAdmirationAfter)
 	if !*apply {
 		log.Print("no changes written; stop the game server and rerun with --apply to commit this one-time adjustment")
@@ -77,7 +79,7 @@ func openAdjustmentDatabase(path string, apply bool) (*sql.DB, error) {
 	return db, nil
 }
 
-func adjustAllPlayerMaterials(ctx context.Context, db *sql.DB, apply bool) (adjustmentStats, error) {
+func adjustEligiblePlayerMaterials(ctx context.Context, db *sql.DB, apply bool) (adjustmentStats, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return adjustmentStats{}, fmt.Errorf("begin transaction: %w", err)
@@ -91,10 +93,13 @@ func adjustAllPlayerMaterials(ctx context.Context, db *sql.DB, apply bool) (adju
 	stats.DarkFateStonesAfter = stats.DarkFateStonesBefore - stats.Players*darkFateStoneDeduction
 	stats.SupremeAdmirationAfter = stats.SupremeAdmirationBefore + stats.Players*supremeAdmirationGrant
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*)
-		FROM users AS u
+		FROM user_missions AS mission
 		LEFT JOIN user_materials AS m
-			ON m.user_id=u.user_id AND m.material_id=?
-		WHERE COALESCE(m.count, 0) - ? < 0`, darkFateStoneMaterialID, darkFateStoneDeduction).
+			ON m.user_id=mission.user_id AND m.material_id=?
+		WHERE mission.mission_id=?
+			AND mission.mission_progress_status_type=?
+			AND COALESCE(m.count, 0) - ? < 0`, darkFateStoneMaterialID, targetMissionID,
+		model.MissionProgressStatusTypeRewardReceived, darkFateStoneDeduction).
 		Scan(&stats.NegativeDarkFateStonePlayers); err != nil {
 		return adjustmentStats{}, fmt.Errorf("count resulting negative inventories: %w", err)
 	}
@@ -120,14 +125,16 @@ func adjustAllPlayerMaterials(ctx context.Context, db *sql.DB, apply bool) (adju
 func loadAdjustmentStats(ctx context.Context, tx *sql.Tx) (adjustmentStats, error) {
 	var stats adjustmentStats
 	err := tx.QueryRowContext(ctx, `SELECT
-		COUNT(DISTINCT u.user_id),
+		COUNT(DISTINCT mission.user_id),
 		COALESCE(SUM(CASE WHEN m.material_id=? THEN m.count ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN m.material_id=? THEN m.count ELSE 0 END), 0)
-		FROM users AS u
+		FROM user_missions AS mission
 		LEFT JOIN user_materials AS m
-			ON m.user_id=u.user_id AND m.material_id IN (?, ?)`,
+			ON m.user_id=mission.user_id AND m.material_id IN (?, ?)
+		WHERE mission.mission_id=? AND mission.mission_progress_status_type=?`,
 		darkFateStoneMaterialID, supremeAdmirationID,
 		darkFateStoneMaterialID, supremeAdmirationID,
+		targetMissionID, model.MissionProgressStatusTypeRewardReceived,
 	).Scan(&stats.Players, &stats.DarkFateStonesBefore, &stats.SupremeAdmirationBefore)
 	if err != nil {
 		return adjustmentStats{}, fmt.Errorf("load adjustment totals: %w", err)
@@ -138,10 +145,11 @@ func loadAdjustmentStats(ctx context.Context, tx *sql.Tx) (adjustmentStats, erro
 func upsertMaterialDelta(ctx context.Context, tx *sql.Tx, materialID, delta, expectedPlayers int64) error {
 	result, err := tx.ExecContext(ctx, `INSERT INTO user_materials (user_id, material_id, count)
 		SELECT user_id, ?, ?
-		FROM users
-		WHERE TRUE
+		FROM user_missions
+		WHERE mission_id=? AND mission_progress_status_type=?
 		ON CONFLICT(user_id, material_id) DO UPDATE
-		SET count=user_materials.count + excluded.count`, materialID, delta)
+		SET count=user_materials.count + excluded.count`, materialID, delta,
+		targetMissionID, model.MissionProgressStatusTypeRewardReceived)
 	if err != nil {
 		return err
 	}

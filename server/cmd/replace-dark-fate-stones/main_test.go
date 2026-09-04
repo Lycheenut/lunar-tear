@@ -5,30 +5,41 @@ import (
 	"database/sql"
 	"testing"
 
+	"lunar-tear/server/internal/model"
+
 	_ "modernc.org/sqlite"
 )
 
-func TestAdjustAllPlayerMaterials(t *testing.T) {
+func TestAdjustEligiblePlayerMaterials(t *testing.T) {
 	db := openAdjustmentTestDB(t)
 	insertAdjustmentTestUser(t, db, 1)
 	insertAdjustmentTestUser(t, db, 2)
 	insertAdjustmentTestUser(t, db, 3)
+	insertAdjustmentTestUser(t, db, 4)
+	insertAdjustmentTestUser(t, db, 5)
+	insertAdjustmentTestMission(t, db, 1, targetMissionID, model.MissionProgressStatusTypeRewardReceived)
+	insertAdjustmentTestMission(t, db, 2, targetMissionID, model.MissionProgressStatusTypeRewardReceived)
+	insertAdjustmentTestMission(t, db, 3, targetMissionID, model.MissionProgressStatusTypeClear)
+	insertAdjustmentTestMission(t, db, 4, 3710, model.MissionProgressStatusTypeRewardReceived)
 	insertAdjustmentTestMaterial(t, db, 1, darkFateStoneMaterialID, 700)
 	insertAdjustmentTestMaterial(t, db, 1, supremeAdmirationID, 10)
 	insertAdjustmentTestMaterial(t, db, 1, 999999, 12)
 	insertAdjustmentTestMaterial(t, db, 2, darkFateStoneMaterialID, 100)
+	insertAdjustmentTestMaterial(t, db, 3, darkFateStoneMaterialID, 500)
+	insertAdjustmentTestMaterial(t, db, 4, supremeAdmirationID, 20)
+	insertAdjustmentTestMaterial(t, db, 5, darkFateStoneMaterialID, 900)
 
-	stats, err := adjustAllPlayerMaterials(context.Background(), db, true)
+	stats, err := adjustEligiblePlayerMaterials(context.Background(), db, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := adjustmentStats{
-		Players:                      3,
+		Players:                      2,
 		DarkFateStonesBefore:         800,
-		DarkFateStonesAfter:          -1090,
+		DarkFateStonesAfter:          -460,
 		SupremeAdmirationBefore:      10,
-		SupremeAdmirationAfter:       262,
-		NegativeDarkFateStonePlayers: 2,
+		SupremeAdmirationAfter:       178,
+		NegativeDarkFateStonePlayers: 1,
 	}
 	if stats != want {
 		t.Fatalf("adjustment stats = %+v, want %+v", stats, want)
@@ -36,19 +47,24 @@ func TestAdjustAllPlayerMaterials(t *testing.T) {
 
 	assertAdjustmentTestMaterial(t, db, 1, darkFateStoneMaterialID, 70)
 	assertAdjustmentTestMaterial(t, db, 2, darkFateStoneMaterialID, -530)
-	assertAdjustmentTestMaterial(t, db, 3, darkFateStoneMaterialID, -630)
 	assertAdjustmentTestMaterial(t, db, 1, supremeAdmirationID, 94)
 	assertAdjustmentTestMaterial(t, db, 2, supremeAdmirationID, 84)
-	assertAdjustmentTestMaterial(t, db, 3, supremeAdmirationID, 84)
 	assertAdjustmentTestMaterial(t, db, 1, 999999, 12)
+	assertAdjustmentTestMaterial(t, db, 3, darkFateStoneMaterialID, 500)
+	assertAdjustmentTestMaterialMissing(t, db, 3, supremeAdmirationID)
+	assertAdjustmentTestMaterialMissing(t, db, 4, darkFateStoneMaterialID)
+	assertAdjustmentTestMaterial(t, db, 4, supremeAdmirationID, 20)
+	assertAdjustmentTestMaterial(t, db, 5, darkFateStoneMaterialID, 900)
+	assertAdjustmentTestMaterialMissing(t, db, 5, supremeAdmirationID)
 }
 
-func TestAdjustAllPlayerMaterialsDryRunDoesNotWrite(t *testing.T) {
+func TestAdjustEligiblePlayerMaterialsDryRunDoesNotWrite(t *testing.T) {
 	db := openAdjustmentTestDB(t)
 	insertAdjustmentTestUser(t, db, 1)
+	insertAdjustmentTestMission(t, db, 1, targetMissionID, model.MissionProgressStatusTypeRewardReceived)
 	insertAdjustmentTestMaterial(t, db, 1, darkFateStoneMaterialID, 100)
 
-	stats, err := adjustAllPlayerMaterials(context.Background(), db, false)
+	stats, err := adjustEligiblePlayerMaterials(context.Background(), db, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +83,9 @@ func TestAdjustAllPlayerMaterialsDryRunDoesNotWrite(t *testing.T) {
 	assertAdjustmentTestMaterialMissing(t, db, 1, supremeAdmirationID)
 }
 
-func TestAdjustAllPlayerMaterialsHandlesNoPlayers(t *testing.T) {
+func TestAdjustEligiblePlayerMaterialsHandlesNoPlayers(t *testing.T) {
 	db := openAdjustmentTestDB(t)
-	stats, err := adjustAllPlayerMaterials(context.Background(), db, true)
+	stats, err := adjustEligiblePlayerMaterials(context.Background(), db, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +102,11 @@ func openAdjustmentTestDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`CREATE TABLE users (user_id INTEGER PRIMARY KEY);
+		CREATE TABLE user_missions (
+			user_id INTEGER NOT NULL REFERENCES users(user_id),
+			mission_id INTEGER NOT NULL,
+			mission_progress_status_type INTEGER NOT NULL,
+			PRIMARY KEY (user_id, mission_id));
 		CREATE TABLE user_materials (
 			user_id INTEGER NOT NULL REFERENCES users(user_id),
 			material_id INTEGER NOT NULL,
@@ -95,6 +116,14 @@ func openAdjustmentTestDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+func insertAdjustmentTestMission(t *testing.T, db *sql.DB, userID, missionID int64, status model.MissionProgressStatusType) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO user_missions (user_id, mission_id, mission_progress_status_type)
+		VALUES (?, ?, ?)`, userID, missionID, status); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func insertAdjustmentTestUser(t *testing.T, db *sql.DB, userID int64) {
