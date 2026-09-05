@@ -18,6 +18,22 @@ func TestAdminGachaScheduleSubmission(t *testing.T) {
 	}
 }
 
+func TestAdminQuestBonusEditor(t *testing.T) {
+	if !strings.Contains(adminAssetBody(t, "/admin/"), `/admin/admin_quest_bonus.js`) {
+		t.Fatal("quest bonus script is not loaded")
+	}
+	if !strings.Contains(adminAssetBody(t, "/admin/admin_quest_bonus.js"), "createQuestBonusEditor") {
+		t.Fatal("quest bonus editor asset is not served")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node.js is required for admin JavaScript regression tests")
+	}
+	if output, err := exec.Command(node, "--test", "admin_quest_bonus.test.cjs").CombinedOutput(); err != nil {
+		t.Fatalf("quest bonus editor regression tests failed: %v\n%s", err, output)
+	}
+}
+
 func TestAdminContentSecurityPolicyAllowsBannerPreviews(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/admin/", nil)
 	response := httptest.NewRecorder()

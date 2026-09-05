@@ -92,6 +92,7 @@ func (s tableSpec) pairs() []timePair {
 // Column names and scalar types are generated from scripts/schemas.json; the
 // primary-key prefixes are kept read-only by the admin API.
 var activityTableSpecs = []tableSpec{
+	questBonusTableSpecs[0],
 	activityTable("m_beginner_campaign", "EntityMBeginnerCampaign", 1, true, field("BeginnerCampaignId", 0, "int"), field("BeginnerJudgeStartDatetime", 1, "long"), field("BeginnerJudgeEndDatetime", 2, "long"), field("GrantCampaignTermDayCount", 3, "int"), field("CampaignUnlockQuestId", 4, "int")),
 	activityTable("m_big_hunt_schedule", "EntityMBigHuntSchedule", 1, true, field("BigHuntScheduleId", 0, "int"), field("NoticeStartDatetime", 1, "long"), field("ChallengeStartDatetime", 2, "long"), field("ChallengeEndDatetime", 3, "long"), field("SeasonAssetId", 4, "int")),
 	activityTable("m_big_hunt_score_reward_group_schedule", "EntityMBigHuntScoreRewardGroupSchedule", 2, true, field("BigHuntScoreRewardGroupScheduleId", 0, "int"), field("GroupIndex", 1, "int"), field("BigHuntScoreRewardGroupId", 2, "int"), field("StartDatetime", 3, "long")),
@@ -146,6 +147,8 @@ var activityTableSpecs = []tableSpec{
 // and term editors expose only these foreign keys so assignments and definitions
 // can be changed independently without making the rest of m_mission editable.
 var editableTableSpecs = append(append([]tableSpec(nil), activityTableSpecs...),
+	activityTable("m_quest", "EntityMQuest", 1, false,
+		field("QuestId", 0, "int"), field("QuestBonusId", 19, "int")),
 	activityTable("m_mission", "EntityMMission", 1, false,
 		field("MissionId", 0, "int"), field("MissionRewardId", 11, "int"), field("MissionTermId", 12, "int")),
 	activityTable("m_shop_item_cell", "EntityMShopItemCell", 2, false,

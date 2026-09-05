@@ -209,6 +209,17 @@
     return payload;
   }
 
+  const questBonusEditor = window.createQuestBonusEditor?.({
+    root: $("#quest-bonus-editor"), onChange: updateDirtyUI, localizedText,
+    showError: (message) => showNotice(message, true)
+  });
+
+  async function openQuestBonusChapter(id) {
+    questBonusEditor?.selectChapter(id);
+    state.tableSelections.related = "m_quest_bonus";
+    await switchAdminSection("related");
+  }
+
   async function loadCatalog() {
     setBusy(true, "正在读取配置表元信息…");
     try {
@@ -218,6 +229,7 @@
       state.rewardCatalog = null;
       state.gachaDraft = null;
       state.dirty.clear();
+      questBonusEditor?.load(null);
       state.pendingMasterChanges = null;
       sessionStorage.setItem("lunar-admin-token", state.token);
       showWorkspace();
@@ -290,6 +302,7 @@
     if (requestedName === "m_quest_pickup_reward_group") {
       state.catalog.questDropEditor = payload.questDropEditor;
     }
+    if (requestedName === "m_quest_bonus") questBonusEditor?.load(payload.questBonusEditor);
     return currentTable();
   }
 
@@ -403,6 +416,9 @@
     elements.missionTermEditor.classList.add("hidden");
     elements.shopEditor.classList.add("hidden");
     elements.questDropEditor.classList.add("hidden");
+    $("#quest-bonus-editor").classList.add("hidden");
+    elements.timezone.disabled = false;
+    elements.timezone.value = state.timeMode;
     elements.typeFilters.replaceChildren();
     elements.typeFilters.classList.add("hidden");
     elements.empty.textContent = "选择一个数据表后加载条目。";
@@ -1108,11 +1124,16 @@
     const isMissionEditor = isMissionReward || isMissionTerm;
     const isShopEditor = table.name === "m_shop_item_content_possession";
     const isQuestDropEditor = table.name === "m_quest_pickup_reward_group";
+    const isQuestBonusEditor = table.name === "m_quest_bonus";
+    $("#quest-bonus-editor").classList.toggle("hidden", !isQuestBonusEditor);
+    elements.tableSearchLabel.classList.toggle("hidden", isQuestBonusEditor || ["delivery", "drop"].includes(state.section));
+    elements.timezone.disabled = isQuestBonusEditor;
+    elements.timezone.value = isQuestBonusEditor ? "utc" : state.timeMode;
     elements.entityName.textContent = table.name;
     elements.tableName.textContent = tableDisplayName(table);
     elements.modeControl.classList.toggle("hidden", !table.primary || isMissionEditor || isShopEditor || isQuestDropEditor);
     elements.scheduleTable.classList.toggle("detail-mode", detailed);
-    elements.scheduleTable.classList.toggle("hidden", isMissionEditor || isShopEditor || isQuestDropEditor);
+    elements.scheduleTable.classList.toggle("hidden", isMissionEditor || isShopEditor || isQuestDropEditor || isQuestBonusEditor);
     elements.missionRewardEditor.classList.toggle("hidden", !isMissionReward);
     elements.missionTermEditor.classList.toggle("hidden", !isMissionTerm);
     elements.shopEditor.classList.toggle("hidden", !isShopEditor);
@@ -1124,6 +1145,14 @@
     syncModeToggle();
     elements.head.replaceChildren();
     elements.body.replaceChildren();
+
+    if (isQuestBonusEditor) {
+      elements.statusFilterLabel.classList.add("hidden");
+      elements.empty.classList.add("hidden");
+      elements.visibleCount.textContent = "活动共鸣配置";
+      questBonusEditor?.render();
+      return;
+    }
 
     const query = state.section === "delivery" ? "" : elements.search.value.trim().toLocaleLowerCase();
     const statusFilter = elements.statusFilter.value;
@@ -1204,7 +1233,7 @@
     state.shopCellGroupDraft = (state.catalog?.shopEditor?.cellGroups || []).map((row) => ({ ...row }));
     state.shopCellGroupBaseline = JSON.stringify(state.shopCellGroupDraft.map(shopCellGroupPayload));
     state.shopCellGroupDirty = false;
-    const options = shopCellGroupSearchOptions(state.catalog?.shopEditor || { shops: [], cellGroups: [] });
+    const options = shopCellGroupSearchOptions(state.catalog?.shopEditor?.shops ? state.catalog.shopEditor : { shops: [], cellGroups: [] });
     if (!options.some((option) => option.id === state.shopCellGroupSelection)) {
       state.shopCellGroupSelection = options[0]?.id || "";
     }
@@ -1224,7 +1253,7 @@
   }
 
   function resetQuestDropDraft() {
-    const editor = state.catalog?.questDropEditor || { quests: [], groups: [], rewards: [] };
+    const editor = state.catalog?.questDropEditor?.quests ? state.catalog.questDropEditor : { quests: [], groups: [], rewards: [] };
     state.questDropGroupIndex = new Map(editor.groups.map((group) => [
       String(group.questPickupRewardGroupId), group
     ]));
@@ -3446,6 +3475,16 @@
     title.className = "content-title";
     title.textContent = localizedText(row.titles) || "-";
     cell.append(title);
+    if (table.name === "m_event_quest_chapter") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button ghost";
+      button.textContent = "共鸣配置";
+      button.addEventListener("click", () => {
+        openQuestBonusChapter(row.values.EventQuestChapterId).catch((error) => showNotice(error.message, true));
+      });
+      cell.append(button);
+    }
     const footnotes = [...new Set((row.contentFootnotes || []).map(localizedInlineText).filter(Boolean))];
     if (footnotes.length) {
       const note = document.createElement("div");
@@ -3960,6 +3999,8 @@
     const replacementCount = (preview.tableReplacements || []).length;
     elements.masterUpdateSummary.textContent = `${preview.requestedChanges} 个字段修改将生成 ${preview.generatedChanges} 个确定的下游修改${replacementCount ? `，并整表替换 ${replacementCount} 张表` : ""}，共影响 ${preview.changedRows} 行。`;
     elements.masterUpdatePreview.replaceChildren();
+    questBonusEditor?.renderPreview(elements.masterUpdatePreview, preview.questBonusGroups);
+    if (preview.questBonusGroups?.length) elements.masterUpdateSummary.textContent = `${preview.questBonusGroups.length} 个共鸣集合／定义修改，另有 ${preview.requestedChanges} 个直接字段及 ${preview.generatedChanges} 个联动字段修改，共修改 ${preview.changedRows} 行。共享影响范围见下方。`;
 
     (preview.tableReplacements || []).forEach((replacement) => {
       const group = document.createElement("section");
@@ -4116,6 +4157,7 @@
   }
 
   function tableDisplayName(table) {
+    if (table.name === "m_quest_bonus") return "活动共鸣（服装／武器）";
     if (table.entityName?.startsWith("EntityM")) return table.entityName.slice("EntityM".length);
     return table.name.replace(/^m_/, "").split("_").filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
@@ -4311,15 +4353,16 @@
       ? `，含 ${state.missionRewardAdditions.length} 个 Reward 新增、${state.missionRewardDeleteIDs.size} 个删除`
       : "";
     const questDropSummary = questDropStructuralDirty() ? "；关卡掉落请使用页面内的发布按钮" : "";
+    const bonusSummary = questBonusEditor?.count() ? `，含 ${questBonusEditor.count()} 项共鸣配置修改` : "";
     elements.saveSummary.textContent = masterCount
-      ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}${missionRewardSummary}${questDropSummary}`
+      ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}${missionRewardSummary}${bonusSummary}${questDropSummary}`
       : questDropStructuralDirty() ? "关卡掉落修改请使用页面内的发布按钮" : "没有待应用的修改";
     elements.save.disabled = masterCount === 0;
     elements.discard.disabled = count === 0;
   }
 
   function masterDirtyCount() {
-    return state.dirty.size + (state.shopCellGroupDirty ? 1 : 0)
+    return state.dirty.size + (questBonusEditor?.count() || 0) + (state.shopCellGroupDirty ? 1 : 0)
       + (shopItemCellStructuralDirty() ? 1 : 0) + (shopItemStructuralDirty() ? 1 : 0)
       + (missionRewardStructuralDirty() ? 1 : 0);
   }
@@ -5857,6 +5900,7 @@
   elements.discard.addEventListener("click", () => {
     if (!confirm("放弃全部尚未应用的修改？")) return;
     state.dirty.clear();
+    questBonusEditor?.reset();
     if (state.gachaCatalog) {
       resetGachaDraft();
       populateGachaScheduleTable();
@@ -5870,12 +5914,13 @@
     showNotice("已放弃本次修改。");
   });
   elements.save.addEventListener("click", async () => {
+    const bonusPayload = questBonusEditor?.payload() || { changes: [], questBonusGroups: [] };
     const rewardStructural = missionRewardStructuralDirty();
     const scheduleChanges = gachaScheduleChanges();
-    const changes = [...state.dirty.values()].filter((change) => change.table !== "gacha" && !(rewardStructural && change.table === "m_mission_reward"));
-    if (!changes.length && !scheduleChanges.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
+    const changes = [...state.dirty.values(), ...bonusPayload.changes].filter((change) => change.table !== "gacha" && !(rewardStructural && change.table === "m_mission_reward"));
+    if (!changes.length && !bonusPayload.questBonusGroups.length && !scheduleChanges.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
     if (scheduleChanges.length) {
-      if (changes.length || rewardStructural || state.shopCellGroupDirty || shopItemCellStructuralDirty() || shopItemStructuralDirty()) {
+      if (changes.length || bonusPayload.questBonusGroups.length || rewardStructural || state.shopCellGroupDirty || shopItemCellStructuralDirty() || shopItemStructuralDirty()) {
         showNotice("Gacha 日程会联动更新 MomBanner，不能与其他主数据修改同时发布；请先放弃其中一类修改。", true);
         return;
       }
@@ -5888,6 +5933,7 @@
       return;
     }
     const request = { expectedVersion: state.catalog.version, changes };
+    if (bonusPayload.questBonusGroups.length) request.questBonusGroups = bonusPayload.questBonusGroups;
     if (rewardStructural) {
       const table = state.catalog.tables.find((candidate) => candidate.name === "m_mission_reward");
       request.missionRewards = missionRewardReplacementPayload(table);
@@ -5929,7 +5975,7 @@
   });
   elements.masterUpdateConfirm.addEventListener("click", async () => {
     const request = state.pendingMasterChanges;
-    if (!request || (!request.changes?.length && !request.missionRewards && !request.shopItemCellGroups && !request.shopItemCells && !request.shopItems)) return;
+    if (!request || (!request.changes?.length && !request.questBonusGroups?.length && !request.missionRewards && !request.shopItemCellGroups && !request.shopItemCells && !request.shopItems)) return;
     elements.masterUpdateDialog.returnValue = "confirm";
     elements.masterUpdateDialog.close();
     state.pendingMasterChanges = null;

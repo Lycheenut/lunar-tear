@@ -19,7 +19,7 @@ import (
 	"lunar-tear/server/internal/runtime"
 )
 
-//go:embed admin.html admin.css admin.js
+//go:embed admin.html admin.css admin.js admin_quest_bonus.js
 var adminAssets embed.FS
 
 // startAdmin serves the token-gated master-data API and its static management
@@ -421,6 +421,8 @@ func serveAdminAsset(w http.ResponseWriter, r *http.Request) {
 		name, contentType = "admin.css", "text/css; charset=utf-8"
 	case "/admin/admin.js":
 		name, contentType = "admin.js", "text/javascript; charset=utf-8"
+	case "/admin/admin_quest_bonus.js":
+		name, contentType = "admin_quest_bonus.js", "text/javascript; charset=utf-8"
 	default:
 		http.NotFound(w, r)
 		return

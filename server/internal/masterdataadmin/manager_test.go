@@ -14,7 +14,7 @@ import (
 )
 
 func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
-	if got, want := len(activityTableSpecs), 46; got != want {
+	if got, want := len(activityTableSpecs), 47; got != want {
 		t.Fatalf("activity spec count = %d, want %d", got, want)
 	}
 	wantPrimary := map[string]bool{
@@ -30,6 +30,7 @@ func TestActivitySpecsContainSelectedAndRelatedTables(t *testing.T) {
 		"m_shop": true, "m_shop_item_cell_term": true, "m_tip": true,
 	}
 	wantRelated := map[string]bool{
+		"m_quest_bonus":                   true,
 		"m_big_hunt_boss_quest":           true,
 		"m_big_hunt_score_reward_group":   true,
 		"m_enhance_campaign_target_group": true,
@@ -99,8 +100,8 @@ func TestBuildUpdateAgainstCurrentMasterData(t *testing.T) {
 	if catalog.TableCount != len(activityTableSpecs) {
 		t.Fatalf("loaded %d activity tables, want %d", catalog.TableCount, len(activityTableSpecs))
 	}
-	if catalog.PrimaryCount != 22 || catalog.RelatedCount != 19 || catalog.DeliveryCount != 5 {
-		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 22/19/5", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
+	if catalog.PrimaryCount != 22 || catalog.RelatedCount != 20 || catalog.DeliveryCount != 5 {
+		t.Fatalf("loaded primary/related/delivery counts = %d/%d/%d, want 22/20/5", catalog.PrimaryCount, catalog.RelatedCount, catalog.DeliveryCount)
 	}
 	if catalog.RowCount == 0 {
 		t.Fatal("loaded catalog has no rows")

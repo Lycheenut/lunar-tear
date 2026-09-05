@@ -40,6 +40,29 @@ code {
 
 .hidden { display: none !important; }
 
+.quest-bonus-editor { padding: 20px; min-width: 0; }
+.bonus-note { color: var(--muted); line-height: 1.65; margin: 10px 0 16px; }
+.bonus-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin: 14px 0; }
+.bonus-toolbar label, .bonus-mapping label { display: grid; gap: 7px; font-size: 12px; color: var(--muted); }
+.bonus-toolbar select { max-width: min(500px, 75vw); }
+.bonus-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-top: 18px; background: var(--panel); }
+.bonus-card h3, .bonus-preview h3 { margin: 4px 0 12px; font-size: 16px; }
+.bonus-mapping { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); }
+.bonus-mapping details { flex-basis: 100%; }
+.bonus-mapping details label { display: inline-grid; margin: 12px 16px 0 0; }
+.bonus-grid { max-width: 100%; overflow-x: auto; }
+.bonus-grid table { width: 100%; min-width: 0; border-collapse: collapse; font-size: 12px; }
+.bonus-grid th { white-space: normal; min-width: 115px; }
+.bonus-grid td { vertical-align: top; padding: 12px 8px; }
+.bonus-grid input { width: 145px; }
+.bonus-grid input[type="datetime-local"] { width: 240px; }
+.bonus-grid small { display: block; max-width: 190px; white-space: normal; margin: 6px 0; color: var(--muted); }
+.bonus-grid button { display: block; margin-top: 6px; white-space: nowrap; font-size: 11px; }
+.bonus-preview { padding: 16px; }
+.bonus-preview p { line-height: 1.7; margin-bottom: 12px; }
+.bonus-preview details { max-width: 100%; }
+.bonus-preview summary, .bonus-mapping summary { cursor: pointer; color: var(--accent); }
+
 .topbar {
   display: flex;
   align-items: center;

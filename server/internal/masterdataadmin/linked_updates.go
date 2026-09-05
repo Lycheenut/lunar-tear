@@ -61,6 +61,7 @@ type UpdatePreview struct {
 	GeneratedChanges  int                       `json:"generatedChanges"`
 	TotalChanges      int                       `json:"totalChanges"`
 	ChangedRows       int                       `json:"changedRows"`
+	QuestBonusGroups  []QuestBonusGroupPreview  `json:"questBonusGroups,omitempty"`
 }
 
 type rowRef struct {
@@ -126,7 +127,7 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 	}
 	validated := request
 	validated.Changes = planned
-	_, result, err := buildUpdate(file, validated)
+	candidate, result, err := buildUpdate(file, validated)
 	if err != nil {
 		return UpdatePreview{}, err
 	}
@@ -134,6 +135,17 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 	catalog, err := catalogFromFile(file, resolver)
 	if err != nil {
 		return UpdatePreview{}, err
+	}
+	for _, change := range request.Changes {
+		if change.Table == questTable {
+			spec, _ := findActivitySpec(questTable)
+			table, _, err := tableFromFile(file, resolver, spec, true)
+			if err != nil {
+				return UpdatePreview{}, err
+			}
+			catalog.Tables = append(catalog.Tables, table)
+			break
+		}
 	}
 	preview := assembleUpdatePreview(catalog, request.Changes, planned, impacts, generated, result)
 	if request.MissionRewards != nil {
@@ -207,6 +219,15 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 			})
 		}
 	}
+	if len(request.QuestBonusGroups) != 0 {
+		candidateFile, err := memorydb.OpenBytes(candidate)
+		if err != nil {
+			return UpdatePreview{}, err
+		}
+		if err := appendQuestBonusPreview(&preview, file, candidateFile, validated); err != nil {
+			return UpdatePreview{}, err
+		}
+	}
 	return preview, nil
 }
 
@@ -214,7 +235,7 @@ func validateUpdateEnvelope(request UpdateRequest) error {
 	if request.ExpectedVersion == "" {
 		return fmt.Errorf("expectedVersion is required")
 	}
-	if len(request.Changes) == 0 && request.MissionRewards == nil && request.ShopItemCellGroups == nil && request.ShopItemCells == nil && request.ShopItems == nil {
+	if len(request.Changes) == 0 && request.MissionRewards == nil && request.ShopItemCellGroups == nil && request.ShopItemCells == nil && request.ShopItems == nil && len(request.QuestBonusGroups) == 0 {
 		return fmt.Errorf("at least one change is required")
 	}
 	if len(request.Changes) > 10000 {

@@ -59,18 +59,19 @@ type Table struct {
 }
 
 type Catalog struct {
-	Version         string                 `json:"version"`
-	DefaultLanguage string                 `json:"defaultLanguage"`
-	Languages       []string               `json:"languages"`
-	TableCount      int                    `json:"tableCount"`
-	PrimaryCount    int                    `json:"primaryCount"`
-	RelatedCount    int                    `json:"relatedCount"`
-	DeliveryCount   int                    `json:"deliveryCount"`
-	RowCount        int                    `json:"rowCount"`
-	Tables          []Table                `json:"tables"`
-	MissionSources  MissionSourceCatalog   `json:"missionSources"`
-	ShopEditor      ShopEditorCatalog      `json:"shopEditor"`
-	QuestDropEditor QuestDropEditorCatalog `json:"questDropEditor"`
+	Version          string                   `json:"version"`
+	DefaultLanguage  string                   `json:"defaultLanguage"`
+	Languages        []string                 `json:"languages"`
+	TableCount       int                      `json:"tableCount"`
+	PrimaryCount     int                      `json:"primaryCount"`
+	RelatedCount     int                      `json:"relatedCount"`
+	DeliveryCount    int                      `json:"deliveryCount"`
+	RowCount         int                      `json:"rowCount"`
+	Tables           []Table                  `json:"tables"`
+	MissionSources   MissionSourceCatalog     `json:"missionSources"`
+	ShopEditor       ShopEditorCatalog        `json:"shopEditor"`
+	QuestDropEditor  QuestDropEditorCatalog   `json:"questDropEditor"`
+	QuestBonusEditor *QuestBonusEditorCatalog `json:"questBonusEditor,omitempty"`
 }
 
 type Change struct {
@@ -87,6 +88,7 @@ type UpdateRequest struct {
 	ShopItemCellGroups *[]ShopItemCellGroupInput     `json:"shopItemCellGroups,omitempty"`
 	ShopItemCells      *ShopItemCellStructuralUpdate `json:"shopItemCells,omitempty"`
 	ShopItems          *ShopItemStructuralUpdate     `json:"shopItems,omitempty"`
+	QuestBonusGroups   []QuestBonusGroupInput        `json:"questBonusGroups,omitempty"`
 }
 
 type UpdateResult struct {
@@ -191,6 +193,12 @@ func LoadTable(path, tableName string) (*Catalog, error) {
 		catalog.ShopEditor = loadShopEditor(file, resolver)
 	case "m_quest_pickup_reward_group":
 		catalog.QuestDropEditor = loadQuestDropEditor(file, resolver)
+	case questBonusTable:
+		editor, err := loadQuestBonusEditor(file, resolver)
+		if err != nil {
+			return nil, err
+		}
+		catalog.QuestBonusEditor = &editor
 	}
 	return catalog, nil
 }
@@ -352,6 +360,15 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 	}
 	structuralCells += missionRewardCells
 	structuralRows += missionRewardChangedRows
+	bonusReplacements, bonusCells, bonusRows, _, err := prepareQuestBonusGroups(file, request.QuestBonusGroups, request.Changes)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
+	for table, rows := range bonusReplacements {
+		replacements[table] = rows
+	}
+	structuralCells += bonusCells
+	structuralRows += bonusRows
 	originalEditCount := len(edits)
 	cellRows, cellCells, cellChangedRows, replaceCells, err := buildShopItemCellReplacement(file, request.ShopItemCells, edits)
 	if err != nil {
@@ -409,6 +426,17 @@ func buildUpdate(file *memorydb.File, request UpdateRequest) ([]byte, UpdateResu
 			return nil, UpdateResult{}, fmt.Errorf("validate big hunt rewards: %w", err)
 		}
 	}
+	bonusChanged := len(request.QuestBonusGroups) != 0
+	for _, change := range request.Changes {
+		if change.Table == questTable || change.Table == questBonusTable {
+			bonusChanged = true
+		}
+	}
+	if bonusChanged {
+		if err := validateQuestBonusReferences(file, candidateFile); err != nil {
+			return nil, UpdateResult{}, err
+		}
+	}
 	return candidate, UpdateResult{
 		Version:      candidateFile.Version(),
 		ChangedCells: originalEditCount + structuralCells,
@@ -421,6 +449,11 @@ func catalogFromFile(file *memorydb.File, resolver *titleResolver) (*Catalog, er
 	catalog.MissionSources = loadMissionSources(file, resolver)
 	catalog.ShopEditor = loadShopEditor(file, resolver)
 	catalog.QuestDropEditor = loadQuestDropEditor(file, resolver)
+	editor, err := loadQuestBonusEditor(file, resolver)
+	if err != nil {
+		return nil, err
+	}
+	catalog.QuestBonusEditor = &editor
 	for _, spec := range activityTableSpecs {
 		table, exists, err := tableFromFile(file, resolver, spec, true)
 		if err != nil {
