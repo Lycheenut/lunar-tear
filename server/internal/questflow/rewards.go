@@ -77,7 +77,8 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 		return outcome
 	}
 
-	isReplay := model.IsReplayQuestFlowType(user.MainQuest.CurrentQuestFlowType)
+	// Event/extra quests retain the main story's flow while they are played.
+	isReplay := target.QuestType == campaign.QuestTypeMainQuest && model.IsReplayQuestFlowType(user.MainQuest.CurrentQuestFlowType)
 
 	if !questState.IsRewardGranted && !isReplay {
 		rewardGroupId := h.firstClearRewardGroupId(user, questDef)

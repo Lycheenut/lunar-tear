@@ -37,7 +37,7 @@ func (h *QuestHandler) questDeckMissionContext(user *store.UserState, userDeckNu
 }
 
 func (h *QuestHandler) questDeckUnits(user *store.UserState, questId int32) []questDeckUnit {
-	deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: user.Quests[questId].UserDeckNumber}]
+	deck, ok := h.questDeck(user, questId)
 	if !ok {
 		return nil
 	}

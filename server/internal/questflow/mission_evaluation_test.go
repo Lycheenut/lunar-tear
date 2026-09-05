@@ -1,6 +1,7 @@
 package questflow
 
 import (
+	"fmt"
 	"testing"
 
 	"lunar-tear/server/internal/campaign"
@@ -98,6 +99,113 @@ func TestQuestMissionPowerBonusPersistsMissionsAndGrantsRewards(t *testing.T) {
 	}
 }
 
+func TestEventQuestFirstClearIgnoresMainQuestReplayFlow(t *testing.T) {
+	for _, flow := range []model.QuestFlowType{model.QuestFlowTypeMainFlow, model.QuestFlowTypeReplayFlow, model.QuestFlowTypeAnotherRouteReplayFlow} {
+		for _, deckType := range []model.DeckType{model.DeckTypeQuest, model.DeckTypeRestrictedQuest} {
+			t.Run(fmt.Sprintf("%s/deck-%d", flow, deckType), func(t *testing.T) {
+				var restrictionGroup int32
+				if deckType == model.DeckTypeRestrictedQuest {
+					restrictionGroup = 101 // Dark Memory character quests use a restricted deck.
+				}
+				h := questMissionPowerBonusTestHandler(true, restrictionGroup)
+				quest := h.QuestById[10]
+				quest.QuestFirstClearRewardGroupId = 8
+				h.QuestById[10] = quest
+				h.FirstClearRewardsByGroupId[8] = []masterdata.EntityMQuestFirstClearRewardGroup{
+					{PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 102, Count: 4},
+				}
+				h.EventChapterById = map[int32]masterdata.EntityMEventQuestChapter{99001: {EventQuestChapterId: 99001}}
+				h.EventQuestIdsByChapterId = map[int32][]int32{99001: {10}}
+				user := questMissionPowerBonusTestUser(deckType, 130000)
+				delete(user.Quests, 10)
+				user.MainQuest.CurrentQuestFlowType = int32(flow)
+				mainQuest := user.MainQuest
+
+				if err := h.HandleEventQuestStart(user, 99001, 10, true, 2, 10); err != nil {
+					t.Fatal(err)
+				}
+				outcome := h.HandleEventQuestFinish(user, 99001, 10, false, false, 12)
+				if !outcome.IsBigWin || len(outcome.BigWinClearedQuestMissionIds) != 1 || outcome.BigWinClearedQuestMissionIds[0] != 21 {
+					t.Errorf("first event clear lost power bonus: %+v", outcome)
+				}
+				if len(outcome.FirstClearRewards) != 1 || len(outcome.MissionClearRewards) != 1 || len(outcome.MissionClearCompleteRewards) != 1 {
+					t.Errorf("first event clear reward lists = %+v", outcome)
+				}
+				for _, missionId := range []int32{20, 21} {
+					mission := user.QuestMissions[store.QuestMissionKey{QuestId: 10, QuestMissionId: missionId}]
+					if !mission.IsClear || mission.ProgressValue != 1 || mission.LatestClearDatetime != 12 {
+						t.Errorf("mission %d was not persisted as cleared: %+v", missionId, mission)
+					}
+				}
+				if state := user.Quests[10]; state.ClearCount != 1 || !state.IsRewardGranted {
+					t.Errorf("first event clear state = %+v", state)
+				}
+				if user.MainQuest != mainQuest {
+					t.Fatal("event quest changed the saved main quest flow")
+				}
+
+				if err := h.HandleEventQuestStart(user, 99001, 10, true, 2, 20); err != nil {
+					t.Fatal(err)
+				}
+				second := h.HandleEventQuestFinish(user, 99001, 10, false, false, 22)
+				if second.IsBigWin || len(second.FirstClearRewards)+len(second.ClearedQuestMissionIds)+len(second.MissionClearRewards)+len(second.MissionClearCompleteRewards) != 0 {
+					t.Errorf("repeat clear granted first-clear/mission rewards again: %+v", second)
+				}
+				if user.ConsumableItems[100] != 2 || user.ConsumableItems[101] != 3 || user.ConsumableItems[102] != 4 {
+					t.Errorf("reward counts = %d/%d/%d, want 2/3/4", user.ConsumableItems[100], user.ConsumableItems[101], user.ConsumableItems[102])
+				}
+			})
+		}
+	}
+}
+
+func TestQuestMissionUsesRestrictedDeck(t *testing.T) {
+	h := questMissionPowerBonusTestHandler(true, 101)
+	h.MissionById[20] = masterdata.EntityMQuestMission{
+		QuestMissionId: 20, QuestMissionConditionType: int32(model.QuestMissionConditionTypeSpecifiedAttributeMainWeaponIsInDeck), ConditionValue: 5, QuestMissionRewardId: 200,
+	}
+	h.CostumeById = map[int32]masterdata.EntityMCostume{101: {CostumeId: 101}}
+	h.WeaponById = map[int32]masterdata.EntityMWeapon{201: {WeaponId: 201, AttributeType: 5}}
+	for _, tt := range []struct {
+		name                string
+		restrictedHasWeapon bool
+	}{
+		{name: "restricted deck satisfies mission", restrictedHasWeapon: true},
+		{name: "ordinary deck must not satisfy mission"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			user := questMissionPowerBonusTestUser(model.DeckTypeRestrictedQuest, 129999)
+			user.Costumes["costume"] = store.CostumeState{CostumeId: 101}
+			user.Weapons["weapon"] = store.WeaponState{WeaponId: 201}
+			user.DeckCharacters["dc"] = store.DeckCharacterState{UserCostumeUuid: "costume", MainUserWeaponUuid: "weapon"}
+			matchingDeck := model.DeckTypeQuest
+			if tt.restrictedHasWeapon {
+				matchingDeck = model.DeckTypeRestrictedQuest
+			}
+			user.Decks[store.DeckKey{DeckType: matchingDeck, UserDeckNumber: 2}] = store.DeckState{UserDeckCharacterUuid01: "dc", Power: 129999}
+
+			outcome := h.HandleEventQuestFinish(user, 99001, 10, false, false, 12)
+			if outcome.IsBigWin != tt.restrictedHasWeapon || user.QuestMissions[store.QuestMissionKey{QuestId: 10, QuestMissionId: 20}].IsClear != tt.restrictedHasWeapon {
+				t.Fatalf("mission checked the wrong deck: restrictedHasWeapon=%v outcome=%+v", tt.restrictedHasWeapon, outcome)
+			}
+		})
+	}
+}
+
+func TestMainQuestReplayStillSkipsMissionRewards(t *testing.T) {
+	for _, flow := range []model.QuestFlowType{model.QuestFlowTypeReplayFlow, model.QuestFlowTypeAnotherRouteReplayFlow} {
+		t.Run(flow.String(), func(t *testing.T) {
+			h := questMissionPowerBonusTestHandler(true, 0)
+			user := questMissionPowerBonusTestUser(model.DeckTypeQuest, 130000)
+			user.MainQuest.CurrentQuestFlowType = int32(flow)
+			outcome := h.HandleQuestFinish(user, 10, false, false, 12)
+			if outcome.IsBigWin || len(outcome.ClearedQuestMissionIds)+len(outcome.MissionClearRewards)+len(outcome.MissionClearCompleteRewards) != 0 {
+				t.Fatalf("main replay granted mission rewards: %+v", outcome)
+			}
+		})
+	}
+}
+
 func TestQuestFinishCountsBossesFromQuestMaster(t *testing.T) {
 	h := questMissionPowerBonusTestHandler(false, 0)
 	h.BossCountByQuestId = map[int32]int32{10: 2}
@@ -191,12 +299,12 @@ func TestReplayRewardGroupIsClaimedOnce(t *testing.T) {
 	user.EnsureMaps()
 	user.Quests[10] = store.UserQuestState{QuestId: 10}
 	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeReplayFlow)
-	first := h.evaluateFinishOutcome(user, 10, campaign.QuestTarget{}, 2)
+	first := h.evaluateFinishOutcome(user, 10, h.targetForMain(10), 2)
 	if first.ReplayRewardGroupId != 7 || len(first.ReplayFlowFirstClearRewards) != 1 {
 		t.Fatal("first replay reward was not produced")
 	}
 	user.QuestReplayFlowRewards[7] = store.QuestReplayFlowRewardState{QuestReplayFlowRewardGroupId: 7}
-	second := h.evaluateFinishOutcome(user, 10, campaign.QuestTarget{}, 3)
+	second := h.evaluateFinishOutcome(user, 10, h.targetForMain(10), 3)
 	if second.ReplayRewardGroupId != 0 || len(second.ReplayFlowFirstClearRewards) != 0 {
 		t.Fatal("replay reward was produced twice")
 	}
