@@ -216,15 +216,37 @@ func (s *PartsServiceServer) Enhance(ctx context.Context, req *pb.PartsEnhanceRe
 func grantPartsSubStatuses(catalog *masterdata.PartsCatalog, user *store.UserState, uuid string, part store.PartsState, partDef masterdata.EntityMParts, nowMillis int64) {
 	unlockLevels := catalog.SubStatusUnlockLvls[partDef.RarityType]
 	pool := catalog.SubStatusPool[partDef.PartsStatusSubLotteryGroupId]
-	if len(pool) == 0 {
-		return
-	}
 
 	for slotIdx, lvl := range unlockLevels {
 		if part.Level != lvl {
 			continue
 		}
 		statusIndex := int32(slotIdx + 1)
+		existingKeys := make([]store.PartsStatusSubKey, 0, len(unlockLevels))
+		for key := range user.PartsStatusSubs {
+			if key.UserPartsUuid == uuid {
+				existingKeys = append(existingKeys, key)
+			}
+		}
+		if len(existingKeys) >= int(statusIndex) {
+			key := existingKeys[rand.Intn(len(existingKeys))]
+			sub := user.PartsStatusSubs[key]
+			def, ok := catalog.PartsStatusMainById[sub.PartsStatusSubLotteryId]
+			if !ok {
+				continue
+			}
+			sub.Level = part.Level
+			sub.StatusChangeValue += def.StatusChangeInitialValue
+			if f, ok := catalog.FuncResolver.Resolve(def.StatusNumericalFunctionId); ok {
+				sub.StatusChangeValue = f.Evaluate(sub.Level)
+			}
+			sub.LatestVersion = nowMillis
+			user.PartsStatusSubs[key] = sub
+			log.Printf("[PartsService] Enhance: enhanced sub-status slot=%d lotteryId=%d val=%d",
+				sub.StatusIndex, sub.PartsStatusSubLotteryId, sub.StatusChangeValue)
+			continue
+		}
+
 		key := store.PartsStatusSubKey{UserPartsUuid: uuid, StatusIndex: statusIndex}
 		if _, exists := user.PartsStatusSubs[key]; exists {
 			continue
