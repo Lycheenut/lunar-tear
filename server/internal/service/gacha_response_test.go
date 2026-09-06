@@ -40,6 +40,38 @@ func TestChapterPromotionReportsConfiguredQuantityAndMonthlyProgress(t *testing.
 	}
 }
 
+func TestChapterPromotionPreservesUnlimitedCount(t *testing.T) {
+	entry := store.GachaCatalogEntry{
+		GachaLabelType: model.GachaLabelChapter,
+		GachaModeType:  model.GachaModeBox,
+		PromotionItems: []store.GachaPromotionItem{{
+			PossessionType: int32(model.PossessionTypeMaterial),
+			PossessionId:   100003,
+			Count:          6,
+			CounterId:      1,
+			IsTarget:       true,
+		}},
+	}
+	wire, err := proto.Marshal(toProtoGacha(entry, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := &pb.Gacha{}
+	if err := proto.Unmarshal(wire, decoded); err != nil {
+		t.Fatal(err)
+	}
+	items := decoded.GetGachaModeBoxComposition().GetPromotionGachaOddsItem()
+	if len(items) != 1 {
+		t.Fatalf("promotion count = %d, want 1", len(items))
+	}
+	if items[0].MaxDrawableCount != 0 {
+		t.Fatalf("unlimited promotion max drawable count = %d, want 0 for the client's infinity display", items[0].MaxDrawableCount)
+	}
+	if items[0].GachaItem.Count != 6 || items[0].DrewCount != 0 {
+		t.Fatalf("unlimited chapter promotion = %+v", items[0])
+	}
+}
+
 func TestPremiumPickupPromotionPairsCostumeAndWeaponOrder(t *testing.T) {
 	entry := store.GachaCatalogEntry{
 		GachaLabelType: model.GachaLabelPremium,
