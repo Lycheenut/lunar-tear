@@ -729,10 +729,6 @@ func buildProtoPromotionItems(entry store.GachaCatalogEntry, bs *store.GachaBann
 		if count <= 0 {
 			count = 1
 		}
-		maxDrawableCount := pi.MaxDrawableCount
-		if maxDrawableCount <= 0 {
-			maxDrawableCount = 999
-		}
 		var drewCount int32
 		if bs != nil && (entry.GachaLabelType != model.GachaLabelChapter || bs.BoxDrewCounts[model.ChapterGachaMonthCounterId] == gametime.BusinessMonthKey(gametime.NowMillis())) {
 			drewCount = bs.BoxDrewCounts[pi.CounterId]
@@ -754,7 +750,7 @@ func buildProtoPromotionItems(entry store.GachaCatalogEntry, bs *store.GachaBann
 				PromotionOrder: int32(i + 1),
 			},
 			GachaItemBonus:   bonus,
-			MaxDrawableCount: maxDrawableCount,
+			MaxDrawableCount: pi.MaxDrawableCount,
 			DrewCount:        drewCount,
 			IsTarget:         pi.IsTarget,
 		})
