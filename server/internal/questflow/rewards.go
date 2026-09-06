@@ -66,7 +66,7 @@ func (h *QuestHandler) questMissionPowerBonusApplies(user *store.UserState, ques
 
 func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int32, target campaign.QuestTarget, nowMillis int64) FinishOutcome {
 	outcome := FinishOutcome{}
-	questState, ok := user.Quests[questId]
+	_, ok := user.Quests[questId]
 	if !ok {
 		log.Printf("[evaluateFinishOutcome] quest %d has no user state", questId)
 		return outcome
@@ -79,9 +79,13 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 
 	// Event/extra quests retain the main story's flow while they are played.
 	isReplay := target.QuestType == campaign.QuestTypeMainQuest && model.IsReplayQuestFlowType(user.MainQuest.CurrentQuestFlowType)
+	completionQuestId := h.completionQuestId(questId, isReplay)
+	completionQuestDef := h.QuestById[completionQuestId]
+	questState := user.Quests[completionQuestId]
+	canComplete := !isReplay || completionQuestId != questId
 
-	if !questState.IsRewardGranted && !isReplay {
-		rewardGroupId := h.firstClearRewardGroupId(user, questDef)
+	if !questState.IsRewardGranted && canComplete {
+		rewardGroupId := h.firstClearRewardGroupId(user, completionQuestDef)
 		for _, reward := range h.FirstClearRewardsByGroupId[rewardGroupId] {
 			outcome.FirstClearRewards = append(outcome.FirstClearRewards, RewardGrant{
 				PossessionType: model.PossessionType(reward.PossessionType),
@@ -105,21 +109,20 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 		}
 	}
 
-	// Mission rewards / BigWin are first-clear concepts. Reference
-	// IUserQuestMissionTable has no rows for replay-variant ids (30000+):
-	// the popup is empty on replay in the original game.
-	if !isReplay {
-		powerBonusApplies := h.questMissionPowerBonusApplies(user, questId, questDef)
+	// Replay mission history belongs to the same difficulty's sub-flow quest.
+	// Evaluate its conditions against the active replay's deck and battle result.
+	if canComplete {
+		powerBonusApplies := h.questMissionPowerBonusApplies(user, questId, completionQuestDef)
 		regularMissionCount := 0
 		clearedOrSatisfied := 0
-		for _, questMissionId := range h.MissionIdsByQuestId[questId] {
+		for _, questMissionId := range h.MissionIdsByQuestId[completionQuestId] {
 			missionDef, ok := h.MissionById[questMissionId]
 			if !ok || model.QuestMissionConditionType(missionDef.QuestMissionConditionType) == model.QuestMissionConditionTypeComplete {
 				continue
 			}
 			regularMissionCount++
 
-			key := store.QuestMissionKey{QuestId: questId, QuestMissionId: questMissionId}
+			key := store.QuestMissionKey{QuestId: completionQuestId, QuestMissionId: questMissionId}
 			mission := user.QuestMissions[key]
 			if mission.IsClear {
 				clearedOrSatisfied++
@@ -135,12 +138,12 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 
 		allRegularWillClear := regularMissionCount > 0 && clearedOrSatisfied == regularMissionCount
 		if allRegularWillClear {
-			for _, questMissionId := range h.MissionIdsByQuestId[questId] {
+			for _, questMissionId := range h.MissionIdsByQuestId[completionQuestId] {
 				missionDef, ok := h.MissionById[questMissionId]
 				if !ok || model.QuestMissionConditionType(missionDef.QuestMissionConditionType) != model.QuestMissionConditionTypeComplete {
 					continue
 				}
-				key := store.QuestMissionKey{QuestId: questId, QuestMissionId: questMissionId}
+				key := store.QuestMissionKey{QuestId: completionQuestId, QuestMissionId: questMissionId}
 				if !user.QuestMissions[key].IsClear {
 					outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
 					outcome.MissionClearCompleteRewards = appendMissionRewards(
@@ -151,6 +154,16 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 				}
 			}
 			outcome.IsBigWin = len(outcome.BigWinClearedQuestMissionIds) > 0
+		}
+
+		// Secret Story conditions use hidden quest missions. Persist their
+		// actual battle/deck results without rewards, stars, or the power bonus.
+		for _, questMissionId := range h.InvisibleMissionIdsByQuestId[completionQuestId] {
+			missionDef, ok := h.MissionById[questMissionId]
+			key := store.QuestMissionKey{QuestId: completionQuestId, QuestMissionId: questMissionId}
+			if ok && !user.QuestMissions[key].IsClear && h.questMissionSatisfied(user, questId, missionDef) {
+				outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
+			}
 		}
 	}
 

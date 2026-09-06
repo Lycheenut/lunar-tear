@@ -90,10 +90,12 @@ type QuestCatalog struct {
 	QuestById                          map[int32]EntityMQuest
 	QuestReleaseConditionsByListId     map[int32]QuestReleaseConditionGroup
 	MissionIdsByQuestId                map[int32][]int32
+	InvisibleMissionIdsByQuestId       map[int32][]int32
 	RouteIdByQuestId                   map[int32]int32
 	MainQuestDifficultyTypeByQuestId   map[int32]int32
 	MainFlowQuestIdByQuestId           map[int32]int32
 	ReplayQuestIdsByMainQuestId        map[int32][]int32
+	SubFlowQuestIdByReplayQuestId      map[int32]int32
 	SceneIdsByQuestId                  map[int32][]int32
 	OrderedQuestIds                    []int32
 	FirstClearRewardsByGroupId         map[int32][]EntityMQuestFirstClearRewardGroup
@@ -782,7 +784,11 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 			missionIdsByGroupId[mg.QuestMissionGroupId], mg.QuestMissionId)
 	}
 	missionIdsByQuestId := make(map[int32][]int32)
+	invisibleMissionIdsByQuestId := make(map[int32][]int32)
 	for questId, quest := range questById {
+		if missionIds := missionIdsByGroupId[quest.InvisibleQuestMissionGroupId]; len(missionIds) > 0 {
+			invisibleMissionIdsByQuestId[questId] = append([]int32(nil), missionIds...)
+		}
 		missionIds := missionIdsByGroupId[quest.QuestMissionGroupId]
 		if len(missionIds) == 0 {
 			continue
@@ -814,6 +820,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	}
 	mainFlowQuestIdByQuestId := make(map[int32]int32, len(questRelations)*3)
 	replayFlowQuestIdsByMainFlowQuestId := make(map[int32][]int32, len(questRelations))
+	subFlowQuestIdByReplayQuestId := make(map[int32]int32, len(questRelations))
 	for _, relation := range questRelations {
 		for _, questId := range []int32{relation.MainFlowQuestId, relation.ReplayFlowQuestId, relation.SubFlowQuestId} {
 			if questId != 0 {
@@ -823,6 +830,9 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		if relation.MainFlowQuestId != 0 && relation.ReplayFlowQuestId != 0 {
 			replayFlowQuestIdsByMainFlowQuestId[relation.MainFlowQuestId] = append(
 				replayFlowQuestIdsByMainFlowQuestId[relation.MainFlowQuestId], relation.ReplayFlowQuestId)
+		}
+		if relation.ReplayFlowQuestId != 0 && relation.SubFlowQuestId != 0 {
+			subFlowQuestIdByReplayQuestId[relation.ReplayFlowQuestId] = relation.SubFlowQuestId
 		}
 	}
 
@@ -1129,6 +1139,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	return &QuestCatalog{
 		SceneById:                          sceneById,
 		MissionById:                        missionById,
+		InvisibleMissionIdsByQuestId:       invisibleMissionIdsByQuestId,
 		QuestById:                          questById,
 		QuestReleaseConditionsByListId:     questReleaseConditionsByListId,
 		MissionIdsByQuestId:                missionIdsByQuestId,
@@ -1136,6 +1147,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		MainQuestDifficultyTypeByQuestId:   mainQuestDifficultyTypeByQuestId,
 		MainFlowQuestIdByQuestId:           mainFlowQuestIdByQuestId,
 		ReplayQuestIdsByMainQuestId:        replayFlowQuestIdsByMainFlowQuestId,
+		SubFlowQuestIdByReplayQuestId:      subFlowQuestIdByReplayQuestId,
 		SceneIdsByQuestId:                  sceneIdsByQuestId,
 		OrderedQuestIds:                    orderedQuestIds,
 		FirstClearRewardsByGroupId:         firstClearRewardsByGroupId,

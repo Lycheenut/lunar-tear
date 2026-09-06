@@ -41,6 +41,34 @@ func TestEveryClearConditionEnumAcceptsProgress(t *testing.T) {
 	}
 }
 
+func TestQuestClearCountDoesNotDoubleCountMapReplay(t *testing.T) {
+	catalogs := testCatalog(masterdata.EntityMMission{})
+	catalogs.Quest = &masterdata.QuestCatalog{
+		SubFlowQuestIdByReplayQuestId:    map[int32]int32{50009: 20009},
+		MainQuestDifficultyTypeByQuestId: map[int32]int32{20009: mainQuestDifficultyVeryHard},
+	}
+	user := &store.UserState{Quests: map[int32]store.UserQuestState{
+		20009: {ClearCount: 3, DailyClearCount: 2, LastClearDatetime: 200},
+		50009: {ClearCount: 2, DailyClearCount: 2, LastClearDatetime: 200},
+		10009: {ClearCount: 4, DailyClearCount: 1, LastClearDatetime: 200},
+	}}
+	for _, tt := range []struct {
+		name   string
+		option int32
+		want   int32
+	}{
+		{name: "all quests", want: 7},
+		{name: "very hard quests", option: questClearOptionMainQuestVeryHard, want: 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mission := masterdata.EntityMMission{MissionClearConditionOptionGroupId: tt.option}
+			if got := questClearCount(catalogs, user, mission, store.UserMissionState{}); got != tt.want {
+				t.Fatalf("quest clear count = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEveryUnlockConditionEnum(t *testing.T) {
 	resolver := loadConditionResolver(t)
 	tests := []struct {
@@ -508,7 +536,36 @@ func TestWithoutSkipSpecificQuestRequiresSoloCharacter(t *testing.T) {
 	}
 }
 
-func TestDynastMemoriesFirstFloorRequiresSaryuClearEvent(t *testing.T) {
+func TestSecretStoryWeaponLimitBreakCondition(t *testing.T) {
+	resolver := loadConditionResolver(t)
+	missions, err := masterdata.LoadMissionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mission := missions.MissionById[500018]
+	// Isolate the counter from Secret Story's feature unlock and schedule.
+	mission.MissionUnlockConditionId, mission.MissionTermId = 0, 0
+	catalogs := testCatalog(mission)
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.Missions[500018] = store.UserMissionState{MissionId: 500018, ProgressValue: 8, MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress)}
+	user.Weapons["weapon"] = store.WeaponState{WeaponId: 1}
+	for count := int32(1); count <= 2; count++ {
+		before := store.CloneUserState(*user)
+		weapon := user.Weapons["weapon"]
+		weapon.LimitBreakCount = count
+		user.Weapons["weapon"] = weapon
+		Apply(catalogs, &before, user, nil, int64(count)*100)
+		if got := user.Missions[500018].ProgressValue; got != 8+count {
+			t.Fatalf("limit-break progress = %d, want %d", got, 8+count)
+		}
+		if got := resolver.Satisfied(511902, user); got != (count == 2) {
+			t.Fatalf("weapon condition at %d limit breaks = %v", 8+count, got)
+		}
+	}
+}
+
+func TestDynastMemoriesTenthFloorRequiresSaryuClearEvent(t *testing.T) {
 	mission := masterdata.EntityMMission{
 		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeQuestClearByCount),
 		MissionClearConditionOptionGroupId: 500004, ClearConditionValue: 1,
@@ -522,7 +579,7 @@ func TestDynastMemoriesFirstFloorRequiresSaryuClearEvent(t *testing.T) {
 	user := &store.UserState{}
 	user.EnsureMaps()
 	user.Quests[500004] = store.UserQuestState{QuestId: 500004, ClearCount: 1}
-	user.Quests[210001] = store.UserQuestState{QuestId: 210001, ClearCount: 1}
+	user.Quests[210010] = store.UserQuestState{QuestId: 210010, ClearCount: 1}
 
 	Sync(catalogs, user, 100)
 	if state := user.Missions[1]; state.ProgressValue != 0 || state.MissionProgressStatusType != int32(model.MissionProgressStatusTypeInProgress) {
@@ -532,7 +589,7 @@ func TestDynastMemoriesFirstFloorRequiresSaryuClearEvent(t *testing.T) {
 	Apply(catalogs, nil, user, []store.MissionEvent{{
 		ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
 		Count:              1,
-		TargetId:           210001,
+		TargetId:           210010,
 		DeckCharacterIds:   []int32{1015},
 		QuestClearWithDeck: true,
 	}}, 200)
@@ -548,7 +605,7 @@ func TestDynastMemoriesFirstFloorRequiresSaryuClearEvent(t *testing.T) {
 	Apply(catalogs, nil, user, []store.MissionEvent{{
 		ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
 		Count:              1,
-		TargetId:           210001,
+		TargetId:           210010,
 		DeckCharacterIds:   []int32{1022, 1015},
 		QuestClearWithDeck: true,
 	}}, 300)
@@ -1024,11 +1081,11 @@ func TestCurrentMasterSpecificQuestTargets(t *testing.T) {
 	if questMissionMatches(catalogs, dynastMission, 500004) {
 		t.Fatal("colliding Event Quest chapter ID matched the Dynast's Memories mission")
 	}
-	if !questMissionMatches(catalogs, dynastMission, 210001) {
-		t.Fatal("Dynast's Memories 1F quest did not match mission 500007")
+	if !questMissionMatches(catalogs, dynastMission, 210010) {
+		t.Fatal("Dynast's Memories 10F quest did not match mission 500007")
 	}
-	if questMissionMatches(catalogs, dynastMission, 210010) {
-		t.Fatal("Dynast's Memories 10F quest matched the 1F mission 500007")
+	if questMissionMatches(catalogs, dynastMission, 210001) {
+		t.Fatal("Dynast's Memories 1F quest matched the 10F mission 500007")
 	}
 
 	for option, targetIds := range specificEventQuestTargetsByOption {

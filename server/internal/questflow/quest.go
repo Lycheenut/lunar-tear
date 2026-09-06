@@ -50,6 +50,15 @@ func (h *QuestHandler) isReplayQuestId(questId int32) bool {
 	return false
 }
 
+func (h *QuestHandler) completionQuestId(questId int32, isReplay bool) int32 {
+	if isReplay {
+		if subFlowQuestId := h.SubFlowQuestIdByReplayQuestId[questId]; subFlowQuestId != 0 {
+			return subFlowQuestId
+		}
+	}
+	return questId
+}
+
 func isMainQuestPlayable(quest masterdata.EntityMQuest) bool {
 	if quest.IsRunInTheBackground {
 		// A background quest is still actively played — and must NOT be
@@ -114,6 +123,7 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 		}
 
 	case isReplayFlow:
+		user.Quests[questId] = questState
 		h.applyReplayStart(user, quest, questId, isBattleOnly, nowMillis)
 		return nil
 	}
@@ -204,15 +214,21 @@ func (h *QuestHandler) menuPickSceneId(questId int32, isBattleOnly bool) int32 {
 }
 
 func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, target campaign.QuestTarget, outcome *FinishOutcome, nowMillis int64, wasReplay bool) {
-	questState := user.Quests[questId]
+	completionQuestId := h.completionQuestId(questId, wasReplay)
+	h.initQuestState(user, completionQuestId)
+	questState := user.Quests[completionQuestId]
+	if completionQuestId != questId {
+		questState.UserDeckNumber = user.Quests[questId].UserDeckNumber
+		questState.LatestStartDatetime = user.Quests[questId].LatestStartDatetime
+	}
 	h.applyExpAndGoldRewards(user, questId, target, nowMillis)
 	if !questState.IsRewardGranted {
-		if !wasReplay {
-			h.applyFirstClearItemRewards(user, questId, nowMillis)
+		if !wasReplay || completionQuestId != questId {
+			h.applyFirstClearItemRewards(user, completionQuestId, nowMillis)
 			outcome.ChangedWeaponStoryIds = append(outcome.ChangedWeaponStoryIds,
-				h.grantWeaponStoryUnlocksForQuestScene(user, questId, model.QuestResultTypeHalfResult, nowMillis)...)
+				h.grantWeaponStoryUnlocksForQuestScene(user, completionQuestId, model.QuestResultTypeHalfResult, nowMillis)...)
 			outcome.ChangedWeaponStoryIds = append(outcome.ChangedWeaponStoryIds,
-				h.grantWeaponStoryUnlocksForQuestScene(user, questId, model.QuestResultTypeFullResult, nowMillis)...)
+				h.grantWeaponStoryUnlocksForQuestScene(user, completionQuestId, model.QuestResultTypeFullResult, nowMillis)...)
 		}
 
 		questState.IsRewardGranted = true
@@ -224,9 +240,9 @@ func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, t
 		h.applyRewardPossession(user, r.PossessionType, r.PossessionId, r.Count, nowMillis)
 	}
 	for _, missionId := range outcome.ClearedQuestMissionIds {
-		key := store.QuestMissionKey{QuestId: questId, QuestMissionId: missionId}
+		key := store.QuestMissionKey{QuestId: completionQuestId, QuestMissionId: missionId}
 		mission := user.QuestMissions[key]
-		mission.QuestId = questId
+		mission.QuestId = completionQuestId
 		mission.QuestMissionId = missionId
 		mission.IsClear = true
 		mission.ProgressValue = 1
@@ -247,9 +263,19 @@ func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, t
 		}
 	}
 	questState.QuestStateType = model.UserQuestStateTypeCleared
-	h.recordQuestClears(user, &questState, questId, 1, true, nowMillis)
+	h.recordQuestClears(user, &questState, completionQuestId, 1, true, nowMillis)
 	questState.IsBattleOnly = false
-	user.Quests[questId] = questState
+	user.Quests[completionQuestId] = questState
+	if completionQuestId != questId {
+		// Keep the replay's own completion for resume / portal recovery, but
+		// emit clear events only for the matching difficulty's regular quest.
+		replayState := user.Quests[questId]
+		replayState.QuestStateType = model.UserQuestStateTypeCleared
+		replayState.IsRewardGranted = true
+		replayState.IsBattleOnly = false
+		h.recordQuestClears(user, &replayState, questId, 1, false, nowMillis)
+		user.Quests[questId] = replayState
+	}
 }
 
 func (h *QuestHandler) finalizeChainPreviousQuest(user *store.UserState, questId int32, nowMillis int64) {
@@ -310,7 +336,7 @@ func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, i
 		target := h.targetForMain(questId)
 		outcome = h.evaluateFinishOutcome(user, questId, target, nowMillis)
 		h.applyQuestVictory(user, questId, target, &outcome, nowMillis, wasReplay)
-		store.AddMissionCount(user, int32(model.MissionClearConditionTypeDefeatBossCount), h.BossCountByQuestId[questId], questId, 0)
+		store.AddMissionCount(user, int32(model.MissionClearConditionTypeDefeatBossCount), h.BossCountByQuestId[questId], h.completionQuestId(questId, wasReplay), 0)
 
 		// A replay-flow finish must NOT move the MainFlow scene pointer: the
 		// finished quest is a replay-variant (30000+) with no chapter, so a
