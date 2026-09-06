@@ -144,6 +144,11 @@ func TestLoadQuestCatalogResolvesEventUnlockQuests(t *testing.T) {
 			t.Fatalf("main quest chapter %d route = %d, want %d", chapterId, got, catalog.RouteIdByQuestId[questId])
 		}
 	}
+	for replayQuestId, wantQuestId := range map[int32]int32{30009: 16, 40009: 10009, 50009: 20009} {
+		if got := catalog.SubFlowQuestIdByReplayQuestId[replayQuestId]; got != wantQuestId {
+			t.Fatalf("replay quest %d completion quest = %d, want %d", replayQuestId, got, wantQuestId)
+		}
+	}
 	for questId, wantMainFlowQuestId := range map[int32]int32{334: 334, 30330: 334, 40330: 334, 10330: 334} {
 		if got := catalog.MainFlowQuestIdByQuestId[questId]; got != wantMainFlowQuestId {
 			t.Fatalf("quest %d main-flow relation = %d, want %d", questId, got, wantMainFlowQuestId)

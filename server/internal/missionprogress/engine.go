@@ -603,6 +603,10 @@ func questClearCount(catalogs *runtime.Catalogs, user *store.UserState, mission 
 	}
 	var count int32
 	for questId, state := range user.Quests {
+		// Replay completion is also recorded on its matching sub-flow quest.
+		if catalogs != nil && catalogs.Quest != nil && catalogs.Quest.SubFlowQuestIdByReplayQuestId[questId] != 0 {
+			continue
+		}
 		if !questMissionMatches(catalogs, mission, questId) {
 			continue
 		}

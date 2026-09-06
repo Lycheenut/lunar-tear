@@ -41,6 +41,34 @@ func TestEveryClearConditionEnumAcceptsProgress(t *testing.T) {
 	}
 }
 
+func TestQuestClearCountDoesNotDoubleCountMapReplay(t *testing.T) {
+	catalogs := testCatalog(masterdata.EntityMMission{})
+	catalogs.Quest = &masterdata.QuestCatalog{
+		SubFlowQuestIdByReplayQuestId:    map[int32]int32{50009: 20009},
+		MainQuestDifficultyTypeByQuestId: map[int32]int32{20009: mainQuestDifficultyVeryHard},
+	}
+	user := &store.UserState{Quests: map[int32]store.UserQuestState{
+		20009: {ClearCount: 3, DailyClearCount: 2, LastClearDatetime: 200},
+		50009: {ClearCount: 2, DailyClearCount: 2, LastClearDatetime: 200},
+		10009: {ClearCount: 4, DailyClearCount: 1, LastClearDatetime: 200},
+	}}
+	for _, tt := range []struct {
+		name   string
+		option int32
+		want   int32
+	}{
+		{name: "all quests", want: 7},
+		{name: "very hard quests", option: questClearOptionMainQuestVeryHard, want: 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mission := masterdata.EntityMMission{MissionClearConditionOptionGroupId: tt.option}
+			if got := questClearCount(catalogs, user, mission, store.UserMissionState{}); got != tt.want {
+				t.Fatalf("quest clear count = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEveryUnlockConditionEnum(t *testing.T) {
 	resolver := loadConditionResolver(t)
 	tests := []struct {
