@@ -211,6 +211,7 @@
 
   const questBonusEditor = window.createQuestBonusEditor?.({
     root: $("#quest-bonus-editor"), onChange: updateDirtyUI, localizedText,
+    formatDatetime: (value) => previewChangeValue(value, true),
     showError: (message) => showNotice(message, true)
   });
 
@@ -360,7 +361,7 @@
   }
 
   function renderCatalog() {
-    const tables = configurationTables();
+    const tables = configurationTables().sort((left, right) => tableDisplayName(left).localeCompare(tableDisplayName(right), "en", { sensitivity: "base" }));
     const previous = state.tableSelections[state.section] || elements.tableSelect.value;
     elements.tableSelect.replaceChildren();
     if (state.section !== "drop") {
@@ -371,8 +372,7 @@
     tables.forEach((table) => {
       const option = document.createElement("option");
       option.value = table.name;
-      option.textContent = `${tableDisplayName(table)}（${Number(table.rowCount || 0).toLocaleString()} 行）`;
-      option.title = table.name;
+      option.textContent = tableDisplayName(table);
       elements.tableSelect.append(option);
     });
     elements.tableSelect.value = tables.some((table) => table.name === previous) ? previous : "";
@@ -836,8 +836,8 @@
     const isQuestBonusEditor = table.name === "m_quest_bonus";
     $("#quest-bonus-editor").classList.toggle("hidden", !isQuestBonusEditor);
     elements.tableSearchLabel.classList.toggle("hidden", isQuestBonusEditor || ["delivery", "drop"].includes(state.section));
-    elements.timezone.disabled = isQuestBonusEditor;
-    elements.timezone.value = isQuestBonusEditor ? "utc" : state.timeMode;
+    elements.timezone.disabled = false;
+    elements.timezone.value = state.timeMode;
     elements.entityName.textContent = table.name;
     elements.tableName.textContent = tableDisplayName(table);
     elements.modeControl.classList.toggle("hidden", !table.primary || isMissionEditor || isShopEditor || isQuestDropEditor);
@@ -847,7 +847,7 @@
     elements.missionTermEditor.classList.toggle("hidden", !isMissionTerm);
     elements.shopEditor.classList.toggle("hidden", !isShopEditor);
     elements.questDropEditor.classList.toggle("hidden", !isQuestDropEditor);
-    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionEditor || isShopEditor || isQuestDropEditor);
+    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionEditor || isShopEditor || isQuestDropEditor || isQuestBonusEditor);
     elements.tableScroll.classList.toggle("mission-term-mode", isMissionTerm);
     elements.tableScroll.classList.toggle("shop-mode", isShopEditor);
     elements.tableScroll.classList.toggle("quest-drop-mode", isQuestDropEditor);
@@ -2621,15 +2621,12 @@
     const preview = renderMissionRewardInlinePreview(table, rewardID);
     const select = document.createElement("select");
     select.className = "mission-reward-assignment-select";
-    populateMissionRewardSelect(select, table, rewardID, false);
+    select.append(new Option(missionRewardOptionLabel(table, rewardID), String(rewardID)));
     select.dataset.table = "m_mission";
     select.dataset.row = String(source.row);
     select.dataset.field = "MissionRewardId";
     select.setAttribute("aria-label", `${description.textContent} 的 RewardId`);
     select.classList.toggle("changed", state.dirty.has(changeKey("m_mission", source.row, "MissionRewardId")));
-    const populate = () => populateMissionRewardSelect(select, table, select.value, true);
-    select.addEventListener("focus", populate);
-    select.addEventListener("pointerdown", populate);
     select.addEventListener("change", () => {
       onFieldChange(
         { name: "m_mission" },
@@ -2639,7 +2636,12 @@
       );
       renderTable();
     });
-    editor.append(preview, select);
+    const picker = createSearchableSelect(select, {
+      options: () => missionRewardIDs(table).map(id => ({ value: id, label: missionRewardOptionLabel(table, id) })),
+      ariaLabel: select.getAttribute("aria-label"), placeholder: "搜索 RewardId 或奖励名称"
+    });
+    picker.querySelector("input").classList.toggle("changed", select.classList.contains("changed"));
+    editor.append(preview, picker);
     reward.append(editor);
     tr.append(missionID, description, reward);
     return tr;
@@ -2812,28 +2814,6 @@
     return [...new Set(missionRewardEditorRows(table).map((row) => row.values.MissionRewardId))].sort(compareFieldValues);
   }
 
-  function populateMissionRewardSelect(select, table, selectedID, expanded) {
-    if (expanded && select.dataset.expanded === "true") return;
-    const rewardIDs = missionRewardIDs(table);
-    const options = expanded ? rewardIDs : rewardIDs.includes(String(selectedID)) ? [String(selectedID)] : [];
-    select.replaceChildren();
-    options.forEach((rewardID) => {
-      const option = document.createElement("option");
-      option.value = rewardID;
-      option.textContent = missionRewardOptionLabel(table, rewardID);
-      select.append(option);
-    });
-    if (!options.includes(String(selectedID))) {
-      const unknown = document.createElement("option");
-      unknown.value = String(selectedID);
-      unknown.textContent = idNameLabel(selectedID, "未知奖励");
-      select.append(unknown);
-    }
-    select.value = String(selectedID);
-    select.title = select.options[select.selectedIndex]?.textContent || "";
-    select.dataset.expanded = String(expanded);
-  }
-
   function missionRewardOptionLabel(table, rewardID) {
     const summaries = missionRewardRows(table, rewardID).map((row) => {
       const possessionType = effectiveValue(table.name, row, "PossessionType");
@@ -2947,15 +2927,12 @@
     const preview = renderMissionTermInlinePreview(table, termID);
     const select = document.createElement("select");
     select.className = "mission-term-assignment-select";
-    populateMissionTermSelect(select, table, termID, false);
+    select.append(new Option(missionTermOptionLabel(table, termID), String(termID)));
     select.dataset.table = "m_mission";
     select.dataset.row = String(source.row);
     select.dataset.field = "MissionTermId";
     select.setAttribute("aria-label", `${description.textContent} 的 TermId`);
     select.classList.toggle("changed", state.dirty.has(changeKey("m_mission", source.row, "MissionTermId")));
-    const populate = () => populateMissionTermSelect(select, table, select.value, true);
-    select.addEventListener("focus", populate);
-    select.addEventListener("pointerdown", populate);
     select.addEventListener("change", () => {
       onFieldChange(
         { name: "m_mission" },
@@ -2965,7 +2942,12 @@
       );
       renderTable();
     });
-    editor.append(preview, select);
+    const picker = createSearchableSelect(select, {
+      options: () => missionTermIDs(table).map(id => ({ value: id, label: missionTermOptionLabel(table, id) })),
+      ariaLabel: select.getAttribute("aria-label"), placeholder: "搜索 TermId 或期限"
+    });
+    picker.querySelector("input").classList.toggle("changed", select.classList.contains("changed"));
+    editor.append(preview, picker);
     term.append(editor);
     tr.append(missionID, description, term);
     return tr;
@@ -3010,28 +2992,6 @@
 
   function missionTermIDs(table) {
     return table.rows.map((row) => row.values.MissionTermId).sort(compareFieldValues);
-  }
-
-  function populateMissionTermSelect(select, table, selectedID, expanded) {
-    if (expanded && select.dataset.expanded === "true") return;
-    const termIDs = missionTermIDs(table);
-    const options = expanded ? termIDs : termIDs.includes(String(selectedID)) ? [String(selectedID)] : [];
-    select.replaceChildren();
-    options.forEach((termID) => {
-      const option = document.createElement("option");
-      option.value = termID;
-      option.textContent = missionTermOptionLabel(table, termID);
-      select.append(option);
-    });
-    if (!options.includes(String(selectedID))) {
-      const unknown = document.createElement("option");
-      unknown.value = String(selectedID);
-      unknown.textContent = idNameLabel(selectedID, "未知期限");
-      select.append(unknown);
-    }
-    select.value = String(selectedID);
-    select.title = select.options[select.selectedIndex]?.textContent || "";
-    select.dataset.expanded = String(expanded);
   }
 
   function missionTermOptionLabel(table, termID) {
@@ -3867,7 +3827,7 @@
   }
 
   function tableDisplayName(table) {
-    if (table.name === "m_quest_bonus") return "活动共鸣还原";
+    if (table.name === "m_quest_bonus") return "QuestBonus";
     if (table.entityName?.startsWith("EntityM")) return table.entityName.slice("EntityM".length);
     return table.name.replace(/^m_/, "").split("_").filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");

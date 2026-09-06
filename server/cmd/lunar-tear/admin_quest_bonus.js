@@ -124,14 +124,14 @@
   }
   window.QuestBonusDraft = QuestBonusDraft;
 
-  window.createQuestBonusEditor = ({ root, onChange, localizedText, showError }) => {
+  window.createQuestBonusEditor = ({ root, onChange, localizedText, showError, formatDatetime }) => {
     let draft = new QuestBonusDraft(), chapterID = "", phaseIndex = 0, limitBreak = 4;
     const node = (tag, content, className) => { const el = document.createElement(tag); if (content !== undefined) el.textContent = content; if (className) el.className = className; return el; };
     const button = (content, action, className = "button ghost") => { const el = node("button", content, className); el.type = "button"; el.addEventListener("click", action); return el; };
     const title = member => localizedText(member?.titles) || member?.itemID || String(member?.id || "");
     const chapter = id => draft.catalog.chapters.find(row => row.values.EventQuestChapterId === String(id));
     const chapterTitle = id => localizedText(chapter(id)?.titles) || `活动 ${id}`;
-    const date = value => Number(value) ? new Date(Number(value)).toLocaleString("zh-CN", { hour12: false }) : "停用";
+    const date = formatDatetime || (value => Number(value) ? new Date(Number(value)).toLocaleString("zh-CN", { hour12: false }) : "停用");
     const medal = id => title(draft.medals.get(String(id))) || `物品 ${id}`;
     const shortMedal = id => {
       const name = medal(id), suffix = name.match(/メダル[：:](銅|銀|金)$/);
@@ -210,7 +210,7 @@
       const sidebar = node("aside", undefined, "bonus-events");
       sidebar.append(field("目标活动", select("目标活动", [{ value: "", label: "搜索活动标题或 ID…" }, ...draft.catalog.chapters.map(row => ({ value: row.values.EventQuestChapterId, label: `${chapterTitle(row.values.EventQuestChapterId)} · ${row.values.EventQuestChapterId}`, search: text(row.titles) }))], chapterID, value => { chapterID = value; phaseIndex = 0; render(); })));
       sidebar.append(node("p", "导入完整历史名单，服装效果沿用来源，武器按本期奖章规则生效。", "bonus-note"));
-      if (chapter(chapterID)) sidebar.append(node("p", `全部共鸣跟随活动（本机时间）\n开始 ${date(chapter(chapterID).values.StartDatetime)}\n结束 ${date(chapter(chapterID).values.EndDatetime)}`, "bonus-note bonus-activity-dates"));
+      if (chapter(chapterID)) sidebar.append(node("p", `全部共鸣跟随活动\n开始 ${date(chapter(chapterID).values.StartDatetime)}\n结束 ${date(chapter(chapterID).values.EndDatetime)}`, "bonus-note bonus-activity-dates"));
       const pending = node("div", undefined, "bonus-event-list");
       for (const id of unique([chapterID, ...draft.selections.keys()]).filter(Boolean)) {
         const item = button("", () => { chapterID = id; phaseIndex = 0; render(); }, `bonus-event${id === chapterID ? " selected" : ""}`);
@@ -218,7 +218,7 @@
       }
       sidebar.append(pending); root.append(sidebar);
       const main = node("section", undefined, "bonus-replacement"); root.append(main);
-      if (!chapter(chapterID)) { main.append(node("h2", "还原活动共鸣"), node("p", "选择活动和历史名单，再为新增武器指定规则。", "bonus-note")); return; }
+      if (!chapter(chapterID)) { main.append(node("h2", "QuestBonus"), node("p", "选择活动和历史名单，再为新增武器指定规则。", "bonus-note")); return; }
       const currentIDs = draft.currentIDs(chapterID), selected = draft.selections.get(chapterID), groups = draft.targetGroups(chapterID);
       phaseIndex = Math.min(phaseIndex, Math.max(0, groups.length - 1)); const phase = groups[phaseIndex];
       const heading = node("div", undefined, "bonus-replacement-heading"); heading.append(node("h2", chapterTitle(chapterID)), node("span", `${chapterID} · ${draft.quests(chapterID).length} 关卡`, "row-badge")); main.append(heading);

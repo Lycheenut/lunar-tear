@@ -112,24 +112,6 @@ code {
 .bonus-preview-table th:first-child, .bonus-preview-table td:first-child { position: static; min-width: 0; width: 23%; }
 .bonus-preview-table small { display: block; margin-top: 3px; font-size: 10px; font-weight: 400; color: var(--muted); }
 .bonus-preview-table td > div { overflow: hidden; text-overflow: ellipsis; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .topbar { padding: 8px 24px; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) h1 { font-size: 23px; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) main { width: calc(100% - 32px); margin: 12px auto 76px; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) #workspace { display: flex; flex-direction: column; height: calc(100dvh - 155px); }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) #workspace > * { flex-shrink: 0; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) #master-layout { display: flex; flex: 1; min-height: 0; align-items: stretch; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .data-panel { display: flex; flex-direction: column; width: 100%; min-height: 0; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .summary-grid,
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .data-heading { display: none; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .admin-tabs { align-self: flex-start; margin-bottom: 10px; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .toolbar { grid-template-columns: minmax(230px, 1fr) 190px 90px; margin: 0 0 10px; padding: 9px 12px; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .toolbar > label { display: flex; align-items: center; white-space: nowrap; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .toolbar select { flex: 1; min-width: 0; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) #refresh { min-height: 34px; padding-top: 6px; padding-bottom: 6px; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .toolbar input,
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .toolbar select { min-height: 34px; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) #table-scroll { flex: 1; height: auto; min-height: 0; max-height: none; overflow: hidden; }
-body:has(#master-layout:not(.hidden) #quest-bonus-editor:not(.hidden)) .savebar { padding: 12px 24px; }
 @media (max-width: 900px) {
   .quest-bonus-editor { grid-template-columns: 185px minmax(0, 1fr); }
   .bonus-source-picker { grid-template-columns: 1fr; }

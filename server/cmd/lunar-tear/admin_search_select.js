@@ -8,10 +8,10 @@
     return id && !title.includes(id) ? `${title} · ${id}` : title;
   };
   function enhance(select, config) {
+    if (select.dataset.searchable === "false" || select.multiple) return select;
     if (instances.has(select)) {
       const instance = instances.get(select); if (config) instance.configure(config); return instance.wrapper;
     }
-    if (select.multiple) return select;
     config = config || {};
     const rowHeight = config.renderOption ? 44 : 38;
     const wrapper = document.createElement("span"); wrapper.className = "search-select";
