@@ -89,6 +89,7 @@ type UpdateRequest struct {
 	ShopItemCells      *ShopItemCellStructuralUpdate `json:"shopItemCells,omitempty"`
 	ShopItems          *ShopItemStructuralUpdate     `json:"shopItems,omitempty"`
 	QuestBonusGroups   []QuestBonusGroupInput        `json:"questBonusGroups,omitempty"`
+	QuestBonusRestores []QuestBonusRestoreInput      `json:"questBonusRestores,omitempty"`
 }
 
 type UpdateResult struct {
@@ -219,6 +220,10 @@ func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, erro
 		return nil, UpdateResult{}, err
 	}
 	request.Changes = planned
+	request, _, err = planQuestBonusUpdates(file, request)
+	if err != nil {
+		return nil, UpdateResult{}, err
+	}
 	return buildUpdate(file, request)
 }
 

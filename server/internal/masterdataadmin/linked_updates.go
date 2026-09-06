@@ -54,14 +54,15 @@ type TableReplacementPreview struct {
 }
 
 type UpdatePreview struct {
-	Impacts           []UpdateImpactPreview     `json:"impacts,omitempty"`
-	OtherChanges      []RecordPreview           `json:"otherChanges,omitempty"`
-	TableReplacements []TableReplacementPreview `json:"tableReplacements,omitempty"`
-	RequestedChanges  int                       `json:"requestedChanges"`
-	GeneratedChanges  int                       `json:"generatedChanges"`
-	TotalChanges      int                       `json:"totalChanges"`
-	ChangedRows       int                       `json:"changedRows"`
-	QuestBonusGroups  []QuestBonusGroupPreview  `json:"questBonusGroups,omitempty"`
+	Impacts            []UpdateImpactPreview      `json:"impacts,omitempty"`
+	OtherChanges       []RecordPreview            `json:"otherChanges,omitempty"`
+	TableReplacements  []TableReplacementPreview  `json:"tableReplacements,omitempty"`
+	RequestedChanges   int                        `json:"requestedChanges"`
+	GeneratedChanges   int                        `json:"generatedChanges"`
+	TotalChanges       int                        `json:"totalChanges"`
+	ChangedRows        int                        `json:"changedRows"`
+	QuestBonusGroups   []QuestBonusGroupPreview   `json:"questBonusGroups,omitempty"`
+	QuestBonusRestores []QuestBonusRestorePreview `json:"questBonusRestores,omitempty"`
 }
 
 type rowRef struct {
@@ -127,6 +128,10 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 	}
 	validated := request
 	validated.Changes = planned
+	validated, bonusPreviews, err := planQuestBonusUpdates(file, validated)
+	if err != nil {
+		return UpdatePreview{}, err
+	}
 	candidate, result, err := buildUpdate(file, validated)
 	if err != nil {
 		return UpdatePreview{}, err
@@ -136,7 +141,7 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 	if err != nil {
 		return UpdatePreview{}, err
 	}
-	for _, change := range request.Changes {
+	for _, change := range validated.Changes {
 		if change.Table == questTable {
 			spec, _ := findActivitySpec(questTable)
 			table, _, err := tableFromFile(file, resolver, spec, true)
@@ -147,7 +152,8 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 			break
 		}
 	}
-	preview := assembleUpdatePreview(catalog, request.Changes, planned, impacts, generated, result)
+	preview := assembleUpdatePreview(catalog, request.Changes, validated.Changes, impacts, generated, result)
+	preview.QuestBonusRestores = bonusPreviews
 	if request.MissionRewards != nil {
 		current, _, readErr := file.TableRows(missionRewardTable)
 		if readErr != nil {
@@ -219,7 +225,7 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 			})
 		}
 	}
-	if len(request.QuestBonusGroups) != 0 {
+	if len(validated.QuestBonusGroups) != 0 && len(bonusPreviews) == 0 {
 		candidateFile, err := memorydb.OpenBytes(candidate)
 		if err != nil {
 			return UpdatePreview{}, err
@@ -235,7 +241,7 @@ func validateUpdateEnvelope(request UpdateRequest) error {
 	if request.ExpectedVersion == "" {
 		return fmt.Errorf("expectedVersion is required")
 	}
-	if len(request.Changes) == 0 && request.MissionRewards == nil && request.ShopItemCellGroups == nil && request.ShopItemCells == nil && request.ShopItems == nil && len(request.QuestBonusGroups) == 0 {
+	if len(request.Changes) == 0 && request.MissionRewards == nil && request.ShopItemCellGroups == nil && request.ShopItemCells == nil && request.ShopItems == nil && len(request.QuestBonusGroups) == 0 && len(request.QuestBonusRestores) == 0 {
 		return fmt.Errorf("at least one change is required")
 	}
 	if len(request.Changes) > 10000 {

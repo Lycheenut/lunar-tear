@@ -587,299 +587,8 @@
     container.append(subtypeLabel);
   }
 
-  const searchableSelectControllers = new WeakMap();
-
   function createSearchableSelect(select, config = {}) {
-    let controller = searchableSelectControllers.get(select);
-    if (!controller) {
-      const wrapper = document.createElement("div");
-      wrapper.className = "searchable-select";
-      const input = document.createElement("input");
-      input.type = "search";
-      input.autocomplete = "off";
-      input.setAttribute("role", "combobox");
-      input.setAttribute("aria-autocomplete", "list");
-      input.setAttribute("aria-expanded", "false");
-      const list = document.createElement("div");
-      list.className = "searchable-select-options hidden";
-      list.setAttribute("role", "listbox");
-
-      const nativeParent = select.parentNode;
-      if (nativeParent) nativeParent.insertBefore(wrapper, select);
-      select.classList.add("searchable-select-source");
-      wrapper.append(input, list, select);
-
-      const listGap = 6;
-      const viewportMargin = 8;
-      let trackingViewport = false;
-      const positionList = () => {
-        if (list.parentNode !== document.body || list.classList.contains("hidden")) return;
-        const anchor = input.getBoundingClientRect();
-        const viewportWidth = document.documentElement.clientWidth;
-        const viewportHeight = document.documentElement.clientHeight;
-        const width = Math.min(anchor.width, Math.max(0, viewportWidth - viewportMargin * 2));
-        const left = Math.min(
-          Math.max(anchor.left, viewportMargin),
-          Math.max(viewportMargin, viewportWidth - viewportMargin - width)
-        );
-        list.style.right = "auto";
-        list.style.left = `${left}px`;
-        list.style.width = `${width}px`;
-        const availableBelow = Math.max(0, viewportHeight - anchor.bottom - listGap - viewportMargin);
-        const availableAbove = Math.max(0, anchor.top - listGap - viewportMargin);
-        const desiredHeight = Math.min(330, list.scrollHeight);
-        const placeAbove = availableBelow < desiredHeight && availableAbove > availableBelow;
-        const availableHeight = placeAbove ? availableAbove : availableBelow;
-
-        list.style.maxHeight = `${Math.min(330, availableHeight)}px`;
-        if (placeAbove) {
-          list.style.top = "auto";
-          list.style.bottom = `${viewportHeight - anchor.top + listGap}px`;
-        } else {
-          list.style.top = `${anchor.bottom + listGap}px`;
-          list.style.bottom = "auto";
-        }
-      };
-      const repositionList = (event) => {
-        if (event?.type === "scroll" && event.target === list) return;
-        if (wrapper.isConnected) positionList();
-        else close();
-      };
-      const stopTrackingViewport = () => {
-        if (!trackingViewport) return;
-        trackingViewport = false;
-        window.removeEventListener("resize", repositionList);
-        window.removeEventListener("scroll", repositionList, true);
-        window.visualViewport?.removeEventListener("resize", repositionList);
-      };
-      const startTrackingViewport = () => {
-        if (trackingViewport) return;
-        trackingViewport = true;
-        window.addEventListener("resize", repositionList);
-        window.addEventListener("scroll", repositionList, true);
-        window.visualViewport?.addEventListener("resize", repositionList);
-      };
-      const close = () => {
-        list.classList.add("hidden");
-        input.setAttribute("aria-expanded", "false");
-        stopTrackingViewport();
-        list.removeAttribute("style");
-        if (wrapper.isConnected) wrapper.insertBefore(list, select);
-        else list.remove();
-      };
-      const open = () => {
-        if (list.parentNode !== document.body) document.body.append(list);
-        list.classList.remove("hidden");
-        input.setAttribute("aria-expanded", "true");
-        startTrackingViewport();
-        positionList();
-      };
-      const selectedOption = () => [...select.options].find((option) => option.value === select.value);
-      const restoreSelection = () => {
-        const option = selectedOption();
-        input.value = option?.textContent?.trim() || "";
-        input.title = input.value;
-      };
-      const availableOptions = () => {
-        const configured = typeof controller.config.options === "function"
-          ? controller.config.options()
-          : controller.config.options;
-        if (configured) {
-          if (controller.optionSource !== configured) {
-            controller.optionSource = configured;
-            const groupOrder = new Map();
-            controller.optionEntries = configured.map((entry, index) => {
-              const group = String(entry.group || "");
-              if (!groupOrder.has(group)) groupOrder.set(group, groupOrder.size);
-              return {
-                source: entry, value: String(entry.value), label: String(entry.label), group,
-                groupOrder: groupOrder.get(group), searchText: String(entry.searchText || ""),
-                disabled: Boolean(entry.disabled), index
-              };
-            });
-          }
-          return controller.optionEntries;
-        }
-        return [...select.options].map((option, index) => ({
-          option, value: option.value, label: option.textContent?.trim() || option.value,
-          group: option.parentElement?.tagName === "OPTGROUP" ? option.parentElement.label : "",
-          groupOrder: 0, searchText: option.dataset.searchText || "", disabled: option.disabled, index
-        }));
-      };
-      const matchingOptions = (query = "") => {
-        const normalized = query.trim().toLocaleLowerCase();
-        const available = availableOptions();
-        if (!normalized) return available.filter((entry) => !entry.disabled);
-        const matches = [];
-        available.forEach((entry) => {
-          if (entry.disabled) return;
-          const value = entry.value.toLocaleLowerCase();
-          const searchText = `${entry.searchText} ${value} ${entry.label}`.toLocaleLowerCase();
-          if (!searchText.includes(normalized)) return;
-          const rank = value === normalized ? 0 : value.startsWith(normalized) ? 1 : entry.label.toLocaleLowerCase().startsWith(normalized) ? 2 : 3;
-          matches.push({ ...entry, rank });
-        });
-        return matches.sort((left, right) => left.groupOrder - right.groupOrder || left.rank - right.rank || left.index - right.index);
-      };
-      const choose = (entry) => {
-        if (!entry.option) {
-          const option = document.createElement("option");
-          option.value = entry.value;
-          option.textContent = entry.label;
-          select.replaceChildren(option);
-        }
-        select.value = entry.value;
-        restoreSelection();
-        close();
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      };
-      const renderOptionWindow = (matches, start, end) => {
-        controller.matches = matches;
-        controller.windowStart = start;
-        controller.windowEnd = end;
-        list.replaceChildren();
-        let previousGroup = null;
-        matches.slice(start, end).forEach((entry) => {
-          if (entry.group && entry.group !== previousGroup) {
-            const group = document.createElement("div");
-            group.className = "searchable-select-group";
-            group.textContent = entry.group;
-            list.append(group);
-          }
-          previousGroup = entry.group;
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "searchable-select-option";
-          button.setAttribute("role", "option");
-          button.setAttribute("aria-selected", String(entry.value === select.value));
-          button.dataset.optionValue = entry.value;
-          const visual = typeof controller.config.renderOption === "function"
-            ? controller.config.renderOption(entry.source || entry)
-            : null;
-          if (visual) {
-            button.classList.add("with-visual");
-            button.append(visual);
-          } else {
-            button.textContent = entry.label;
-          }
-          button.title = entry.label;
-          button.addEventListener("pointerdown", (event) => {
-            event.preventDefault();
-            choose(entry);
-          });
-          list.append(button);
-        });
-        if (!matches.length) {
-          const note = document.createElement("div");
-          note.className = "searchable-select-empty";
-          note.textContent = controller.config.emptyText || "没有匹配项。";
-          list.append(note);
-        }
-      };
-      const renderOptions = (query = "", centerSelection = false) => {
-        const matches = matchingOptions(query);
-        const batchSize = controller.config.limit || 50;
-        let start = 0;
-        let end = Math.min(matches.length, batchSize);
-        if (centerSelection) {
-          const selectedIndex = matches.findIndex((entry) => entry.value === select.value);
-          if (selectedIndex >= 0) {
-            start = Math.max(0, selectedIndex - 25);
-            end = Math.min(matches.length, selectedIndex + 25);
-            if (end - start < batchSize) {
-              start = Math.max(0, end - batchSize);
-              end = Math.min(matches.length, start + batchSize);
-            }
-          }
-        }
-        renderOptionWindow(matches, start, end);
-        if (centerSelection) {
-          controller.positioning = true;
-          requestAnimationFrame(() => {
-            list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "center" });
-            requestAnimationFrame(() => { controller.positioning = false; });
-          });
-        }
-        return matches;
-      };
-
-      input.addEventListener("focus", () => {
-        input.select();
-        renderOptions("", true);
-        open();
-      });
-      input.addEventListener("input", () => {
-        renderOptions(input.value);
-        open();
-      });
-      list.addEventListener("scroll", () => {
-        if (controller.positioning || !controller.matches.length) return;
-        const batchSize = controller.config.limit || 50;
-        if (list.scrollTop <= 8 && controller.windowStart > 0) {
-          const previousHeight = list.scrollHeight;
-          const previousTop = list.scrollTop;
-          renderOptionWindow(
-            controller.matches,
-            Math.max(0, controller.windowStart - batchSize),
-            controller.windowEnd
-          );
-          list.scrollTop = previousTop + list.scrollHeight - previousHeight;
-          return;
-        }
-        if (list.scrollTop + list.clientHeight >= list.scrollHeight - 8
-          && controller.windowEnd < controller.matches.length) {
-          const previousTop = list.scrollTop;
-          renderOptionWindow(
-            controller.matches,
-            controller.windowStart,
-            Math.min(controller.matches.length, controller.windowEnd + batchSize)
-          );
-          list.scrollTop = previousTop;
-        }
-      });
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          restoreSelection();
-          close();
-        }
-        if (event.key === "Enter") {
-          const match = matchingOptions(input.value)[0];
-          if (match) {
-            event.preventDefault();
-            choose(match);
-          }
-        }
-      });
-      input.addEventListener("blur", () => {
-        restoreSelection();
-        close();
-      });
-      select.addEventListener("change", restoreSelection);
-
-      controller = {
-        wrapper,
-        input,
-        config: {},
-        optionSource: null,
-        optionEntries: [],
-        matches: [],
-        windowStart: 0,
-        windowEnd: 0,
-        positioning: false,
-        sync() {
-          input.placeholder = controller.config.placeholder || "搜索并选择";
-          input.setAttribute("aria-label", controller.config.ariaLabel || input.placeholder);
-          input.disabled = select.disabled || (!controller.config.options && select.options.length === 0);
-          restoreSelection();
-          close();
-        }
-      };
-      searchableSelectControllers.set(select, controller);
-    }
-    controller.config = config;
-    controller.sync();
-    return controller.wrapper;
+    return window.AdminSearchSelect.enhance(select, config);
   }
 
   function createLazySearchSelect(value, label, options, onChange, config = {}) {
@@ -3998,9 +3707,9 @@
   function renderMasterUpdatePreview(preview) {
     const replacementCount = (preview.tableReplacements || []).length;
     elements.masterUpdateSummary.textContent = `${preview.requestedChanges} 个字段修改将生成 ${preview.generatedChanges} 个确定的下游修改${replacementCount ? `，并整表替换 ${replacementCount} 张表` : ""}，共影响 ${preview.changedRows} 行。`;
+    if (preview.questBonusRestores?.length) elements.masterUpdateSummary.textContent = `${preview.questBonusRestores.length} 个活动共鸣配置／期限更新，共影响 ${preview.changedRows} 行。下方列出实际关卡分组和完整突破数量。`;
     elements.masterUpdatePreview.replaceChildren();
-    questBonusEditor?.renderPreview(elements.masterUpdatePreview, preview.questBonusGroups);
-    if (preview.questBonusGroups?.length) elements.masterUpdateSummary.textContent = `${preview.questBonusGroups.length} 个共鸣集合／定义修改，另有 ${preview.requestedChanges} 个直接字段及 ${preview.generatedChanges} 个联动字段修改，共修改 ${preview.changedRows} 行。共享影响范围见下方。`;
+    questBonusEditor?.renderPreview(elements.masterUpdatePreview, preview);
 
     (preview.tableReplacements || []).forEach((replacement) => {
       const group = document.createElement("section");
@@ -4041,16 +3750,17 @@
       elements.masterUpdatePreview.append(group);
     });
 
-    if ((preview.otherChanges || []).length) {
+    const otherChanges = (preview.otherChanges || []).filter((record) => !questBonusEditor?.handlesRecord(record));
+    if (otherChanges.length) {
       const group = document.createElement("section");
       group.className = "impact-group";
       const header = document.createElement("header");
       const title = document.createElement("strong");
       title.textContent = "其他直接修改";
       const count = document.createElement("span");
-      count.textContent = `${preview.otherChanges.length} 行`;
+      count.textContent = `${otherChanges.length} 行`;
       header.append(title, count);
-      group.append(header, renderImpactSection("本次一并提交", preview.otherChanges));
+      group.append(header, renderImpactSection("本次一并提交", otherChanges));
       elements.masterUpdatePreview.append(group);
     }
   }
@@ -4157,7 +3867,7 @@
   }
 
   function tableDisplayName(table) {
-    if (table.name === "m_quest_bonus") return "活动共鸣（服装／武器）";
+    if (table.name === "m_quest_bonus") return "活动共鸣还原";
     if (table.entityName?.startsWith("EntityM")) return table.entityName.slice("EntityM".length);
     return table.name.replace(/^m_/, "").split("_").filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
@@ -4353,9 +4063,11 @@
       ? `，含 ${state.missionRewardAdditions.length} 个 Reward 新增、${state.missionRewardDeleteIDs.size} 个删除`
       : "";
     const questDropSummary = questDropStructuralDirty() ? "；关卡掉落请使用页面内的发布按钮" : "";
-    const bonusSummary = questBonusEditor?.count() ? `，含 ${questBonusEditor.count()} 项共鸣配置修改` : "";
+    const bonusCount = questBonusEditor?.count() || 0;
+    const bonusSummary = bonusCount ? `，含 ${bonusCount} 个活动共鸣还原` : "";
     elements.saveSummary.textContent = masterCount
-      ? `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}${missionRewardSummary}${bonusSummary}${questDropSummary}`
+      ? masterCount === bonusCount ? `${bonusCount} 个活动的加成配置等待应用${questDropSummary}`
+        : `${state.dirty.size} 个字段等待应用${groupSummary}${cellSummary}${itemSummary}${missionRewardSummary}${bonusSummary}${questDropSummary}`
       : questDropStructuralDirty() ? "关卡掉落修改请使用页面内的发布按钮" : "没有待应用的修改";
     elements.save.disabled = masterCount === 0;
     elements.discard.disabled = count === 0;
@@ -5210,8 +4922,12 @@
     state.boxGachaCopyTargetID = targetBanner.gachaId;
     elements.boxGachaCopyTitle.textContent = "从其他章节复制";
     elements.boxGachaCopySummary.textContent = `当前章节卡池：${targetBanner.gachaId}`;
+    const options = [{ value: "", label: "选择来源章节卡池…" }, ...(state.gachaCatalog.boxBanners || [])
+      .filter(banner => banner.gachaLabelType === 3 && banner.gachaId !== targetBanner.gachaId && state.gachaDraft.chapterBanners[String(banner.gachaId)])
+      .map(banner => ({ value: String(banner.gachaId), label: idNameLabel(banner.gachaId, gachaLocalizedText(banner.titles) || banner.bannerAssetName || `Chapter ${banner.relatedMainQuestChapterId}`) }))];
+    const picker = createSearchableSelect(elements.boxGachaCopySource, { options, ariaLabel: "来源章节卡池", placeholder: "搜索章节卡池标题或 ID" });
     elements.boxGachaCopyDialog.showModal();
-    elements.boxGachaCopySource.focus();
+    picker.querySelector("input").focus();
   }
 
   function applyChapterBoxCopy() {
@@ -5234,7 +4950,7 @@
     }
     const normalized = elements.boxGachaCopySource.value.trim();
     if (!/^\d+$/.test(normalized)) {
-      setChapterBoxCopyError("请输入有效的来源章节卡池 ID。");
+      setChapterBoxCopyError("请选择有效的来源章节卡池。");
       return;
     }
     const sourceGachaId = Number(normalized);
@@ -5914,13 +5630,16 @@
     showNotice("已放弃本次修改。");
   });
   elements.save.addEventListener("click", async () => {
-    const bonusPayload = questBonusEditor?.payload() || { changes: [], questBonusGroups: [] };
+    let bonusPayload;
+    try { bonusPayload = questBonusEditor?.payload() || { changes: [], questBonusGroups: [], questBonusRestores: [] }; }
+    catch (error) { showNotice(error.message, true); return; }
+    const bonusRestores = bonusPayload.questBonusRestores || [];
     const rewardStructural = missionRewardStructuralDirty();
     const scheduleChanges = gachaScheduleChanges();
     const changes = [...state.dirty.values(), ...bonusPayload.changes].filter((change) => change.table !== "gacha" && !(rewardStructural && change.table === "m_mission_reward"));
-    if (!changes.length && !bonusPayload.questBonusGroups.length && !scheduleChanges.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
+    if (!changes.length && !bonusPayload.questBonusGroups.length && !bonusRestores.length && !scheduleChanges.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
     if (scheduleChanges.length) {
-      if (changes.length || bonusPayload.questBonusGroups.length || rewardStructural || state.shopCellGroupDirty || shopItemCellStructuralDirty() || shopItemStructuralDirty()) {
+      if (changes.length || bonusPayload.questBonusGroups.length || bonusRestores.length || rewardStructural || state.shopCellGroupDirty || shopItemCellStructuralDirty() || shopItemStructuralDirty()) {
         showNotice("Gacha 日程会联动更新 MomBanner，不能与其他主数据修改同时发布；请先放弃其中一类修改。", true);
         return;
       }
@@ -5934,6 +5653,7 @@
     }
     const request = { expectedVersion: state.catalog.version, changes };
     if (bonusPayload.questBonusGroups.length) request.questBonusGroups = bonusPayload.questBonusGroups;
+    if (bonusRestores.length) request.questBonusRestores = bonusRestores;
     if (rewardStructural) {
       const table = state.catalog.tables.find((candidate) => candidate.name === "m_mission_reward");
       request.missionRewards = missionRewardReplacementPayload(table);
@@ -5975,7 +5695,7 @@
   });
   elements.masterUpdateConfirm.addEventListener("click", async () => {
     const request = state.pendingMasterChanges;
-    if (!request || (!request.changes?.length && !request.questBonusGroups?.length && !request.missionRewards && !request.shopItemCellGroups && !request.shopItemCells && !request.shopItems)) return;
+    if (!request || (!request.changes?.length && !request.questBonusGroups?.length && !request.questBonusRestores?.length && !request.missionRewards && !request.shopItemCellGroups && !request.shopItemCells && !request.shopItems)) return;
     elements.masterUpdateDialog.returnValue = "confirm";
     elements.masterUpdateDialog.close();
     state.pendingMasterChanges = null;
@@ -6024,11 +5744,6 @@
 	  elements.boxGachaRemoveBox.addEventListener("click", removeConfiguredBox);
   elements.boxGachaCopyCancel.addEventListener("click", () => elements.boxGachaCopyDialog.close());
   elements.boxGachaCopyConfirm.addEventListener("click", copyChapterBoxConfig);
-  elements.boxGachaCopySource.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    copyChapterBoxConfig();
-  });
   elements.boxGachaCopyDialog.addEventListener("close", resetChapterBoxCopyDialog);
   elements.boxAddLimitedReward.addEventListener("click", () => addBoxReward("limited"));
   elements.boxAddUnlimitedReward.addEventListener("click", () => addBoxReward("unlimited"));

@@ -21,21 +21,27 @@ var questBonusTableSpecs = []tableSpec{
 	activityTable("m_quest_bonus_ability", "EntityMQuestBonusAbility", 1, false, field("QuestBonusEffectId", 0, "int"), field("AbilityId", 1, "int"), field("Level", 2, "int")),
 	activityTable("m_quest_bonus_exp", "EntityMQuestBonusExp", 1, false, field("QuestBonusEffectId", 0, "int"), field("ExpType", 1, "int"), field("BonusValuePermil", 2, "int")),
 	activityTable("m_quest_bonus_drop_reward", "EntityMQuestBonusDropReward", 1, false, field("QuestBonusEffectId", 0, "int"), field("PossessionType", 1, "PossessionType"), field("PossessionId", 2, "int"), field("AdditionalCount", 3, "int")),
+	activityTable("m_quest_bonus_character_group", "EntityMQuestBonusCharacterGroup", 2, false, field("QuestBonusCharacterGroupId", 0, "int"), field("CharacterId", 1, "int"), field("QuestBonusEffectGroupId", 2, "int"), field("QuestBonusTermGroupId", 3, "int")),
+	activityTable("m_quest_bonus_ally_character", "EntityMQuestBonusAllyCharacter", 1, false, field("QuestBonusAllyCharacterId", 0, "int"), field("QuestBonusEffectGroupId", 1, "int"), field("QuestBonusTermGroupId", 2, "int")),
+	activityTable("m_quest_bonus_costume_group", "EntityMQuestBonusCostumeGroup", 2, false, field("QuestBonusCostumeGroupId", 0, "int"), field("CostumeId", 1, "int"), field("QuestBonusEffectGroupId", 2, "int"), field("QuestBonusTermGroupId", 3, "int")),
 }
 
 type QuestBonusOption struct {
-	ID     int64             `json:"id"`
-	Titles map[string]string `json:"titles,omitempty"`
+	ID               int64             `json:"id"`
+	Titles           map[string]string `json:"titles,omitempty"`
+	EvolutionGroupID int64             `json:"evolutionGroupId,omitempty"`
+	EvolutionOrder   int64             `json:"evolutionOrder,omitempty"`
 }
 
 type QuestBonusQuest struct {
-	QuestID    int64 `json:"questId"`
-	Row        int   `json:"row"`
-	ChapterID  int64 `json:"chapterId"`
-	Difficulty int64 `json:"difficulty"`
-	SequenceID int64 `json:"sequenceId"`
-	SortOrder  int64 `json:"sortOrder"`
-	BonusID    int64 `json:"bonusId"`
+	QuestID    int64   `json:"questId"`
+	Row        int     `json:"row"`
+	ChapterID  int64   `json:"chapterId"`
+	Difficulty int64   `json:"difficulty"`
+	SequenceID int64   `json:"sequenceId"`
+	SortOrder  int64   `json:"sortOrder"`
+	BonusID    int64   `json:"bonusId"`
+	MedalIDs   []int64 `json:"medalIds,omitempty"`
 }
 
 type QuestBonusEditorCatalog struct {
@@ -45,6 +51,7 @@ type QuestBonusEditorCatalog struct {
 	Tables        []Table             `json:"tables"`
 	Costumes      []QuestBonusOption  `json:"costumes"`
 	Weapons       []QuestBonusOption  `json:"weapons"`
+	Medals        []QuestBonusOption  `json:"medals"`
 }
 
 type QuestBonusGroupInput struct {
@@ -93,7 +100,13 @@ func loadQuestBonusEditor(file *memorydb.File, resolver *titleResolver) (QuestBo
 	}
 	for _, row := range readRows(file, "m_costume") {
 		asset := fmt.Sprintf("ch%03d%03d", bonusInt(row, 4), bonusInt(row, 5))
-		result.Costumes = append(result.Costumes, QuestBonusOption{bonusInt(row, 0), resolver.titlesForKeys([]string{"costume.name.replace." + asset, "costume.name." + asset})})
+		result.Costumes = append(result.Costumes, QuestBonusOption{ID: bonusInt(row, 0), Titles: resolver.titlesForKeys([]string{"costume.name.replace." + asset, "costume.name." + asset})})
+	}
+	evolutionGroups := make(map[int64]int64)
+	evolutionOrders := make(map[int64]int64)
+	for _, row := range readRows(file, "m_weapon_evolution_group") {
+		evolutionGroups[bonusInt(row, 2)] = bonusInt(row, 0)
+		evolutionOrders[bonusInt(row, 2)] = bonusInt(row, 1)
 	}
 	for _, row := range readRows(file, "m_weapon") {
 		prefix := "wp"
@@ -101,7 +114,15 @@ func loadQuestBonusEditor(file *memorydb.File, resolver *titleResolver) (QuestBo
 			prefix = "ac"
 		}
 		asset := fmt.Sprintf("%s%03d%03d", prefix, bonusInt(row, 2), bonusInt(row, 3))
-		result.Weapons = append(result.Weapons, QuestBonusOption{bonusInt(row, 0), resolver.titlesForKeys([]string{"weapon.name.replace." + asset + ".1", "weapon.name." + asset + ".1", "weapon.name.replace." + asset + ".2", "weapon.name." + asset + ".2"})})
+		result.Weapons = append(result.Weapons, QuestBonusOption{ID: bonusInt(row, 0), EvolutionGroupID: evolutionGroups[bonusInt(row, 0)], EvolutionOrder: evolutionOrders[bonusInt(row, 0)], Titles: resolver.titlesForKeys([]string{"weapon.name.replace." + asset + ".1", "weapon.name." + asset + ".1", "weapon.name.replace." + asset + ".2", "weapon.name." + asset + ".2"})})
+	}
+	medals, questMedals := questBonusMedals(file)
+	for _, row := range medals {
+		key := fmt.Sprintf("consumable_item.name.%d", bonusInt(row, 6)*1000+bonusInt(row, 7))
+		result.Medals = append(result.Medals, QuestBonusOption{ID: bonusInt(row, 0), Titles: resolver.titlesForKeys([]string{key})})
+	}
+	for i := range result.Quests {
+		result.Quests[i].MedalIDs = questMedals[result.Quests[i].QuestID]
 	}
 	return result, nil
 }

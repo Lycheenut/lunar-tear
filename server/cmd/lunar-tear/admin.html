@@ -662,7 +662,7 @@
       <p id="box-gacha-copy-summary"></p>
     </div>
     <label id="box-gacha-copy-field" class="quest-drop-copy-field">来源章节卡池 ID
-      <input id="box-gacha-copy-source" type="text" inputmode="numeric" autocomplete="off" aria-describedby="box-gacha-copy-error">
+      <select id="box-gacha-copy-source" data-searchable="true" aria-describedby="box-gacha-copy-error"></select>
     </label>
     <p id="box-gacha-copy-error" class="quest-drop-copy-error hidden" role="alert"></p>
     <div class="save-actions">
@@ -683,6 +683,7 @@
     </div>
   </dialog>
 
+  <script src="/admin/admin_search_select.js" defer></script>
   <script src="/admin/admin_quest_bonus.js" defer></script>
   <script src="/admin/admin.js" defer></script>
 </body>

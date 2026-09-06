@@ -42,7 +42,7 @@ func TestQuestBonusCatalogFollowsEventChainAndKeepsExpiredMembers(t *testing.T) 
 		t.Fatal(err)
 	}
 	editor := catalog.QuestBonusEditor
-	if editor == nil || len(editor.Tables) != 8 || len(editor.Costumes) == 0 || len(editor.Weapons) == 0 {
+	if editor == nil || len(editor.Tables) != len(questBonusTableSpecs) || len(editor.Costumes) == 0 || len(editor.Weapons) == 0 {
 		t.Fatalf("incomplete editor catalog")
 	}
 	for _, tc := range []struct {
@@ -82,6 +82,84 @@ func TestQuestBonusCatalogFollowsEventChainAndKeepsExpiredMembers(t *testing.T) 
 	}
 	if !found {
 		t.Fatal("expired costume disappeared from editor")
+	}
+	evolutions := make(map[int64]int64)
+	for _, weapon := range editor.Weapons {
+		evolutions[weapon.ID] = weapon.EvolutionGroupID
+	}
+	if evolutions[340151] == 0 || evolutions[340151] != evolutions[340152] || evolutions[340151] == evolutions[340211] {
+		t.Fatal("weapon evolution families are missing or merged incorrectly")
+	}
+}
+
+func TestQuestBonusReplaceWholeActivitiesWithExistingEntries(t *testing.T) {
+	path, file := bonusTestFile(t)
+	// The first source is the complete original group 501, including both
+	// costumes and all four weapon families. The rerun starts without a bonus.
+	sources := map[int64]int64{501: 200031, 589: 201189}
+	request := UpdateRequest{ExpectedVersion: file.Version()}
+	assignments := make(map[int]int64)
+	for _, quest := range questBonusQuests(file) {
+		if source, ok := sources[quest.ChapterID]; ok {
+			assignments[quest.Row] = source
+			request.Changes = append(request.Changes, Change{Table: questTable, Row: quest.Row, Field: "QuestBonusId", Value: strconv.FormatInt(source, 10)})
+		}
+	}
+	if len(request.Changes) != 70 {
+		t.Fatalf("expected all 35 quests of both activities, got %d", len(request.Changes))
+	}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.OtherChanges) != 70 || len(preview.QuestBonusGroups) != 0 || len(preview.TableReplacements) != 0 {
+		t.Fatal("replacement preview should contain only the 70 quest assignments")
+	}
+	candidate, result, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChangedRows != 70 {
+		t.Fatalf("unexpected changed row count: %d", result.ChangedRows)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := readRows(file, questTable), readRows(rebuilt, questTable)
+	for index, row := range before {
+		if source, ok := assignments[index]; ok {
+			if bonusInt(after[index], 19) != source {
+				t.Fatalf("quest row %d did not receive bonus %d", index, source)
+			}
+			// Compare the rest of the row, including any quest-specific settings.
+			after[index][19] = row[19]
+		}
+		if !reflect.DeepEqual(row, after[index]) {
+			t.Fatalf("unexpected edit to quest row %d", index)
+		}
+	}
+	unchangedTables := []string{"m_event_quest_chapter", "m_event_quest_sequence_group", "m_event_quest_sequence", "m_costume", "m_weapon", "m_quest_bonus_character_group", "m_quest_bonus_ally_character"}
+	for _, spec := range questBonusTableSpecs {
+		unchangedTables = append(unchangedTables, spec.Name)
+	}
+	for _, table := range unchangedTables {
+		if !reflect.DeepEqual(readRows(file, table), readRows(rebuilt, table)) {
+			t.Fatalf("existing definition or activity schedule changed: %s", table)
+		}
+	}
+	output := filepath.Join(t.TempDir(), "replacement.bin.e")
+	if err := os.WriteFile(output, candidate, 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := LoadTable(output, questBonusTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, quest := range catalog.QuestBonusEditor.Quests {
+		if source, ok := sources[quest.ChapterID]; ok && quest.BonusID != source {
+			t.Fatalf("reloaded activity has a stale quest: %+v", quest)
+		}
 	}
 }
 

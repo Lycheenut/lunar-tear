@@ -131,67 +131,21 @@ func TestAdminGachaScheduleUsesSearchableMedalColumn(t *testing.T) {
 	}
 }
 
-func TestAdminSearchableSelectLoadsAroundSelectionAndExtendsAtEdges(t *testing.T) {
-	javascript := adminAssetBody(t, "/admin/admin.js")
-	for _, required := range []string{
-		`const batchSize = controller.config.limit || 50`,
-		`selectedIndex - 25`, `selectedIndex + 25`,
-		`scrollIntoView({ block: "center" })`,
-		`controller.windowStart - batchSize`,
-		`controller.windowEnd + batchSize`,
-		`options: lazySearchOptions(() => rewardSelectorOptions(references, definition))`,
-	} {
-		if !strings.Contains(javascript, required) {
-			t.Fatalf("searchable select is missing windowing behavior %s", required)
-		}
+func TestAdminSearchableSelectAssetAndBrowserBehavior(t *testing.T) {
+	if !strings.Contains(adminAssetBody(t, "/admin/"), "/admin/admin_search_select.js") {
+		t.Fatal("shared search selector script is not loaded")
+	}
+	if !strings.Contains(adminAssetBody(t, "/admin/admin_search_select.js"), "AdminSearchSelect") {
+		t.Fatal("shared search selector script is not served")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node.js is required for browser regression tests")
+	}
+	if output, err := exec.Command(node, "--test", "admin_search_select.test.cjs").CombinedOutput(); err != nil {
+		t.Fatalf("search selector browser regression tests failed: %v\n%s", err, output)
 	}
 }
-
-func TestAdminSearchableSelectUsesViewportOverlay(t *testing.T) {
-	css := adminAssetBody(t, "/admin/admin.css")
-	javascript := adminAssetBody(t, "/admin/admin.js")
-
-	for _, required := range []string{
-		`position: fixed;`,
-		`z-index: 1000;`,
-	} {
-		if !strings.Contains(css, required) {
-			t.Fatalf("searchable select overlay CSS is missing %s", required)
-		}
-	}
-	for _, required := range []string{
-		`document.body.append(list)`,
-		`document.documentElement.clientWidth`,
-		`document.documentElement.clientHeight`,
-		`window.addEventListener("scroll", repositionList, true)`,
-		`wrapper.insertBefore(list, select)`,
-	} {
-		if !strings.Contains(javascript, required) {
-			t.Fatalf("searchable select viewport overlay is missing %s", required)
-		}
-	}
-}
-
-func TestAdminSearchableSelectPreservesScrollWhileLoadingMoreOptions(t *testing.T) {
-	css := adminAssetBody(t, "/admin/admin.css")
-	javascript := adminAssetBody(t, "/admin/admin.js")
-
-	for _, required := range []string{
-		`if (event?.type === "scroll" && event.target === list) return;`,
-		`list.scrollTop = previousTop;`,
-	} {
-		if !strings.Contains(javascript, required) {
-			t.Fatalf("searchable select scroll preservation is missing %s", required)
-		}
-	}
-	if strings.Contains(javascript, `list.style.maxHeight = "none";`) {
-		t.Fatal("searchable select still expands its height during internal scrolling")
-	}
-	if !strings.Contains(css, `overflow-anchor: none;`) {
-		t.Fatal("searchable select does not disable browser scroll anchoring")
-	}
-}
-
 func TestAdminQuestDropUsesSharedOuterPanelAndBottomSavebar(t *testing.T) {
 	html := adminAssetBody(t, "/admin/")
 	css := adminAssetBody(t, "/admin/admin.css")
@@ -491,7 +445,7 @@ func TestAdminSearchableSelectAppliedToRequestedFilters(t *testing.T) {
 	css := adminAssetBody(t, "/admin/admin.css")
 	javascript := adminAssetBody(t, "/admin/admin.js")
 
-	for _, required := range []string{".searchable-select", ".searchable-select-options", ".searchable-select-source"} {
+	for _, required := range []string{".search-select", ".search-select-menu", ".search-select-native"} {
 		if !strings.Contains(css, required) {
 			t.Fatalf("admin CSS is missing %s", required)
 		}
@@ -527,7 +481,7 @@ func TestAdminChapterBoxCanCopyAnotherConfiguredChapter(t *testing.T) {
 
 	for _, required := range []string{
 		`id="box-gacha-copy-dialog"`,
-		`id="box-gacha-copy-source" type="text" inputmode="numeric" autocomplete="off"`,
+		`id="box-gacha-copy-source" data-searchable="true"`,
 		`id="box-gacha-copy-error"`,
 		`id="box-gacha-copy-confirm"`,
 	} {
@@ -549,7 +503,7 @@ func TestAdminChapterBoxCanCopyAnotherConfiguredChapter(t *testing.T) {
 		`const copied = JSON.parse(JSON.stringify(source));`,
 		`state.gachaDraft.chapterBanners[String(targetGachaId)] = copied;`,
 		`elements.boxGachaCopyConfirm.addEventListener("click", copyChapterBoxConfig);`,
-		`elements.boxGachaCopySource.addEventListener("keydown", (event) => {`,
+		`createSearchableSelect(elements.boxGachaCopySource`,
 	} {
 		if !strings.Contains(javascript, required) {
 			t.Fatalf("Chapter Gacha copy flow is missing %s", required)
@@ -557,9 +511,6 @@ func TestAdminChapterBoxCanCopyAnotherConfiguredChapter(t *testing.T) {
 	}
 	if strings.Contains(javascript, `elements.boxGachaAddBox.disabled = !event && Boolean(selection.box);`) {
 		t.Fatal("Chapter Gacha copy button remains disabled after configuration creation")
-	}
-	if strings.Contains(html, `<select id="box-gacha-copy-source"`) || strings.Contains(javascript, `createSearchableSelect(elements.boxGachaCopySource`) {
-		t.Fatal("Chapter Gacha copy source still uses a searchable select")
 	}
 	if strings.Contains(javascript, `banner.relatedMainQuestChapterId === sourceGachaId`) {
 		t.Fatal("Chapter Gacha copy source incorrectly treats the entered pool ID as a chapter ID")
