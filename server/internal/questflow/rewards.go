@@ -152,6 +152,16 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 			}
 			outcome.IsBigWin = len(outcome.BigWinClearedQuestMissionIds) > 0
 		}
+
+		// Secret Story conditions use hidden quest missions. Persist their
+		// actual battle/deck results without rewards, stars, or the power bonus.
+		for _, questMissionId := range h.InvisibleMissionIdsByQuestId[questId] {
+			missionDef, ok := h.MissionById[questMissionId]
+			key := store.QuestMissionKey{QuestId: questId, QuestMissionId: questMissionId}
+			if ok && !user.QuestMissions[key].IsClear && h.questMissionSatisfied(user, questId, missionDef) {
+				outcome.ClearedQuestMissionIds = append(outcome.ClearedQuestMissionIds, questMissionId)
+			}
+		}
 	}
 
 	outcome.DropRewards = h.computeDropRewards(user, questDef, target, nowMillis)

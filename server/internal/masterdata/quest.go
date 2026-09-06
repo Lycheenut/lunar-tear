@@ -90,6 +90,7 @@ type QuestCatalog struct {
 	QuestById                          map[int32]EntityMQuest
 	QuestReleaseConditionsByListId     map[int32]QuestReleaseConditionGroup
 	MissionIdsByQuestId                map[int32][]int32
+	InvisibleMissionIdsByQuestId       map[int32][]int32
 	RouteIdByQuestId                   map[int32]int32
 	MainQuestDifficultyTypeByQuestId   map[int32]int32
 	MainFlowQuestIdByQuestId           map[int32]int32
@@ -782,7 +783,11 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 			missionIdsByGroupId[mg.QuestMissionGroupId], mg.QuestMissionId)
 	}
 	missionIdsByQuestId := make(map[int32][]int32)
+	invisibleMissionIdsByQuestId := make(map[int32][]int32)
 	for questId, quest := range questById {
+		if missionIds := missionIdsByGroupId[quest.InvisibleQuestMissionGroupId]; len(missionIds) > 0 {
+			invisibleMissionIdsByQuestId[questId] = append([]int32(nil), missionIds...)
+		}
 		missionIds := missionIdsByGroupId[quest.QuestMissionGroupId]
 		if len(missionIds) == 0 {
 			continue
@@ -1129,6 +1134,7 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	return &QuestCatalog{
 		SceneById:                          sceneById,
 		MissionById:                        missionById,
+		InvisibleMissionIdsByQuestId:       invisibleMissionIdsByQuestId,
 		QuestById:                          questById,
 		QuestReleaseConditionsByListId:     questReleaseConditionsByListId,
 		MissionIdsByQuestId:                missionIdsByQuestId,
