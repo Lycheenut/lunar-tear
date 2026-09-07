@@ -106,6 +106,8 @@ func (h *QuestHandler) handleQuestStartInternal(user *store.UserState, questId i
 	switch {
 	case isMenuPick:
 		snapshotMainQuestIfNeeded(user)
+		// Menu quests must leave ReplayFlow before scene updates select a replay variant.
+		user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
 		sceneId := h.menuPickSceneId(questId, isBattleOnly)
 		user.MainQuest.ProgressQuestSceneId = sceneId
 		user.MainQuest.ProgressHeadQuestSceneId = sceneId
