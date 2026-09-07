@@ -150,8 +150,8 @@
   }
   window.QuestBonusDraft = QuestBonusDraft;
 
-  window.createQuestBonusEditor = ({ root, onChange, localizedText, showError, formatDatetime }) => {
-    let draft = new QuestBonusDraft(), chapterID = "", phaseIndex = 0, limitBreak = 4;
+  window.createQuestBonusEditor = ({ root, searchRoot, onChange, localizedText, showError, formatDatetime }) => {
+    let draft = new QuestBonusDraft(), chapterID = "", phaseIndex = 0;
     const node = (tag, content, className) => { const el = document.createElement(tag); if (content !== undefined) el.textContent = content; if (className) el.className = className; return el; };
     const button = (content, action, className = "button ghost") => { const el = node("button", content, className); el.type = "button"; el.addEventListener("click", action); return el; };
     const title = member => localizedText(member?.titles) || member?.itemID || String(member?.id || "");
@@ -164,8 +164,8 @@
       return suffix ? `${suffix[1]}メダル` : name.replace(/^.*?(?=金メダル|銀メダル|銅メダル|金奖章|银奖章|铜奖章)/, "");
     };
     const range = (start, end) => `${date(start)} — ${date(end)}`;
-    const select = (label, entries, value, action, searchable = true) => {
-      const el = node("select"); el.setAttribute("aria-label", label); if (searchable) el.dataset.searchable = "true";
+    const select = (label, entries, value, action) => {
+      const el = node("select"); el.setAttribute("aria-label", label); el.dataset.searchable = "true";
       for (const entry of entries) {
         const option = node("option", entry.label); option.value = entry.value;
         if (entry.search) option.dataset.search = entry.search;
@@ -201,9 +201,18 @@
       dialog.addEventListener("close", () => { dialog.remove(); render(); }); document.body.append(dialog); window.AdminSearchSelect?.refresh(); dialog.showModal();
     }
     function rewardsAt(bonusID, weaponID, templateID, selected) {
-      const rows = draft.templateRows(bonusID, weaponID, templateID).filter(row => Number(row.LimitBreakCountLowerLimit) <= limitBreak).sort((a, b) => Number(b.LimitBreakCountLowerLimit) - Number(a.LimitBreakCountLowerLimit));
+      const rows = draft.templateRows(bonusID, weaponID, templateID).sort((a, b) => Number(a.LimitBreakCountLowerLimit) - Number(b.LimitBreakCountLowerLimit));
       if (!rows.length) return "无适用规则";
-      return draft.rewards(rows[0].QuestBonusEffectGroupId).map(reward => `${shortMedal(selected?.currencies[reward.possessionId] || reward.possessionId)} +${reward.count}`).join(" / ") || "无掉落加成";
+      const tiers = [0, 1, 2, 3, 4].map(level => {
+        const row = rows.filter(row => Number(row.LimitBreakCountLowerLimit) <= level).at(-1);
+        return row ? draft.rewards(row.QuestBonusEffectGroupId).map(reward => ({ ...reward, possessionId: Number(selected?.currencies[reward.possessionId] || reward.possessionId) })) : [];
+      });
+      const curves = new Map();
+      for (const id of unique(tiers.flat().map(reward => reward.possessionId))) {
+        const curve = tiers.map(rewards => `+${rewards.filter(reward => reward.possessionId === id).reduce((sum, reward) => sum + reward.count, 0)}`).join(" / ");
+        if (!curves.has(curve)) curves.set(curve, []); curves.get(curve).push(id);
+      }
+      return [...curves].map(([curve, ids]) => `${ids.map(shortMedal).join("＋")} ${curve}`).join("；") || "无掉落加成";
     }
     function roster(ids, label, selected, phase) {
       const panel = node("section", undefined, "bonus-roster");
@@ -265,21 +274,12 @@
       return panel;
     }
     function render() {
-      const scrollTop = root.querySelector(".bonus-diff-scroll")?.scrollTop || 0;
+      const scrollContainer = root.closest(".table-scroll"), scrollTop = scrollContainer?.scrollTop || 0;
       const focused = document.activeElement, focusLabel = root.contains(focused) && focused.type === "checkbox" ? focused.getAttribute("aria-label") : null;
-      root.replaceChildren(); if (!draft.catalog.chapters.length) return;
-      const sidebar = node("aside", undefined, "bonus-events");
-      sidebar.append(field("目标活动", select("目标活动", [{ value: "", label: "搜索活动标题或 ID…" }, ...draft.catalog.chapters.map(row => ({ value: row.values.EventQuestChapterId, label: `${chapterTitle(row.values.EventQuestChapterId)} · ${row.values.EventQuestChapterId}`, search: text(row.titles) }))], chapterID, value => { chapterID = value; phaseIndex = 0; render(); })));
-      sidebar.append(node("p", "勾选来源成员替换名单，或保留当前全部成员再补充。服装效果沿用来源，新增武器按参考规则生效。", "bonus-note"));
-      if (chapter(chapterID)) sidebar.append(node("p", `全部共鸣跟随活动\n开始 ${date(chapter(chapterID).values.StartDatetime)}\n结束 ${date(chapter(chapterID).values.EndDatetime)}`, "bonus-note bonus-activity-dates"));
-      const pending = node("div", undefined, "bonus-event-list");
-      for (const id of unique([chapterID, ...draft.selections.keys()]).filter(Boolean)) {
-        const item = button("", () => { chapterID = id; phaseIndex = 0; render(); }, `bonus-event${id === chapterID ? " selected" : ""}`);
-        item.append(node("strong", chapterTitle(id)), node("small", `${id} · ${draft.changed(id) ? "待应用" : "查看中"}`)); item.title = chapterTitle(id); pending.append(item);
-      }
-      sidebar.append(pending); root.append(sidebar);
+      root.replaceChildren(); searchRoot.replaceChildren(); if (!draft.catalog.chapters.length) return;
+      searchRoot.append(select("目标活动", [{ value: "", label: "搜索活动标题或 ID…" }, ...draft.catalog.chapters.map(row => ({ value: row.values.EventQuestChapterId, label: `${chapterTitle(row.values.EventQuestChapterId)} · ${row.values.EventQuestChapterId}`, search: text(row.titles) }))], chapterID, value => { chapterID = value; phaseIndex = 0; render(); if (scrollContainer) scrollContainer.scrollTop = 0; }));
       const main = node("section", undefined, "bonus-replacement"); root.append(main);
-      if (!chapter(chapterID)) { main.append(node("h2", "QuestBonus"), node("p", "选择活动和历史名单，再为新增武器指定规则。", "bonus-note")); window.AdminSearchSelect?.refresh(); return; }
+      if (!chapter(chapterID)) { main.append(node("p", "请选择目标活动。", "bonus-note")); window.AdminSearchSelect?.refresh(); return; }
       const currentIDs = draft.currentIDs(chapterID), selected = draft.selections.get(chapterID), groups = draft.targetGroups(chapterID);
       phaseIndex = Math.min(phaseIndex, Math.max(0, groups.length - 1)); const phase = groups[phaseIndex];
       const heading = node("div", undefined, "bonus-replacement-heading"), modes = node("div", undefined, "bonus-modes");
@@ -288,34 +288,37 @@
         const action = button(caption, () => { draft.setMode(chapterID, value); onChange(); render(); }, "bonus-mode");
         action.setAttribute("aria-pressed", String(draft.mode(chapterID) === value)); modes.append(action);
       }
-      heading.append(node("h2", chapterTitle(chapterID)), modes, node("span", `${chapterID} · ${draft.quests(chapterID).length} 关卡`, "row-badge")); main.append(heading);
+      const activity = node("div");
+      activity.append(node("h2", chapterTitle(chapterID)), node("p", range(chapter(chapterID).values.StartDatetime, chapter(chapterID).values.EndDatetime), "bonus-note bonus-activity-dates"));
+      heading.append(activity, modes, node("span", `${chapterID} · ${draft.quests(chapterID).length} 关卡`, "row-badge")); main.append(heading);
       const pickers = node("div", undefined, "bonus-source-picker");
       const sources = [...draft.bonuses].sort(([a], [b]) => Number(a) - Number(b)).map(([id, bonus]) => {
         const members = [...draft.members([id]).values()];
-        return { value: id, label: `${id} · 服装组 ${bonus.QuestBonusCostumeSettingGroupId} / 武器组 ${bonus.QuestBonusWeaponGroupId} · ${members.slice(0, 2).map(title).join(" / ") || "空名单"}`, search: [...Object.values(bonus), ...members.flatMap(m => [text(m.titles), ...m.itemIDs])].join(" "), group: Object.entries(bonus).filter(([name]) => name !== "QuestBonusId").map(([, value]) => value).join(":") };
+        const representative = kind => { const entries = members.filter(m => m.kind === kind); return entries.length ? `${title(entries[0])}${entries.length > 1 ? " 等" : ""}` : "无"; };
+        return { value: id, label: `${id} · 服装组 ${bonus.QuestBonusCostumeSettingGroupId} (${representative("服装")}) / 武器组 ${bonus.QuestBonusWeaponGroupId} (${representative("武器")})`, search: [...Object.values(bonus), ...members.flatMap(m => [text(m.titles), ...m.itemIDs])].join(" "), group: Object.entries(bonus).filter(([name]) => name !== "QuestBonusId").map(([, value]) => value).join(":") };
       });
       pickers.append(field("历史名单来源", select("历史名单来源", [{ value: "", label: "搜索加成 ID、组 ID 或服装／武器名称…" }, ...sources], selected?.sourceBonusID || "", value => { draft.replace(chapterID, value); onChange(); render(); })));
       const reference = select("规则参考活动", draft.catalog.chapters.filter(row => row.values.EventQuestChapterId === chapterID || draft.currentIDs(row.values.EventQuestChapterId).some(id => id !== "0")).map(row => ({ value: row.values.EventQuestChapterId, label: `${row.values.EventQuestChapterId === chapterID ? "本活动 · " : ""}${chapterTitle(row.values.EventQuestChapterId)} · ${row.values.EventQuestChapterId}` })), selected?.ruleChapterID || chapterID, value => { draft.setReference(chapterID, value); onChange(); render(); });
       reference.disabled = !selected; pickers.append(field(draft.mode(chapterID) === "append" ? "新增武器规则参考" : "武器规则参考", reference)); main.append(pickers);
       const controls = node("div", undefined, "bonus-phase-controls");
-      controls.append(field("关卡预览", select("预览关卡分组", groups.map((group, index) => ({ value: String(index), label: groupLabel(group) })), String(phaseIndex), value => { phaseIndex = Number(value); render(); })), field("突破", select("预览突破档位", [0, 1, 2, 3, 4].map(value => ({ value: String(value), label: `${value} 突破` })), String(limitBreak), value => { limitBreak = Number(value); render(); }, false)));
+      controls.append(field("关卡预览", select("预览关卡分组", groups.map((group, index) => ({ value: String(index), label: groupLabel(group) })), String(phaseIndex), value => { phaseIndex = Number(value); render(); })), node("span", "突破 0 / 1 / 2 / 3 / 4", "bonus-note"));
       if (selected && selected.ruleChapterID !== chapterID && draft.selectedMembers(chapterID).some(m => m.kind === "武器")) controls.append(button("关卡／奖章对应", () => mappingDialog(selected)));
       main.append(controls);
-      const scroll = node("div", undefined, "bonus-diff-scroll"), comparison = node("div", undefined, "bonus-comparison");
+      const comparison = node("div", undefined, "bonus-comparison");
       comparison.append(roster(currentIDs, draft.mode(chapterID) === "append" ? "当前名单（全部保留）" : "当前名单", null, phase));
       if (selected) comparison.append(roster([selected.sourceBonusID], "来源名单", selected, phase));
-      else comparison.append(node("p", "选择历史来源后显示完整名单与武器规则。", "bonus-note"));
-      scroll.append(comparison); main.append(scroll);
+      else comparison.append(node("p", "请选择历史名单来源。", "bonus-note"));
+      main.append(comparison);
       const note = node("div", undefined, "bonus-replacement-note");
       if (selected) {
         const summary = draft.summary(chapterID), counts = values => `${values[0]} 套服装 / ${values[1]} 种武器`;
         const result = node("p", `最终 ${counts(summary.final)} · 新增 ${counts(summary.added)} · 移除 ${counts(summary.removed)}`, "bonus-summary"); result.setAttribute("role", "status"); note.append(result);
-        try { draft.payload(); note.append(node("p", draft.changed(chapterID) ? "配置完整，点击下方“重建并应用”查看保存预览。" : "尚未勾选新增成员，当前名单不变。", "bonus-added")); }
+        try { draft.payload(); }
         catch (error) { note.append(node("p", error.message, "bonus-warning")); }
         note.append(button("撤销本活动", () => { draft.replace(chapterID, ""); onChange(); render(); }));
-      } else note.append(node("p", "每项武器规则涵盖全部关卡分组、突破档位与进化形态；上方切换仅用于预览。"));
+      }
       main.append(note);
-      window.AdminSearchSelect?.refresh(); scroll.scrollTop = scrollTop;
+      window.AdminSearchSelect?.refresh(); if (scrollContainer) scrollContainer.scrollTop = scrollTop;
       if (focusLabel) [...root.querySelectorAll('input[type="checkbox"]')].find(input => input.getAttribute("aria-label") === focusLabel)?.focus({ preventScroll: true });
     }
     const handlesRecord = record => record.table === "m_quest" && record.changes?.some(change => change.field === "QuestBonusId");

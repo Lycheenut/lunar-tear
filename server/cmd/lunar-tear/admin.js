@@ -11,6 +11,7 @@
     modeControl: $("#detail-mode-control"), modeButtons: document.querySelectorAll(".mode-button"),
     statusFilter: $("#status-filter"), statusFilterLabel: $("#status-filter-label"),
     languageSelect: $("#language-select"), tableSearchLabel: $("#table-search-label"),
+    questBonusSearch: $("#quest-bonus-search"),
     search: $("#search"), refresh: $("#refresh"), notice: $("#notice"),
     entityName: $("#entity-name"), tableName: $("#table-name"), visibleCount: $("#visible-count"),
     tableScroll: $("#table-scroll"), scheduleTable: $("#schedule-table"), head: $("#schedule-head"), body: $("#schedule-body"),
@@ -210,7 +211,7 @@
   }
 
   const questBonusEditor = window.createQuestBonusEditor?.({
-    root: $("#quest-bonus-editor"), onChange: updateDirtyUI, localizedText,
+    root: $("#quest-bonus-editor"), searchRoot: elements.questBonusSearch, onChange: updateDirtyUI, localizedText,
     formatDatetime: (value) => previewChangeValue(value, true),
     showError: (message) => showNotice(message, true)
   });
@@ -417,6 +418,8 @@
     elements.shopEditor.classList.add("hidden");
     elements.questDropEditor.classList.add("hidden");
     $("#quest-bonus-editor").classList.add("hidden");
+    elements.questBonusSearch.classList.add("hidden");
+    elements.search.classList.remove("hidden");
     elements.timezone.disabled = false;
     elements.timezone.value = state.timeMode;
     elements.typeFilters.replaceChildren();
@@ -835,7 +838,9 @@
     const isQuestDropEditor = table.name === "m_quest_pickup_reward_group";
     const isQuestBonusEditor = table.name === "m_quest_bonus";
     $("#quest-bonus-editor").classList.toggle("hidden", !isQuestBonusEditor);
-    elements.tableSearchLabel.classList.toggle("hidden", isQuestBonusEditor || ["delivery", "drop"].includes(state.section));
+    elements.tableSearchLabel.classList.toggle("hidden", ["delivery", "drop"].includes(state.section));
+    elements.search.classList.toggle("hidden", isQuestBonusEditor);
+    elements.questBonusSearch.classList.toggle("hidden", !isQuestBonusEditor);
     elements.timezone.disabled = false;
     elements.timezone.value = state.timeMode;
     elements.entityName.textContent = table.name;
@@ -847,7 +852,7 @@
     elements.missionTermEditor.classList.toggle("hidden", !isMissionTerm);
     elements.shopEditor.classList.toggle("hidden", !isShopEditor);
     elements.questDropEditor.classList.toggle("hidden", !isQuestDropEditor);
-    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionEditor || isShopEditor || isQuestDropEditor || isQuestBonusEditor);
+    elements.tableScroll.classList.toggle("mission-reward-mode", isMissionEditor || isShopEditor || isQuestDropEditor);
     elements.tableScroll.classList.toggle("mission-term-mode", isMissionTerm);
     elements.tableScroll.classList.toggle("shop-mode", isShopEditor);
     elements.tableScroll.classList.toggle("quest-drop-mode", isQuestDropEditor);

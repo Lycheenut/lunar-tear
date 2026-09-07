@@ -131,18 +131,53 @@ test("roster checkboxes, modes and searchable rule inputs support selective supp
   const browser=await chromium.launch({headless:true,...(process.platform==="win32"?{channel:"msedge"}:{})}); t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width:1440,height:900}}), errors=[];
   page.on("pageerror",error=>errors.push(error.message));
-  await page.setContent('<div id="editor" class="quest-bonus-editor" style="height:560px"></div>');
-  await page.addStyleTag({path:path.join(__dirname,"admin.css")});
+  const html=readFileSync(path.join(__dirname,"admin.html"),"utf8").replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,"");
+  await page.route("http://admin.test/**",route=>route.fulfill({contentType:route.request().url().endsWith(".css")?"text/css":"text/html",body:route.request().url().endsWith(".css")?readFileSync(path.join(__dirname,"admin.css"),"utf8"):html}));
+  await page.goto("http://admin.test/admin/");
   await page.addScriptTag({path:path.join(__dirname,"admin_search_select.js")});
   await page.addScriptTag({path:path.join(__dirname,"admin_quest_bonus.js")});
+  const main=readFileSync(path.join(__dirname,"admin.js"),"utf8").replace(/\}\)\(\);\s*$/,"globalThis.integration={state,renderCatalog,renderTable,showWorkspace}; globalThis.editor=questBonusEditor; })();");
+  await page.addScriptTag({content:main});
   const data=catalog(); data.chapters=[501,589].map(id=>({values:{EventQuestChapterId:String(id),StartDatetime:"1",EndDatetime:"2"},titles:{ja:`活动 ${id}`}}));
+  data.tables.forEach(table=>table.fields.forEach(field=>field.type="Int32"));
+  const weaponRows=data.tables.find(t=>t.name==="m_quest_bonus_weapon_group").rows;
+  for (const gid of [50,51,52]) for (const [level,effect] of [[2,20],[4,40]]) weaponRows.push({values:{QuestBonusWeaponGroupId:String(gid),WeaponId:"201",LimitBreakCountLowerLimit:String(level),QuestBonusEffectGroupId:String(effect),QuestBonusTermGroupId:"40"}});
+  for (const amount of [20,40]) {
+    data.tables.find(t=>t.name==="m_quest_bonus_effect_group").rows.push({values:{QuestBonusEffectGroupId:String(amount),SortOrder:"1",QuestBonusType:"3",QuestBonusEffectId:String(amount)}});
+    data.tables.find(t=>t.name==="m_quest_bonus_drop_reward").rows.push({values:{QuestBonusEffectId:String(amount),PossessionType:"6",PossessionId:"181",AdditionalCount:String(amount)}});
+  }
   await page.evaluate(data=>{
-    window.editor=window.createQuestBonusEditor({root:document.querySelector("#editor"),onChange(){},localizedText:titles=>titles?.ja||"",showError:message=>{throw new Error(message);}});
-    window.editor.load(data); window.editor.selectChapter(501); window.editor.render();
+    const api=window.integration;
+    api.state.catalog={...data,version:"0".repeat(64),languages:["ja"],tables:[...data.tables,{name:"m_test_related",entityName:"EntityMTestRelated",fields:[],rows:[]}]};
+    api.state.language="ja"; api.state.section="related"; api.state.tableSelections.related="m_test_related";
+    window.editor.load(data); api.showWorkspace(); api.renderCatalog(); api.renderTable();
   },data);
+  const layout=()=>page.evaluate(()=>[".topbar","main",".summary-grid",".toolbar",".data-heading.table-section-only","#table-scroll",".savebar"].map(selector=>{
+    const el=document.querySelector(selector),s=getComputedStyle(el);
+    return [selector,s.display,s.padding,s.margin,s.fontSize,s.overflowY,s.maxHeight,el.getBoundingClientRect().width];
+  }));
+  const before=await layout();
+  await page.locator("#search").fill("保留其他表筛选");
+  await page.locator("#table-select").selectOption("m_quest_bonus");
+  const activity=page.getByRole("combobox",{name:"目标活动",exact:true});
+  await activity.waitFor();
+  assert.deepEqual(await layout(),before,"QuestBonus must use the common table container and outer layout");
+  assert.equal(await activity.evaluate(el=>el.closest("#table-search-label")!==null),true);
+  assert.equal(await page.locator("#search").isVisible(),false);
+  await activity.fill("501"); await page.getByRole("option",{name:"活动 501 · 501",exact:true}).click();
+  assert.equal(await page.locator(".bonus-events, .bonus-diff-scroll").count(),0);
+  assert.equal(await page.getByRole("combobox",{name:"预览突破档位"}).count(),0);
+  const dates=page.locator(".bonus-activity-dates");
+  assert.match(await dates.innerText(),/1970.*—.*1970/);
+  assert.equal(await dates.evaluate(el=>el.previousElementSibling.tagName),"H2");
+  assert.equal(await page.getByText("全部共鸣跟随活动").count(),0);
   await page.getByRole("button",{name:"保留当前并补充",exact:true}).click();
   const source=page.getByRole("combobox",{name:"历史名单来源",exact:true});
   await source.fill("30"); await page.getByRole("option",{name:/^30 ·/}).click();
+  assert.equal(await source.inputValue(),"30 · 服装组 21 (兵器の祭典 等) / 武器组 60 (同名の武器 等)");
+  for (const name of ["少女の祭典","神秘石の杖"]) {
+    await source.fill(name); await page.getByRole("option",{name:/^30 ·/}).waitFor(); await source.press("Escape");
+  }
   assert.equal(await page.getByRole("checkbox",{name:/兵器の祭典/}).isDisabled(),true);
   assert.equal(await page.getByRole("checkbox",{name:/· 101$/}).isDisabled(),true);
   assert.equal(await page.locator('.bonus-weapon-row input[role="combobox"]').count(),0);
@@ -152,7 +187,9 @@ test("roster checkboxes, modes and searchable rule inputs support selective supp
   await page.getByRole("checkbox",{name:/· 401$/}).check();
   const rule=page.getByRole("combobox",{name:"武器规则 401",exact:true});
   await rule.fill("201"); await page.getByRole("option",{name:/^规则 2/}).click();
-  assert.match(await page.getByRole("status").innerText(),/最终 2 套服装 \/ 4 种武器.*新增 1 套服装 \/ 1 种武器.*移除 0 套服装 \/ 0 种武器/);
+  assert.match(await page.locator(".bonus-summary").innerText(),/最终 2 套服装 \/ 4 种武器.*新增 1 套服装 \/ 1 种武器.*移除 0 套服装 \/ 0 种武器/);
+  assert.equal(await page.locator('.bonus-roster:first-child strong[title$="201"]').locator("..").locator("small").innerText(),"物品 181 +10 / +10 / +20 / +20 / +40");
+  assert.equal(await page.locator('.bonus-roster:nth-child(2) .bonus-weapon-row').filter({has:page.getByRole("checkbox",{name:/· 401$/})}).locator("small").innerText(),"物品 181 +10 / +10 / +20 / +20 / +40");
   assert.equal(await page.locator(".bonus-warning").count(),0);
   await page.getByRole("button",{name:"武器清空",exact:true}).click();
   assert.equal(await page.locator('.bonus-weapon-row input[role="combobox"]').count(),0);
@@ -167,6 +204,12 @@ test("roster checkboxes, modes and searchable rule inputs support selective supp
   assert.equal(await page.locator('.bonus-weapon-row input[role="combobox"]').count(),1);
   await source.fill("10"); await page.getByRole("option",{name:/^10 ·/}).click();
   assert.equal(await page.evaluate(()=>window.editor.count()),0);
+  await page.locator("#table-select").selectOption("m_test_related");
+  await page.locator("#search").waitFor();
+  assert.equal(await page.locator("#search").inputValue(),"保留其他表筛选");
+  assert.equal(await activity.isVisible(),false);
+  await page.locator("#table-select").selectOption("m_quest_bonus");
+  await activity.waitFor(); assert.equal(await activity.inputValue(),"活动 501 · 501");
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   assert.deepEqual(errors,[]);
 });

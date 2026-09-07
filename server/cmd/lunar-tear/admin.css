@@ -54,18 +54,9 @@ code {
 .search-select-option.disabled { opacity: .45; cursor: not-allowed; }
 .search-select-empty { padding: 10px 12px; color: var(--muted); font-size: 12px; }
 
-.quest-bonus-editor { display: grid; grid-template-columns: 238px minmax(0, 1fr); height: 100%; min-height: 0; }
-.bonus-events { display: flex; flex-direction: column; min-height: 0; padding: 12px; border-right: 1px solid var(--line); gap: 10px; }
-.bonus-events input { width: 100%; min-height: 36px; font-size: 13px; }
-.bonus-event-list { overflow-y: auto; min-height: 0; }
-.bonus-event { display: block; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); }
-.bonus-event strong, .bonus-event small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bonus-event strong { font-size: 13px; font-weight: 600; }
-.bonus-event small { font-size: 11px; color: var(--muted); margin-top: 4px; }
-.bonus-event:hover { background: var(--panel-2); }
-.bonus-event.selected { border-color: var(--accent); background: rgba(119,222,199,.07); }
-.bonus-replacement { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 12px 16px; gap: 8px; }
+.bonus-replacement { display: flex; flex-direction: column; min-width: 0; padding: 12px 16px; gap: 8px; }
 .bonus-replacement-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.bonus-replacement-heading > div:first-child { min-width: 0; }
 .bonus-replacement-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 19px; }
 .bonus-modes { display: flex; flex-shrink: 0; margin-left: auto; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .bonus-mode { padding: 5px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; }
@@ -75,10 +66,7 @@ code {
 .bonus-source-picker small { grid-column: 1 / -1; }
 .bonus-source-picker .bonus-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
 .bonus-note { color: var(--muted); line-height: 1.5; font-size: 12px; }
-.bonus-activity-dates { white-space: pre-line; }
-.bonus-diff-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .bonus-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
-.bonus-added { color: var(--accent); }
 .bonus-warning { color: var(--warning); }
 .bonus-replacement-note { position: relative; flex-shrink: 0; padding-right: 115px; font-size: 11px; line-height: 1.6; color: var(--muted); }
 .bonus-replacement-note .button { position: absolute; right: 0; bottom: 0; min-height: 28px; padding: 4px 8px; font-size: 11px; }
@@ -92,7 +80,6 @@ code {
 .bonus-phase-controls .bonus-field { flex-direction: row; align-items: center; gap: 8px; }
 .bonus-phase-controls .bonus-field > span:not(.search-select) { flex-shrink: 0; }
 .bonus-phase-controls .search-select { flex: 1; width: auto; }
-.bonus-phase-controls .bonus-field:nth-child(2) { width: 118px; }
 .bonus-phase-controls .button { min-height: 32px; padding: 5px 9px; font-size: 12px; }
 .bonus-roster { min-width: 0; }
 .bonus-roster h3 { font-size: 13px; margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
@@ -126,7 +113,6 @@ code {
 .bonus-preview-table small { display: block; margin-top: 3px; font-size: 10px; font-weight: 400; color: var(--muted); }
 .bonus-preview-table td > div { overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 900px) {
-  .quest-bonus-editor { grid-template-columns: 185px minmax(0, 1fr); }
   .bonus-source-picker { grid-template-columns: 1fr; }
   .bonus-comparison { grid-template-columns: 1fr; }
   .bonus-replacement { padding: 10px; }
