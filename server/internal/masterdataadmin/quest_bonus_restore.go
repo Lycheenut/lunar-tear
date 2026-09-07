@@ -30,15 +30,20 @@ type QuestBonusCurrencyInput struct {
 	FromID int64 `json:"fromId"`
 	ToID   int64 `json:"toId"`
 }
+type QuestBonusWeaponPhaseInput struct {
+	QuestIDs []int64                 `json:"questIds"`
+	Weapons  []QuestBonusWeaponInput `json:"weapons"`
+}
 type QuestBonusRestoreInput struct {
-	ChapterID     int64                     `json:"chapterId"`
-	SourceBonusID int64                     `json:"sourceBonusId"`
-	Mode          string                    `json:"mode,omitempty"`
-	CostumeIDs    []int64                   `json:"costumeIds"`
-	RuleChapterID int64                     `json:"ruleChapterId"`
-	Weapons       []QuestBonusWeaponInput   `json:"weapons"`
-	Groups        []QuestBonusRuleInput     `json:"groups,omitempty"`
-	Currencies    []QuestBonusCurrencyInput `json:"currencies,omitempty"`
+	ChapterID     int64                        `json:"chapterId"`
+	SourceBonusID int64                        `json:"sourceBonusId"`
+	Mode          string                       `json:"mode,omitempty"`
+	CostumeIDs    []int64                      `json:"costumeIds"`
+	RuleChapterID int64                        `json:"ruleChapterId"`
+	Weapons       []QuestBonusWeaponInput      `json:"weapons"`
+	WeaponPhases  []QuestBonusWeaponPhaseInput `json:"weaponPhases,omitempty"`
+	Groups        []QuestBonusRuleInput        `json:"groups,omitempty"`
+	Currencies    []QuestBonusCurrencyInput    `json:"currencies,omitempty"`
 }
 type QuestBonusRewardPreview struct {
 	PossessionType int64 `json:"possessionType"`
@@ -525,6 +530,7 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 		var source []string
 		ruleChapter := chapterID
 		choices := make(map[int64]int64)
+		phaseOverrides := make(map[int64]map[int64]int64)
 		selectedCostumes := make(map[int64]bool)
 		currencies := make(map[int64]int64)
 		ruleByQuest := make(map[int64]int64)
@@ -584,6 +590,26 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 				}
 				choices[family] = choice.TemplateWeaponID
 			}
+			for _, phase := range input.WeaponPhases {
+				if len(phase.QuestIDs) == 0 || len(phase.Weapons) == 0 {
+					return request, nil, fmt.Errorf("分阶段武器规则必须指定关卡和武器")
+				}
+				for _, qid := range phase.QuestIDs {
+					if _, ok := quests[qid]; !ok {
+						return request, nil, fmt.Errorf("分阶段武器规则包含其他活动关卡：%d", qid)
+					}
+					if phaseOverrides[qid] == nil {
+						phaseOverrides[qid] = make(map[int64]int64)
+					}
+					for _, choice := range phase.Weapons {
+						family := p.family[choice.WeaponID]
+						if choices[family] == 0 || p.family[choice.TemplateWeaponID] == 0 || phaseOverrides[qid][family] != 0 {
+							return request, nil, fmt.Errorf("分阶段武器规则无效/重复：关卡 %d，武器 %d", qid, choice.WeaponID)
+						}
+						phaseOverrides[qid][family] = choice.TemplateWeaponID
+					}
+				}
+			}
 			if input.Mode == "" {
 				for family := range sourceFamilies {
 					if choices[family] == 0 {
@@ -593,6 +619,9 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 			}
 			for family := range currentFamilies {
 				delete(choices, family)
+				for _, overrides := range phaseOverrides {
+					delete(overrides, family)
+				}
 			}
 			// An empty supplement must not allocate groups or synchronize dates
 			// unless the same request actually changes the activity schedule.
@@ -661,12 +690,22 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 			preview.Mode = input.Mode
 		}
 		phaseQuests := make(map[string][]int64)
+		choicesByQuest := make(map[int64]map[int64]int64)
 		for qid, q := range quests {
 			if input == nil && q.BonusID == 0 {
 				continue
 			}
-			// External references may split quests that originally all used bonus zero.
-			key := fmt.Sprintf("%d:%d", q.BonusID, ruleByQuest[qid])
+			phaseChoices := make(map[int64]int64, len(choices))
+			for family, template := range choices {
+				phaseChoices[family] = template
+			}
+			for family, template := range phaseOverrides[qid] {
+				phaseChoices[family] = template
+			}
+			choicesByQuest[qid] = phaseChoices
+			// Different templates may split quests even when their original bonus is shared.
+			signature, _ := json.Marshal(phaseChoices)
+			key := fmt.Sprintf("%d:%d:%s", q.BonusID, ruleByQuest[qid], signature)
 			phaseQuests[key] = append(phaseQuests[key], qid)
 		}
 		phaseKeys := make([]string, 0, len(phaseQuests))
@@ -718,12 +757,12 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 							}
 						}
 					}
-					gid, err = p.weapons(bonusNumber(source[3]), ruleWeapons, current, term, choices, currencies, available, ruleChapter != chapterID)
+					gid, err = p.weapons(bonusNumber(source[3]), ruleWeapons, current, term, choicesByQuest[qids[0]], currencies, available, ruleChapter != chapterID)
 				} else {
 					gid, err = p.timedGroup(link.table, bonusNumber(base[link.column]), term, link.term, link.column == 2)
 				}
 				if err != nil {
-					return request, nil, fmt.Errorf("活动 %d：%w", chapterID, err)
+					return request, nil, fmt.Errorf("活动 %d，关卡 %d（参考加成 %d）：%w", chapterID, qids[0], ruleID, err)
 				}
 				base[link.column] = bonusString(gid)
 			}

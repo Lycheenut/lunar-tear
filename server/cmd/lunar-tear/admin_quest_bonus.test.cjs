@@ -57,8 +57,8 @@ test("historical roster imports every member and auto-matches only actual weapon
 test("profiles distinguish silver/gold phases, evolution coverage, and equal-name families", () => {
   const draft=new Draft(catalog()), profiles=draft.profiles(501);
   assert.equal(profiles.length,3,"same effects with different evolution coverage must stay distinct");
-  assert.deepEqual(plain(profiles.find(p=>p.id==="201").medalIDs),[181]);
-  assert.deepEqual(plain(profiles.find(p=>p.id==="101").medalIDs),[181,182,183]);
+  assert.deepEqual(plain(draft.rewards(draft.templateRows(12,201,201)[0].QuestBonusEffectGroupId).map(r=>r.possessionId)),[181]);
+  assert.deepEqual(plain(draft.rewards(draft.templateRows(12,101,101)[0].QuestBonusEffectGroupId).map(r=>r.possessionId)),[181,182,183]);
   assert.equal(draft.members([10]).size,4,"same title must not merge distinct weapon families");
   assert.equal(draft.templateRows(12,402,201)[0].WeaponId,"201","later forms inherit nearest available earlier template form");
   assert.deepEqual(plain(draft.rewards(9)),[{possessionType:6,possessionId:9,count:5}]);
@@ -76,6 +76,55 @@ test("zero-bonus activity requires explicit reference phase and currency mapping
   const input=draft.payload().questBonusRestores[0];
   assert.deepEqual(plain(input.groups),[{questIds:[4],ruleBonusId:10},{questIds:[5],ruleBonusId:11},{questIds:[6],ruleBonusId:12}]);
   assert.deepEqual(plain(input.currencies),[{fromId:181,toId:249},{fromId:182,toId:250},{fromId:183,toId:251}]);
+});
+
+function partialCatalog() {
+  const data=catalog();
+  const weapons=data.tables.find(t=>t.name==="m_quest_bonus_weapon_group");
+  weapons.rows=weapons.rows.filter(({values:r})=>!(["51","52"].includes(r.QuestBonusWeaponGroupId)&&r.WeaponId==="201")&&!(r.QuestBonusWeaponGroupId==="50"&&r.WeaponId==="301"));
+  const bonuses=data.tables.find(t=>t.name==="m_quest_bonus");
+  bonuses.rows.push({values:{...bonuses.rows[0].values,QuestBonusId:"13"}});
+  data.quests.push({...data.quests[0],questId:7,bonusId:13,difficulty:2});
+  data.quests.forEach((q,i)=>q.sortOrder=i+1);
+  data.chapters=[501,589].map(id=>({values:{EventQuestChapterId:String(id),StartDatetime:"1",EndDatetime:"2"},titles:{ja:`活动 ${id}`}}));
+  return data;
+}
+
+test("partial rules stay selectable and require explicit completion of every phase", () => {
+  const data=partialCatalog(), snapshot=JSON.stringify(data), draft=new Draft(data);
+  assert.equal(draft.targetGroups(501).length,3);
+  assert.deepEqual(plain(draft.targetGroups(501)[0].quests.map(q=>q.questId)),[1,7]);
+  assert.deepEqual(plain(draft.profiles(501).map(p=>[p.id,p.complete])),[["101",true],["201",false],["301",false]]);
+  draft.replace(501,30);
+  const selected=draft.selections.get("501"), member=draft.members([30]).get("武器:4");
+  draft.setChoice(selected,member,"201");
+  assert.throws(()=>draft.payload(),/关卡 2.*分阶段/);
+  selected.phaseChoices[member.key]={"11:181,182":"301"};
+  assert.throws(()=>draft.payload(),/关卡 3.*分阶段/);
+  selected.phaseChoices[member.key]["12:181,182,183"]="301";
+  assert.deepEqual(plain(draft.payload().questBonusRestores[0].weaponPhases),[
+    {questIds:[2],weapons:[{weaponId:401,templateWeaponId:301}]},
+    {questIds:[3],weapons:[{weaponId:401,templateWeaponId:301}]}
+  ]);
+  selected.phaseChoices[member.key]["11:181,182"]="";
+  assert.throws(()=>draft.payload(),/关卡 2/);
+  draft.setChoice(selected,member,"101");
+  assert.equal(draft.payload().questBonusRestores[0].weaponPhases,undefined);
+  draft.setReference(501,589);
+  assert.deepEqual(plain(selected.phaseChoices),{});
+  assert.equal(JSON.stringify(data),snapshot);
+});
+
+test("external currency mappings follow composed phase rules, excluding unused templates", () => {
+  const draft=new Draft(partialCatalog()); draft.replace(589,30); draft.setReference(589,501);
+  const selected=draft.selections.get("589"); selected.members=new Set(["武器:4"]); selected.choices["武器:4"]="101";
+  draft.targetGroups(589).forEach((group,i)=>selected.groups[group.key]=String(10+i));
+  selected.phaseChoices["武器:4"]={"0:249":"201","0:249,250":"301","0:249,250,251":"201"};
+  assert.throws(()=>draft.payload(),/缺少适用规则/);
+  selected.groups["0:249,250,251"]="10";
+  assert.deepEqual(plain(draft.requiredMedals(589,selected)),[181,182]);
+  selected.currencies={181:"249",182:"250"};
+  assert.equal(draft.payload().questBonusRestores[0].weaponPhases.length,3);
 });
 
 test("shared quest activities are rejected before changing the draft", () => {
@@ -127,6 +176,51 @@ test("partial replacement and empty lists are explicit, including costume-only z
 
 let chromium;
 try { ({ chromium } = require("playwright")); } catch (_) { /* Optional browser runtime in CI. */ }
+test("phase dialog composes partial templates without expanding the activity page", { skip: !chromium && "Install Playwright to run browser coverage" }, async t => {
+  const browser=await chromium.launch({headless:true,...(process.platform==="win32"?{channel:"msedge"}:{})}); t.after(()=>browser.close());
+  const page=await browser.newPage({viewport:{width:1440,height:900}}), errors=[];
+  page.on("pageerror",error=>errors.push(error.message));
+  await page.setContent('<div id="search"></div><div class="table-scroll"><div id="root"></div></div>');
+  await page.addStyleTag({path:path.join(__dirname,"admin.css")});
+  for (const name of ["admin_search_select.js","admin_quest_bonus.js"]) await page.addScriptTag({path:path.join(__dirname,name)});
+  await page.evaluate(data=>{
+    window.editor=window.createQuestBonusEditor({root:document.querySelector("#root"),searchRoot:document.querySelector("#search"),onChange:()=>{},localizedText:titles=>titles?.ja,showError:message=>{throw new Error(message);}});
+    window.editor.load(data); window.editor.selectChapter(501); window.editor.render();
+  },partialCatalog());
+  await page.getByRole("combobox",{name:"历史名单来源",exact:true}).fill("30");
+  await page.getByRole("option",{name:/^30 ·/}).click();
+  const rule=page.getByRole("combobox",{name:"武器规则 401",exact:true});
+  await rule.fill("201"); await page.getByRole("option",{name:/^规则 2.*部分阶段/}).click();
+  await page.getByRole("button",{name:"分阶段规则 401",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"分阶段规则 401",exact:true});
+  assert.equal(await dialog.getByRole("combobox").count(),3,"equivalent normal bonus IDs share one phase input");
+  assert.equal(await dialog.getByText("待选择本阶段规则",{exact:true}).count(),2);
+  assert.equal(await page.evaluate(()=>{try{window.editor.payload();return false;}catch(e){return /分阶段/.test(e.message);}}),true);
+  for (const key of ["11:181,182","12:181,182,183"]) {
+    const phase=dialog.getByRole("combobox",{name:`阶段规则 ${key}`,exact:true});
+    await phase.fill("201"); assert.equal(await dialog.getByRole("option").count(),0,"normal-only rule cannot be used in EX");
+    await phase.fill("301"); await dialog.getByRole("option").click();
+  }
+  assert.equal(await dialog.getByText("待选择本阶段规则",{exact:true}).count(),0);
+  assert.equal(await dialog.evaluate(el=>el.scrollWidth>el.clientWidth||el.scrollHeight>el.clientHeight),false);
+  await dialog.getByRole("button",{name:"完成",exact:true}).click();
+  await dialog.waitFor({state:"detached"});
+  await page.waitForFunction(()=>document.querySelector('input[aria-label="武器规则 401"]').value==="已按阶段组合");
+  assert.equal(await rule.inputValue(),"已按阶段组合");
+  const payload=await page.evaluate(()=>window.editor.payload());
+  assert.equal(payload.questBonusRestores[0].weaponPhases.length,2);
+  const phase=page.getByRole("combobox",{name:"预览关卡分组",exact:true});
+  await phase.fill("EX Hard 1"); await page.getByRole("option",{name:/^EX Hard 1 ·/}).click();
+  assert.equal(await page.locator('.bonus-roster:first-child strong[title$="201"]').locator("..").locator("small").innerText(),"本阶段未配置加成");
+  const current=page.locator('.bonus-roster:nth-child(2) .bonus-weapon-row').filter({has:page.getByRole("checkbox",{name:/· 401$/})});
+  assert.match(await current.locator("small").innerText(),/181＋物品 182/);
+  assert.equal(await page.locator(".bonus-warning").count(),0);
+  await rule.fill("101"); await page.getByRole("option",{name:/^规则 1/}).click();
+  assert.equal(await page.evaluate(()=>window.editor.payload().questBonusRestores[0].weaponPhases),undefined,"whole-activity choice resets phase overrides");
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  assert.deepEqual(errors,[]);
+});
+
 test("roster checkboxes, modes and searchable rule inputs support selective supplementation", { skip: !chromium && "Install Playwright to run browser coverage" }, async t => {
   const browser=await chromium.launch({headless:true,...(process.platform==="win32"?{channel:"msedge"}:{})}); t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width:1440,height:900}}), errors=[];

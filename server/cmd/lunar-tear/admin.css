@@ -100,6 +100,9 @@ code {
 .bonus-roster:first-child .bonus-weapon-row { grid-template-columns: minmax(100px, .6fr) minmax(180px, 1fr); min-height: 39px; }
 .bonus-roster:first-child .bonus-weapon-row > small { grid-column: auto; }
 .bonus-weapon-row .search-select input { min-height: 30px; padding: 5px 27px 5px 7px; font-size: 11px; }
+.bonus-rule-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bonus-rule-controls .search-select { flex: 1; min-width: 0; }
+.bonus-rule-controls > button { flex-shrink: 0; white-space: nowrap; }
 .bonus-weapon-row > .bonus-warning { color: var(--warning); }
 .bonus-weapon-row.bonus-weapon-unselected { grid-template-columns: minmax(0, 1fr); min-height: 32px; }
 .bonus-mapping-dialog { width: min(850px, 90vw); max-height: 85dvh; overflow: auto; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); background: var(--panel); }
@@ -110,7 +113,9 @@ code {
 .bonus-preview-table { width: 100%; min-width: 0; margin: 8px 0 16px; table-layout: fixed; }
 .bonus-preview-table th, .bonus-preview-table td { padding: 6px 10px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bonus-preview-table th:first-child, .bonus-preview-table td:first-child { position: static; min-width: 0; width: 23%; }
+.bonus-phase-dialog .bonus-preview-table th:first-child, .bonus-phase-dialog .bonus-preview-table td:first-child { width: 35%; }
 .bonus-preview-table small { display: block; margin-top: 3px; font-size: 10px; font-weight: 400; color: var(--muted); }
+.bonus-preview-table small.bonus-warning { color: var(--warning); }
 .bonus-preview-table td > div { overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 900px) {
   .bonus-source-picker { grid-template-columns: 1fr; }

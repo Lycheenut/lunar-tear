@@ -17,6 +17,161 @@ func originalDenRestore() QuestBonusRestoreInput {
 	}}
 }
 
+func roadPhaseRestore() QuestBonusRestoreInput {
+	return QuestBonusRestoreInput{ChapterID: 511, SourceBonusID: 200301, RuleChapterID: 511, Weapons: []QuestBonusWeaponInput{
+		{210191, 210191}, {220121, 220121}, {320061, 320061}, {320141, 320141},
+	}, WeaponPhases: []QuestBonusWeaponPhaseInput{{QuestIDs: []int64{200688, 200689, 200690}, Weapons: []QuestBonusWeaponInput{
+		{220121, 320301}, {320061, 320301}, {320141, 320301},
+	}}}}
+}
+
+func TestQuestBonusComposePartialPhaseRules(t *testing.T) {
+	path, file := bonusTestFile(t)
+	input := roadPhaseRestore()
+	request := UpdateRequest{ExpectedVersion: file.Version(), QuestBonusRestores: []QuestBonusRestoreInput{input}}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := preview.QuestBonusRestores[0]
+	normalCurves := map[int64][]int64{21019: {1, 3, 5, 7, 10}, 22012: {1, 4, 6, 8, 12}, 32006: {2, 5, 8, 11, 15}, 32014: {2, 5, 8, 11, 15}}
+	before := newBonusRestorePlanner(file)
+	questCount := 0
+	for _, group := range plan.Groups {
+		questCount += len(group.QuestIDs)
+		if len(group.Weapons) != 40 {
+			t.Fatalf("lost evolution forms or breakthrough tiers: %+v", group)
+		}
+		for _, tier := range group.Weapons {
+			family := before.family[tier.WeaponID]
+			curve, ok := normalCurves[family]
+			if !ok {
+				t.Fatalf("unexpected imported weapon: %d", tier.WeaponID)
+			}
+			medals := []int64{27}
+			if group.BeforeBonusID >= 200735 {
+				medals = []int64{55}
+				if family != 21019 {
+					curve = []int64{5, 11, 17, 23, 30}
+					if group.BeforeBonusID == 200736 {
+						medals = append(medals, 56)
+					}
+				}
+			}
+			if len(tier.Rewards) != len(medals) {
+				t.Fatalf("wrong medal coverage: %+v", tier)
+			}
+			for i, reward := range tier.Rewards {
+				if reward.PossessionType != 6 || reward.PossessionID != medals[i] || reward.Count != curve[tier.LimitBreak] {
+					t.Fatalf("phase curve changed: bonus %d, %+v", group.BeforeBonusID, tier)
+				}
+			}
+		}
+	}
+	if questCount != 33 || len(plan.CostumeIDs) != 1 {
+		t.Fatalf("incomplete activity: %+v", plan)
+	}
+	candidate, _, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := newBonusRestorePlanner(rebuilt)
+	for _, group := range plan.Groups {
+		for _, qid := range group.QuestIDs {
+			if after.questBonuses[qid] != group.AfterBonusID {
+				t.Fatal("preview and build disagree on quest bonus")
+			}
+		}
+		bonus := after.groups[questBonusTable][group.AfterBonusID][0]
+		if !reflect.DeepEqual(after.weaponPreview(bonusNumber(bonus[3])), group.Weapons) {
+			t.Fatal("preview and build disagree on weapon rules")
+		}
+	}
+	for _, spec := range questBonusTableSpecs {
+		for id, rows := range before.groups[spec.Name] {
+			if !reflect.DeepEqual(rows, after.groups[spec.Name][id]) {
+				t.Fatalf("shared definition modified: %s:%d", spec.Name, id)
+			}
+		}
+	}
+	for _, q := range after.quests {
+		if q.ChapterID == 511 {
+			if terms := after.terms(q.BonusID); len(terms) != 1 || !terms[plan.TermGroupID] {
+				t.Fatalf("phase terms not synchronized: %v", terms)
+			}
+		} else if q.BonusID != before.questBonuses[q.QuestID] {
+			t.Fatalf("another activity changed: %+v", q)
+		}
+	}
+}
+
+func TestQuestBonusPhaseOverridesSplitSharedBonus(t *testing.T) {
+	_, file := bonusTestFile(t)
+	input := roadPhaseRestore()
+	input.WeaponPhases[0].QuestIDs = []int64{200688, 200689}
+	input.WeaponPhases = append(input.WeaponPhases, QuestBonusWeaponPhaseInput{QuestIDs: []int64{200690}, Weapons: []QuestBonusWeaponInput{{220121, 210191}, {320061, 320301}, {320141, 320301}}})
+	_, previews, err := planQuestBonusUpdates(file, UpdateRequest{QuestBonusRestores: []QuestBonusRestoreInput{input}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := make(map[int64]QuestBonusPhasePreview)
+	for _, group := range previews[0].Groups {
+		if group.BeforeBonusID == 200736 {
+			if len(group.QuestIDs) != 1 {
+				t.Fatal("different choices collapsed into one phase")
+			}
+			groups[group.QuestIDs[0]] = group
+		}
+	}
+	if len(groups) != 2 || groups[200689].AfterBonusID == groups[200690].AfterBonusID {
+		t.Fatal("shared bonus must split for different phase rules")
+	}
+	for qid, group := range groups {
+		for _, tier := range group.Weapons {
+			if tier.WeaponID == 220121 && tier.LimitBreak == 4 {
+				want := []QuestBonusRewardPreview{{6, 55, 30}, {6, 56, 30}}
+				if qid == 200690 {
+					want = []QuestBonusRewardPreview{{6, 55, 10}}
+				}
+				if !reflect.DeepEqual(tier.Rewards, want) {
+					t.Fatalf("phase override lost: %d %+v", qid, tier)
+				}
+			}
+		}
+	}
+}
+
+func TestQuestBonusPhaseOverrideValidation(t *testing.T) {
+	_, file := bonusTestFile(t)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*QuestBonusRestoreInput)
+	}{
+		{"incomplete coverage", func(r *QuestBonusRestoreInput) { r.WeaponPhases = nil }},
+		{"empty phase", func(r *QuestBonusRestoreInput) { r.WeaponPhases[0].QuestIDs = nil }},
+		{"foreign quest", func(r *QuestBonusRestoreInput) { r.WeaponPhases[0].QuestIDs = []int64{200001} }},
+		{"duplicate phase", func(r *QuestBonusRestoreInput) { r.WeaponPhases = append(r.WeaponPhases, r.WeaponPhases[0]) }},
+		{"duplicate evolution family", func(r *QuestBonusRestoreInput) {
+			r.WeaponPhases[0].Weapons = append(r.WeaponPhases[0].Weapons, QuestBonusWeaponInput{220122, 320301})
+		}},
+		{"unselected weapon", func(r *QuestBonusRestoreInput) { r.WeaponPhases[0].Weapons[0].WeaponID = 320301 }},
+		{"unknown template", func(r *QuestBonusRestoreInput) { r.WeaponPhases[0].Weapons[0].TemplateWeaponID = 0 }},
+		{"template absent in phase", func(r *QuestBonusRestoreInput) { r.WeaponPhases[0].Weapons[0].TemplateWeaponID = 320061 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := roadPhaseRestore()
+			tc.mutate(&input)
+			if _, _, err := planQuestBonusUpdates(file, UpdateRequest{QuestBonusRestores: []QuestBonusRestoreInput{input}}); err == nil {
+				t.Fatal("invalid phase rule accepted")
+			}
+		})
+	}
+}
+
 func TestQuestBonusRestorePreservesPhasesAndSynchronizesDates(t *testing.T) {
 	path, file := bonusTestFile(t)
 	request := UpdateRequest{ExpectedVersion: file.Version(), QuestBonusRestores: []QuestBonusRestoreInput{originalDenRestore()}}

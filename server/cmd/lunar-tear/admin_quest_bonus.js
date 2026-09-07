@@ -49,9 +49,11 @@
     targetGroups(chapterID) {
       const groups = new Map();
       for (const q of this.quests(chapterID)) {
-        const key = `${q.bonusId}:${[...(q.medalIds || [])].sort((a, b) => a - b).join(",")}`;
-        if (!groups.has(key)) groups.set(key, { key, bonusID: String(q.bonusId), quests: [], medalIDs: q.medalIds || [] });
-        groups.get(key).quests.push(q);
+        const medals = [...(q.medalIds || [])].sort((a, b) => a - b).join(",");
+        const bonus = this.bonuses.get(String(q.bonusId));
+        const signature = JSON.stringify([bonus ? Object.entries(bonus).filter(([name]) => name !== "QuestBonusId").sort() : q.bonusId, medals]);
+        if (!groups.has(signature)) groups.set(signature, { key: `${q.bonusId}:${medals}`, bonusID: String(q.bonusId), quests: [], medalIDs: q.medalIds || [] });
+        groups.get(signature).quests.push(q);
       }
       return [...groups.values()];
     }
@@ -62,10 +64,8 @@
       for (const member of members) {
         const family = this.family(member.itemID);
         const phases = ids.map(id => this.weaponRows(id).filter(row => this.family(row.WeaponId) === family).map(row => [this.order(row.WeaponId), Number(row.LimitBreakCountLowerLimit), this.rewards(row.QuestBonusEffectGroupId).sort((a, b) => a.possessionId - b.possessionId)]).sort((a, b) => a[0] - b[0] || a[1] - b[1]));
-        // Profiles cover the complete activity, including every phase and evolution form.
-        if (phases.some(rows => !rows.length)) continue;
         const signature = JSON.stringify(phases);
-        if (!merged.has(signature)) merged.set(signature, { id: member.itemID, members: [], medalIDs: unique(phases.flat(1).flatMap(row => row[2].map(reward => reward.possessionId))) });
+        if (!merged.has(signature)) merged.set(signature, { id: member.itemID, members: [], complete: phases.every(rows => rows.length > 0) });
         merged.get(signature).members.push(member);
       }
       const result = [...merged.values()]; this.profilesCache.set(key, result); return result;
@@ -74,6 +74,14 @@
       const rows = this.weaponRows(bonusID).filter(row => this.family(row.WeaponId) === this.family(templateID) && this.order(row.WeaponId) <= this.order(weaponID));
       const order = Math.max(-1, ...rows.map(row => this.order(row.WeaponId)));
       return rows.filter(row => this.order(row.WeaponId) === order);
+    }
+    ruleID(chapterID, selected, group) { return selected.ruleChapterID === String(chapterID) ? group.bonusID : selected.groups[group.key]; }
+    template(selected, member, group) { return selected.phaseChoices[member.key]?.[group.key] ?? selected.choices[member.key]; }
+    supports(bonusID, member, templateID) { return !!templateID && member.itemIDs.every(id => this.templateRows(bonusID, id, templateID).length > 0); }
+    setChoice(selected, member, value) { selected.choices[member.key] = value; delete selected.phaseChoices[member.key]; }
+    requiredMedals(chapterID, selected) {
+      return unique(this.selectedMembers(chapterID).filter(m => m.kind === "武器").flatMap(member => this.targetGroups(chapterID).flatMap(group =>
+        member.itemIDs.flatMap(id => this.templateRows(this.ruleID(chapterID, selected, group), id, this.template(selected, member, group)).flatMap(row => this.rewards(row.QuestBonusEffectGroupId).map(reward => reward.possessionId))))));
     }
     mode(chapterID) { return this.modes.get(String(chapterID)) || "replace"; }
     setMode(chapterID, mode) {
@@ -112,7 +120,7 @@
     }
     setReference(chapterID, ruleChapterID) {
       const selected = this.selections.get(String(chapterID));
-      selected.ruleChapterID = String(ruleChapterID); selected.choices = {}; selected.groups = {}; selected.currencies = {};
+      selected.ruleChapterID = String(ruleChapterID); selected.choices = {}; selected.phaseChoices = {}; selected.groups = {}; selected.currencies = {};
       const profiles = this.profiles(ruleChapterID);
       for (const member of this.members([selected.sourceBonusID]).values()) if (member.kind === "武器") {
         const profile = profiles.find(p => p.members.some(m => m.key === member.key));
@@ -129,17 +137,21 @@
         const groups = this.targetGroups(chapterID);
         if (source.length && !external && groups.some(group => group.bonusID === "0")) throw new Error(`活动 ${chapterID} 缺少现有加成，请选择规则参考活动并设置对应关系。`);
         if (source.length && external && groups.some(group => !selected.groups[group.key])) throw new Error(`活动 ${chapterID} 尚未完成关卡分组对应。`);
+        const weaponPhases = groups.map(group => ({ questIds: group.quests.map(q => q.questId), weapons: [] }));
         const weapons = source.map(member => {
-          const template = selected.choices[member.key];
+          const template = selected.choices[member.key] || groups.map(group => this.template(selected, member, group)).find(Boolean);
           if (!template) throw new Error(`活动 ${chapterID}：${text(member.titles) || member.itemID} 尚未选择武器规则。`);
-          const profile = this.profiles(selected.ruleChapterID).find(p => p.id === template);
-          if (!profile) throw new Error("所选武器规则已失效，请重新选择。");
-          for (const group of groups) for (const id of member.itemIDs) if (!this.templateRows(external ? selected.groups[group.key] : group.bonusID, id, template).length) throw new Error(`武器 ${id} 的进化形态缺少适用规则。`);
-          if (external && profile.medalIDs.some(id => !selected.currencies[id])) throw new Error(`活动 ${chapterID} 尚未完成奖章对应。`);
+          groups.forEach((group, index) => {
+            const choice = this.template(selected, member, group);
+            if (!this.profiles(selected.ruleChapterID).some(p => p.id === choice) || !this.supports(this.ruleID(chapterID, selected, group), member, choice)) throw new Error(`活动 ${chapterID}：${text(member.titles) || member.itemID} 在关卡 ${group.quests[0].questId} 等 ${group.quests.length} 关缺少适用规则，请通过「分阶段」补全。`);
+            if (choice !== template) weaponPhases[index].weapons.push({ weaponId: Number(member.itemID), templateWeaponId: Number(choice) });
+          });
           return { weaponId: Number(member.itemID), templateWeaponId: Number(template) };
         });
         const input = { chapterId: Number(chapterID), sourceBonusId: Number(selected.sourceBonusID), mode: this.mode(chapterID), costumeIds: members.filter(m => m.kind === "服装").map(m => Number(m.itemID)), ruleChapterId: Number(selected.ruleChapterID), weapons };
+        if (weaponPhases.some(group => group.weapons.length)) input.weaponPhases = weaponPhases.filter(group => group.weapons.length);
         if (source.length && external) {
+          if (this.requiredMedals(chapterID, selected).some(id => !selected.currencies[id])) throw new Error(`活动 ${chapterID} 尚未完成奖章对应。`);
           input.groups = groups.map(group => ({ questIds: group.quests.map(q => q.questId), ruleBonusId: Number(selected.groups[group.key]) }));
           input.currencies = Object.entries(selected.currencies).filter(([, value]) => value).map(([from, to]) => ({ fromId: Number(from), toId: Number(to) }));
         }
@@ -184,25 +196,25 @@
     function mappingDialog(selected) {
       const dialog = node("dialog", undefined, "bonus-mapping-dialog");
       dialog.append(node("h2", "关卡与奖章对应"), node("p", "按实际掉落选择对应关系，数量与突破档位沿用参考规则。", "bonus-note"));
-      const rules = draft.currentIDs(selected.ruleChapterID).filter(id => id !== "0").map(id => {
-        const groups = draft.targetGroups(selected.ruleChapterID).filter(group => group.bonusID === id);
-        return { value: id, label: `${id} · ${groups.map(groupLabel).join("；")}` };
-      });
+      const rules = draft.targetGroups(selected.ruleChapterID).filter(group => group.bonusID !== "0").map(group => ({ value: group.bonusID, label: `${group.bonusID} · ${groupLabel(group)}` }));
       const grid = node("div", undefined, "bonus-mapping-grid");
-      for (const group of draft.targetGroups(chapterID)) grid.append(field(groupLabel(group), select(`参考分组 ${group.key}`, [{ value: "", label: "选择参考关卡分组…" }, ...rules], selected.groups[group.key] || "", value => { selected.groups[group.key] = value; onChange(); })));
+      for (const group of draft.targetGroups(chapterID)) grid.append(field(groupLabel(group), select(`参考分组 ${group.key}`, [{ value: "", label: "选择参考关卡分组…" }, ...rules], selected.groups[group.key] || "", value => { selected.groups[group.key] = value; renderCurrencies(); window.AdminSearchSelect?.refresh(); onChange(); })));
       dialog.append(node("h3", "目标关卡 → 参考分组"), grid, node("h3", "参考奖章 → 目标奖章"));
       const currencies = node("div", undefined, "bonus-mapping-grid");
       const available = unique(draft.quests(chapterID).flatMap(q => q.medalIds || []));
-      const chosenRules = draft.selectedMembers(chapterID).filter(m => m.kind === "武器").map(m => selected.choices[m.key]);
-      const required = unique(draft.profiles(selected.ruleChapterID).filter(p => chosenRules.includes(p.id)).flatMap(p => p.medalIDs));
-      for (const id of required) currencies.append(field(`${medal(id)} · ${id}`, select(`目标奖章 ${id}`, [{ value: "", label: "选择本活动实际掉落的奖章…" }, ...available.map(value => ({ value: String(value), label: `${medal(value)} · ${value}` }))], selected.currencies[id] || "", value => { selected.currencies[id] = value; onChange(); })));
-      if (!required.length) currencies.append(node("p", "先选择武器规则，再设置这些规则使用的奖章。", "bonus-note"));
+      function renderCurrencies() {
+        currencies.replaceChildren();
+        const required = draft.requiredMedals(chapterID, selected);
+        for (const id of required) currencies.append(field(`${medal(id)} · ${id}`, select(`目标奖章 ${id}`, [{ value: "", label: "选择本活动实际掉落的奖章…" }, ...available.map(value => ({ value: String(value), label: `${medal(value)} · ${value}` }))], selected.currencies[id] || "", value => { selected.currencies[id] = value; onChange(); })));
+        if (!required.length) currencies.append(node("p", "先选择武器规则，再设置这些规则使用的奖章。", "bonus-note"));
+      }
+      renderCurrencies();
       dialog.append(currencies, button("完成", () => dialog.close()));
       dialog.addEventListener("close", () => { dialog.remove(); render(); }); document.body.append(dialog); window.AdminSearchSelect?.refresh(); dialog.showModal();
     }
     function rewardsAt(bonusID, weaponID, templateID, selected) {
       const rows = draft.templateRows(bonusID, weaponID, templateID).sort((a, b) => Number(a.LimitBreakCountLowerLimit) - Number(b.LimitBreakCountLowerLimit));
-      if (!rows.length) return "无适用规则";
+      if (!rows.length) return "本阶段未配置加成";
       const tiers = [0, 1, 2, 3, 4].map(level => {
         const row = rows.filter(row => Number(row.LimitBreakCountLowerLimit) <= level).at(-1);
         return row ? draft.rewards(row.QuestBonusEffectGroupId).map(reward => ({ ...reward, possessionId: Number(selected?.currencies[reward.possessionId] || reward.possessionId) })) : [];
@@ -213,6 +225,31 @@
         if (!curves.has(curve)) curves.set(curve, []); curves.get(curve).push(id);
       }
       return [...curves].map(([curve, ids]) => `${ids.map(shortMedal).join("＋")} ${curve}`).join("；") || "无掉落加成";
+    }
+    function phaseDialog(selected, member) {
+      const dialog = node("dialog", undefined, "bonus-mapping-dialog bonus-phase-dialog");
+      dialog.setAttribute("aria-label", `分阶段规则 ${member.itemID}`);
+      dialog.append(node("h2", `${title(member)} · 分阶段规则`), node("p", "各阶段可选择不同武器作为规则参考；数量依次为 0 / 1 / 2 / 3 / 4 突破。", "bonus-note"));
+      const table = node("table", undefined, "bonus-preview-table"), head = node("tr");
+      head.append(node("th", "关卡阶段"), node("th", "参考武器／加成")); table.append(head);
+      for (const group of draft.targetGroups(chapterID)) {
+        const ruleID = draft.ruleID(chapterID, selected, group), row = node("tr"), cell = node("td");
+        const profiles = draft.profiles(selected.ruleChapterID).filter(profile => draft.supports(ruleID, member, profile.id));
+        const value = draft.template(selected, member, group), info = node("small");
+        const updateInfo = choice => {
+          const ready = draft.supports(ruleID, member, choice);
+          info.textContent = ready ? unique(member.itemIDs.map(id => rewardsAt(ruleID, id, choice, selected))).join("；") : ruleID ? "待选择本阶段规则" : "请先设置关卡分组对应";
+          info.className = ready ? "" : "bonus-warning";
+        };
+        const picker = select(`阶段规则 ${group.key}`, [{ value: "", label: ruleID ? "选择本阶段规则…" : "先设置关卡分组对应…" }, ...profiles.map(profile => ({ value: profile.id, label: profile.members.map(title).join(" / "), search: profile.members.flatMap(m => [...m.itemIDs, text(m.titles)]).join(" ") }))], profiles.some(profile => profile.id === value) ? value : "", choice => {
+          (selected.phaseChoices[member.key] ||= {})[group.key] = choice; updateInfo(choice); onChange();
+        });
+        picker.disabled = !ruleID; updateInfo(value);
+        const caption = node("td", groupLabel(group)); caption.title = `${groupLabel(group)}；关卡 ${group.quests.map(q => q.questId).join(" / ")}`;
+        cell.append(picker, info); row.append(caption, cell); table.append(row);
+      }
+      dialog.append(table, button("完成", () => dialog.close()));
+      dialog.addEventListener("close", () => { dialog.remove(); render(); }); document.body.append(dialog); window.AdminSearchSelect?.refresh(); dialog.showModal();
     }
     function roster(ids, label, selected, phase) {
       const panel = node("section", undefined, "bonus-roster");
@@ -260,14 +297,19 @@
           const name = node("strong", title(member)); name.title = `${title(member)} · ${member.itemIDs.join(" / ")}`; row.append(name);
         }
         if (selected) {
-          const picker = select(`武器规则 ${member.itemID}`, [{ value: "", label: "选择完整武器规则…" }, ...profiles.map((profile, index) => ({ value: profile.id, label: `规则 ${index + 1} · ${profile.members.map(title).join(" / ")}`, search: profile.members.flatMap(m => [...m.itemIDs, text(m.titles)]).join(" ") }))], selected.choices[member.key] || "", value => { selected.choices[member.key] = value; onChange(); render(); });
-          row.append(picker);
-          const template = selected.choices[member.key], ruleID = selected.ruleChapterID === chapterID ? phase?.bonusID : selected.groups[phase?.key];
-          const values = template && ruleID ? unique(member.itemIDs.map(id => rewardsAt(ruleID, id, template, selected))) : ["待选择规则或分组对应"];
-          const info = node("small", values.join("；"), template && ruleID ? "" : "bonus-warning"); info.title = values.join("；"); row.append(info);
+          const composed = Object.keys(selected.phaseChoices[member.key] || {}).length > 0;
+          const picker = select(`武器规则 ${member.itemID}`, [{ value: "", label: "选择武器规则…" }, ...(composed ? [{ value: "已按阶段组合", label: "已按阶段组合" }] : []), ...profiles.map((profile, index) => ({ value: profile.id, label: `规则 ${index + 1} · ${profile.members.map(title).join(" / ")}${profile.complete ? "" : " · 部分阶段"}`, search: profile.members.flatMap(m => [...m.itemIDs, text(m.titles)]).join(" ") }))], composed ? "已按阶段组合" : selected.choices[member.key] || "", value => { if (value === "已按阶段组合") return; draft.setChoice(selected, member, value); onChange(); render(); });
+          const controls = node("div", undefined, "bonus-rule-controls");
+          const missing = draft.targetGroups(chapterID).filter(group => !draft.supports(draft.ruleID(chapterID, selected, group), member, draft.template(selected, member, group))).length;
+          const action = button(missing ? `分阶段 · 缺 ${missing}` : "分阶段", () => phaseDialog(selected, member), "bonus-text-button");
+          action.setAttribute("aria-label", `分阶段规则 ${member.itemID}`); controls.append(picker, action); row.append(controls);
+          const template = phase && draft.template(selected, member, phase), ruleID = phase && draft.ruleID(chapterID, selected, phase);
+          const ready = draft.supports(ruleID, member, template);
+          const values = ready ? unique(member.itemIDs.map(id => rewardsAt(ruleID, id, template, selected))) : [ruleID ? "本阶段缺少规则，请通过「分阶段」选择" : "待选择关卡分组对应"];
+          const info = node("small", values.join("；"), ready ? "" : "bonus-warning"); info.title = values.join("；"); row.append(info);
         } else {
           const values = phase ? unique(member.itemIDs.map(id => rewardsAt(phase.bonusID, id, id))) : [];
-          const info = node("small", values.join("；")); info.title = values.join("；"); row.append(info);
+          const info = node("small", values.join("；")); info.title = `${values.join("；")}；当前名单汇总全活动成员，数量按所选关卡阶段显示。`; row.append(info);
         }
         panel.append(row);
       }
@@ -330,8 +372,14 @@
           const section = node("section", undefined, "impact-group bonus-replacement-preview");
           section.append(node("h3", `${chapterTitle(item.chapterId)} · ${item.scheduleOnly ? "共鸣期限联动" : item.mode === "append" ? "补充共鸣" : "替换共鸣"}`), node("p", `全部共鸣：${range(item.startDatetime, item.endDatetime)} · 期限组 ${item.termGroupId}`));
           section.append(node("p", `服装：${(item.costumeIds || []).map(id => title(draft.costumes.get(String(id))) || id).join(" / ") || "无"}`));
-          const phases = item.groups || [];
-          if (item.scheduleOnly) { section.append(node("p", `同步 ${phases.reduce((sum, group) => sum + group.questIds.length, 0)} 个关卡的成员期限，加成效果不变。`)); container.append(section); continue; }
+          if (item.scheduleOnly) { section.append(node("p", `同步 ${(item.groups || []).reduce((sum, group) => sum + group.questIds.length, 0)} 个关卡的成员期限，加成效果不变。`)); container.append(section); continue; }
+          const merged = new Map(), quests = new Map(draft.quests(item.chapterId).map(q => [q.questId, q]));
+          for (const group of item.groups || []) {
+            const signature = JSON.stringify([group.afterBonusId, [...(quests.get(group.questIds[0])?.medalIds || [])].sort((a, b) => a - b), group.weapons]);
+            if (!merged.has(signature)) merged.set(signature, { ...group, questIds: [], beforeIDs: [], ruleIDs: [] });
+            const phase = merged.get(signature); phase.questIds.push(...group.questIds); phase.beforeIDs.push(group.beforeBonusId); phase.ruleIDs.push(group.ruleBonusId);
+          }
+          const phases = [...merged.values()];
           const families = new Map();
           for (const id of unique(phases.flatMap(group => (group.weapons || []).map(row => row.weaponId)))) {
             const tiers = phases.map(group => (group.weapons || []).filter(row => row.weaponId === id).sort((a, b) => a.limitBreak - b.limitBreak));
@@ -342,7 +390,8 @@
           for (let start = 0; start < phases.length; start += 3) {
             const table = node("table", undefined, "bonus-preview-table"), header = node("tr"); header.append(node("th", "武器／形态"));
             for (const group of phases.slice(start, start + 3)) {
-              const cell = node("th", `${group.questIds.length} 关`); cell.append(node("small", `${group.beforeBonusId} → ${group.afterBonusId}`)); if (group.ruleBonusId) cell.append(node("small", `参考 ${group.ruleBonusId}`)); cell.title = `关卡：${group.questIds.join(" / ")}`; header.append(cell);
+              const compact = ids => `${ids[0]}${unique(ids).length > 1 ? " 等" : ""}`;
+              const cell = node("th", `${group.questIds.length} 关`); cell.append(node("small", `${compact(group.beforeIDs)} → ${group.afterBonusId}`)); if (group.ruleBonusId) cell.append(node("small", `参考 ${compact(group.ruleIDs)}`)); cell.title = `关卡：${group.questIds.join(" / ")}；原加成：${unique(group.beforeIDs).join(" / ")}；参考：${unique(group.ruleIDs).join(" / ")}`; header.append(cell);
             }
             const head = node("thead"); head.append(header); table.append(head); const body = node("tbody");
             for (const family of families.values()) {
