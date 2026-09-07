@@ -67,6 +67,9 @@ code {
 .bonus-replacement { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 12px 16px; gap: 8px; }
 .bonus-replacement-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .bonus-replacement-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 19px; }
+.bonus-modes { display: flex; flex-shrink: 0; margin-left: auto; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
+.bonus-mode { padding: 5px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.bonus-mode[aria-pressed="true"] { background: #25413f; color: var(--accent); }
 .bonus-source-picker { display: grid; grid-template-columns: minmax(260px, 1.4fr) minmax(190px, 1fr); gap: 6px 10px; }
 .bonus-source-picker input, .bonus-source-picker select { width: 100%; min-width: 0; min-height: 36px; font-size: 12px; }
 .bonus-source-picker small { grid-column: 1 / -1; }
@@ -93,6 +96,15 @@ code {
 .bonus-phase-controls .button { min-height: 32px; padding: 5px 9px; font-size: 12px; }
 .bonus-roster { min-width: 0; }
 .bonus-roster h3 { font-size: 13px; margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.bonus-roster-actions { display: flex; align-items: center; gap: 8px; padding-top: 6px; font-size: 11px; color: var(--muted); }
+.bonus-roster-actions > span:not(:first-child) { margin-left: 12px; }
+.bonus-text-button { border: 0; padding: 2px 0; background: transparent; color: var(--accent); font-size: 11px; }
+.bonus-member { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; font-size: 12px; cursor: pointer; }
+.bonus-member input[type="checkbox"] { flex: 0 0 14px; width: 14px; height: 14px; min-height: 14px; margin: 0; padding: 0; accent-color: var(--accent); }
+.bonus-member > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bonus-member > small { flex-shrink: 0; font-size: 10px; }
+.bonus-included { color: var(--muted); cursor: default; }
+.bonus-summary { color: var(--text); }
 .bonus-costume-list { display: flex; flex-wrap: wrap; gap: 5px 10px; padding: 8px 0; font-size: 12px; min-height: 33px; }
 .bonus-costume-list > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .bonus-weapon-row { display: grid; grid-template-columns: minmax(100px, .75fr) minmax(145px, 1fr); align-items: center; column-gap: 8px; row-gap: 3px; padding: 5px 0; border-top: 1px solid var(--line); }
@@ -102,6 +114,7 @@ code {
 .bonus-roster:first-child .bonus-weapon-row > small { grid-column: auto; }
 .bonus-weapon-row .search-select input { min-height: 30px; padding: 5px 27px 5px 7px; font-size: 11px; }
 .bonus-weapon-row > .bonus-warning { color: var(--warning); }
+.bonus-weapon-row.bonus-weapon-unselected { grid-template-columns: minmax(0, 1fr); min-height: 32px; }
 .bonus-mapping-dialog { width: min(850px, 90vw); max-height: 85dvh; overflow: auto; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); background: var(--panel); }
 .bonus-mapping-dialog::backdrop { background: #02080bb8; backdrop-filter: blur(4px); }
 .bonus-mapping-dialog h3 { font-size: 14px; margin: 18px 0 10px; }

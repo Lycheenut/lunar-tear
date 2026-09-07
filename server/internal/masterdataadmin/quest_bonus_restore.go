@@ -33,6 +33,8 @@ type QuestBonusCurrencyInput struct {
 type QuestBonusRestoreInput struct {
 	ChapterID     int64                     `json:"chapterId"`
 	SourceBonusID int64                     `json:"sourceBonusId"`
+	Mode          string                    `json:"mode,omitempty"`
+	CostumeIDs    []int64                   `json:"costumeIds"`
 	RuleChapterID int64                     `json:"ruleChapterId"`
 	Weapons       []QuestBonusWeaponInput   `json:"weapons"`
 	Groups        []QuestBonusRuleInput     `json:"groups,omitempty"`
@@ -58,6 +60,7 @@ type QuestBonusPhasePreview struct {
 type QuestBonusRestorePreview struct {
 	ChapterID     int64                    `json:"chapterId"`
 	SourceBonusID int64                    `json:"sourceBonusId"`
+	Mode          string                   `json:"mode,omitempty"`
 	ScheduleOnly  bool                     `json:"scheduleOnly"`
 	StartDatetime int64                    `json:"startDatetime"`
 	EndDatetime   int64                    `json:"endDatetime"`
@@ -330,16 +333,46 @@ func (p *bonusRestorePlanner) mappedEffect(id int64, mappings map[int64]int64, a
 	return p.intern(bonusEffects, result)
 }
 
-func (p *bonusRestorePlanner) weapons(source, rule, term int64, choices map[int64]int64, currencies map[int64]int64, available map[int64]bool, external bool) (int64, error) {
+func (p *bonusRestorePlanner) costumes(source, current, term int64, selected map[int64]bool) (int64, error) {
+	var result [][]string
+	for index, gid := range []int64{current, source} {
+		rows := p.groups[bonusCostumes][gid]
+		if gid != 0 && len(rows) == 0 {
+			return 0, fmt.Errorf("服装组 %d 不存在", gid)
+		}
+		for _, row := range rows {
+			if index == 1 && !selected[bonusNumber(row[1])] {
+				continue
+			}
+			copyRow := append([]string(nil), row...)
+			copyRow[4] = bonusString(term)
+			result = append(result, copyRow)
+		}
+	}
+	return p.intern(bonusCostumes, result)
+}
+
+func (p *bonusRestorePlanner) weapons(source, rule, current, term int64, choices map[int64]int64, currencies map[int64]int64, available map[int64]bool, external bool) (int64, error) {
 	sourceRows := p.groups[bonusWeapons][source]
 	if source != 0 && len(sourceRows) == 0 {
 		return 0, fmt.Errorf("来源武器组 %d 不存在", source)
 	}
 	forms := make(map[int64]bool)
 	for _, row := range sourceRows {
-		forms[bonusNumber(row[1])] = true
+		id := bonusNumber(row[1])
+		if choices[p.family[id]] != 0 {
+			forms[id] = true
+		}
 	}
 	var result [][]string
+	if current != 0 && len(p.groups[bonusWeapons][current]) == 0 {
+		return 0, fmt.Errorf("当前武器组 %d 不存在", current)
+	}
+	for _, row := range p.groups[bonusWeapons][current] {
+		copyRow := append([]string(nil), row...)
+		copyRow[4] = bonusString(term)
+		result = append(result, copyRow)
+	}
 	for _, wid := range sortedBonusIDs(forms) {
 		family := p.family[wid]
 		template := choices[family]
@@ -492,14 +525,51 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 		var source []string
 		ruleChapter := chapterID
 		choices := make(map[int64]int64)
+		selectedCostumes := make(map[int64]bool)
 		currencies := make(map[int64]int64)
 		ruleByQuest := make(map[int64]int64)
 		if input != nil {
+			if input.Mode != "" && input.Mode != "replace" && input.Mode != "append" {
+				return request, nil, fmt.Errorf("无效的名单编辑模式")
+			}
+			if input.Mode != "" && input.CostumeIDs == nil {
+				return request, nil, fmt.Errorf("请明确选择来源服装，空名单使用空数组")
+			}
 			rows := p.groups[questBonusTable][input.SourceBonusID]
 			if len(rows) != 1 {
 				return request, nil, fmt.Errorf("来源加成 %d 不存在", input.SourceBonusID)
 			}
 			source = rows[0]
+			currentCostumes, currentFamilies := make(map[int64]bool), make(map[int64]bool)
+			if input.Mode == "append" {
+				for _, q := range quests {
+					if rows := p.groups[questBonusTable][q.BonusID]; len(rows) == 1 {
+						for _, row := range p.groups[bonusCostumes][bonusNumber(rows[0][4])] {
+							currentCostumes[bonusNumber(row[1])] = true
+						}
+						for _, row := range p.groups[bonusWeapons][bonusNumber(rows[0][3])] {
+							currentFamilies[p.family[bonusNumber(row[1])]] = true
+						}
+					}
+				}
+			}
+			sourceCostumes := make(map[int64]bool)
+			for _, row := range p.groups[bonusCostumes][bonusNumber(source[4])] {
+				sourceCostumes[bonusNumber(row[1])] = true
+			}
+			if input.Mode == "" {
+				selectedCostumes = sourceCostumes
+			} else {
+				for _, id := range input.CostumeIDs {
+					if !sourceCostumes[id] || selectedCostumes[id] {
+						return request, nil, fmt.Errorf("来源服装选择无效/重复：%d", id)
+					}
+					selectedCostumes[id] = true
+				}
+				for id := range currentCostumes {
+					delete(selectedCostumes, id)
+				}
+			}
 			if input.RuleChapterID != 0 {
 				ruleChapter = input.RuleChapterID
 			}
@@ -509,16 +579,31 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 			}
 			for _, choice := range input.Weapons {
 				family := p.family[choice.WeaponID]
-				if !sourceFamilies[family] || choices[family] != 0 || p.family[choice.TemplateWeaponID] == 0 {
+				if family == 0 || !sourceFamilies[family] || choices[family] != 0 || p.family[choice.TemplateWeaponID] == 0 {
 					return request, nil, fmt.Errorf("来源武器或规则选择无效/重复：%d", choice.WeaponID)
 				}
 				choices[family] = choice.TemplateWeaponID
 			}
-			for family := range sourceFamilies {
-				if choices[family] == 0 {
-					return request, nil, fmt.Errorf("武器组 %d 尚未选择规则", family)
+			if input.Mode == "" {
+				for family := range sourceFamilies {
+					if choices[family] == 0 {
+						return request, nil, fmt.Errorf("武器组 %d 尚未选择规则", family)
+					}
 				}
 			}
+			for family := range currentFamilies {
+				delete(choices, family)
+			}
+			// An empty supplement must not allocate groups or synchronize dates
+			// unless the same request actually changes the activity schedule.
+			if input.Mode == "append" && len(choices) == 0 && len(selectedCostumes) == 0 {
+				if pair == [2]int64{bonusInt(chapter, 8), bonusInt(chapter, 9)} {
+					continue
+				}
+				input = nil
+			}
+		}
+		if input != nil && len(choices) > 0 {
 			for _, mapping := range input.Currencies {
 				if mapping.FromID <= 0 || mapping.ToID <= 0 || currencies[mapping.FromID] != 0 {
 					return request, nil, fmt.Errorf("奖章映射无效或重复")
@@ -573,6 +658,7 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 		preview := QuestBonusRestorePreview{ChapterID: chapterID, ScheduleOnly: input == nil, StartDatetime: pair[0], EndDatetime: pair[1], TermGroupID: term}
 		if input != nil {
 			preview.SourceBonusID = input.SourceBonusID
+			preview.Mode = input.Mode
 		}
 		phaseQuests := make(map[string][]int64)
 		for qid, q := range quests {
@@ -600,15 +686,22 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 			} else if oldID != 0 {
 				return request, nil, fmt.Errorf("目标加成 %d 不存在", oldID)
 			}
-			if input != nil {
-				base[4] = source[4]
-			}
 			for _, link := range timedBonusLinks {
 				var gid int64
-				if link.column == 3 && input != nil {
-					rules := p.groups[questBonusTable][ruleID]
-					if len(rules) != 1 {
-						return request, nil, fmt.Errorf("参考加成 %d 不存在", ruleID)
+				current := int64(0)
+				if input != nil && input.Mode == "append" {
+					current = bonusNumber(base[link.column])
+				}
+				if link.column == 4 && input != nil {
+					gid, err = p.costumes(bonusNumber(source[4]), current, term, selectedCostumes)
+				} else if link.column == 3 && input != nil {
+					ruleWeapons := int64(0)
+					if len(choices) > 0 {
+						rules := p.groups[questBonusTable][ruleID]
+						if len(rules) != 1 {
+							return request, nil, fmt.Errorf("参考加成 %d 不存在", ruleID)
+						}
+						ruleWeapons = bonusNumber(rules[0][3])
 					}
 					available := make(map[int64]bool)
 					for _, id := range p.medals[qids[0]] {
@@ -625,7 +718,7 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 							}
 						}
 					}
-					gid, err = p.weapons(bonusNumber(source[3]), bonusNumber(rules[0][3]), term, choices, currencies, available, ruleChapter != chapterID)
+					gid, err = p.weapons(bonusNumber(source[3]), ruleWeapons, current, term, choices, currencies, available, ruleChapter != chapterID)
 				} else {
 					gid, err = p.timedGroup(link.table, bonusNumber(base[link.column]), term, link.term, link.column == 2)
 				}

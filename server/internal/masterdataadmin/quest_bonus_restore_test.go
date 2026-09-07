@@ -262,3 +262,159 @@ func TestQuestBonusInitialDateEditIsolatesAllMemberTerms(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestBonusAppendSelectedMembersPreservesCurrentPhases(t *testing.T) {
+	path, file := bonusTestFile(t)
+	input := QuestBonusRestoreInput{ChapterID: 573, SourceBonusID: 201121, Mode: "append", CostumeIDs: []int64{31029, 33027}, RuleChapterID: 573,
+		Weapons: []QuestBonusWeaponInput{{310621, 350621}, {330591, 350621}}}
+	request := UpdateRequest{ExpectedVersion: file.Version(), QuestBonusRestores: []QuestBonusRestoreInput{input}}
+	preview, err := PreviewUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := preview.QuestBonusRestores[0]
+	if plan.Mode != "append" || !reflect.DeepEqual(plan.CostumeIDs, []int64{31029, 32030, 33027, 35031}) || len(plan.Groups) != 3 {
+		t.Fatalf("wrong supplemented roster: %+v", plan)
+	}
+	candidate, _, err := BuildUpdate(path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := newBonusRestorePlanner(file), newBonusRestorePlanner(rebuilt)
+	counts := map[int64]int{201131: 31, 201132: 2, 201133: 2}
+	for _, group := range plan.Groups {
+		if len(group.QuestIDs) != counts[group.BeforeBonusID] {
+			t.Fatalf("phase assignments changed: %+v", group)
+		}
+		old := before.groups[questBonusTable][group.BeforeBonusID][0]
+		updated := after.groups[questBonusTable][group.AfterBonusID][0]
+		for _, link := range []struct {
+			table  string
+			column int
+		}{{bonusCostumes, 4}, {bonusWeapons, 3}} {
+			for _, row := range before.groups[link.table][bonusNumber(old[link.column])] {
+				matches := 0
+				for _, next := range after.groups[link.table][bonusNumber(updated[link.column])] {
+					if reflect.DeepEqual(row[1:4], next[1:4]) && next[4] == bonusString(plan.TermGroupID) {
+						matches++
+					}
+				}
+				if matches != 1 {
+					t.Fatalf("current phase member lost, altered or duplicated: %s %v", link.table, row)
+				}
+			}
+		}
+		families := make(map[int64]bool)
+		for _, tier := range group.Weapons {
+			family := after.family[tier.WeaponID]
+			families[family] = true
+			if family != 31062 && family != 33059 {
+				continue
+			}
+			found := false
+			for _, template := range before.weaponPreview(bonusNumber(old[3])) {
+				if template.WeaponID == 350620+after.order[tier.WeaponID] && template.LimitBreak == tier.LimitBreak && reflect.DeepEqual(template.Rewards, tier.Rewards) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("new weapon lost reference phase/evolution/tier rules: %+v", tier)
+			}
+		}
+		if len(families) != 5 || !families[31062] || !families[33059] {
+			t.Fatalf("unchecked source weapons leaked: %v", families)
+		}
+	}
+	for _, spec := range questBonusTableSpecs {
+		for id, rows := range before.groups[spec.Name] {
+			if !reflect.DeepEqual(rows, after.groups[spec.Name][id]) {
+				t.Fatalf("shared definition modified: %s:%d", spec.Name, id)
+			}
+		}
+	}
+	output := filepath.Join(t.TempDir(), "supplemented.bin.e")
+	if err := os.WriteFile(output, candidate, 0600); err != nil {
+		t.Fatal(err)
+	}
+	request.ExpectedVersion = rebuilt.Version()
+	if _, _, err := BuildUpdate(output, request); err == nil || !strings.Contains(err.Error(), "unchanged") {
+		t.Fatalf("repeating additions must be a no-op: %v", err)
+	}
+}
+
+func TestQuestBonusSelectiveListsAndEmptySupplement(t *testing.T) {
+	_, file := bonusTestFile(t)
+	for _, tc := range []struct {
+		name     string
+		input    QuestBonusRestoreInput
+		costumes []int64
+	}{
+		{"costumes only on zero bonus", QuestBonusRestoreInput{ChapterID: 589, SourceBonusID: 201121, Mode: "replace", CostumeIDs: []int64{31029}, RuleChapterID: 573}, []int64{31029}},
+		{"explicit empty replacement", QuestBonusRestoreInput{ChapterID: 573, SourceBonusID: 201121, Mode: "replace", CostumeIDs: []int64{}}, []int64{}},
+		{"empty supplement", QuestBonusRestoreInput{ChapterID: 573, SourceBonusID: 201121, Mode: "append", CostumeIDs: []int64{}}, nil},
+		{"existing members only", QuestBonusRestoreInput{ChapterID: 573, SourceBonusID: 201131, Mode: "append", CostumeIDs: []int64{35031}, Weapons: []QuestBonusWeaponInput{{350621, 250011}}}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request, previews, err := planQuestBonusUpdates(file, UpdateRequest{QuestBonusRestores: []QuestBonusRestoreInput{tc.input}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.costumes == nil {
+				if len(previews) != 0 || len(request.Changes) != 0 || len(request.QuestBonusGroups) != 0 {
+					t.Fatal("no-op supplement generated changes")
+				}
+				return
+			}
+			if len(previews) != 1 || !reflect.DeepEqual(previews[0].CostumeIDs, tc.costumes) {
+				t.Fatalf("partial costume selection ignored: %+v", previews)
+			}
+			for _, group := range previews[0].Groups {
+				if len(group.Weapons) != 0 {
+					t.Fatal("unchecked weapons included")
+				}
+			}
+		})
+	}
+	var chapterRow int
+	for i, row := range readRows(file, "m_event_quest_chapter") {
+		if bonusInt(row, 0) == 573 {
+			chapterRow = i
+			break
+		}
+	}
+	end := bonusInt(readRows(file, "m_event_quest_chapter")[chapterRow], 9) + 86400000
+	_, previews, err := planQuestBonusUpdates(file, UpdateRequest{Changes: []Change{{Table: "m_event_quest_chapter", Row: chapterRow, Field: "EndDatetime", Value: bonusString(end)}}, QuestBonusRestores: []QuestBonusRestoreInput{{ChapterID: 573, SourceBonusID: 201121, Mode: "append", CostumeIDs: []int64{}}}})
+	if err != nil || len(previews) != 1 || !previews[0].ScheduleOnly || previews[0].EndDatetime != end {
+		t.Fatalf("empty supplement swallowed date edits: %+v %v", previews, err)
+	}
+}
+
+func TestQuestBonusSelectiveSourceValidation(t *testing.T) {
+	_, file := bonusTestFile(t)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*QuestBonusRestoreInput)
+	}{
+		{"invalid mode", func(r *QuestBonusRestoreInput) { r.Mode = "merge" }},
+		{"missing explicit costume selection", func(r *QuestBonusRestoreInput) { r.CostumeIDs = nil }},
+		{"foreign costume", func(r *QuestBonusRestoreInput) { r.CostumeIDs = []int64{35031} }},
+		{"duplicate costume", func(r *QuestBonusRestoreInput) { r.CostumeIDs = []int64{31029, 31029} }},
+		{"foreign weapon", func(r *QuestBonusRestoreInput) { r.Weapons = []QuestBonusWeaponInput{{350621, 350621}} }},
+		{"duplicate weapon family", func(r *QuestBonusRestoreInput) {
+			r.Weapons = []QuestBonusWeaponInput{{310621, 350621}, {310622, 350621}}
+		}},
+		{"missing selected weapon rule", func(r *QuestBonusRestoreInput) { r.Weapons = []QuestBonusWeaponInput{{310621, 0}} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := QuestBonusRestoreInput{ChapterID: 573, SourceBonusID: 201121, Mode: "append", CostumeIDs: []int64{31029}}
+			tc.mutate(&input)
+			if _, _, err := planQuestBonusUpdates(file, UpdateRequest{QuestBonusRestores: []QuestBonusRestoreInput{input}}); err == nil {
+				t.Fatal("invalid selection accepted")
+			}
+		})
+	}
+}

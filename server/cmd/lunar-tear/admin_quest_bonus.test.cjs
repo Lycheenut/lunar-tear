@@ -43,7 +43,7 @@ test("historical roster imports every member and auto-matches only actual weapon
   assert.equal(selected.choices["武器:4"],undefined);
   assert.throws(()=>draft.payload(),/尚未选择/);
   selected.choices["武器:4"]="201";
-  assert.deepEqual(plain(draft.payload()),{changes:[],questBonusGroups:[],questBonusRestores:[{chapterId:501,sourceBonusId:30,ruleChapterId:501,weapons:[{weaponId:101,templateWeaponId:101},{weaponId:401,templateWeaponId:201}]}]});
+  assert.deepEqual(plain(draft.payload()),{changes:[],questBonusGroups:[],questBonusRestores:[{chapterId:501,sourceBonusId:30,mode:"replace",costumeIds:[31029,35031],ruleChapterId:501,weapons:[{weaponId:101,templateWeaponId:101},{weaponId:401,templateWeaponId:201}]}]});
   assert.equal(draft.count(),1);
   assert.equal(draft.targetGroups(501).length,3);
   assert.equal(JSON.stringify(data),snapshot);
@@ -81,6 +81,94 @@ test("zero-bonus activity requires explicit reference phase and currency mapping
 test("shared quest activities are rejected before changing the draft", () => {
   const data=catalog(); data.quests.push({...data.quests[0],chapterId:999}); const draft=new Draft(data);
   assert.throws(()=>draft.replace(501,30),/共用关卡/); assert.equal(draft.count(),0);
+});
+
+test("supplement keeps the current roster and submits only checked additions", () => {
+  const data=catalog(), snapshot=JSON.stringify(data), draft=new Draft(data);
+  draft.setMode(501,"append"); draft.replace(501,30);
+  const members=draft.members([30]), selected=draft.selections.get("501");
+  assert.equal(draft.count(),0); assert.equal(draft.payload().questBonusRestores.length,0);
+  draft.setMember(501,members.get("服装:31029"),true);
+  draft.setMember(501,members.get("武器:1"),true);
+  assert.equal(draft.selectedMembers(501).length,0,"existing IDs/families cannot be added again");
+  draft.setMember(501,members.get("服装:35031"),true);
+  assert.equal(draft.count(),1);
+  assert.deepEqual(plain(draft.payload().questBonusRestores[0].weapons),[],"unchecked weapons need no rules");
+  draft.setMember(501,members.get("武器:4"),true);
+  assert.throws(()=>draft.payload(),/尚未选择武器规则/);
+  selected.choices["武器:4"]="101";
+  assert.deepEqual(plain(draft.payload().questBonusRestores[0]),{chapterId:501,sourceBonusId:30,mode:"append",costumeIds:[35031],ruleChapterId:501,weapons:[{weaponId:401,templateWeaponId:101}]});
+  assert.deepEqual(plain(draft.summary(501)),{final:[2,4],added:[1,1],removed:[0,0]});
+  draft.setMember(501,members.get("武器:4"),false);
+  draft.setReference(501,589);
+  assert.equal(draft.payload().questBonusRestores[0].groups,undefined,"costume-only edits need no external mapping");
+  assert.equal(JSON.stringify(data),snapshot);
+  draft.replace(501,10);
+  assert.equal(draft.selectedMembers(501).length,0,"changing source clears selected additions");
+  assert.deepEqual(plain(draft.selections.get("501").choices),{});
+  draft.setMode(501,"replace");
+  assert.equal(draft.selectedMembers(501).length,4);
+  draft.setMember(501,draft.members([10]).get("武器:1"),false);
+  draft.setMode(501,"replace");
+  assert.equal(draft.selectedMembers(501).length,3,"clicking the active mode preserves the draft");
+});
+
+test("partial replacement and empty lists are explicit, including costume-only zero-bonus activities", () => {
+  const draft=new Draft(catalog()); draft.replace(589,30);
+  const selected=draft.selections.get("589"); selected.members.clear();
+  draft.setMember(589,draft.members([30]).get("服装:35031"),true);
+  assert.deepEqual(plain(draft.payload().questBonusRestores[0]),{chapterId:589,sourceBonusId:30,mode:"replace",costumeIds:[35031],ruleChapterId:589,weapons:[]});
+  selected.members.clear();
+  assert.deepEqual(plain(draft.payload().questBonusRestores[0].costumeIds),[]);
+  draft.replace(501,30); draft.selections.get("501").members.clear();
+  assert.deepEqual(plain(draft.summary(501)),{final:[0,0],added:[0,0],removed:[1,3]});
+  assert.equal(draft.count(),2);
+});
+
+let chromium;
+try { ({ chromium } = require("playwright")); } catch (_) { /* Optional browser runtime in CI. */ }
+test("roster checkboxes, modes and searchable rule inputs support selective supplementation", { skip: !chromium && "Install Playwright to run browser coverage" }, async t => {
+  const browser=await chromium.launch({headless:true,...(process.platform==="win32"?{channel:"msedge"}:{})}); t.after(()=>browser.close());
+  const page=await browser.newPage({viewport:{width:1440,height:900}}), errors=[];
+  page.on("pageerror",error=>errors.push(error.message));
+  await page.setContent('<div id="editor" class="quest-bonus-editor" style="height:560px"></div>');
+  await page.addStyleTag({path:path.join(__dirname,"admin.css")});
+  await page.addScriptTag({path:path.join(__dirname,"admin_search_select.js")});
+  await page.addScriptTag({path:path.join(__dirname,"admin_quest_bonus.js")});
+  const data=catalog(); data.chapters=[501,589].map(id=>({values:{EventQuestChapterId:String(id),StartDatetime:"1",EndDatetime:"2"},titles:{ja:`活动 ${id}`}}));
+  await page.evaluate(data=>{
+    window.editor=window.createQuestBonusEditor({root:document.querySelector("#editor"),onChange(){},localizedText:titles=>titles?.ja||"",showError:message=>{throw new Error(message);}});
+    window.editor.load(data); window.editor.selectChapter(501); window.editor.render();
+  },data);
+  await page.getByRole("button",{name:"保留当前并补充",exact:true}).click();
+  const source=page.getByRole("combobox",{name:"历史名单来源",exact:true});
+  await source.fill("30"); await page.getByRole("option",{name:/^30 ·/}).click();
+  assert.equal(await page.getByRole("checkbox",{name:/兵器の祭典/}).isDisabled(),true);
+  assert.equal(await page.getByRole("checkbox",{name:/· 101$/}).isDisabled(),true);
+  assert.equal(await page.locator('.bonus-weapon-row input[role="combobox"]').count(),0);
+  assert.equal(await page.evaluate(()=>window.editor.count()),0);
+  await page.getByRole("checkbox",{name:/少女の祭典/}).check();
+  assert.equal(await page.evaluate(()=>window.editor.payload().questBonusRestores[0].weapons.length),0);
+  await page.getByRole("checkbox",{name:/· 401$/}).check();
+  const rule=page.getByRole("combobox",{name:"武器规则 401",exact:true});
+  await rule.fill("201"); await page.getByRole("option",{name:/^规则 2/}).click();
+  assert.match(await page.getByRole("status").innerText(),/最终 2 套服装 \/ 4 种武器.*新增 1 套服装 \/ 1 种武器.*移除 0 套服装 \/ 0 种武器/);
+  assert.equal(await page.locator(".bonus-warning").count(),0);
+  await page.getByRole("button",{name:"武器清空",exact:true}).click();
+  assert.equal(await page.locator('.bonus-weapon-row input[role="combobox"]').count(),0);
+  await page.getByRole("button",{name:"服装清空",exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.editor.count()),0);
+  await page.getByRole("button",{name:"替换名单",exact:true}).click();
+  assert.equal(await page.getByRole("checkbox").count(),4);
+  assert.equal(await page.locator('input[type="checkbox"]:checked').count(),4);
+  await page.getByRole("button",{name:"保留当前并补充",exact:true}).click();
+  await page.getByRole("button",{name:"服装全选",exact:true}).click();
+  await page.getByRole("button",{name:"武器全选",exact:true}).click();
+  assert.equal(await page.locator('.bonus-weapon-row input[role="combobox"]').count(),1);
+  await source.fill("10"); await page.getByRole("option",{name:/^10 ·/}).click();
+  assert.equal(await page.evaluate(()=>window.editor.count()),0);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  assert.deepEqual(errors,[]);
 });
 
 test("discard works when the other specialized catalogs have not been loaded", () => {
