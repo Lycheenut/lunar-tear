@@ -939,6 +939,21 @@
         table, row, displayedFields, hasContent, hasArtwork, hasSchedule
       )));
     }
+    if (table.name === "m_event_quest_chapter") {
+      elements.head.firstElementChild.append(makeCell("th", "操作"));
+      visibleRows.forEach((row, index) => {
+        const cell = document.createElement("td");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button ghost";
+        button.textContent = "共鸣配置";
+        button.addEventListener("click", () => {
+          openQuestBonusChapter(row.values.EventQuestChapterId).catch((error) => showNotice(error.message, true));
+        });
+        cell.append(button);
+        elements.body.children[index].append(cell);
+      });
+    }
     elements.visibleCount.textContent = `${visibleRows.length.toLocaleString()} 行`;
     elements.empty.classList.toggle("hidden", visibleRows.length !== 0);
   }
@@ -3149,16 +3164,6 @@
     title.className = "content-title";
     title.textContent = localizedText(row.titles) || "-";
     cell.append(title);
-    if (table.name === "m_event_quest_chapter") {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "button ghost";
-      button.textContent = "共鸣配置";
-      button.addEventListener("click", () => {
-        openQuestBonusChapter(row.values.EventQuestChapterId).catch((error) => showNotice(error.message, true));
-      });
-      cell.append(button);
-    }
     const footnotes = [...new Set((row.contentFootnotes || []).map(localizedInlineText).filter(Boolean))];
     if (footnotes.length) {
       const note = document.createElement("div");
