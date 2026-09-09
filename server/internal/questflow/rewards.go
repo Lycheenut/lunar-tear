@@ -205,7 +205,18 @@ func extractInts(s string) []int32 {
 func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGrant, raritySet, rankSet map[int32]bool, nowMillis int64) {
 	for i := range drops {
 		d := drops[i]
-		if d.PossessionType == model.PossessionTypeParts || d.PossessionType == model.PossessionTypePartsEnhanced {
+		if d.PossessionType == model.PossessionTypePartsEnhanced {
+			for range d.Count {
+				partsID, sold := h.Granter.GrantOrSellEnhancedPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis)
+				if sold {
+					drops[i].PossessionType = model.PossessionTypeParts
+					drops[i].PossessionId = partsID
+					drops[i].IsAutoSale = true
+				}
+			}
+			continue
+		}
+		if d.PossessionType == model.PossessionTypeParts {
 			chosenId, sold := h.Granter.GrantOrSellPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis)
 			if sold {
 				// Sold parts have no inventory row, so the popup needs the rolled

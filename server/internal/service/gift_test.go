@@ -111,6 +111,59 @@ func TestGrantGiftGrantsAssetsAndRejectsOverflow(t *testing.T) {
 	}
 }
 
+func TestGrantGiftPreservesEnhancedTemplatesAndRollsBackOverflow(t *testing.T) {
+	g := &store.PossessionGranter{
+		WeaponById:            map[int32]store.WeaponRef{101: {}},
+		WeaponEnhancedById:    map[int32]store.WeaponEnhancedRef{9001: {WeaponId: 101, Level: 70, Exp: 5000, LimitBreakCount: 3}},
+		CompanionEnhancedById: map[int32]store.CompanionEnhancedRef{9003: {CompanionId: 49, Level: 50}},
+		PartsById:             map[int32]store.PartsRef{201: {PartsGroupId: 10}},
+		PartsEnhancedById: map[int32]store.PartsEnhancedRef{9002: {
+			PartsId: 201, Level: 15, PartsStatusMainId: 8, SubStatusCount: 1,
+			SubStatuses: []store.PartsStatusSubState{{StatusIndex: 1, PartsStatusSubLotteryId: 1, Level: 7, StatusChangeValue: 777}},
+		}},
+	}
+	config := &masterdata.GameConfig{PossessionCountLimitWeapon: 1, PossessionCountLimitParts: 1}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	for _, reward := range []store.GiftCommonState{
+		{PossessionType: int32(model.PossessionTypeWeaponEnhanced), PossessionId: 9001, Count: 2},
+		{PossessionType: int32(model.PossessionTypePartsEnhanced), PossessionId: 9002, Count: 2},
+	} {
+		if result := grantGift(user, reward, g, config, 1000); result.Status != store.GrantStatusOverflow {
+			t.Fatalf("overflow result=%+v", result)
+		}
+		if len(user.Weapons)+len(user.Parts)+len(user.PartsStatusSubs)+len(user.WeaponNotes)+len(user.PartsGroupNotes) != 0 {
+			t.Fatal("overflow left partial inventory or notes")
+		}
+	}
+	for _, reward := range []store.GiftCommonState{
+		{PossessionType: int32(model.PossessionTypeWeaponEnhanced), PossessionId: 9001, Count: 1},
+		{PossessionType: int32(model.PossessionTypePartsEnhanced), PossessionId: 9002, Count: 1},
+		{PossessionType: int32(model.PossessionTypeCompanionEnhanced), PossessionId: 9003, Count: 1},
+	} {
+		if result := grantGift(user, reward, g, config, 1000); result.Status != store.GrantStatusGranted {
+			t.Fatalf("grant result=%+v", result)
+		}
+	}
+	for _, weapon := range user.Weapons {
+		if weapon.WeaponId != 101 || weapon.Level != 70 || weapon.Exp != 5000 || weapon.LimitBreakCount != 3 {
+			t.Fatalf("weapon=%+v", weapon)
+		}
+	}
+	for _, part := range user.Parts {
+		if part.PartsId != 201 || part.Level != 15 || part.PartsStatusMainId != 8 {
+			t.Fatalf("part=%+v", part)
+		}
+	}
+	for _, companion := range user.Companions {
+		if companion.CompanionId != 49 || companion.Level != 50 {
+			t.Fatalf("companion=%+v", companion)
+		}
+	}
+	if result := grantGift(user, store.GiftCommonState{PossessionType: 8, PossessionId: 9999, Count: 1}, g, config, 2000); result.Status != store.GrantStatusInvalid {
+		t.Fatalf("missing template result=%+v", result)
+	}
+}
+
 func TestGrantGiftDoesNotBlockOnUnrelatedExistingOverflow(t *testing.T) {
 	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
 	user.Materials[10] = 11
