@@ -26,14 +26,23 @@ type RewardReference struct {
 }
 
 type RewardReferenceCatalog struct {
-	DefaultType     string            `json:"defaultType"`
-	Materials       []RewardReference `json:"materials"`
-	Weapons         []RewardReference `json:"weapons"`
-	Companions      []RewardReference `json:"companions"`
-	Parts           []RewardReference `json:"parts"`
-	ConsumableItems []RewardReference `json:"consumableItems"`
-	ImportantItems  []RewardReference `json:"importantItems"`
-	FreeGems        []RewardReference `json:"freeGems"`
+	DefaultType        string            `json:"defaultType"`
+	Materials          []RewardReference `json:"materials"`
+	Weapons            []RewardReference `json:"weapons"`
+	Costumes           []RewardReference `json:"costumes"`
+	Companions         []RewardReference `json:"companions"`
+	Parts              []RewardReference `json:"parts"`
+	EnhancedCostumes   []RewardReference `json:"enhancedCostumes"`
+	EnhancedWeapons    []RewardReference `json:"enhancedWeapons"`
+	EnhancedCompanions []RewardReference `json:"enhancedCompanions"`
+	EnhancedParts      []RewardReference `json:"enhancedParts"`
+	ConsumableItems    []RewardReference `json:"consumableItems"`
+	ImportantItems     []RewardReference `json:"importantItems"`
+	Thoughts           []RewardReference `json:"thoughts"`
+	MissionPassPoints  []RewardReference `json:"missionPassPoints"`
+	PremiumItems       []RewardReference `json:"premiumItems"`
+	PaidGems           []RewardReference `json:"paidGems"`
+	FreeGems           []RewardReference `json:"freeGems"`
 }
 
 func LoadRewardReferenceCatalog(
@@ -71,6 +80,11 @@ func LoadRewardReferenceCatalog(
 			result.Weapons = append(result.Weapons, reference)
 		}
 	}
+	for _, row := range readRows(file, "m_costume") {
+		if reference, ok := costumeRewardReference(row, resolver); ok {
+			result.Costumes = append(result.Costumes, reference)
+		}
+	}
 	for _, row := range readRows(file, "m_companion") {
 		if reference, ok := companionRewardReference(row, resolver); ok {
 			result.Companions = append(result.Companions, reference)
@@ -99,31 +113,106 @@ func LoadRewardReferenceCatalog(
 			result.ImportantItems = append(result.ImportantItems, reference)
 		}
 	}
+	for _, row := range readRows(file, "m_thought") {
+		if reference, ok := thoughtRewardReference(row, resolver); ok {
+			result.Thoughts = append(result.Thoughts, reference)
+		}
+	}
+	result.EnhancedCostumes = enhancedRewardReferences(readRows(file, "m_costume_enhanced"), result.Costumes, model.PossessionTypeCostumeEnhanced)
+	result.EnhancedWeapons = enhancedRewardReferences(readRows(file, "m_weapon_enhanced"), result.Weapons, model.PossessionTypeWeaponEnhanced)
+	result.EnhancedCompanions = enhancedRewardReferences(readRows(file, "m_companion_enhanced"), result.Companions, model.PossessionTypeCompanionEnhanced)
+	result.EnhancedParts = enhancedRewardReferences(readRows(file, "m_parts_enhanced"), result.Parts, model.PossessionTypePartsEnhanced)
+	// These tables identify the pass or entitlement, without localized names or icon assets.
+	for _, row := range readRows(file, "m_mission_pass") {
+		if id, ok := integerAt(row, 0); ok {
+			result.MissionPassPoints = append(result.MissionPassPoints, RewardReference{
+				PossessionType: int32(model.PossessionTypeMissionPassPoint), PossessionId: int32(id),
+			})
+		}
+	}
+	for _, row := range readRows(file, "m_premium_item") {
+		if id, ok := integerAt(row, 0); ok {
+			result.PremiumItems = append(result.PremiumItems, RewardReference{
+				PossessionType: int32(model.PossessionTypePremiumItem), PossessionId: int32(id),
+			})
+		}
+	}
+	result.PaidGems = []RewardReference{{
+		PossessionType: int32(model.PossessionTypePaidGem),
+		Names:          resolver.byKey("gem.name"),
+		IconPath:       path.Join("gem", "gem", "gem_standard.png"),
+	}}
 	result.FreeGems = []RewardReference{{
 		PossessionType: int32(model.PossessionTypeFreeGem),
 		Names:          resolver.byKey("gem.name"),
 		IconPath:       path.Join("gem", "gem", "gem_standard.png"),
 	}}
 
-	sort.Slice(result.Materials, func(i, j int) bool {
-		return result.Materials[i].PossessionId < result.Materials[j].PossessionId
-	})
-	sort.Slice(result.Weapons, func(i, j int) bool {
-		return result.Weapons[i].PossessionId < result.Weapons[j].PossessionId
-	})
-	sort.Slice(result.Companions, func(i, j int) bool {
-		return result.Companions[i].PossessionId < result.Companions[j].PossessionId
-	})
-	sort.Slice(result.Parts, func(i, j int) bool {
-		return result.Parts[i].PossessionId < result.Parts[j].PossessionId
-	})
-	sort.Slice(result.ConsumableItems, func(i, j int) bool {
-		return result.ConsumableItems[i].PossessionId < result.ConsumableItems[j].PossessionId
-	})
-	sort.Slice(result.ImportantItems, func(i, j int) bool {
-		return result.ImportantItems[i].PossessionId < result.ImportantItems[j].PossessionId
-	})
+	for _, references := range [][]RewardReference{
+		result.Materials, result.Weapons, result.Costumes, result.Companions, result.Parts,
+		result.EnhancedCostumes, result.EnhancedWeapons, result.EnhancedCompanions, result.EnhancedParts,
+		result.ConsumableItems, result.ImportantItems, result.Thoughts, result.MissionPassPoints, result.PremiumItems,
+	} {
+		sort.Slice(references, func(i, j int) bool {
+			return references[i].PossessionId < references[j].PossessionId
+		})
+	}
 	return result, nil
+}
+
+func costumeRewardReference(row []interface{}, resolver *titleResolver) (RewardReference, bool) {
+	id, idOK := integerAt(row, 0)
+	skeletonID, skeletonOK := integerAt(row, 4)
+	variationID, variationOK := integerAt(row, 5)
+	weaponType, weaponOK := integerAt(row, 6)
+	rarityType, rarityOK := integerAt(row, 7)
+	if !idOK || !skeletonOK || !variationOK || !weaponOK || !rarityOK {
+		return RewardReference{}, false
+	}
+	costume := masterdata.EntityMCostume{
+		CostumeId: int32(id), ActorSkeletonId: int32(skeletonID), AssetVariationId: int32(variationID),
+	}
+	return RewardReference{
+		PossessionType: int32(model.PossessionTypeCostume), PossessionId: int32(id),
+		Names: costumeTitles(resolver, costume), IconPath: costumeIconPath(costume),
+		WeaponType: int32(weaponType), RarityType: int32(rarityType),
+	}, true
+}
+
+func enhancedRewardReferences(rows [][]interface{}, base []RewardReference, possessionType model.PossessionType) []RewardReference {
+	byID := make(map[int32]RewardReference, len(base))
+	for _, reference := range base {
+		byID[reference.PossessionId] = reference
+	}
+	var result []RewardReference
+	for _, row := range rows {
+		id, idOK := integerAt(row, 0)
+		baseID, baseOK := integerAt(row, 1)
+		reference, exists := byID[int32(baseID)]
+		if !idOK || !baseOK || !exists {
+			continue
+		}
+		// Enhanced possession IDs belong to their own table, even when they match the base ID.
+		reference.PossessionType = int32(possessionType)
+		reference.PossessionId = int32(id)
+		result = append(result, reference)
+	}
+	return result
+}
+
+func thoughtRewardReference(row []interface{}, resolver *titleResolver) (RewardReference, bool) {
+	id, idOK := integerAt(row, 0)
+	rarityType, rarityOK := integerAt(row, 1)
+	assetID, assetOK := integerAt(row, 4)
+	if !idOK || !rarityOK || !assetOK {
+		return RewardReference{}, false
+	}
+	assetName := fmt.Sprintf("thought%06d", assetID)
+	return RewardReference{
+		PossessionType: int32(model.PossessionTypeThought), PossessionId: int32(id),
+		Names:    resolver.byKey(fmt.Sprintf("thought.name.%06d", assetID)),
+		IconPath: path.Join("thought", assetName, assetName+"_standard.png"), RarityType: int32(rarityType),
+	}, true
 }
 
 func materialRewardReference(row []interface{}, resolver *titleResolver) (RewardReference, bool) {

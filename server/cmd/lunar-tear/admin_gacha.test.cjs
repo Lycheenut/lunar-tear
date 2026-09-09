@@ -94,6 +94,19 @@ test("operational Gacha schedule still rejects a missing reward", async () => {
   assert.match(editor.element("#notice").textContent, /卡池 200000 第 1 箱的有限奖励 1 不在主数据奖励列表中/);
 });
 
+for (const [key, possessionType] of [["costumes", 1], ["parts", 4], ["enhancedCompanions", 9], ["paidGems", 11], ["importantItems", 13], ["thoughts", 14], ["missionPassPoints", 15], ["premiumItems", 16]]) {
+  test(`Box Gacha rejects delivery-only ${key} even when present in the shared catalog`, async () => {
+    const reward = { possessionType, possessionId: possessionType === 11 ? 0 : 9001 };
+    const editor = createEditor(reward);
+    editor.rewards[key] = [reward];
+    editor.state.rewardCatalog = editor.rewards;
+    await editor.loadSelectedTable();
+    await submitSchedule(editor);
+    assert.equal(editor.element("#gacha-publish-dialog").open, false);
+    assert.match(editor.element("#notice").textContent, /不在主数据奖励列表中/);
+  });
+}
+
 test("reloading published Gacha data reloads reward references before another schedule submission", async () => {
   const editor = createEditor();
   editor.state.rewardCatalog = editor.rewards;

@@ -2306,6 +2306,7 @@
       const select = document.createElement("select");
       const current = String(possession.possessionType);
       rewardDefinitions.forEach((definition) => {
+        if (definition.possessionType === "15") return;
         if (!rewardReferencesForPossessionType(definition.possessionType).length) return;
         const option = document.createElement("option");
         option.value = definition.possessionType;
@@ -2315,7 +2316,7 @@
       if (![...select.options].some((option) => option.value === current)) {
         const option = document.createElement("option");
         option.value = current;
-        option.textContent = idNameLabel(current, "未知类型");
+        option.textContent = idNameLabel(current, rewardDefinitionForPossessionType(current)?.label || "未知类型");
         select.append(option);
       }
       select.value = current;
@@ -3559,6 +3560,8 @@
     const select = document.createElement("select");
     const currentType = effectiveValue(table.name, row, pair.typeField.name);
     rewardDefinitions.forEach((definition) => {
+      // Mission pass points are granted by the mission service only.
+      if (definition.possessionType === "15" && table.name !== "m_mission_reward") return;
       if (!rewardReferencesForPossessionType(definition.possessionType).length) return;
       const option = document.createElement("option");
       option.value = definition.possessionType;
@@ -3568,7 +3571,7 @@
     if (![...select.options].some((option) => option.value === currentType)) {
       const unknown = document.createElement("option");
       unknown.value = currentType;
-      unknown.textContent = idNameLabel(currentType, "未知类型");
+      unknown.textContent = idNameLabel(currentType, rewardDefinitionForPossessionType(currentType)?.label || "未知类型");
       select.append(unknown);
     }
     select.value = currentType;
@@ -4120,12 +4123,23 @@
   const rewardDefinitions = [
     { key: "material", catalogKey: "materials", possessionType: "5", label: "道具", fallbackName: "未命名道具", glyph: "具" },
     { key: "weapon", catalogKey: "weapons", possessionType: "2", label: "武器", fallbackName: "未命名武器", glyph: "武" },
+    { key: "costume", catalogKey: "costumes", possessionType: "1", label: "角色服装", fallbackName: "未命名角色服装", glyph: "角" },
     { key: "companion", catalogKey: "companions", possessionType: "3", label: "伙伴", fallbackName: "未命名伙伴", glyph: "伙" },
     { key: "parts", catalogKey: "parts", possessionType: "4", label: "回忆", fallbackName: "未命名回忆", glyph: "忆" },
+    { key: "costume_enhanced", catalogKey: "enhancedCostumes", possessionType: "7", label: "强化角色服装", fallbackName: "未命名强化角色服装", glyph: "角" },
+    { key: "weapon_enhanced", catalogKey: "enhancedWeapons", possessionType: "8", label: "强化武器", fallbackName: "未命名强化武器", glyph: "武" },
+    { key: "companion_enhanced", catalogKey: "enhancedCompanions", possessionType: "9", label: "强化伙伴", fallbackName: "未命名强化伙伴", glyph: "伙" },
+    { key: "parts_enhanced", catalogKey: "enhancedParts", possessionType: "10", label: "强化回忆", fallbackName: "未命名强化回忆", glyph: "忆" },
     { key: "consumable", catalogKey: "consumableItems", possessionType: "6", label: "消耗品", fallbackName: "未命名消耗品", glyph: "消" },
     { key: "important_item", catalogKey: "importantItems", possessionType: "13", label: "重要道具", fallbackName: "未命名重要道具", glyph: "重" },
+    { key: "thought", catalogKey: "thoughts", possessionType: "14", label: "残片", fallbackName: "未命名残片", glyph: "片" },
+    { key: "mission_pass_point", catalogKey: "missionPassPoints", possessionType: "15", label: "通行证积分", fallbackName: "通行证积分", glyph: "积" },
+    { key: "premium_item", catalogKey: "premiumItems", possessionType: "16", label: "高级道具", fallbackName: "高级道具", glyph: "高" },
+    { key: "paid_gem", catalogKey: "paidGems", possessionType: "11", label: "付费宝石", fallbackName: "付费宝石", glyph: "石" },
     { key: "free_gem", catalogKey: "freeGems", possessionType: "12", label: "免费宝石", fallbackName: "免费宝石", glyph: "石" }
   ];
+  // Keep Box Gacha choices aligned with supportedBoxPossessionType on the server.
+  const boxRewardDefinitions = rewardDefinitions.filter((definition) => ["2", "3", "5", "6", "12"].includes(definition.possessionType));
   const rewardPageSizes = [25, 50, 100];
   const gachaGroupDefinitions = [
     { id: "character_weapon_4", grantType: "character_weapon", star: 4, label: "4星角色武器" },
@@ -5041,13 +5055,19 @@
     const editor = document.createElement("div");
     editor.className = "box-reward-selector";
     const typeSelect = document.createElement("select");
-    rewardDefinitions.forEach((definition) => {
+    boxRewardDefinitions.forEach((definition) => {
       if (!rewardReferencesForPossessionType(definition.possessionType).length) return;
       const option = document.createElement("option");
       option.value = definition.possessionType;
       option.textContent = definition.label;
       typeSelect.append(option);
     });
+    if (![...typeSelect.options].some((option) => option.value === String(reward.possessionType))) {
+      const unsupported = document.createElement("option");
+      unsupported.value = String(reward.possessionType);
+      unsupported.textContent = `${rewardDefinitionForPossessionType(reward.possessionType)?.label || reward.possessionType}（不支持）`;
+      typeSelect.append(unsupported);
+    }
     typeSelect.value = String(reward.possessionType);
     const itemSelect = document.createElement("select");
     const definition = rewardDefinitionForPossessionType(typeSelect.value);
@@ -5242,7 +5262,7 @@
   }
 
   function appendBoxValidationErrors(errors) {
-    const knownRewards = new Set(rewardDefinitions.flatMap((definition) =>
+    const knownRewards = new Set(boxRewardDefinitions.flatMap((definition) =>
       rewardReferencesForPossessionType(definition.possessionType).map((reward) => `${reward.possessionType}:${reward.possessionId}`)
     ));
     const validateBox = (gachaId, box, boxNumber, event) => {
