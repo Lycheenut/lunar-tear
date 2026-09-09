@@ -69,6 +69,49 @@ func TestPossessionGranterGrantFullPreservesEnhancedCostumeLevel(t *testing.T) {
 	}
 }
 
+func TestPossessionGranterEnhancedCompanionResolvesTemplateAndDuplicates(t *testing.T) {
+	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
+	granter := &PossessionGranter{
+		CompanionEnhancedById: map[int32]CompanionEnhancedRef{
+			9001: {CompanionId: 49, Level: 50},
+			9002: {CompanionId: 53, Level: 15},
+		},
+		CompanionDupExchange: map[int32][]model.DupExchangeEntry{
+			49: {{PossessionType: int32(model.PossessionTypeConsumableItem), PossessionId: 601, Count: 100}},
+		},
+	}
+	result := granter.GrantFull(user, model.PossessionTypeCompanionEnhanced, 9001, 2, 1000)
+	if result.Status != GrantStatusGranted || len(user.Companions) != 1 || user.ConsumableItems[601] != 100 {
+		t.Fatalf("grant = %+v, companions = %v, duplicate item = %d", result, user.Companions, user.ConsumableItems[601])
+	}
+	for key, companion := range user.Companions {
+		want := CompanionState{
+			UserCompanionUuid: key, CompanionId: 49, Level: 50,
+			HeadupDisplayViewId: 1, AcquisitionDatetime: 1000,
+		}
+		if companion != want {
+			t.Fatalf("companion = %+v, want %+v", companion, want)
+		}
+		granter.GrantFull(user, model.PossessionTypeCompanion, 49, 1, 2000)
+		if user.Companions[key] != want || len(user.Companions) != 1 || user.ConsumableItems[601] != 200 {
+			t.Fatal("ordinary duplicate changed the enhanced companion or failed to exchange")
+		}
+	}
+	granter.GrantFull(user, model.PossessionTypeCompanionEnhanced, 9002, 1, 3000)
+	if len(user.Companions) != 2 {
+		t.Fatalf("companions = %d, want 2", len(user.Companions))
+	}
+	for _, companion := range user.Companions {
+		if companion.CompanionId == 53 && companion.Level != 15 {
+			t.Fatalf("template level = %d, want 15", companion.Level)
+		}
+	}
+	result = granter.GrantFull(user, model.PossessionTypeCompanionEnhanced, 9999, 1, 4000)
+	if result.Status != GrantStatusInvalid || len(user.Companions) != 2 {
+		t.Fatalf("unknown template grant = %+v, companions = %d", result, len(user.Companions))
+	}
+}
+
 func TestDeductPossessionsIsAtomic(t *testing.T) {
 	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
 	user.Materials[100] = 5

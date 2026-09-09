@@ -80,6 +80,13 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 			Exp:       exp,
 		}
 	}
+	companionEnhancedById := make(map[int32]store.CompanionEnhancedRef, len(catalog.CompanionEnhancedById))
+	for id, enhanced := range catalog.CompanionEnhancedById {
+		companionEnhancedById[id] = store.CompanionEnhancedRef{
+			CompanionId: enhanced.CompanionId,
+			Level:       enhanced.Level,
+		}
+	}
 	weaponById := make(map[int32]store.WeaponRef, len(catalog.WeaponById))
 	for id, wm := range catalog.WeaponById {
 		weaponById[id] = store.WeaponRef{
@@ -147,6 +154,7 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 	return &store.PossessionGranter{
 		CostumeById:                          costumeById,
 		CostumeEnhancedById:                  costumeEnhancedById,
+		CompanionEnhancedById:                companionEnhancedById,
 		WeaponById:                           weaponById,
 		WeaponSkillSlots:                     catalog.WeaponSkillSlots,
 		WeaponAbilitySlots:                   catalog.WeaponAbilitySlots,

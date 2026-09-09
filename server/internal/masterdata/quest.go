@@ -147,9 +147,10 @@ type QuestCatalog struct {
 	CostumeMaxLevelByRarity map[int32]NumericalFunc
 	MaxStaminaByLevel       map[int32]int32
 
-	CostumeById         map[int32]EntityMCostume
-	CostumeEnhancedById map[int32]EntityMCostumeEnhanced
-	WeaponById          map[int32]EntityMWeapon
+	CostumeById           map[int32]EntityMCostume
+	CostumeEnhancedById   map[int32]EntityMCostumeEnhanced
+	CompanionEnhancedById map[int32]EntityMCompanionEnhanced
+	WeaponById            map[int32]EntityMWeapon
 
 	WeaponSkillSlots   map[int32][]int32
 	WeaponAbilitySlots map[int32][]int32
@@ -566,6 +567,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load enhanced costume table: %w", err)
 	}
+	companionEnhancedRows, err := utils.ReadTable[EntityMCompanionEnhanced]("m_companion_enhanced")
+	if err != nil {
+		return nil, fmt.Errorf("load enhanced companion table: %w", err)
+	}
 
 	costumeRarities, err := utils.ReadTable[EntityMCostumeRarity]("m_costume_rarity")
 	if err != nil {
@@ -688,6 +693,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	costumeEnhancedById := make(map[int32]EntityMCostumeEnhanced, len(costumeEnhancedRows))
 	for _, enhanced := range costumeEnhancedRows {
 		costumeEnhancedById[enhanced.CostumeEnhancedId] = enhanced
+	}
+	companionEnhancedById := make(map[int32]EntityMCompanionEnhanced, len(companionEnhancedRows))
+	for _, enhanced := range companionEnhancedRows {
+		companionEnhancedById[enhanced.CompanionEnhancedId] = enhanced
 	}
 
 	weaponById := make(map[int32]EntityMWeapon, len(weapons))
@@ -1199,9 +1208,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		CostumeMaxLevelByRarity: costumeMaxLevelByRarity,
 		MaxStaminaByLevel:       maxStaminaByLevel,
 
-		CostumeById:         costumeById,
-		CostumeEnhancedById: costumeEnhancedById,
-		WeaponById:          weaponById,
+		CostumeById:           costumeById,
+		CostumeEnhancedById:   costumeEnhancedById,
+		CompanionEnhancedById: companionEnhancedById,
+		WeaponById:            weaponById,
 
 		WeaponSkillSlots:   skillSlots,
 		WeaponAbilitySlots: abilitySlots,

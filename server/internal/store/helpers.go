@@ -157,6 +157,11 @@ type CostumeEnhancedRef struct {
 	Exp       int32
 }
 
+type CompanionEnhancedRef struct {
+	CompanionId int32
+	Level       int32
+}
+
 type WeaponRef struct {
 	WeaponSkillGroupId                 int32
 	WeaponAbilityGroupId               int32
@@ -187,12 +192,13 @@ type PartsStatusSubDef struct {
 }
 
 type PossessionGranter struct {
-	CostumeById         map[int32]CostumeRef
-	CostumeEnhancedById map[int32]CostumeEnhancedRef
-	WeaponById          map[int32]WeaponRef
-	WeaponSkillSlots    map[int32][]int32
-	WeaponAbilitySlots  map[int32][]int32
-	ReleaseConditions   map[int32][]WeaponStoryReleaseCond
+	CostumeById           map[int32]CostumeRef
+	CostumeEnhancedById   map[int32]CostumeEnhancedRef
+	CompanionEnhancedById map[int32]CompanionEnhancedRef
+	WeaponById            map[int32]WeaponRef
+	WeaponSkillSlots      map[int32][]int32
+	WeaponAbilitySlots    map[int32][]int32
+	ReleaseConditions     map[int32][]WeaponStoryReleaseCond
 
 	PartsById                            map[int32]PartsRef
 	DefaultPartsStatusMainByLotteryGroup map[int32]int32
@@ -238,9 +244,17 @@ func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.Poss
 		for range count {
 			result.ChangedStoryWeaponIds = append(result.ChangedStoryWeaponIds, g.GrantWeapon(user, possessionId, nowMillis)...)
 		}
-	case model.PossessionTypeCompanion, model.PossessionTypeCompanionEnhanced:
+	case model.PossessionTypeCompanion:
 		for range count {
 			g.GrantCompanion(user, possessionId, nowMillis)
+		}
+	case model.PossessionTypeCompanionEnhanced:
+		enhanced, ok := g.CompanionEnhancedById[possessionId]
+		if !ok {
+			return GrantResult{Status: GrantStatusInvalid}
+		}
+		for range count {
+			g.grantCompanion(user, enhanced.CompanionId, enhanced.Level, nowMillis)
 		}
 	case model.PossessionTypeParts, model.PossessionTypePartsEnhanced:
 		for range count {
@@ -311,6 +325,10 @@ func (g *PossessionGranter) grantCostume(user *UserState, costumeId, level, exp 
 }
 
 func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, nowMillis int64) {
+	g.grantCompanion(user, companionId, 1, nowMillis)
+}
+
+func (g *PossessionGranter) grantCompanion(user *UserState, companionId, level int32, nowMillis int64) {
 	for _, row := range user.Companions {
 		if row.CompanionId == companionId {
 			grantDuplicateExchange(user, g.CompanionDupExchange[companionId])
@@ -321,7 +339,7 @@ func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, n
 	user.Companions[key] = CompanionState{
 		UserCompanionUuid:   key,
 		CompanionId:         companionId,
-		Level:               1,
+		Level:               level,
 		HeadupDisplayViewId: 1,
 		AcquisitionDatetime: nowMillis,
 	}
