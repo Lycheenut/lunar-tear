@@ -500,6 +500,27 @@ func TestGrantItemsSendsWeaponsBeyondInventoryLimitToGiftBox(t *testing.T) {
 	}
 }
 
+func TestGachaEnhancedWeaponsKeepTemplateWhenGrantedOrSentToGiftBox(t *testing.T) {
+	g := &store.PossessionGranter{
+		WeaponById:         map[int32]store.WeaponRef{101: {}},
+		WeaponEnhancedById: map[int32]store.WeaponEnhancedRef{9001: {WeaponId: 101, Level: 70, Exp: 5000, LimitBreakCount: 3}},
+	}
+	h := &GachaHandler{Granter: g, Config: &masterdata.GameConfig{PossessionCountLimitWeapon: 1}}
+	user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+	h.grantItems(user, []DrawnItem{{PossessionType: 8, PossessionId: 9001}, {PossessionType: 8, PossessionId: 9001}}, 1000)
+	if len(user.Weapons) != 1 || len(user.Gifts.NotReceived) != 1 {
+		t.Fatalf("weapons=%v gifts=%v", user.Weapons, user.Gifts.NotReceived)
+	}
+	for _, weapon := range user.Weapons {
+		if weapon.WeaponId != 101 || weapon.Level != 70 || weapon.Exp != 5000 || weapon.LimitBreakCount != 3 {
+			t.Fatalf("weapon=%+v", weapon)
+		}
+	}
+	if gift := user.Gifts.NotReceived[0].GiftCommon; gift.PossessionType != 8 || gift.PossessionId != 9001 || gift.Count != 1 {
+		t.Fatalf("gift=%+v", gift)
+	}
+}
+
 func TestDupExchangesForGradeUsesTierCount(t *testing.T) {
 	exchanges := []model.DupExchangeEntry{
 		{PossessionType: int32(model.PossessionTypeMaterial), PossessionId: 501, Count: 10},

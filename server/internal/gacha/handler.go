@@ -401,7 +401,7 @@ func (h *GachaHandler) grantWeaponOrGift(user *store.UserState, item DrawnItem, 
 		limit = h.Config.PossessionCountLimitWeapon
 	}
 	if limit <= 0 || int64(len(user.Weapons)) < int64(limit) {
-		h.Granter.GrantWeapon(user, item.PossessionId, nowMillis)
+		h.Granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, 1, nowMillis)
 		return
 	}
 

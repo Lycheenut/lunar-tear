@@ -16,6 +16,8 @@ type PartsStatusMainDef struct {
 
 type PartsCatalog struct {
 	PartsById                            map[int32]EntityMParts
+	EnhancedById                         map[int32]EntityMPartsEnhanced
+	EnhancedSubStatuses                  map[int32][]EntityMPartsEnhancedSubStatus
 	DefaultPartsStatusMainByLotteryGroup map[int32]int32
 	RarityByRarityType                   map[model.RarityType]EntityMPartsRarity
 	RateByGroupAndLevel                  map[int32]map[int32]int32
@@ -52,6 +54,28 @@ func LoadPartsCatalog() (*PartsCatalog, error) {
 	partsById := make(map[int32]EntityMParts, len(partsRows))
 	for _, p := range partsRows {
 		partsById[p.PartsId] = p
+	}
+	enhancedRows, err := utils.ReadTable[EntityMPartsEnhanced]("m_parts_enhanced")
+	if err != nil {
+		return nil, fmt.Errorf("load enhanced parts: %w", err)
+	}
+	subRows, err := utils.ReadTable[EntityMPartsEnhancedSubStatus]("m_parts_enhanced_sub_status")
+	if err != nil {
+		return nil, fmt.Errorf("load enhanced parts sub statuses: %w", err)
+	}
+	enhancedById := make(map[int32]EntityMPartsEnhanced, len(enhancedRows))
+	for _, row := range enhancedRows {
+		if _, ok := partsById[row.PartsId]; !ok {
+			return nil, fmt.Errorf("enhanced parts %d references missing parts %d", row.PartsEnhancedId, row.PartsId)
+		}
+		enhancedById[row.PartsEnhancedId] = row
+	}
+	enhancedSubStatuses := make(map[int32][]EntityMPartsEnhancedSubStatus)
+	for _, row := range subRows {
+		if _, ok := enhancedById[row.PartsEnhancedId]; !ok {
+			return nil, fmt.Errorf("sub status references missing enhanced parts %d", row.PartsEnhancedId)
+		}
+		enhancedSubStatuses[row.PartsEnhancedId] = append(enhancedSubStatuses[row.PartsEnhancedId], row)
 	}
 
 	// Lottery group ID encodes tier (first digit 1-4) and stat category
@@ -107,6 +131,8 @@ func LoadPartsCatalog() (*PartsCatalog, error) {
 
 	return &PartsCatalog{
 		PartsById:                            partsById,
+		EnhancedById:                         enhancedById,
+		EnhancedSubStatuses:                  enhancedSubStatuses,
 		DefaultPartsStatusMainByLotteryGroup: defaultPartsStatusMainByLotteryGroup,
 		RarityByRarityType:                   rarityByRarityType,
 		RateByGroupAndLevel:                  rateByGroupAndLevel,

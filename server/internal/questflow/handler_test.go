@@ -1,10 +1,59 @@
 package questflow
 
 import (
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	"lunar-tear/server/internal/masterdata"
+	"lunar-tear/server/internal/masterdata/memorydb"
+	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/store"
 )
+
+func TestCompanionGrantsUseMasterDataLevels(t *testing.T) {
+	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := masterdata.LoadPartsCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := masterdata.LoadConditionResolver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := masterdata.LoadQuestCatalog(parts, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	granter := BuildGranter(catalog, nil)
+	for _, test := range []struct {
+		possessionType model.PossessionType
+		id, level      int32
+	}{
+		{model.PossessionTypeCompanionEnhanced, 49, 50},
+		{model.PossessionTypeCompanionEnhanced, 50, 50},
+		{model.PossessionTypeCompanionEnhanced, 51, 50},
+		{model.PossessionTypeCompanionEnhanced, 53, 50},
+		{model.PossessionTypeCompanion, 1, 1},
+		{model.PossessionTypeCompanion, 35, 1},
+		{model.PossessionTypeCompanion, 53, 1},
+	} {
+		t.Run(fmt.Sprintf("type=%d/id=%d", test.possessionType, test.id), func(t *testing.T) {
+			user := store.SeedUserState(1, "test", 1, model.ClientPlatform{})
+			result := granter.GrantFull(user, test.possessionType, test.id, 1, 1000)
+			if result.Status != store.GrantStatusGranted || len(user.Companions) != 1 {
+				t.Fatalf("grant = %+v, companions = %d", result, len(user.Companions))
+			}
+			for _, companion := range user.Companions {
+				if companion.CompanionId != test.id || companion.Level != test.level {
+					t.Fatalf("companion = %+v, want id=%d level=%d", companion, test.id, test.level)
+				}
+			}
+		})
+	}
+}
 
 func TestBuildGranterBuildsEnhancedCostumeGrant(t *testing.T) {
 	thresholds := make([]int32, 16)

@@ -147,9 +147,11 @@ type QuestCatalog struct {
 	CostumeMaxLevelByRarity map[int32]NumericalFunc
 	MaxStaminaByLevel       map[int32]int32
 
-	CostumeById         map[int32]EntityMCostume
-	CostumeEnhancedById map[int32]EntityMCostumeEnhanced
-	WeaponById          map[int32]EntityMWeapon
+	CostumeById           map[int32]EntityMCostume
+	CostumeEnhancedById   map[int32]EntityMCostumeEnhanced
+	CompanionEnhancedById map[int32]EntityMCompanionEnhanced
+	WeaponById            map[int32]EntityMWeapon
+	WeaponEnhancedById    map[int32]WeaponEnhancedReward
 
 	WeaponSkillSlots   map[int32][]int32
 	WeaponAbilitySlots map[int32][]int32
@@ -566,6 +568,10 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	if err != nil {
 		return nil, fmt.Errorf("load enhanced costume table: %w", err)
 	}
+	companionEnhancedRows, err := utils.ReadTable[EntityMCompanionEnhanced]("m_companion_enhanced")
+	if err != nil {
+		return nil, fmt.Errorf("load enhanced companion table: %w", err)
+	}
 
 	costumeRarities, err := utils.ReadTable[EntityMCostumeRarity]("m_costume_rarity")
 	if err != nil {
@@ -689,10 +695,18 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	for _, enhanced := range costumeEnhancedRows {
 		costumeEnhancedById[enhanced.CostumeEnhancedId] = enhanced
 	}
+	companionEnhancedById := make(map[int32]EntityMCompanionEnhanced, len(companionEnhancedRows))
+	for _, enhanced := range companionEnhancedRows {
+		companionEnhancedById[enhanced.CompanionEnhancedId] = enhanced
+	}
 
 	weaponById := make(map[int32]EntityMWeapon, len(weapons))
 	for _, w := range weapons {
 		weaponById[w.WeaponId] = w
+	}
+	weaponEnhancedById, err := loadWeaponEnhancedRewards(weaponById, weaponSkillGroups, weaponAbilityGroups, paramMapRows)
+	if err != nil {
+		return nil, err
 	}
 	weaponEvolutionByWeaponId := make(map[int32]WeaponEvolutionInfo, len(weaponEvolutions))
 	for _, evolution := range weaponEvolutions {
@@ -1028,6 +1042,9 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 	}
 	battleDropEffectIdByRewardId := make(map[int32]int32, len(battleDropRewards))
 	for _, reward := range battleDropRewards {
+		if model.PossessionType(reward.PossessionType) == model.PossessionTypePartsEnhanced && partsCatalog != nil {
+			reward.PossessionId = partsCatalog.EnhancedById[reward.PossessionId].PartsId
+		}
 		battleDropEffectIdByRewardId[reward.BattleDropRewardId] = battleDropEffectId(
 			reward, materialRarityById, partsById, consumableTypeById)
 	}
@@ -1199,9 +1216,11 @@ func LoadQuestCatalog(partsCatalog *PartsCatalog, conditionResolver *ConditionRe
 		CostumeMaxLevelByRarity: costumeMaxLevelByRarity,
 		MaxStaminaByLevel:       maxStaminaByLevel,
 
-		CostumeById:         costumeById,
-		CostumeEnhancedById: costumeEnhancedById,
-		WeaponById:          weaponById,
+		CostumeById:           costumeById,
+		CostumeEnhancedById:   costumeEnhancedById,
+		CompanionEnhancedById: companionEnhancedById,
+		WeaponById:            weaponById,
+		WeaponEnhancedById:    weaponEnhancedById,
 
 		WeaponSkillSlots:   skillSlots,
 		WeaponAbilitySlots: abilitySlots,

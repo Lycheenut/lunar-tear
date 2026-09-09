@@ -80,7 +80,21 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 			Exp:       exp,
 		}
 	}
+	companionEnhancedById := make(map[int32]store.CompanionEnhancedRef, len(catalog.CompanionEnhancedById))
+	for id, enhanced := range catalog.CompanionEnhancedById {
+		companionEnhancedById[id] = store.CompanionEnhancedRef{
+			CompanionId: enhanced.CompanionId,
+			Level:       enhanced.Level,
+		}
+	}
 	weaponById := make(map[int32]store.WeaponRef, len(catalog.WeaponById))
+	weaponEnhancedById := make(map[int32]store.WeaponEnhancedRef, len(catalog.WeaponEnhancedById))
+	for id, enhanced := range catalog.WeaponEnhancedById {
+		weaponEnhancedById[id] = store.WeaponEnhancedRef{
+			WeaponId: enhanced.WeaponId, Level: enhanced.Level, Exp: enhanced.Exp, LimitBreakCount: enhanced.LimitBreakCount,
+			SkillLevels: enhanced.SkillLevels, AbilityLevels: enhanced.AbilityLevels,
+		}
+	}
 	for id, wm := range catalog.WeaponById {
 		weaponById[id] = store.WeaponRef{
 			WeaponSkillGroupId:                 wm.WeaponSkillGroupId,
@@ -136,8 +150,24 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 	}
 
 	partsSellPriceL1 := make(map[int32]int32, len(catalog.SellPriceByRarity))
+	partsSellPrice := make(map[int32]func(int32) int32, len(catalog.SellPriceByRarity))
 	for rarity, fn := range catalog.SellPriceByRarity {
 		partsSellPriceL1[int32(rarity)] = fn.Evaluate(1)
+		partsSellPrice[int32(rarity)] = fn.Evaluate
+	}
+	partsEnhancedById := make(map[int32]store.PartsEnhancedRef, len(catalog.EnhancedById))
+	for id, enhanced := range catalog.EnhancedById {
+		reference := store.PartsEnhancedRef{
+			PartsId: enhanced.PartsId, PartsStatusMainId: enhanced.PartsStatusMainId, Level: enhanced.Level,
+			IsRandomSubStatusCount: enhanced.IsRandomSubStatusCount, SubStatusCount: enhanced.SubStatusCount,
+		}
+		for _, sub := range catalog.EnhancedSubStatuses[id] {
+			reference.SubStatuses = append(reference.SubStatuses, store.PartsStatusSubState{
+				StatusIndex: sub.StatusIndex, PartsStatusSubLotteryId: sub.PartsStatusSubLotteryId, Level: sub.Level,
+				StatusKindType: sub.StatusKindType, StatusCalculationType: sub.StatusCalculationType, StatusChangeValue: sub.FixedStatusChangeValue,
+			})
+		}
+		partsEnhancedById[id] = reference
 	}
 	var goldItemId int32
 	if config != nil {
@@ -147,11 +177,15 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 	return &store.PossessionGranter{
 		CostumeById:                          costumeById,
 		CostumeEnhancedById:                  costumeEnhancedById,
+		CompanionEnhancedById:                companionEnhancedById,
 		WeaponById:                           weaponById,
+		WeaponEnhancedById:                   weaponEnhancedById,
 		WeaponSkillSlots:                     catalog.WeaponSkillSlots,
 		WeaponAbilitySlots:                   catalog.WeaponAbilitySlots,
 		ReleaseConditions:                    releaseConditions,
 		PartsById:                            partsById,
+		PartsEnhancedById:                    partsEnhancedById,
+		PartsSellPriceByRarity:               partsSellPrice,
 		DefaultPartsStatusMainByLotteryGroup: catalog.DefaultPartsStatusMainByLotteryGroup,
 		PartsVariantsByGroupRarity:           partsVariants,
 		PartsSubStatusPool:                   catalog.SubStatusPool,

@@ -157,6 +157,11 @@ type CostumeEnhancedRef struct {
 	Exp       int32
 }
 
+type CompanionEnhancedRef struct {
+	CompanionId int32
+	Level       int32
+}
+
 type WeaponRef struct {
 	WeaponSkillGroupId                 int32
 	WeaponAbilityGroupId               int32
@@ -187,18 +192,22 @@ type PartsStatusSubDef struct {
 }
 
 type PossessionGranter struct {
-	CostumeById         map[int32]CostumeRef
-	CostumeEnhancedById map[int32]CostumeEnhancedRef
-	WeaponById          map[int32]WeaponRef
-	WeaponSkillSlots    map[int32][]int32
-	WeaponAbilitySlots  map[int32][]int32
-	ReleaseConditions   map[int32][]WeaponStoryReleaseCond
+	CostumeById           map[int32]CostumeRef
+	CostumeEnhancedById   map[int32]CostumeEnhancedRef
+	CompanionEnhancedById map[int32]CompanionEnhancedRef
+	WeaponEnhancedById    map[int32]WeaponEnhancedRef
+	WeaponById            map[int32]WeaponRef
+	WeaponSkillSlots      map[int32][]int32
+	WeaponAbilitySlots    map[int32][]int32
+	ReleaseConditions     map[int32][]WeaponStoryReleaseCond
 
 	PartsById                            map[int32]PartsRef
 	DefaultPartsStatusMainByLotteryGroup map[int32]int32
 	PartsVariantsByGroupRarity           map[int32]map[int32][]int32
 	PartsSubStatusPool                   map[int32][]int32
 	PartsSubStatusDefs                   map[int32]PartsStatusSubDef
+	PartsEnhancedById                    map[int32]PartsEnhancedRef
+	PartsSellPriceByRarity               map[int32]func(int32) int32
 
 	PartsSellPriceL1ByRarity map[int32]int32
 	GoldConsumableItemId     int32
@@ -234,17 +243,42 @@ func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.Poss
 		for range count {
 			g.GrantEnhancedCostume(user, possessionId, nowMillis)
 		}
-	case model.PossessionTypeWeapon, model.PossessionTypeWeaponEnhanced:
+	case model.PossessionTypeWeapon:
 		for range count {
 			result.ChangedStoryWeaponIds = append(result.ChangedStoryWeaponIds, g.GrantWeapon(user, possessionId, nowMillis)...)
 		}
-	case model.PossessionTypeCompanion, model.PossessionTypeCompanionEnhanced:
+	case model.PossessionTypeWeaponEnhanced:
+		enhanced, ok := g.WeaponEnhancedById[possessionId]
+		_, weaponExists := g.WeaponById[enhanced.WeaponId]
+		if !ok || !weaponExists || enhanced.Level < 1 || enhanced.LimitBreakCount < 0 {
+			return GrantResult{Status: GrantStatusInvalid}
+		}
+		for range count {
+			result.ChangedStoryWeaponIds = append(result.ChangedStoryWeaponIds, g.grantWeapon(user, enhanced, nowMillis)...)
+		}
+	case model.PossessionTypeCompanion:
 		for range count {
 			g.GrantCompanion(user, possessionId, nowMillis)
 		}
-	case model.PossessionTypeParts, model.PossessionTypePartsEnhanced:
+	case model.PossessionTypeCompanionEnhanced:
+		enhanced, ok := g.CompanionEnhancedById[possessionId]
+		if !ok {
+			return GrantResult{Status: GrantStatusInvalid}
+		}
+		for range count {
+			g.grantCompanion(user, enhanced.CompanionId, enhanced.Level, nowMillis)
+		}
+	case model.PossessionTypeParts:
 		for range count {
 			g.GrantParts(user, possessionId, nowMillis)
+		}
+	case model.PossessionTypePartsEnhanced:
+		enhanced, ok := g.PartsEnhancedById[possessionId]
+		if !ok || !g.validEnhancedParts(enhanced) {
+			return GrantResult{Status: GrantStatusInvalid}
+		}
+		for range count {
+			g.grantEnhancedParts(user, enhanced, nowMillis)
 		}
 	case model.PossessionTypeThought:
 		for range count {
@@ -311,6 +345,10 @@ func (g *PossessionGranter) grantCostume(user *UserState, costumeId, level, exp 
 }
 
 func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, nowMillis int64) {
+	g.grantCompanion(user, companionId, 1, nowMillis)
+}
+
+func (g *PossessionGranter) grantCompanion(user *UserState, companionId, level int32, nowMillis int64) {
 	for _, row := range user.Companions {
 		if row.CompanionId == companionId {
 			grantDuplicateExchange(user, g.CompanionDupExchange[companionId])
@@ -321,7 +359,7 @@ func (g *PossessionGranter) GrantCompanion(user *UserState, companionId int32, n
 	user.Companions[key] = CompanionState{
 		UserCompanionUuid:   key,
 		CompanionId:         companionId,
-		Level:               1,
+		Level:               level,
 		HeadupDisplayViewId: 1,
 		AcquisitionDatetime: nowMillis,
 	}
@@ -473,21 +511,35 @@ func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, ch
 }
 
 func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMillis int64) []int32 {
+	return g.grantWeapon(user, WeaponEnhancedRef{WeaponId: weaponId, Level: 1}, nowMillis)
+}
+
+func (g *PossessionGranter) grantWeapon(user *UserState, enhanced WeaponEnhancedRef, nowMillis int64) []int32 {
+	weaponId := enhanced.WeaponId
 	key := uuid.New().String()
 	user.Weapons[key] = WeaponState{
 		UserWeaponUuid:      key,
 		WeaponId:            weaponId,
-		Level:               1,
+		Level:               enhanced.Level,
+		Exp:                 enhanced.Exp,
+		LimitBreakCount:     enhanced.LimitBreakCount,
 		AcquisitionDatetime: nowMillis,
 	}
 	if _, exists := user.WeaponNotes[weaponId]; !exists {
 		user.WeaponNotes[weaponId] = WeaponNoteState{
 			WeaponId:                 weaponId,
-			MaxLevel:                 1,
-			MaxLimitBreakCount:       0,
+			MaxLevel:                 enhanced.Level,
+			MaxLimitBreakCount:       enhanced.LimitBreakCount,
 			FirstAcquisitionDatetime: nowMillis,
 			LatestVersion:            nowMillis,
 		}
+	}
+	note := user.WeaponNotes[weaponId]
+	if note.MaxLevel < enhanced.Level || note.MaxLimitBreakCount < enhanced.LimitBreakCount {
+		note.MaxLevel = max(note.MaxLevel, enhanced.Level)
+		note.MaxLimitBreakCount = max(note.MaxLimitBreakCount, enhanced.LimitBreakCount)
+		note.LatestVersion = nowMillis
+		user.WeaponNotes[weaponId] = note
 	}
 	weapon, ok := g.WeaponById[weaponId]
 	if !ok {
@@ -495,6 +547,16 @@ func (g *PossessionGranter) GrantWeapon(user *UserState, weaponId int32, nowMill
 	}
 
 	g.populateWeaponSkillsAbilities(user, key, weapon)
+	for i, skill := range user.WeaponSkills[key] {
+		if level, ok := enhanced.SkillLevels[skill.SlotNumber]; ok {
+			user.WeaponSkills[key][i].Level = level
+		}
+	}
+	for i, ability := range user.WeaponAbilities[key] {
+		if level, ok := enhanced.AbilityLevels[ability.SlotNumber]; ok {
+			user.WeaponAbilities[key][i].Level = level
+		}
+	}
 	if weapon.WeaponStoryReleaseConditionGroupId != 0 {
 		changed := false
 		for _, cond := range g.ReleaseConditions[weapon.WeaponStoryReleaseConditionGroupId] {
