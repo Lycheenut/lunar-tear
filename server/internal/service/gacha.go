@@ -497,6 +497,15 @@ func gachaVisibleForUser(cat *runtime.Catalogs, user *store.UserState, entry sto
 	if (entry.GachaLabelType == model.GachaLabelChapter || model.IsDailyGacha(entry.GachaId)) && !gachaUnlocked(cat, user, entry, nowMillis) {
 		return false
 	}
+	if model.IsDailyGacha(entry.GachaId) {
+		state := gachaBannerStateForUser(entry, user.Gacha.BannerStates[entry.GachaId], nowMillis)
+		for _, phase := range entry.PricePhases {
+			if phase.DrawCount > 0 && (phase.LimitExecCount <= 0 || state.DrawCount/phase.DrawCount < phase.LimitExecCount) {
+				return true
+			}
+		}
+		return false
+	}
 	return entry.RequiredConsumableItemId == 0 || user.ConsumableItems[entry.RequiredConsumableItemId] > 0
 }
 
