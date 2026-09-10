@@ -108,7 +108,7 @@ func buildDailyGacha(unlockQuestId int32) store.GachaCatalogEntry {
 			ConditionValue:           unlockQuestId,
 		}},
 		PricePhases: []store.GachaPricePhaseEntry{{
-			PhaseId:        model.GachaIdDaily*model.PhaseIdMultiplier + 1,
+			PhaseId:        model.DailyGachaPricePhaseId,
 			PriceType:      model.PriceTypeGem,
 			DrawCount:      model.DailyGachaDrawCount,
 			LimitExecCount: model.DailyGachaExecLimit,

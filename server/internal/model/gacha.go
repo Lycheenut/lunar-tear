@@ -129,10 +129,13 @@ const (
 const ChapterGachaMonthCounterId int32 = -1
 
 const (
-	GachaIdDaily                       int32 = 50001
+	// Latest daily summon in portal function group 2284 in the client snapshot.
+	GachaIdDaily                       int32 = 50030
 	GachaIdGuaranteedThreeStarOrHigher int32 = 60001
 	GachaIdGuaranteedFourStar          int32 = 60002
 )
+
+const DailyGachaPricePhaseId int32 = 308
 
 func IsDailyGacha(gachaId int32) bool {
 	return gachaId == GachaIdDaily

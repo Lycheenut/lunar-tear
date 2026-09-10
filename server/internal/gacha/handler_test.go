@@ -138,7 +138,7 @@ func TestHandleDrawLimitsDailyGachaToOneExecutionPerBusinessDay(t *testing.T) {
 		Premium: &PremiumCatalog{Banners: map[int32]*PremiumBannerPool{model.GachaIdDaily: banner}},
 		Granter: &store.PossessionGranter{},
 	}
-	phaseId := model.GachaIdDaily*model.PhaseIdMultiplier + 1
+	phaseId := model.DailyGachaPricePhaseId
 	entry := store.GachaCatalogEntry{
 		GachaId:            model.GachaIdDaily,
 		GachaLabelType:     model.GachaLabelPremium,

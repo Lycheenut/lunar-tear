@@ -304,6 +304,32 @@ func TestLoadGachaCatalogIncludesDailyGachaWithConfiguredUnlockQuest(t *testing.
 		t.Fatalf("daily Gacha price phase count = %d, want 1", len(daily.PricePhases))
 	}
 	phase := daily.PricePhases[0]
+	schedules, err := memorydb.ReadTable[EntityMPortalCageAccessPointFunctionGroupSchedule]("m_portal_cage_access_point_function_group_schedule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var latest EntityMPortalCageAccessPointFunctionGroupSchedule
+	for _, schedule := range schedules {
+		if schedule.PortalCageAccessPointFunctionGroupScheduleId == 2 && schedule.AccessPointType == 5 && schedule.PriorityDesc > latest.PriorityDesc {
+			latest = schedule
+		}
+	}
+	if latest.AccessPointFunctionGroupId != 2284 {
+		t.Fatalf("latest daily portal group = %d, want original group 2284", latest.AccessPointFunctionGroupId)
+	}
+	groups, err := memorydb.ReadTable[EntityMPortalCageAccessPointFunctionGroup]("m_portal_cage_access_point_function_group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	portalIds := map[int32]int32{}
+	for _, group := range groups {
+		if group.AccessPointFunctionGroupId == 2284 {
+			portalIds[group.AccessPointFunctionIndex] = group.AccessPointFunctionId
+		}
+	}
+	if daily.GachaId != portalIds[1] || phase.PhaseId != portalIds[2] {
+		t.Fatalf("daily Gacha %d / phase %d does not match the client's portal binding %v", daily.GachaId, phase.PhaseId, portalIds)
+	}
 	if phase.Price != 0 || phase.DrawCount != model.DailyGachaDrawCount || phase.LimitExecCount != model.DailyGachaExecLimit {
 		t.Fatalf("unexpected daily Gacha price phase: %+v", phase)
 	}
