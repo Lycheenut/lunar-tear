@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -83,6 +84,7 @@ func (s *QuestServiceServer) FinishEventQuest(ctx context.Context, req *pb.Finis
 				validationErr = err
 				return
 			}
+			releaseClearedLimitContentDifficultyDecks(user, cat.Quest, req.EventQuestChapterId, req.QuestId)
 		}
 		endedDrops, loopEnded = finishAutoOrbit(user, req.IsAutoOrbit, req.IsRetired, req.IsAnnihilated, model.QuestTypeEvent, req.EventQuestChapterId, req.QuestId, nowMillis, outcome.DropRewards)
 	})
@@ -109,6 +111,29 @@ func (s *QuestServiceServer) FinishEventQuest(ctx context.Context, req *pb.Finis
 		UserStatusCampaignReward:        []*pb.QuestReward{},
 		AutoOrbitReward:                 autoOrbitReward,
 	}, nil
+}
+
+func releaseClearedLimitContentDifficultyDecks(user *store.UserState, catalog *masterdata.QuestCatalog, chapterId, questId int32) {
+	if !catalog.LimitContentQuestIds[questId] {
+		return
+	}
+	for _, questIds := range catalog.EventQuestIdsByChapterDifficulty[chapterId] {
+		if !slices.Contains(questIds, questId) {
+			continue
+		}
+		for _, id := range questIds {
+			if user.Quests[id].QuestStateType != model.UserQuestStateTypeCleared {
+				return
+			}
+		}
+		// Release the final deck in the finish response, before another difficulty starts.
+		for id, restricted := range user.DeckLimitContentRestricted {
+			if restricted.EventQuestChapterId == chapterId && slices.Contains(questIds, restricted.QuestId) {
+				delete(user.DeckLimitContentRestricted, id)
+			}
+		}
+		return
+	}
 }
 
 type limitContentDeckTarget struct {
