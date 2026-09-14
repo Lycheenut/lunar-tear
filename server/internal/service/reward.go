@@ -40,13 +40,13 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	nowMillis := gametime.NowMillis()
 	weeklyVersion := gametime.BusinessWeeklyVersion(nowMillis)
-	today := gametime.StartOfBusinessDayMillis()
+	today := gametime.StartOfBusinessDayAtMillis(nowMillis)
 
 	var weeklyScoreResults []*pb.WeeklyScoreResult
 	var weeklyRewards []*pb.BigHuntReward
 	isReceived := false
 
-	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+	user, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		for bossQuestId, bossQuest := range bhCatalog.BossQuestById {
 			st := user.BigHuntStatuses[bossQuestId]
 			if st.LastDailyRewardReceivedDayVersion >= today {
@@ -77,9 +77,6 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 			user.BigHuntStatuses[bossQuestId] = st
 		}
 
-		ws := user.BigHuntWeeklyStatuses[weeklyVersion]
-		isReceived = ws.IsReceivedWeeklyReward
-
 		for _, boss := range bhCatalog.BossByBossId {
 			key := store.BigHuntWeeklyScoreKey{
 				BigHuntWeeklyVersion: weeklyVersion,
@@ -98,35 +95,7 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 			})
 		}
 
-		if !isReceived {
-			for _, boss := range bhCatalog.BossByBossId {
-				rewardGroupId := bhCatalog.ResolveActiveWeeklyRewardGroupIdByAttr(boss.AttributeType, nowMillis)
-				if rewardGroupId == 0 {
-					continue
-				}
-
-				weekKey := store.BigHuntWeeklyScoreKey{
-					BigHuntWeeklyVersion: weeklyVersion,
-					AttributeType:        boss.AttributeType,
-				}
-				maxScore := user.BigHuntWeeklyMaxScores[weekKey].MaxScore
-
-				items := bhCatalog.CollectNewRewards(rewardGroupId, 0, maxScore)
-				for _, item := range items {
-					granter.GrantFull(user, model.PossessionType(item.PossessionType), item.PossessionId, item.Count, nowMillis)
-					weeklyRewards = append(weeklyRewards, &pb.BigHuntReward{
-						PossessionType: item.PossessionType,
-						PossessionId:   item.PossessionId,
-						Count:          item.Count,
-					})
-				}
-			}
-
-			ws.IsReceivedWeeklyReward = true
-			ws.LatestVersion = nowMillis
-			user.BigHuntWeeklyStatuses[weeklyVersion] = ws
-			isReceived = true
-		}
+		weeklyRewards, isReceived = receiveBigHuntWeeklyReward(cat, user, nowMillis)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("receive big hunt reward: %w", err)
@@ -143,8 +112,30 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 		WeeklyScoreResult:           weeklyScoreResults,
 		WeeklyScoreReward:           weeklyRewards,
 		IsReceivedWeeklyScoreReward: isReceived,
-		LastWeekWeeklyScoreReward:   []*pb.BigHuntReward{},
+		LastWeekWeeklyScoreReward:   resolveBigHuntWeeklyRewards(bhCatalog, user, weeklyVersion-bigHuntWeekMillis, weeklyVersion-1),
 	}, nil
+}
+
+func receiveBigHuntWeeklyReward(cat *runtime.Catalogs, user *store.UserState, nowMillis int64) ([]*pb.BigHuntReward, bool) {
+	currentWeek := gametime.BusinessWeeklyVersion(nowMillis)
+	lastWeek := currentWeek - bigHuntWeekMillis
+	ws := user.BigHuntWeeklyStatuses[lastWeek]
+	if ws.IsReceivedWeeklyReward {
+		return nil, true
+	}
+
+	// Settle only the completed week, using the reward schedule before rollover.
+	rewards := resolveBigHuntWeeklyRewards(cat.BigHunt, *user, lastWeek, currentWeek-1)
+	if len(rewards) == 0 {
+		return nil, false
+	}
+	for _, reward := range rewards {
+		cat.QuestHandler.Granter.GrantFull(user, model.PossessionType(reward.PossessionType), reward.PossessionId, reward.Count, nowMillis)
+	}
+	ws.IsReceivedWeeklyReward = true
+	ws.LatestVersion = nowMillis
+	user.BigHuntWeeklyStatuses[lastWeek] = ws
+	return rewards, true
 }
 
 func bigHuntDailyRewardCount(cat *runtime.Catalogs, user *store.UserState, item masterdata.RewardItem, nowMillis int64) int32 {

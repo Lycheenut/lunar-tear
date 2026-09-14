@@ -83,9 +83,6 @@ func (c *BigHuntCatalog) ResolveActiveWeeklyRewardGroupIdByAttr(attributeType in
 			return e.BigHuntScoreRewardGroupId
 		}
 	}
-	if len(entries) > 0 {
-		return entries[len(entries)-1].BigHuntScoreRewardGroupId
-	}
 	return 0
 }
 

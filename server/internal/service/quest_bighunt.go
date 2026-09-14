@@ -512,12 +512,12 @@ func (s *BigHuntServiceServer) GetBigHuntTopData(ctx context.Context, _ *emptypb
 		})
 	}
 
-	ws := user.BigHuntWeeklyStatuses[weeklyVersion]
+	lastWeekVersion := weeklyVersion - bigHuntWeekMillis
+	ws := user.BigHuntWeeklyStatuses[lastWeekVersion]
 
 	weeklyRewards := resolveBigHuntWeeklyRewards(catalog, user, weeklyVersion, nowMillis)
 
-	lastWeekVersion := weeklyVersion - 7*24*60*60*1000
-	lastWeekRewards := resolveBigHuntWeeklyRewards(catalog, user, lastWeekVersion, nowMillis)
+	lastWeekRewards := resolveBigHuntWeeklyRewards(catalog, user, lastWeekVersion, weeklyVersion-1)
 
 	return &pb.GetBigHuntTopDataResponse{
 		WeeklyScoreResult:           weeklyScoreResults,
@@ -565,6 +565,8 @@ func resolveBigHuntCostumeId(user *store.UserState, userDeckNumber, deckCharacte
 	}
 	return 0
 }
+
+const bigHuntWeekMillis int64 = 7 * 24 * 60 * 60 * 1000
 
 func resolveBigHuntWeeklyRewards(catalog *masterdata.BigHuntCatalog, user store.UserState, weeklyVersion, nowMillis int64) []*pb.BigHuntReward {
 	var rewards []*pb.BigHuntReward
