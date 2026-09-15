@@ -175,20 +175,23 @@ func (s *ShopServiceServer) RefreshUserData(ctx context.Context, req *pb.Refresh
 		}
 
 		candidate := store.CloneUserState(*user)
-		if req.IsGemUsed {
-			nextCount := nextReplaceableRefreshCount(candidate.ShopReplaceable.LineupUpdateCount, isFreeRefreshDue)
-			price, ok := catalog.ReplaceableGemPrice(nextCount)
-			if !ok {
-				validationErr = status.Error(codes.FailedPrecondition, "replaceable shop refresh price is unavailable")
-				return
-			}
-			if err := store.DeductPrice(&candidate, model.PriceTypeGem, 0, price); err != nil {
-				validationErr = status.Errorf(codes.FailedPrecondition, "cannot refresh replaceable shop: %v", err)
-				return
-			}
-			candidate.ShopReplaceable.LineupUpdateCount = nextCount
-		} else {
+		if isFreeRefreshDue {
 			candidate.ShopReplaceable.LineupUpdateCount = 0
+		}
+		if req.IsGemUsed {
+			// Price tiers use completed manual refreshes; the first refresh of the day is free.
+			if count := candidate.ShopReplaceable.LineupUpdateCount; count > 0 {
+				price, ok := catalog.ReplaceableGemPrice(count)
+				if !ok {
+					validationErr = status.Error(codes.FailedPrecondition, "replaceable shop refresh price is unavailable")
+					return
+				}
+				if err := store.DeductPrice(&candidate, model.PriceTypeGem, 0, price); err != nil {
+					validationErr = status.Errorf(codes.FailedPrecondition, "cannot refresh replaceable shop: %v", err)
+					return
+				}
+			}
+			candidate.ShopReplaceable.LineupUpdateCount++
 		}
 
 		pool := make([]int32, 0, len(catalog.ItemShopPool))
@@ -240,13 +243,6 @@ func (s *ShopServiceServer) CreatePurchaseTransaction(ctx context.Context, req *
 func (s *ShopServiceServer) PurchaseGooglePlayStoreProduct(ctx context.Context, req *pb.PurchaseGooglePlayStoreProductRequest) (*pb.PurchaseGooglePlayStoreProductResponse, error) {
 	log.Printf("[ShopService] PurchaseGooglePlayStoreProduct: txId=%s", req.PurchaseTransactionId)
 	return nil, status.Error(codes.FailedPrecondition, "platform purchases are disabled")
-}
-
-func nextReplaceableRefreshCount(currentCount int32, isNewDay bool) int32 {
-	if isNewDay {
-		return 1
-	}
-	return currentCount + 1
 }
 
 func buildReplaceableLineup(pool []int32, nowMillis int64) map[int32]store.UserShopReplaceableLineupState {
