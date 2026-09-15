@@ -2,15 +2,23 @@ package service
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/database"
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/model"
+	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
+	"lunar-tear/server/internal/store/sqlite"
+	"lunar-tear/server/migrations"
 )
 
 func TestPlatformPurchaseEndpointsAreDisabled(t *testing.T) {
@@ -42,12 +50,112 @@ func TestBuildReplaceableLineupPreservesCatalogOrder(t *testing.T) {
 	}
 }
 
-func TestReplaceableRefreshCountResetsBeforeFirstPaidRefreshOfDay(t *testing.T) {
-	if got := nextReplaceableRefreshCount(12, true); got != 1 {
-		t.Fatalf("first paid refresh of day count = %d, want 1", got)
+func TestShopRefreshUserDataDailyFreeRefresh(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := nextReplaceableRefreshCount(2, false); got != 3 {
-		t.Fatalf("same-day paid refresh count = %d, want 3", got)
+	defer db.Close()
+	if err := migrations.Up(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	repo := sqlite.New(db, nil)
+	userId, err := repo.CreateUser("shop-refresh", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterData, err := os.ReadFile(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterDataPath := filepath.Join(t.TempDir(), "master-data.bin.e")
+	if err := os.WriteFile(masterDataPath, masterData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := runtime.NewHolder(masterDataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewShopServiceServer(repo, repo, holder)
+	catalog := holder.Get().Shop
+	if len(catalog.ItemShopPool) == 0 {
+		t.Fatal("item shop pool is empty")
+	}
+	itemId := catalog.ItemShopPool[0]
+
+	for _, tc := range []struct {
+		name        string
+		count       int32
+		previousDay bool
+		noLineup    bool
+		isGemUsed   bool
+		freeGem     int32
+		paidGem     int32
+		wantCount   int32
+		wantFreeGem int32
+		wantPaidGem int32
+		wantCode    codes.Code
+	}{
+		{name: "automatic initialization", noLineup: true},
+		{name: "first manual refresh without gems", isGemUsed: true, wantCount: 1},
+		{name: "first manual refresh preserves both gem balances", isGemUsed: true, freeGem: 20, paidGem: 30, wantCount: 1, wantFreeGem: 20, wantPaidGem: 30},
+		{name: "second manual refresh costs ten", count: 1, isGemUsed: true, freeGem: 100, wantCount: 2, wantFreeGem: 90},
+		{name: "third manual refresh costs thirty", count: 2, isGemUsed: true, freeGem: 20, paidGem: 100, wantCount: 3, wantPaidGem: 90},
+		{name: "insufficient gems preserve state", count: 1, isGemUsed: true, freeGem: 4, paidGem: 5, wantCount: 1, wantFreeGem: 4, wantPaidGem: 5, wantCode: codes.FailedPrecondition},
+		{name: "automatic request preserves unused free refresh", freeGem: 100, wantFreeGem: 100},
+		{name: "automatic request cannot restore used free refresh", count: 2, freeGem: 100, wantCount: 2, wantFreeGem: 100},
+		{name: "next day automatic refresh resets count", count: 12, previousDay: true, freeGem: 100, wantFreeGem: 100},
+		{name: "next day direct manual refresh is free", count: 12, previousDay: true, isGemUsed: true, wantCount: 1},
+		{name: "initial direct manual refresh is free", count: 12, noLineup: true, isGemUsed: true, wantCount: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			nowMillis := gametime.NowMillis()
+			lastUpdate := nowMillis
+			if tc.previousDay {
+				lastUpdate = gametime.StartOfBusinessDayAtMillis(nowMillis) - 1
+			}
+			before, err := repo.UpdateUser(userId, func(user *store.UserState) {
+				user.Gem.FreeGem = tc.freeGem
+				user.Gem.PaidGem = tc.paidGem
+				user.ShopReplaceable = store.UserShopReplaceableState{
+					LineupUpdateCount: tc.count, LatestLineupUpdateDatetime: lastUpdate, LatestVersion: lastUpdate,
+				}
+				user.ShopReplaceableLineup = buildReplaceableLineup([]int32{itemId}, lastUpdate)
+				if tc.noLineup {
+					user.ShopReplaceableLineup = nil
+				}
+				user.ShopItems = map[int32]store.UserShopItemState{
+					itemId: {ShopItemId: itemId, BoughtCount: 3, LatestBoughtCountChangedDatetime: lastUpdate, LatestVersion: lastUpdate},
+				}
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = server.RefreshUserData(context.Background(), &pb.RefreshRequest{IsGemUsed: tc.isGemUsed})
+			if status.Code(err) != tc.wantCode {
+				t.Fatalf("refresh error = %v, want %v", err, tc.wantCode)
+			}
+			after, err := repo.LoadUser(userId)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Gem.FreeGem != tc.wantFreeGem || after.Gem.PaidGem != tc.wantPaidGem || after.ShopReplaceable.LineupUpdateCount != tc.wantCount {
+				t.Fatalf("free gems, paid gems, refresh count = (%d, %d, %d), want (%d, %d, %d)",
+					after.Gem.FreeGem, after.Gem.PaidGem, after.ShopReplaceable.LineupUpdateCount, tc.wantFreeGem, tc.wantPaidGem, tc.wantCount)
+			}
+			if tc.wantCode != codes.OK || (!tc.isGemUsed && !tc.previousDay && !tc.noLineup) {
+				if after.ShopReplaceable != before.ShopReplaceable || !reflect.DeepEqual(after.ShopReplaceableLineup, before.ShopReplaceableLineup) || !reflect.DeepEqual(after.ShopItems, before.ShopItems) {
+					t.Fatal("rejected or automatic same-day refresh changed shop state")
+				}
+				return
+			}
+			if after.ShopReplaceable.LatestLineupUpdateDatetime < nowMillis || after.ShopReplaceable.LatestVersion < nowMillis {
+				t.Fatal("successful refresh did not update shop timestamps")
+			}
+			if len(after.ShopReplaceableLineup) == 0 || after.ShopItems[itemId].BoughtCount != 0 {
+				t.Fatal("successful refresh did not populate lineup and reset stock")
+			}
+		})
 	}
 }
 
