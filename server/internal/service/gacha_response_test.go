@@ -120,6 +120,46 @@ func TestEventBoxResponseReportsProgressionAndResetState(t *testing.T) {
 	}
 }
 
+func TestDailyGachaResponsePromotesAbstractMonsterAndGirl(t *testing.T) {
+	holder := newGachaResponseTestHolder(t)
+	var entry *store.GachaCatalogEntry
+	for i := range holder.Get().GachaEntries {
+		if holder.Get().GachaEntries[i].GachaId == model.GachaIdDaily {
+			entry = &holder.Get().GachaEntries[i]
+			break
+		}
+	}
+	if entry == nil {
+		t.Fatal("daily Gacha is missing")
+	}
+	wire, err := proto.Marshal(toProtoGacha(*entry, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := &pb.Gacha{}
+	if err := proto.Unmarshal(wire, decoded); err != nil {
+		t.Fatal(err)
+	}
+	items := decoded.GetGachaModeBasic().GetPromotionGachaOddsItem()
+	want := []struct{ costumeId, weaponId int32 }{
+		{35006, 350121}, // 形而上の怪物 / 孤高ノ拳
+		{32003, 320111}, // 形而上の少女 / 血根の花瓶
+	}
+	if len(items) != len(want) {
+		t.Fatalf("daily promotion count = %d, want %d", len(items), len(want))
+	}
+	for i, item := range items {
+		if item.GetGachaItem().GetPossessionType() != int32(model.PossessionTypeCostume) ||
+			item.GetGachaItem().GetPossessionId() != want[i].costumeId ||
+			item.GetGachaItemBonus().GetPossessionType() != int32(model.PossessionTypeWeapon) ||
+			item.GetGachaItemBonus().GetPossessionId() != want[i].weaponId ||
+			item.GetGachaItem().GetPromotionOrder() != int32(i+1) ||
+			item.GetGachaItemBonus().GetPromotionOrder() != int32(i+1) {
+			t.Fatalf("daily promotion %d = %+v, want costume %d with weapon %d", i, item, want[i].costumeId, want[i].weaponId)
+		}
+	}
+}
+
 func TestGuaranteedFourStarGachaResponseMatchesConfirmBanner(t *testing.T) {
 	holder := newGachaResponseTestHolder(t)
 

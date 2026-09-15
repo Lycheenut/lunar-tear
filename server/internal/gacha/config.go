@@ -525,10 +525,11 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 			continue
 		}
 		entries[i].PromotionItems = nil
-		if model.IsGuaranteedTicketGacha(entries[i].GachaId) {
+		if model.IsDailyGacha(entries[i].GachaId) || model.IsGuaranteedTicketGacha(entries[i].GachaId) {
 			// The Japanese confirm_sr/confirm_ssr assets have no appeal image, and
 			// the client cannot initialize a Gacha with zero appeal parts.
-			entries[i].PromotionItems = guaranteedTicketPromotions(entries[i].GachaId, catalog.Banners[entries[i].GachaId])
+			// Daily Gacha also uses fixed display items without changing pickup odds.
+			entries[i].PromotionItems = fixedGachaPromotions(entries[i].GachaId, catalog.Banners[entries[i].GachaId])
 			continue
 		}
 		banner := catalog.Banners[entries[i].GachaId]
@@ -555,6 +556,11 @@ func ApplyConfiguredPromotions(entries []store.GachaCatalogEntry, catalog *Premi
 	}
 }
 
+var dailyPromotionWeaponIds = []int32{
+	350121, // Abstract Monster / 形而上の怪物
+	320111, // Abstract Girl / 形而上の少女
+}
+
 var guaranteedThreeStarPromotionWeaponIds = []int32{
 	220021, // Dissenting Traveler / 異存たる冒険者
 	210031, // Dissenting Exile / 異存たる亡命者
@@ -566,12 +572,14 @@ var guaranteedFourStarPromotionWeaponIds = []int32{
 	330001, // Abstract Hunter / 形而上の狩人
 }
 
-func guaranteedTicketPromotions(gachaId int32, banner *PremiumBannerPool) []store.GachaPromotionItem {
+func fixedGachaPromotions(gachaId int32, banner *PremiumBannerPool) []store.GachaPromotionItem {
 	if banner == nil {
 		return nil
 	}
 	var weaponIds []int32
 	switch gachaId {
+	case model.GachaIdDaily:
+		weaponIds = dailyPromotionWeaponIds
 	case model.GachaIdGuaranteedThreeStarOrHigher:
 		weaponIds = guaranteedThreeStarPromotionWeaponIds
 	case model.GachaIdGuaranteedFourStar:

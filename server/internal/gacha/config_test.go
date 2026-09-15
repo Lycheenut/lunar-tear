@@ -108,6 +108,48 @@ func TestBuildPremiumCatalogUsesDailyWeightsAndOnlyStandardWeapons(t *testing.T)
 	}
 }
 
+func TestDailyGachaPromotionsPreservePoolAndSkipUnavailableItems(t *testing.T) {
+	monster := PoolItem{WeaponId: 350121, CostumeId: 35006, RarityType: model.RaritySSRare}
+	girl := PoolItem{WeaponId: 320111, CostumeId: 32003, RarityType: model.RaritySSRare}
+	for _, available := range [][]PoolItem{{monster, girl}, {girl}, {}} {
+		banner := &PremiumBannerPool{
+			GachaId:         model.GachaIdDaily,
+			ItemsByWeaponId: make(map[int32]PoolItem),
+			Groups: []PremiumGroup{{
+				Id: GroupCharacterWeapon4, Weight: 40, NonPickup: available,
+			}},
+		}
+		for _, item := range available {
+			banner.ItemsByWeaponId[item.WeaponId] = item
+		}
+		catalog := &PremiumCatalog{
+			Config:  DefaultConfig(),
+			Banners: map[int32]*PremiumBannerPool{model.GachaIdDaily: banner},
+		}
+		before, err := json.Marshal(catalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries := []store.GachaCatalogEntry{{GachaId: model.GachaIdDaily, GachaLabelType: model.GachaLabelPremium}}
+		ApplyConfiguredPromotions(entries, catalog)
+		if len(entries[0].PromotionItems) != len(available) {
+			t.Fatalf("daily promotions = %+v, want available items %+v", entries[0].PromotionItems, available)
+		}
+		for i, item := range available {
+			if entries[0].PromotionItems[i] != promotionFromPoolItem(item) {
+				t.Fatalf("daily promotion %d = %+v, want %+v", i, entries[0].PromotionItems[i], item)
+			}
+		}
+		after, err := json.Marshal(catalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Fatal("daily promotions changed the draw pool or its probability configuration")
+		}
+	}
+}
+
 func TestBuildPremiumCatalogAllowsDailyWeightOverride(t *testing.T) {
 	source, entries, config := testPremiumSource()
 	override := GroupWeights{
