@@ -92,6 +92,13 @@ make restore
 
 Pick a backup from the list and confirm.
 
+### One-Time Mission and Login Reward Repair
+
+The `repair-player-data` tool repairs missions 3708–3711 and catches daily
+login bonus 1 up to each player's total login count. It defaults to a read-only
+preview; see [repair instructions](server/cmd/repair-player-data/README.md)
+for the rules, report format, and application command.
+
 ### Exporting a Player Snapshot
 
 Export one player by their in-game player ID. JSON is written to stdout; the
