@@ -467,8 +467,9 @@ func (s *QuestServiceServer) ResetLimitContentQuestProgress(ctx context.Context,
 		}
 
 		delete(user.QuestLimitContentStatus, req.QuestId)
+		// Reset only this door's deck; other cleared doors in the room remain locked.
 		for id, restricted := range user.DeckLimitContentRestricted {
-			if restricted.EventQuestChapterId == req.EventQuestChapterId {
+			if restricted.EventQuestChapterId == req.EventQuestChapterId && restricted.QuestId == req.QuestId {
 				delete(user.DeckLimitContentRestricted, id)
 			}
 		}
