@@ -30,7 +30,7 @@ services:
       dockerfile: Dockerfile.cdn
     image: kretts/octo-cdn:latest
     restart: unless-stopped
-    command: [ "--listen", "0.0.0.0:8080", "--public-addr", "${LUNAR_CDN_PUBLIC_ADDR:-127.0.0.1:8080}", "--game-server", "${LUNAR_PUBLIC_ADDR:-127.0.0.1:8003}" ]
+    command: [ "--listen", "0.0.0.0:8080", "--public-addr", "${LUNAR_CDN_PUBLIC_ADDR:-127.0.0.1:8080}", "--game-server", "http://server:8003" ]
     volumes:
       - ./assets:/opt/octo-cdn/assets
     ports:
