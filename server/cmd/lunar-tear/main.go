@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"lunar-tear/server/internal/assettext"
 	"lunar-tear/server/internal/database"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/runtime"
@@ -36,6 +37,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("init master data: %v", err)
 	}
+	names, err := assettext.Load(masterDataPath)
+	if err != nil {
+		log.Fatalf("init Gacha text from assets: %v", err)
+	}
+	log.Printf("loaded Gacha text from assets: en=%d, ja=%d", len(names["en"]), len(names["ja"]))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -49,14 +55,14 @@ func main() {
 
 	userStore := sqlite.New(db, gametime.Now)
 
-	grpcServer := startGRPC(*listen, *publicAddr, *octoURL, *authURL, userStore, holder, *noRegister)
+	stopGRPC := startGRPC(*listen, *publicAddr, *octoURL, *authURL, userStore, holder, names, *noRegister)
 
 	startAdmin(*adminListen, holder)
 
 	<-ctx.Done()
 	log.Println("shutting down...")
 
-	grpcServer.GracefulStop()
+	stopGRPC()
 	database.Checkpoint(db)
 
 	log.Println("shutdown complete")

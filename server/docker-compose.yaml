@@ -29,7 +29,7 @@ services:
       dockerfile: Dockerfile.cdn
     image: kretts/octo-cdn:latest
     restart: unless-stopped
-    command: ["--listen", "0.0.0.0:8080", "--public-addr", "10.0.2.2:8080"]
+    command: [ "--listen", "0.0.0.0:8080", "--public-addr", "10.0.2.2:8080", "--game-server", "http://127.0.0.1:8003" ]
     volumes:
       - ./assets:/opt/octo-cdn/assets
     ports:
@@ -41,7 +41,7 @@ services:
       dockerfile: Dockerfile.auth
     image: kretts/auth-server:latest
     restart: unless-stopped
-    command: ["--listen", "0.0.0.0:3000", "--db", "db/auth.db"]
+    command: [ "--listen", "0.0.0.0:3000", "--db", "db/auth.db" ]
     volumes:
       - ./db:/opt/auth-server/db
     ports:

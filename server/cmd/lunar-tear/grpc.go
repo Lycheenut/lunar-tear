@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
+	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/assettext"
 	"lunar-tear/server/internal/interceptor"
 	"lunar-tear/server/internal/missionprogress"
 	"lunar-tear/server/internal/runtime"
@@ -40,8 +45,9 @@ func startGRPC(
 		store.SessionRepository
 	},
 	holder *runtime.Holder,
+	names assettext.Index,
 	noRegister bool,
-) *grpc.Server {
+) func() {
 	lis, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatalf("failed to listen on %s: %v", listenAddr, err)
@@ -57,6 +63,8 @@ func startGRPC(
 	registerServices(grpcServer, publicAddr, octoURL, authURL, userStore, holder, noRegister)
 
 	reflection.Register(grpcServer)
+	web := service.NewGachaWebHandler(userStore, userStore, holder, names)
+	httpServer := newGameHTTPServer(grpcServer, web)
 
 	log.Printf("gRPC server listening on %s", lis.Addr())
 	log.Printf("public address: %s", publicAddr)
@@ -66,11 +74,33 @@ func startGRPC(
 	}
 
 	go func() {
-		if err := grpcServer.Serve(lis); err != nil {
+		if err := httpServer.Serve(lis); err != nil && err != http.ErrServerClosed {
 			log.Printf("gRPC server stopped: %v", err)
 		}
 	}()
-	return grpcServer
+	return func() {
+		httpServer.Shutdown(context.Background())
+		// ServeHTTP transports cannot be drained by grpc.GracefulStop.
+		// net/http drains both protocols before stopping the gRPC server.
+		grpcServer.Stop()
+	}
+}
+
+func newGameHTTPServer(grpcServer *grpc.Server, web http.Handler) *http.Server {
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	return &http.Server{
+		Protocols: protocols,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+				grpcServer.ServeHTTP(w, r)
+				return
+			}
+			web.ServeHTTP(w, r)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 }
 
 func registerServices(

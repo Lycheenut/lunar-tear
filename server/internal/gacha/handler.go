@@ -299,15 +299,7 @@ func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.Ga
 
 	bp := h.Premium.Banners[entry.GachaId]
 
-	rateMultiplier := 1.0
-	if entry.GachaModeType == model.GachaModeStepup {
-		switch phase.StepNumber {
-		case 1, 3:
-			rateMultiplier = model.StepUpRateBoost
-		case 5:
-			rateMultiplier = model.StepUpRateMaxBoost
-		}
-	}
+	rateMultiplier := premiumRateMultiplier(entry, phase)
 
 	drawCountPerExecution := int(phase.DrawCount)
 	result := make([]DrawnItem, 0, drawCountPerExecution*execCount)
@@ -325,6 +317,18 @@ func (h *GachaHandler) drawPremium(entry store.GachaCatalogEntry, phase store.Ga
 		result = append(result, execResult...)
 	}
 	return result, nil
+}
+
+func premiumRateMultiplier(entry store.GachaCatalogEntry, phase store.GachaPricePhaseEntry) float64 {
+	if entry.GachaModeType == model.GachaModeStepup {
+		switch phase.StepNumber {
+		case 1, 3:
+			return model.StepUpRateBoost
+		case 5:
+			return model.StepUpRateMaxBoost
+		}
+	}
+	return 1
 }
 
 func (h *GachaHandler) drawMaterial(count int) []DrawnItem {

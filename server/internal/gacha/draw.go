@@ -42,15 +42,7 @@ func drawPremiumWithOptions(bp *PremiumBannerPool, count int, fixedRarityMin int
 	weights := adjustedGroupWeights(bp.Groups, rateMultiplier)
 
 	for i := range count {
-		isGuaranteeSlot := fixedCount > 0 && i >= count-fixedCount
-		slotWeights := weights
-		if forceTenthSlot || (i+1)%int(model.PremiumMultiPullCount) == 0 {
-			slotWeights = transferTwoStarWeightsToThreeStar(bp.Groups, weights)
-		}
-		minimumRarity := int32(0)
-		if isGuaranteeSlot && fixedRarityMin > minimumRarity {
-			minimumRarity = fixedRarityMin
-		}
+		slotWeights, minimumRarity := premiumSlotWeights(bp.Groups, weights, count, i, fixedRarityMin, fixedCount, forceTenthSlot)
 		item, err := rollConfiguredItem(bp.Groups, slotWeights, minimumRarity, intn)
 		if err != nil {
 			return nil, err
@@ -58,6 +50,17 @@ func drawPremiumWithOptions(bp *PremiumBannerPool, count int, fixedRarityMin int
 		result = append(result, item)
 	}
 	return result, nil
+}
+
+func premiumSlotWeights(groups []PremiumGroup, weights []int, count, slot int, fixedRarityMin int32, fixedCount int, forceTenthSlot bool) ([]int, int32) {
+	if forceTenthSlot || (slot+1)%int(model.PremiumMultiPullCount) == 0 {
+		weights = transferTwoStarWeightsToThreeStar(groups, weights)
+	}
+	minimum := int32(0)
+	if fixedCount > 0 && slot >= count-fixedCount {
+		minimum = max(fixedRarityMin, 0)
+	}
+	return weights, minimum
 }
 
 func transferTwoStarWeightsToThreeStar(groups []PremiumGroup, weights []int) []int {
