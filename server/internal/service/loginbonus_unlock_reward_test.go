@@ -98,13 +98,37 @@ func TestLoginBonusUnlockRewardTutorialTransition(t *testing.T) {
 						t.Fatal(err)
 					}
 					if !tc.wantReward {
-						if len(after.Weapons) != len(before.Weapons) || len(after.Costumes) != len(before.Costumes) || len(after.Materials) != len(before.Materials) {
+						if len(after.Weapons) != len(before.Weapons) || len(after.Costumes) != len(before.Costumes) || len(after.Materials) != len(before.Materials) || len(after.Companions) != len(before.Companions) {
 							t.Fatal("request without an unlock transition granted the bundle")
 						}
 						return
 					}
 					if len(after.Costumes) != len(before.Costumes)+1 || len(after.Weapons) != len(before.Weapons)+1 {
 						t.Fatal("expected one costume and one weapon")
+					}
+					if len(after.Companions) != 23 {
+						t.Fatalf("expected 23 companions before the companion tutorial, got %d", len(after.Companions))
+					}
+					owned := make(map[int32]bool)
+					for _, companion := range after.Companions {
+						wantLevel := int32(1)
+						if companion.CompanionId >= 49 && companion.CompanionId <= 51 {
+							wantLevel = 50
+						}
+						if companion.Level != wantLevel || owned[companion.CompanionId] {
+							t.Fatalf("incorrect or duplicate companion: %+v", companion)
+						}
+						owned[companion.CompanionId] = true
+					}
+					for id := int32(31); id <= 53; id++ {
+						if !owned[id] {
+							t.Fatalf("missing non-main companion %d", id)
+						}
+					}
+					// The client unlocks companion deck slots from this tutorial,
+					// independently of inventory. Early gifting must not advance it.
+					if after.Tutorials[8] != before.Tutorials[8] {
+						t.Fatal("login reward advanced the companion tutorial")
 					}
 					if len(after.Gifts.NotReceived) != len(before.Gifts.NotReceived) {
 						t.Fatal("unlock reward entered the gift box")
@@ -115,7 +139,7 @@ func TestLoginBonusUnlockRewardTutorialTransition(t *testing.T) {
 						}
 					}
 					diff := userdata.ComputeDelta(&before, &after, userdata.ChangedTables(&before, &after))
-					for _, table := range []string{"IUserCostume", "IUserCostumeActiveSkill", "IUserWeapon", "IUserWeaponSkill", "IUserWeaponAbility", "IUserMaterial"} {
+					for _, table := range []string{"IUserCostume", "IUserCostumeActiveSkill", "IUserWeapon", "IUserWeaponSkill", "IUserWeaponAbility", "IUserMaterial", "IUserCompanion"} {
 						if diff[table] == nil {
 							t.Errorf("inventory missing from client diff: %s", table)
 						}
@@ -130,6 +154,11 @@ func TestLoginBonusUnlockRewardTutorialTransition(t *testing.T) {
 						}
 						for _, id := range []int32{311211, 313197, 312011} {
 							delete(user.Materials, id)
+						}
+						for uuid, companion := range user.Companions {
+							if companion.CompanionId == 31 {
+								delete(user.Companions, uuid)
+							}
 						}
 					})
 					if err != nil {
@@ -148,7 +177,7 @@ func TestLoginBonusUnlockRewardTutorialTransition(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if len(replayed.Weapons) != len(consumed.Weapons) || len(replayed.Materials) != len(consumed.Materials) {
+					if len(replayed.Weapons) != len(consumed.Weapons) || len(replayed.Materials) != len(consumed.Materials) || len(replayed.Companions) != len(consumed.Companions) {
 						t.Fatal("replay, login or stamp receipt regranted the consumed bundle")
 					}
 				})

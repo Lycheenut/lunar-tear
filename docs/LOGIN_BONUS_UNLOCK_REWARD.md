@@ -10,7 +10,9 @@
 | 武器 | 三式戦術刀 | 240271 | 1 |
 | 素材 | 天然水晶：軽量 | 312011 | 4 |
 
-数量来自原版 [Japanese 2nd Anniversary 赠礼公告转载](https://www.reddit.com/r/NieRReincarnation/comments/11548g8)。本功能仅发放上述五项。
+数量来自原版 [Japanese 2nd Anniversary 赠礼公告转载](https://www.reddit.com/r/NieRReincarnation/comments/11548g8)。同时发放非主线 Companion ID 31–53，共23个；49–51为50级，其余为1级。
+已有 Companion 仅补缺失项，49–51不足50级时修正等级。解锁依据及细节见
+[非主线 Companion 赠礼](COMPANION_UNLOCK_REWARD.md)。
 
 ## 解锁条件
 
