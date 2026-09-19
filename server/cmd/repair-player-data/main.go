@@ -1,4 +1,4 @@
-// repair-player-data grants the login-unlock bundle to existing eligible players once.
+// repair-player-data backfills login-unlock and companion rewards for eligible players.
 // Stop the game server and back up its database before using --apply.
 package main
 

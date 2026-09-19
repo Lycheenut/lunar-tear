@@ -21,6 +21,11 @@ type inventoryChange struct {
 type playerChange struct {
 	UserID, PlayerID int64
 	Inventory        []inventoryChange
+	CompanionLevels  []companionLevelChange `json:",omitempty"`
+}
+
+type companionLevelChange struct {
+	ID, Before, After int32
 }
 
 type repairReport struct {
@@ -30,7 +35,7 @@ type repairReport struct {
 }
 
 // repair is intentionally a one-time operation: it does not persist a receipt
-// and running it with apply=true again grants the bundle again.
+// and running it with apply=true again grants the login bundle again.
 func repair(db *sql.DB, granter *store.PossessionGranter, apply bool, now int64) (repairReport, error) {
 	report := repairReport{}
 	if _, ok := granter.CostumeById[24008]; !ok {
@@ -52,8 +57,20 @@ func repair(db *sql.DB, granter *store.PossessionGranter, apply bool, now int64)
 				continue
 			}
 			before := rewardInventory(user)
+			beforeLevels := make(map[int32]int32, len(user.Companions))
+			for _, companion := range user.Companions {
+				beforeLevels[companion.CompanionId] = companion.Level
+			}
 			store.GrantLoginBonusUnlockReward(user, granter, now)
 			player := playerChange{UserID: id, PlayerID: user.PlayerId}
+			for _, companion := range user.Companions {
+				if beforeLevels[companion.CompanionId] != companion.Level {
+					player.CompanionLevels = append(player.CompanionLevels, companionLevelChange{
+						ID: companion.CompanionId, Before: beforeLevels[companion.CompanionId], After: companion.Level,
+					})
+				}
+			}
+			sort.Slice(player.CompanionLevels, func(i, j int) bool { return player.CompanionLevels[i].ID < player.CompanionLevels[j].ID })
 			for key, count := range rewardInventory(user) {
 				if count < before[key] {
 					return fmt.Errorf("user %d: inventory type=%d id=%d would overflow", id, key[0], key[1])
@@ -71,7 +88,9 @@ func repair(db *sql.DB, granter *store.PossessionGranter, apply bool, now int64)
 				}
 				return a.ID < b.ID
 			})
-			report.Players = append(report.Players, player)
+			if len(player.Inventory) > 0 || len(player.CompanionLevels) > 0 {
+				report.Players = append(report.Players, player)
+			}
 		}
 		if !apply {
 			// Abort before UpdateUsers opens a write transaction. This also works
@@ -101,6 +120,9 @@ func rewardInventory(user *store.UserState) map[[2]int32]int32 {
 		if weapon.WeaponId == 240271 {
 			counts[[2]int32{int32(model.PossessionTypeWeapon), weapon.WeaponId}]++
 		}
+	}
+	for _, companion := range user.Companions {
+		counts[[2]int32{int32(model.PossessionTypeCompanion), companion.CompanionId}]++
 	}
 	// Include duplicate-costume conversion materials in the preview too.
 	for id, count := range user.Materials {

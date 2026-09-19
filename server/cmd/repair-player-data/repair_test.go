@@ -147,6 +147,155 @@ func TestRepairRollsBackAllPlayersOnWriteFailure(t *testing.T) {
 	}
 }
 
+func TestRepairCompanionsUsesLoginUnlockAndPreservesOwned(t *testing.T) {
+	db, path, users := fixture(t)
+	granter, err := loadGranter(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := sqlite.New(db, nil)
+	for i, companions := range map[int]map[int32]int32{
+		0: {2: 1}, // Owning a companion cannot bypass the login unlock gate.
+		2: {1: 10, 31: 37, 49: 1, 50: 25, 51: 50, 53: 15},
+	} {
+		if _, err := repo.UpdateUser(users[i].UserId, func(user *store.UserState) {
+			for id, level := range companions {
+				granter.GrantCompanion(user, id, 100)
+				for key, companion := range user.Companions {
+					if companion.CompanionId == id {
+						companion.Level = level
+						user.Companions[key] = companion
+					}
+				}
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, user := range users {
+		users[i], err = repo.LoadUser(user.UserId)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	readOnly, err := openDatabase(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := repair(readOnly, granter, false, 1000)
+	readOnly.Close()
+	if err != nil || len(preview.Players) != 2 {
+		t.Fatalf("preview=%+v error=%v", preview, err)
+	}
+	for _, user := range users {
+		after, err := repo.LoadUser(user.UserId)
+		if err != nil || !reflect.DeepEqual(user, after) {
+			t.Fatalf("preview changed player %d: %v", user.UserId, err)
+		}
+	}
+	applied, err := repair(db, granter, true, 1000)
+	if err != nil || !reflect.DeepEqual(preview.Players, applied.Players) {
+		t.Fatalf("apply differs from preview: report=%+v error=%v", applied, err)
+	}
+	for i, user := range users {
+		after, err := repo.LoadUser(user.UserId)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			if !reflect.DeepEqual(user, after) {
+				t.Fatal("locked player with a companion was modified")
+			}
+			continue
+		}
+		wantCount := 23
+		if i == 2 {
+			wantCount++ // Preserve the existing main-quest companion too.
+		}
+		if len(after.Companions) != wantCount || !reflect.DeepEqual(user.ConsumableItems, after.ConsumableItems) {
+			t.Fatal("expected unique companions without duplicate compensation")
+		}
+		if !reflect.DeepEqual(user.Tutorials, after.Tutorials) {
+			t.Fatal("companion reward changed tutorial progress")
+		}
+		for _, companion := range after.Companions {
+			if companion.CompanionId >= 49 && companion.CompanionId <= 51 && companion.Level != 50 {
+				t.Fatalf("companion not granted or repaired at level 50: %+v", companion)
+			}
+		}
+		for key, original := range user.Companions {
+			got, exists := after.Companions[key]
+			wantLevel := original.Level
+			if original.CompanionId >= 49 && original.CompanionId <= 51 {
+				wantLevel = 50
+			}
+			if !exists || got.Level != wantLevel || got.AcquisitionDatetime != original.AcquisitionDatetime {
+				t.Fatalf("existing companion not preserved: original=%+v got=%+v", original, got)
+			}
+		}
+	}
+	for _, player := range preview.Players {
+		if player.UserID == users[2].UserId {
+			foundRepair := false
+			for _, level := range player.CompanionLevels {
+				if level.ID == 49 && level.Before == 1 && level.After == 50 {
+					foundRepair = true
+				}
+			}
+			if !foundRepair {
+				t.Fatal("preview omitted level-only repair")
+			}
+		}
+	}
+	repeat, err := repair(db, granter, false, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, player := range repeat.Players {
+		if len(player.CompanionLevels) != 0 {
+			t.Fatal("repeated repair would change companion levels")
+		}
+		for _, change := range player.Inventory {
+			if change.Type == int32(model.PossessionTypeCompanion) {
+				t.Fatal("repeated repair would grant another companion")
+			}
+		}
+	}
+}
+
+func TestRepairCompanionsRollsBackAllPlayersOnWriteFailure(t *testing.T) {
+	db, _, users := fixture(t)
+	granter := &store.PossessionGranter{
+		CostumeById: map[int32]store.CostumeRef{24008: {CharacterId: 24}},
+		WeaponById:  map[int32]store.WeaponRef{240271: {}},
+	}
+	repo := sqlite.New(db, nil)
+	for i, user := range users {
+		var err error
+		users[i], err = repo.UpdateUser(user.UserId, func(user *store.UserState) { granter.GrantCompanion(user, 2, 100) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		users[i], err = repo.LoadUser(user.UserId)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`CREATE TRIGGER reject_companion_backfill BEFORE INSERT ON user_companions
+		WHEN NEW.user_id=3 AND NEW.companion_id=49 BEGIN SELECT RAISE(ABORT, 'test failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repair(db, granter, true, 1000); err == nil {
+		t.Fatal("expected companion write failure")
+	}
+	for _, user := range users {
+		after, err := repo.LoadUser(user.UserId)
+		if err != nil || !reflect.DeepEqual(user, after) {
+			t.Fatalf("failed companion repair changed player %d: %v", user.UserId, err)
+		}
+	}
+}
+
 func TestOpenDatabaseNeverCreatesMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.db")
 	for _, apply := range []bool{false, true} {
