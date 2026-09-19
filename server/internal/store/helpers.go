@@ -201,13 +201,13 @@ type PossessionGranter struct {
 	WeaponAbilitySlots    map[int32][]int32
 	ReleaseConditions     map[int32][]WeaponStoryReleaseCond
 
-	PartsById                            map[int32]PartsRef
-	DefaultPartsStatusMainByLotteryGroup map[int32]int32
-	PartsVariantsByGroupRarity           map[int32]map[int32][]int32
-	PartsSubStatusPool                   map[int32][]int32
-	PartsSubStatusDefs                   map[int32]PartsStatusSubDef
-	PartsEnhancedById                    map[int32]PartsEnhancedRef
-	PartsSellPriceByRarity               map[int32]func(int32) int32
+	PartsById                  map[int32]PartsRef
+	PartsMainStatusPool        map[int32][]int32
+	PartsVariantsByGroupRarity map[int32]map[int32][]int32
+	PartsSubStatusPool         map[int32][]int32
+	PartsSubStatusDefs         map[int32]PartsStatusSubDef
+	PartsEnhancedById          map[int32]PartsEnhancedRef
+	PartsSellPriceByRarity     map[int32]func(int32) int32
 
 	PartsSellPriceL1ByRarity map[int32]int32
 	GoldConsumableItemId     int32
@@ -461,7 +461,10 @@ func PickUniquePartsSubStatus(pool []int32, user *UserState, partsUuid string) (
 }
 
 func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, chosenRef PartsRef, nowMillis int64) {
-	mainStatId := g.DefaultPartsStatusMainByLotteryGroup[chosenRef.PartsStatusMainLotteryGroupId]
+	var mainStatId int32
+	if pool := g.PartsMainStatusPool[chosenRef.PartsStatusMainLotteryGroupId]; len(pool) > 0 {
+		mainStatId = pool[rand.Intn(len(pool))]
+	}
 	if _, exists := user.PartsGroupNotes[chosenRef.PartsGroupId]; !exists {
 		user.PartsGroupNotes[chosenRef.PartsGroupId] = PartsGroupNoteState{
 			PartsGroupId:             chosenRef.PartsGroupId,

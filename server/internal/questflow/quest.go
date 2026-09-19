@@ -253,7 +253,7 @@ func (h *QuestHandler) applyQuestVictory(user *store.UserState, questId int32, t
 		user.QuestMissions[key] = mission
 	}
 	raritySet, rankSet := parseAutoSaleRules(user.AutoSaleSettings)
-	h.grantDropRewards(user, outcome.DropRewards, raritySet, rankSet, nowMillis)
+	outcome.DropRewards = h.grantDropRewards(user, outcome.DropRewards, raritySet, rankSet, nowMillis)
 	for _, reward := range outcome.ReplayFlowFirstClearRewards {
 		h.applyRewardPossession(user, reward.PossessionType, reward.PossessionId, reward.Count, nowMillis)
 	}
@@ -467,7 +467,7 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, userDeckNu
 	for runIndex := int32(0); runIndex < skipCount; runIndex++ {
 		runSeed := nowMillis + int64(runIndex) + int64(user.Quests[questId].ClearCount)
 		drops := h.computeDropRewardsForRun(user, questDef, target, nowMillis, runSeed)
-		h.grantDropRewards(user, drops, raritySet, rankSet, nowMillis)
+		drops = h.grantDropRewards(user, drops, raritySet, rankSet, nowMillis)
 		allDrops = append(allDrops, drops...)
 
 		if questDef.Gold != 0 {
