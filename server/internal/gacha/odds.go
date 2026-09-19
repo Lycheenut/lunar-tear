@@ -85,31 +85,46 @@ type BoxItemOdds struct {
 	Rate      float64
 }
 
-// BoxOdds is a read-only view of the next draw, including the effective monthly reset.
-func BoxOdds(entry store.GachaCatalogEntry, state store.GachaBannerState, nowMillis int64) []BoxItemOdds {
+type BoxOdds struct {
+	BoxNumber int32
+	Items     []BoxItemOdds
+}
+
+// BoxOdds uses the same current box and group weights as draws, without changing
+// player state. Chapter counters are treated as reset at the monthly boundary.
+func (h *GachaHandler) BoxOdds(entry store.GachaCatalogEntry, state store.GachaBannerState, nowMillis int64) (BoxOdds, error) {
+	box, boxCount, configured := h.configuredBox(entry, &state)
+	if !configured {
+		return BoxOdds{}, fmt.Errorf("box Gacha %d is not configured", entry.GachaId)
+	}
 	counts := state.BoxDrewCounts
 	chapter := entry.GachaLabelType == model.GachaLabelChapter
 	if chapter && counts[model.ChapterGachaMonthCounterId] != gametime.BusinessMonthKey(nowMillis) {
 		counts = nil
 	}
 	var limited, unlimited int64
-	items := make([]BoxItemOdds, 0, len(entry.BoxItems))
-	for i, item := range entry.BoxItems {
-		odds := BoxItemOdds{GachaBoxItemEntry: item, Unlimited: chapter && item.MaxCount <= 0}
+	rewards := boxItems(box)
+	items := make([]BoxItemOdds, 0, len(rewards))
+	for i, item := range rewards {
+		odds := BoxItemOdds{GachaBoxItemEntry: item, Unlimited: item.MaxCount <= 0}
 		odds.Count = positiveCount(item.Count)
 		if odds.Unlimited {
-			unlimited += int64(max(item.Weight, 0))
+			if box.GroupWeights.Unlimited > 0 {
+				unlimited += int64(max(item.Weight, 0))
+			}
 		} else {
 			odds.Remaining = max(item.MaxCount-counts[chapterCounterId(item, i)], 0)
-			limited += int64(odds.Remaining)
+			if box.GroupWeights.Limited > 0 {
+				limited += int64(odds.Remaining)
+			}
 		}
 		items = append(items, odds)
 	}
 	limitedShare := 1.0
-	if chapter && unlimited > 0 {
+	if unlimited > 0 {
 		limitedShare = 0
 		if limited > 0 {
-			limitedShare = float64(chapterLimitedProbability) / chapterProbabilityTotal
+			limitedShare = float64(box.GroupWeights.Limited) / float64(box.GroupWeights.Limited+box.GroupWeights.Unlimited)
 		}
 	}
 	for i := range items {
@@ -120,5 +135,5 @@ func BoxOdds(entry store.GachaCatalogEntry, state store.GachaBannerState, nowMil
 			item.Rate = limitedShare * float64(item.Remaining) / float64(limited)
 		}
 	}
-	return items
+	return BoxOdds{BoxNumber: currentBoxNumber(&state, boxCount), Items: items}, nil
 }

@@ -44,10 +44,7 @@ func newGachaWebTestServer(t *testing.T) (*GachaWebHandler, *sqlite.SQLiteStore,
 	cat := &runtime.Catalogs{
 		GachaEntries: []store.GachaCatalogEntry{
 			{GachaId: 100, GachaLabelType: model.GachaLabelPremium, GachaModeType: model.GachaModeBasic, IsUserGachaUnlock: true, BannerAssetName: "<script>banner</script>", PricePhases: []store.GachaPricePhaseEntry{{PhaseId: 1, DrawCount: 1}, {PhaseId: 2, DrawCount: 10, FixedCount: 1, FixedRarityMin: 30}}},
-			{GachaId: 201, GachaLabelType: model.GachaLabelEvent, GachaModeType: model.GachaModeBox, IsUserGachaUnlock: true, PricePhases: []store.GachaPricePhaseEntry{{PhaseId: 3, DrawCount: 1}}, BoxItems: []store.GachaBoxItemEntry{
-				{CounterId: 10, PossessionType: 5, PossessionId: 1, Count: 5, MaxCount: 3},
-				{CounterId: 20, PossessionType: 5, PossessionId: 2, Count: 1, MaxCount: 1},
-			}},
+			{GachaId: 201, GachaLabelType: model.GachaLabelEvent, GachaModeType: model.GachaModeBox, IsUserGachaUnlock: true, PricePhases: []store.GachaPricePhaseEntry{{PhaseId: 3, DrawCount: 1}}},
 		},
 		GachaHandler: &gacha.GachaHandler{Granter: &store.PossessionGranter{}, Premium: &gacha.PremiumCatalog{Banners: map[int32]*gacha.PremiumBannerPool{100: {Groups: []gacha.PremiumGroup{
 			{Star: 3, Rarity: 30, Weight: 2000, GrantType: gacha.GrantWeaponOnly, NonPickup: []gacha.PoolItem{{WeaponId: 100002, RarityType: 30}}},
@@ -55,6 +52,23 @@ func newGachaWebTestServer(t *testing.T) (*GachaWebHandler, *sqlite.SQLiteStore,
 		}}}}},
 		Weapon: &masterdata.WeaponCatalog{Weapons: map[int32]masterdata.EntityMWeapon{100001: {WeaponType: 1, AssetVariationId: 60}, 100002: {WeaponType: 1, AssetVariationId: 60}}},
 	}
+	config := gacha.DefaultConfig()
+	config.EventBanners[201] = gacha.EventBoxConfig{Boxes: []gacha.BoxConfig{
+		{
+			GroupWeights: gacha.BoxGroupWeights{Limited: gacha.GroupWeightTotal},
+			LimitedRewards: []gacha.BoxRewardConfig{
+				{PossessionType: 5, PossessionId: 1, Count: 5, MaxCount: 3},
+				{PossessionType: 5, PossessionId: 2, Count: 1, MaxCount: 1, Jackpot: true},
+			},
+		},
+		{
+			GroupWeights:     gacha.BoxGroupWeights{Limited: 6000, Unlimited: 4000},
+			LimitedRewards:   []gacha.BoxRewardConfig{{PossessionType: 5, PossessionId: 3, Count: 7, MaxCount: 2, Jackpot: true}},
+			UnlimitedRewards: []gacha.BoxRewardConfig{{PossessionType: 5, PossessionId: 4, Count: 9, Weight: 1}},
+		},
+	}}
+	cat.GachaHandler.Premium.Config = config
+	gacha.ApplyConfiguredBoxes(cat.GachaEntries, config)
 	web := &GachaWebHandler{users: repo, sessions: repo, catalogs: func() *runtime.Catalogs { return cat }, names: assettext.Index{
 		"en": {"weapon.name.wp001060.1": "Test weapon"},
 		"ja": {"weapon.name.wp001060.1": "テスト武器"},
@@ -139,32 +153,57 @@ func TestGachaWebBoxUsesCurrentIDAndLiveDrawState(t *testing.T) {
 		t.Fatalf("draw: %v, %v", err, drawErr)
 	}
 	body = requestGachaPage(web, path).Body.String()
-	for _, odds := range gacha.BoxOdds(cat.GachaEntries[1], user.Gacha.BannerStates[201], gametime.NowMillis()) {
+	boxOdds, err := cat.GachaHandler.BoxOdds(cat.GachaEntries[1], user.Gacha.BannerStates[201], gametime.NowMillis())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, odds := range boxOdds.Items {
 		if !strings.Contains(body, fmt.Sprintf("%.6f%%", odds.Rate*100)) || !strings.Contains(body, fmt.Sprintf("%d / %d", odds.Remaining, odds.MaxCount)) {
 			t.Fatal("page did not reflect actual draw")
 		}
+	}
+	// Exhaust the remaining first-box rewards to satisfy the Event reset rules.
+	_, err = repo.UpdateUser(session.UserId, func(user *store.UserState) {
+		_, drawErr = cat.GachaHandler.HandleDraw(user, cat.GachaEntries[1], 3, 3)
+	})
+	if err != nil || drawErr != nil {
+		t.Fatalf("draw remaining: %v, %v", err, drawErr)
 	}
 	_, err = repo.UpdateUser(session.UserId, func(user *store.UserState) { drawErr = cat.GachaHandler.HandleResetBox(user, cat.GachaEntries[1]) })
 	if err != nil || drawErr != nil {
 		t.Fatalf("reset: %v, %v", err, drawErr)
 	}
 	body = requestGachaPage(web, path).Body.String()
-	if !strings.Contains(body, "<span>2</span>") || !strings.Contains(body, "75.000000%") {
+	if !strings.Contains(body, "<span>2</span>") || !strings.Contains(body, "60.000000%") || !strings.Contains(body, "40.000000%") || !strings.Contains(body, "×7") || !strings.Contains(body, "×9") || !strings.Contains(body, "2 / 2") || !strings.Contains(body, "Unlimited") {
 		t.Fatal("reset box was not refreshed")
+	}
+	config := cat.GachaHandler.Premium.Config
+	config.EventBanners[201].Boxes[1].GroupWeights = gacha.BoxGroupWeights{Limited: 2500, Unlimited: 7500}
+	body = requestGachaPage(web, path).Body.String()
+	if !strings.Contains(body, "25.000000%") || !strings.Contains(body, "75.000000%") {
+		t.Fatal("page did not reflect changed box group weights")
 	}
 	// Chapter Gacha displays unlimited rewards and applies monthly reset without a draw.
 	cat.GachaEntries[1].GachaLabelType = model.GachaLabelChapter
-	cat.GachaEntries[1].BoxItems[1].MaxCount = 0
-	cat.GachaEntries[1].BoxItems[1].Weight = 1
+	config.ChapterBanners[201] = gacha.BoxConfig{
+		GroupWeights:     gacha.BoxGroupWeights{Limited: 7000, Unlimited: 3000},
+		LimitedRewards:   []gacha.BoxRewardConfig{{PossessionType: 5, PossessionId: 1, Count: 5, MaxCount: 3}},
+		UnlimitedRewards: []gacha.BoxRewardConfig{{PossessionType: 5, PossessionId: 2, Count: 1, Weight: 1}},
+	}
+	gacha.ApplyConfiguredBoxes(cat.GachaEntries, config)
 	_, err = repo.UpdateUser(session.UserId, func(user *store.UserState) {
-		user.Gacha.BannerStates[201] = store.GachaBannerState{BoxDrewCounts: map[int32]int32{10: 3, model.ChapterGachaMonthCounterId: 202001}}
+		user.Gacha.BannerStates[201] = store.GachaBannerState{BoxDrewCounts: map[int32]int32{1: 3, model.ChapterGachaMonthCounterId: 202001}}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	body = requestGachaPage(web, path).Body.String()
-	if !strings.Contains(body, "80.000000%") || !strings.Contains(body, "3 / 3") || !strings.Contains(body, "Unlimited") {
+	if !strings.Contains(body, "70.000000%") || !strings.Contains(body, "30.000000%") || !strings.Contains(body, "3 / 3") || !strings.Contains(body, "Unlimited") {
 		t.Fatal("chapter monthly reset/unlimited rates missing")
+	}
+	delete(config.ChapterBanners, 201)
+	if response := requestGachaPage(web, path); response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing box configuration: status %d", response.Code)
 	}
 }
 
