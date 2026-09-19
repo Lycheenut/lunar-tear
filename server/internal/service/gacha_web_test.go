@@ -163,7 +163,7 @@ func TestGachaWebBoxUsesCurrentIDAndLiveDrawState(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = requestGachaPage(web, path).Body.String()
-	if !strings.Contains(body, "80.000000%") || !strings.Contains(body, "3 / 3") || !strings.Contains(body, "Unlimited") {
+	if !strings.Contains(body, "80.000000%") || !strings.Contains(body, "3 / 3") || !strings.Contains(body, ">∞</td>") {
 		t.Fatal("chapter monthly reset/unlimited rates missing")
 	}
 }

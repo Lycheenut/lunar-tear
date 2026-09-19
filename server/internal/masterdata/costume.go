@@ -10,6 +10,7 @@ import (
 
 type CostumeCatalog struct {
 	Costumes               map[int32]EntityMCostume
+	ProperAttributes       map[int32]int32
 	Materials              map[int32]EntityMMaterial
 	ExpByRarity            map[int32][]int32
 	EnhanceCostByRarity    map[int32]NumericalFunc
@@ -93,6 +94,10 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 	costumes, err := utils.ReadTable[EntityMCostume]("m_costume")
 	if err != nil {
 		return nil, fmt.Errorf("load costume table: %w", err)
+	}
+	properAttributes, err := utils.ReadTable[EntityMCostumeProperAttributeHpBonus]("m_costume_proper_attribute_hp_bonus")
+	if err != nil {
+		return nil, fmt.Errorf("load costume proper attributes: %w", err)
 	}
 
 	rarities, err := utils.ReadTable[EntityMCostumeRarity]("m_costume_rarity")
@@ -191,6 +196,7 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 
 	catalog := &CostumeCatalog{
 		Costumes:               make(map[int32]EntityMCostume, len(costumes)),
+		ProperAttributes:       make(map[int32]int32, len(properAttributes)),
 		Materials:              matCatalog.ByType[model.MaterialTypeCostumeEnhancement],
 		ExpByRarity:            make(map[int32][]int32, len(rarities)),
 		EnhanceCostByRarity:    make(map[int32]NumericalFunc, len(rarities)),
@@ -224,6 +230,9 @@ func LoadCostumeCatalog(matCatalog *MaterialCatalog) (*CostumeCatalog, error) {
 
 	for _, row := range costumes {
 		catalog.Costumes[row.CostumeId] = row
+	}
+	for _, row := range properAttributes {
+		catalog.ProperAttributes[row.CostumeId] = row.CostumeProperAttributeType
 	}
 
 	for _, r := range rarities {
