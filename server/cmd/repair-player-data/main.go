@@ -1,4 +1,4 @@
-// repair-player-data performs the one-time mission/login compensation repair.
+// repair-player-data grants the login-unlock bundle to existing eligible players once.
 // Stop the game server and back up its database before using --apply.
 package main
 
@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"lunar-tear/server/internal/masterdata"
-	"lunar-tear/server/internal/masterdata/memorydb"
+	"lunar-tear/server/internal/runtime"
+	"lunar-tear/server/internal/store"
 
 	_ "modernc.org/sqlite"
 )
@@ -26,18 +26,7 @@ func main() {
 	if flag.NArg() != 0 {
 		log.Fatal("unexpected positional arguments")
 	}
-	if err := memorydb.Init(*masterPath); err != nil {
-		log.Fatal(err)
-	}
-	bonuses, err := memorydb.ReadTable[masterdata.EntityMLoginBonus]("m_login_bonus")
-	if err != nil {
-		log.Fatal(err)
-	}
-	stamps, err := memorydb.ReadTable[masterdata.EntityMLoginBonusStamp]("m_login_bonus_stamp")
-	if err != nil {
-		log.Fatal(err)
-	}
-	schedule, err := makeSchedule(bonuses, stamps)
+	granter, err := loadGranter(*masterPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,7 +35,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	report, err := repair(db, schedule, *apply, time.Now().UnixMilli())
+	report, err := repair(db, granter, *apply, time.Now().UnixMilli())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,6 +44,28 @@ func main() {
 	if err := encoder.Encode(report); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func loadGranter(masterPath string) (*store.PossessionGranter, error) {
+	data, err := os.ReadFile(masterPath)
+	if err != nil {
+		return nil, err
+	}
+	// NewHolder touches its input file; keep the source master data unchanged.
+	dir, err := os.MkdirTemp("", "login-unlock-backfill-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	copyPath := filepath.Join(dir, "master.bin.e")
+	if err := os.WriteFile(copyPath, data, 0o600); err != nil {
+		return nil, err
+	}
+	holder, err := runtime.NewHolder(copyPath)
+	if err != nil {
+		return nil, err
+	}
+	return holder.Get().QuestHandler.Granter, nil
 }
 
 func openDatabase(path string, apply bool) (*sql.DB, error) {
@@ -68,8 +79,7 @@ func openDatabase(path string, apply bool) (*sql.DB, error) {
 	}
 	query := "mode=ro&_pragma=busy_timeout(5000)"
 	if apply {
-		// Acquire the write lock before reading so the plan and commit share
-		// one snapshot. mode=rw must never create an empty database on a typo.
+		// mode=rw must never create an empty database on a typo.
 		query = "mode=rw&_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	}
 	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: uriPath, RawQuery: query}).String())
