@@ -23,6 +23,9 @@ go run ./cmd/repair-player-data --db db/game.db --apply > repair-applied.json
 go build -o bin/repair-player-data ./cmd/repair-player-data
 ```
 
+工具只加载发奖所需的主数据表，复用服务端的物品发放及重复服装补偿逻辑。
+构建和运行均不需要 `server/gen/proto`，无需先生成 protobuf 代码。
+
 符合登录解锁条件的账号直接收到：
 
 | 物品 | ID | 数量 |
@@ -52,7 +55,7 @@ Companion 部分只补缺失和修正49–51等级，重复执行不会重复发
 新版本发放过奖励的账号被脚本再次补发。
 
 `--master-data` 默认是 `assets/release/20240404193219.bin.e`，应指向目标服务器
-实际使用的主数据。工具通过临时副本加载，不修改源主数据。
+实际使用的主数据。工具直接只读加载，不修改源主数据或其时间戳。
 
 旧版任务 `3708`～`3711` 修复、真暗ノ天命石扣除、日常签到补偿及
 `player_data_repairs` 标记读写逻辑均已移除。

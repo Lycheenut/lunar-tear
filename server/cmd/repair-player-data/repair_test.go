@@ -108,6 +108,33 @@ func TestRepairPreviewAndApply(t *testing.T) {
 		if len(after.Costumes) != len(user.Costumes)+1 || len(after.Weapons) != len(user.Weapons)+1 {
 			t.Fatal("expected one costume and one weapon")
 		}
+		if after.Characters[1001].Level != 1 {
+			t.Fatal("reward costume did not initialize character 1001")
+		}
+		for uuid, costume := range after.Costumes {
+			if costume.CostumeId == 24008 && after.CostumeActiveSkills[uuid].Level != 1 {
+				t.Fatal("reward costume is missing its active skill")
+			}
+		}
+		for uuid, weapon := range after.Weapons {
+			if weapon.WeaponId != 240271 {
+				continue
+			}
+			wantSkills := []store.WeaponSkillState{
+				{UserWeaponUuid: uuid, SlotNumber: 1, Level: 1},
+				{UserWeaponUuid: uuid, SlotNumber: 2, Level: 1},
+			}
+			wantAbilities := []store.WeaponAbilityState{
+				{UserWeaponUuid: uuid, SlotNumber: 1, Level: 1},
+				{UserWeaponUuid: uuid, SlotNumber: 3, Level: 1},
+			}
+			if !reflect.DeepEqual(after.WeaponSkills[uuid], wantSkills) || !reflect.DeepEqual(after.WeaponAbilities[uuid], wantAbilities) {
+				t.Fatal("reward weapon skills or abilities differ from the server grant")
+			}
+		}
+		if after.WeaponStories[240271].ReleasedMaxStoryIndex != 1 || after.WeaponNotes[240271].MaxLevel != 1 {
+			t.Fatal("reward weapon story or collection record was not initialized")
+		}
 		for id, count := range map[int32]int32{311211: 40, 313197: 5, 312011: 4} {
 			if after.Materials[id]-user.Materials[id] != count {
 				t.Errorf("material %d: expected delta %d", id, count)
@@ -122,6 +149,38 @@ func TestRepairPreviewAndApply(t *testing.T) {
 	var repairTables int
 	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name='player_data_repairs'`).Scan(&repairTables); err != nil || repairTables != 0 {
 		t.Fatalf("repair marker table created: count=%d error=%v", repairTables, err)
+	}
+}
+
+func TestRepairPreservesDuplicateCostumeCompensation(t *testing.T) {
+	granter, err := loadGranter(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _, users := fixture(t)
+	repo := sqlite.New(db, nil)
+	before, err := repo.UpdateUser(users[1].UserId, func(user *store.UserState) {
+		granter.GrantCostume(user, 24008, 100)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repair(db, granter, true, 1000); err != nil {
+		t.Fatal(err)
+	}
+	after, err := repo.LoadUser(before.UserId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Costumes) != len(before.Costumes) {
+		t.Fatal("repair added a duplicate costume")
+	}
+	// The existing server grant gives 10 books and 1 awakening stone for the
+	// duplicate costume, in addition to the bundle's 40 books and 5 stones.
+	for id, count := range map[int32]int32{311211: 50, 313197: 6, 312011: 4} {
+		if got := after.Materials[id] - before.Materials[id]; got != count {
+			t.Errorf("material %d: got delta %d, want %d", id, got, count)
+		}
 	}
 }
 

@@ -12,9 +12,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"lunar-tear/server/internal/runtime"
-	"lunar-tear/server/internal/store"
-
 	_ "modernc.org/sqlite"
 )
 
@@ -44,28 +41,6 @@ func main() {
 	if err := encoder.Encode(report); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func loadGranter(masterPath string) (*store.PossessionGranter, error) {
-	data, err := os.ReadFile(masterPath)
-	if err != nil {
-		return nil, err
-	}
-	// NewHolder touches its input file; keep the source master data unchanged.
-	dir, err := os.MkdirTemp("", "login-unlock-backfill-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(dir)
-	copyPath := filepath.Join(dir, "master.bin.e")
-	if err := os.WriteFile(copyPath, data, 0o600); err != nil {
-		return nil, err
-	}
-	holder, err := runtime.NewHolder(copyPath)
-	if err != nil {
-		return nil, err
-	}
-	return holder.Get().QuestHandler.Granter, nil
 }
 
 func openDatabase(path string, apply bool) (*sql.DB, error) {
