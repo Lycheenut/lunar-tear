@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	pb "lunar-tear/server/gen/proto"
@@ -29,7 +30,8 @@ func (s *TutorialServiceServer) SetTutorialProgress(ctx context.Context, req *pb
 	nowMillis := gametime.NowMillis()
 	engine := s.holder.Get().QuestHandler
 	var grants []questflow.RewardGrant
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		wasUnlocked := store.IsLoginBonusUnlocked(user)
 		existing, exists := user.Tutorials[req.TutorialType]
 		if !exists || req.ProgressPhase >= existing.ProgressPhase {
 			user.Tutorials[req.TutorialType] = store.TutorialProgressState{
@@ -42,7 +44,13 @@ func (s *TutorialServiceServer) SetTutorialProgress(ctx context.Context, req *pb
 		if req.TutorialType == int32(model.TutorialTypeMenuFirst) && req.ProgressPhase == 20 {
 			store.EnsureDefaultDeck(user, nowMillis)
 		}
+		if !wasUnlocked && store.IsLoginBonusUnlocked(user) {
+			store.GrantLoginBonusUnlockReward(user, engine.Granter, nowMillis)
+		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("update tutorial progress: %w", err)
+	}
 
 	rewards := make([]*pb.TutorialChoiceReward, len(grants))
 	for i, g := range grants {
@@ -60,7 +68,10 @@ func (s *TutorialServiceServer) SetTutorialProgress(ctx context.Context, req *pb
 func (s *TutorialServiceServer) SetTutorialProgressAndReplaceDeck(ctx context.Context, req *pb.SetTutorialProgressAndReplaceDeckRequest) (*pb.SetTutorialProgressAndReplaceDeckResponse, error) {
 	log.Printf("[TutorialService] SetTutorialProgressAndReplaceDeck: type=%d phase=%d deckType=%d deckNumber=%d", req.TutorialType, req.ProgressPhase, req.DeckType, req.UserDeckNumber)
 	userId := CurrentUserId(ctx, s.users, s.sessions)
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	nowMillis := gametime.NowMillis()
+	granter := s.holder.Get().QuestHandler.Granter
+	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		wasUnlocked := store.IsLoginBonusUnlocked(user)
 		existing, exists := user.Tutorials[req.TutorialType]
 		if !exists || req.ProgressPhase >= existing.ProgressPhase {
 			user.Tutorials[req.TutorialType] = store.TutorialProgressState{
@@ -69,8 +80,14 @@ func (s *TutorialServiceServer) SetTutorialProgressAndReplaceDeck(ctx context.Co
 			}
 		}
 		if req.Deck != nil {
-			store.ApplyDeckReplacement(user, model.DeckType(req.DeckType), req.UserDeckNumber, deckSlotsFromProto(req.Deck), gametime.NowMillis())
+			store.ApplyDeckReplacement(user, model.DeckType(req.DeckType), req.UserDeckNumber, deckSlotsFromProto(req.Deck), nowMillis)
+		}
+		if !wasUnlocked && store.IsLoginBonusUnlocked(user) {
+			store.GrantLoginBonusUnlockReward(user, granter, nowMillis)
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("update tutorial progress and deck: %w", err)
+	}
 	return &pb.SetTutorialProgressAndReplaceDeckResponse{}, nil
 }
