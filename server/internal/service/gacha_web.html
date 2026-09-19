@@ -6,40 +6,54 @@
 <meta name="referrer" content="no-referrer">
 <title>{{.Text.title}} · {{.Title}}</title>
 <style>
-:root{color-scheme:light;--paper:#f0eee5;--ink:#39382f;--muted:#747064;--gold:#8b784c;--line:#c9c4b4}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.65 Georgia,"Yu Mincho","Hiragino Mincho ProN",serif;background-image:radial-gradient(ellipse at top,#faf9f3,transparent 80%)}
-main{max-width:960px;margin:auto;padding:28px 20px 36px}header{text-align:center;border-top:1px solid var(--gold);padding:24px 8px 20px;position:relative}header:before{content:"◆";position:absolute;top:-13px;left:calc(50% - 18px);width:36px;background:var(--paper);color:var(--gold)}
-.eyebrow{font:10px/1.5 Arial,sans-serif;letter-spacing:.26em;color:var(--gold)}h1{font-size:25px;font-weight:400;letter-spacing:.14em;margin:10px 0}h2{font-size:17px;font-weight:400;letter-spacing:.07em;margin:30px 0 12px;border-bottom:1px solid var(--gold);padding-bottom:8px}.banner{font-size:14px;margin:0}.meta,.note,small{color:var(--muted)}.meta{font:11px/1.7 Arial,sans-serif;margin-top:8px}.note{font-size:12px;line-height:1.9;margin:12px 0}
-.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0}.toolbar label{flex:1;min-width:180px}select,input,button{font:13px/1.5 Arial,"Yu Gothic",sans-serif;color:var(--ink);border:1px solid var(--line);background:#faf9f3;border-radius:0;padding:10px 12px;min-height:42px}select,input{width:100%}button{cursor:pointer;white-space:nowrap}button:hover{border-color:var(--gold)}input:focus,select:focus,button:focus{outline:2px solid var(--gold);outline-offset:2px}.table-wrap{overflow-x:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-table{width:100%;border-collapse:collapse;font:13px/1.6 Arial,"Yu Gothic",sans-serif}th{text-align:left;color:#655b40;font-size:11px;font-weight:400;background:#e5e1d4;letter-spacing:.03em}th,td{padding:12px 10px;border-bottom:1px solid #d9d5c9}tr:last-child td{border-bottom:0}.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.name{min-width:145px}small{display:block;font-size:10px}.bonus{font-size:11px;color:var(--gold)}.badge{display:inline-block;font-size:9px;letter-spacing:.1em;color:var(--gold);border:1px solid #b7a77f;padding:0 4px;margin-bottom:4px}.exhausted{color:#918d83}.box-heading{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--gold);padding:12px 0}.box-heading span{font-size:24px;color:var(--gold)}.error{padding:30px 12px;text-align:center;border-top:1px solid var(--line)}footer{margin-top:28px;border-top:1px solid var(--line);padding-top:16px}.hidden,[hidden]{display:none!important}
-@media(max-width:480px){main{padding:22px 12px 28px}h1{font-size:21px}th,td{padding:10px 7px}table{font-size:12px}.name{min-width:128px}.num{font-size:11px}.toolbar label{min-width:150px}}
+:root{color-scheme:dark;--surface:#302b2c;--ink:#eeeae1;--muted:#c0b9b2;--line:#716a6a;--bar:#c8c4b4;--pickup:#d5a0a9}
+*{box-sizing:border-box}html{background:var(--surface)}body{margin:0;color:var(--ink);font:clamp(14px,1.85vw,23px)/1.45 Arial,"Noto Sans JP","Yu Gothic",sans-serif}main{max-width:1440px;margin:auto;padding:12px 20px 26px}h1{font-size:1.15em;font-weight:500;margin:8px 0 18px;text-align:center;letter-spacing:.12em}h2{font-size:1em;font-weight:400;margin:22px 0 14px;padding:2px 16px;background:var(--bar);color:#393536;line-height:1.4}h3{font-size:1em;font-weight:400;margin:14px 0;padding:0 0 12px;border-bottom:1px solid var(--line)}h3:before{content:"◆";display:inline-block;margin-right:.35em;color:#eeeade;transform:scaleX(.8)}
+.context{font-size:.72em;color:var(--muted);margin-bottom:12px}.options{margin-top:6px}.options summary{cursor:pointer;width:fit-content}.toolbar{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:10px 0}.toolbar label{display:flex;gap:8px;align-items:center;max-width:100%}select,button{font:inherit;font-size:.85em;color:var(--ink);border:1px solid var(--line);background:#494142;border-radius:0;padding:6px 12px;min-height:34px;max-width:100%}button{cursor:pointer}select:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--bar);outline-offset:3px}.note{font-size:.72em;line-height:1.55;margin:10px 0 20px;color:var(--ink)}.meta{font-size:.65em;color:var(--muted)}
+table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid var(--line);padding:7px 10px;vertical-align:middle;font-weight:400}th{background:#4b4345;text-align:center;line-height:1.25}td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:.015em}.summary-table{width:57%;min-width:min(410px,100%)}.summary-table .num{width:35%}.summary-name{display:grid;grid-template-columns:calc(clamp(14px,2.35vw,29px)*4) 1fr;align-items:center;gap:1em}.rarity{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle}.sprite{display:inline-block;background-size:contain;background-repeat:no-repeat;background-position:center}.rarity-sprite{--star-size:clamp(14px,2.35vw,29px);width:calc(var(--star-size)*var(--stars));height:calc(var(--star-size)*20/19);background-size:var(--star-size) 100%;background-repeat:repeat-x;background-position:left center}.rarity-2{color:#d7d7d7}.rarity-3{color:#d8cf99}.rarity-4{color:#9dc4d0}.rarity-cell{text-align:center;padding-left:4px;padding-right:4px}.rarity-col{width:15%}.rate-col{width:17%}
+.reward-line{display:flex;align-items:center;gap:.3em;min-width:0}.icons{display:flex;align-items:center;gap:.18em;flex-shrink:0}.icon{width:clamp(20px,3.2vw,40px);aspect-ratio:1;vertical-align:middle}.icon-label{font-size:.65em;padding:1px 3px;border:1px solid var(--line);white-space:nowrap}.reward-name{overflow-wrap:anywhere;min-width:0}.character{display:inline-block;background:#807778;padding:0 .3em;margin-right:.3em;line-height:1.3}.pickup .num{color:var(--pickup)}.pickup-label{margin-left:auto;padding-left:.6em;white-space:nowrap;color:var(--pickup);font-size:.85em}.box-name{width:50%}.box-table td:first-child{overflow-wrap:anywhere}.exhausted{color:#a69d9a}footer{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}.error{padding:30px 12px;text-align:center}
+@media(max-width:600px){main{padding:10px 10px 24px}h2{padding:4px 8px}th,td{padding:7px 5px}.summary-table{width:100%;min-width:0}.rarity-col{width:20%}.rate-col{width:29%}.reward-line{flex-wrap:wrap;gap:3px}.icons{gap:2px}.icon{width:20px}.reward-name{flex:1 1 65px}.pickup-label{flex-basis:100%;text-align:right;padding-left:0;font-size:.75em}.note{font-size:.8em}.context{font-size:.8em}.toolbar label{flex-wrap:wrap}.num{font-size:.9em}.weapon-table th{font-size:.85em}}
+{{range $name, $url := .Icons}}.{{$name}}{background-image:url("{{$url}}")}{{end}}
 </style>
 </head>
 <body><main>
-<header><div class="eyebrow">{{if .Kind}}{{.Kind}}{{else}}LUNAR TEAR{{end}}</div><h1>{{if .Box}}{{.Text.title}}{{else}}{{.Text.rates}}{{end}}</h1><p class="banner">{{.Title}}</p>{{if .GachaID}}<div class="meta">No. {{.GachaID}}</div>{{end}}</header>
-{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{else}}
+{{if .Error}}<h1>{{.Text.rates}}</h1><p class="error" role="alert">{{.Error}}</p>{{else}}
+<div class="context">{{.Title}}{{if not .Box}}<details class="options"><summary>{{.Text.phase}}</summary><div class="toolbar"><label>{{.Text.phase}}<select id="phase">{{range .Phases}}<option value="{{.URL}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}</select></label></div></details>{{end}}</div>
 {{if .Box}}
-<div class="box-heading">{{.Text.box}}<span>{{.BoxNumber}}</span></div>
+<h2>{{.Text.box}} <span>{{.BoxNumber}}</span></h2>
+<div class="toolbar"><button id="refresh" type="button">{{.Text.refresh}}</button></div>
+<table class="box-table" aria-label="{{.Text.reward}}"><colgroup><col class="box-name"><col><col></colgroup><thead><tr><th>{{.Text.reward}}</th><th>{{.Text.remaining}}</th><th>{{.Text.probability}}</th></tr></thead><tbody>
+{{range .Items}}<tr{{if and (not .Unlimited) (eq .Remaining 0)}} class="exhausted"{{end}}><td>{{.Name}} ×{{.Count}}</td><td class="num">{{if .Unlimited}}∞{{else}}{{.Remaining}} / {{.Maximum}}{{end}}</td><td class="num">{{percent (index .Rates 0)}}</td></tr>{{end}}
+</tbody></table>
 <p class="note">{{.Text.boxNote}}</p>{{if .Reset}}<p class="note">{{.Text.chapterNote}}</p><div class="meta">{{.Text.reset}} · {{.Reset}}</div>{{end}}
 {{else}}
-<div class="toolbar"><label>{{.Text.phase}}<select id="phase">{{range .Phases}}<option value="{{.URL}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}</select></label></div>
-<p class="note">{{.Text.premiumNote}}</p>
-<h2>{{.Text.groups}}</h2><div class="table-wrap"><table aria-label="{{.Text.groups}}"><thead><tr><th>{{.Text.rarity}}</th>{{range .Columns}}<th class="num">{{.}}</th>{{end}}</tr></thead><tbody>{{range .Groups}}<tr><td>{{.Name}}<small>{{.Kind}}</small></td>{{range .Rates}}<td class="num">{{percent .}}</td>{{end}}</tr>{{end}}</tbody></table></div>
-<h2>{{.Text.items}}</h2>
+<h2>{{.Text.groups}}</h2>
+{{range $column, $label := .Columns}}
+<section class="rate-summary" aria-label="{{$label}}"><h3>{{$label}}</h3>
+<table class="summary-table" aria-label="{{$.Text.groups}} · {{$label}}"><tbody>
+{{range $.Groups}}{{$rate := index .Rates $column}}{{if gt $rate 0.0}}<tr><td><div class="summary-name">{{template "rarity" .Rarity}}<span>（{{.Kind}}）</span></div></td><td class="num">{{percent $rate}}</td></tr>{{end}}{{end}}
+</tbody></table><p class="note">{{$.Text.drawNote}}{{if and $.SingleUsesNormal (gt $column 0)}}<br>{{$.Text.singleNote}}{{end}}</p></section>
 {{end}}
-<div class="toolbar"><label><input id="search" type="search" placeholder="{{.Text.search}}" aria-label="{{.Text.search}}" autocomplete="off"></label><button id="refresh" type="button">{{.Text.refresh}}</button></div>
-<div class="table-wrap"><table id="rewards" aria-label="{{.Text.reward}}"><thead><tr><th>{{if .Box}}{{.Text.reward}}{{else}}{{.Text.weapon}}{{end}}</th>{{if .Box}}<th class="num">{{.Text.remaining}}</th><th class="num">{{.Text.probability}}</th>{{else}}{{range .Columns}}<th class="num">{{.}}</th>{{end}}{{end}}</tr></thead><tbody>
-{{range .Items}}<tr{{if and $.Box (not .Unlimited) (eq .Remaining 0)}} class="exhausted"{{end}}><td class="name">{{if .Pickup}}<span class="badge">{{$.Text.pickup}}</span><br>{{end}}{{.Name}}{{if $.Box}} ×{{.Count}}{{end}}<small>{{.Kind}}{{if .Kind}} · {{end}}#{{.ID}}</small>{{if .Bonus}}<div class="bonus">＋ {{.Bonus}}</div>{{end}}</td>{{if $.Box}}<td class="num">{{if .Unlimited}}∞<small>{{$.Text.unlimited}}</small>{{else}}{{.Remaining}} / {{.Maximum}}{{if eq .Remaining 0}}<small>{{$.Text.soldOut}}</small>{{end}}{{end}}</td>{{end}}{{range .Rates}}<td class="num">{{percent .}}</td>{{end}}</tr>{{end}}
-</tbody></table></div><p id="empty" class="note" hidden>{{.Text.empty}}</p>
+{{range $column, $label := .Columns}}
+<section class="individual-rates"><h2>{{$label}} {{$.Text.individualRates}}</h2>
+<table class="weapon-table" aria-label="{{$.Text.individualRates}} · {{$label}}"><colgroup><col class="rarity-col"><col><col class="rate-col"></colgroup><thead><tr><th>{{$.Text.rarity}}</th><th>{{$.Text.weapon}}</th><th>{{$.Text.dropRate}}</th></tr></thead><tbody>
+{{range $.Items}}{{$rate := index .Rates $column}}{{if gt $rate 0.0}}
+<tr class="weapon-row{{if .Pickup}} pickup{{end}}" data-weapon-id="{{.ID}}"><td class="rarity-cell">{{template "rarity" .Rarity}}</td><td><div class="reward-line">{{template "reward" .}}{{if .Pickup}}<span class="pickup-label">{{$.Text.pickup}} ▴</span>{{end}}</div></td><td class="num"{{if .Bonus}} rowspan="2"{{end}}>{{percent $rate}}</td></tr>
+{{if .Bonus}}<tr class="costume-row{{if .Pickup}} pickup{{end}}"><td class="rarity-cell">{{template "rarity" .Bonus.Rarity}}</td><td><div class="reward-line">{{template "reward" .Bonus}}</div></td></tr>{{end}}
+{{end}}{{end}}</tbody></table></section>
+{{end}}
+<p class="note">{{.Text.premiumNote}}</p>
+{{end}}
 <footer><p class="note">{{.Text.rounding}}</p><div class="meta">{{.Text.updated}} · {{.Updated}}</div></footer>
 {{end}}
 </main>
 <script>
 (function(){
-var search=document.getElementById('search');
-if(search){var rows=Array.prototype.slice.call(document.querySelectorAll('#rewards tbody tr'));search.addEventListener('input',function(){var query=search.value.toLowerCase().trim(),visible=0;rows.forEach(function(row){var match=row.cells[0].textContent.toLowerCase().indexOf(query)!==-1;row.hidden=!match;if(match)visible++;});document.getElementById('empty').hidden=visible!==0;});document.getElementById('refresh').addEventListener('click',function(){location.reload();});}
+var refresh=document.getElementById('refresh');if(refresh)refresh.addEventListener('click',function(){location.reload();});
 var phase=document.getElementById('phase');if(phase)phase.addEventListener('change',function(){location.assign(phase.value);});
 window.addEventListener('pageshow',function(event){if(event.persisted)location.reload();});
 })();
 </script>
 </body></html>
+{{define "rarity"}}<span class="rarity rarity-{{.Count}}{{if .Sprite}} sprite rarity-sprite {{.Sprite}}{{end}}" style="--stars:{{.Count}}" role="img" aria-label="{{.Count}}★">{{if not .Sprite}}{{range stars .Count}}★{{end}}{{end}}</span>{{end}}
+{{define "icon"}}{{if .Sprite}}<span class="sprite icon {{.Sprite}}" role="img" aria-label="{{.Label}}" title="{{.Label}}"></span>{{else if .Label}}<span class="icon-label">{{.Label}}</span>{{end}}{{end}}
+{{define "reward"}}<span class="icons">{{template "icon" .Attribute}}{{template "icon" .Weapon}}</span><span class="reward-name">{{if .Character}}<span class="character">{{.Character}}</span>{{end}}{{.Name}}</span>{{end}}

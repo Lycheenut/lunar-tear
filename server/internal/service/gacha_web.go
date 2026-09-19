@@ -26,6 +26,7 @@ var gachaWebFiles embed.FS
 
 var gachaWebTemplate = template.Must(template.New("gacha_web.html").Funcs(template.FuncMap{
 	"percent": func(rate float64) string { return fmt.Sprintf("%.6f%%", rate*100) },
+	"stars":   func(count int32) []struct{} { return make([]struct{}, max(0, min(count, 5))) },
 }).ParseFS(gachaWebFiles, "gacha_web.html"))
 
 var gachaTextTags = regexp.MustCompile(`<[^>]+>`)
@@ -35,14 +36,17 @@ type GachaWebHandler struct {
 	sessions store.SessionRepository
 	catalogs func() *runtime.Catalogs
 	names    assettext.Index
+	icons    map[string]template.URL
 }
 
-func NewGachaWebHandler(users store.UserRepository, sessions store.SessionRepository, holder *runtime.Holder, names assettext.Index) *GachaWebHandler {
-	return &GachaWebHandler{users: users, sessions: sessions, catalogs: holder.Get, names: names}
+func NewGachaWebHandler(users store.UserRepository, sessions store.SessionRepository, holder *runtime.Holder, names assettext.Index, assetsRoot string) *GachaWebHandler {
+	return &GachaWebHandler{users: users, sessions: sessions, catalogs: holder.Get, names: names, icons: loadGachaWebIcons(assetsRoot)}
 }
 
 type gachaWebRow struct {
-	Name, Bonus, Kind  string
+	gachaWebReward
+	Bonus              *gachaWebReward
+	Kind               string
 	ID                 int32
 	Count              int32
 	Pickup             bool
@@ -58,12 +62,14 @@ type gachaWebChoice struct {
 type gachaWebPage struct {
 	Language                           string
 	Text                               map[string]string
+	Icons                              map[string]template.URL
 	Title, Kind, Error, Updated, Reset string
 	GachaID, BoxNumber                 int32
 	Box                                bool
 	Columns                            []string
 	Groups, Items                      []gachaWebRow
 	Phases                             []gachaWebChoice
+	SingleUsesNormal                   bool
 }
 
 func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +89,7 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "/ja/") || strings.HasPrefix(strings.ToLower(r.URL.Query().Get("language")), "ja") {
 		language = "ja"
 	}
-	page := gachaWebPage{Language: language, Text: gachaWebText[language]}
+	page := gachaWebPage{Language: language, Text: gachaWebText[language], Icons: s.icons}
 	fail := func(code int, key string) { page.Error = page.Text[key]; renderGachaWeb(w, r, code, page) }
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -168,6 +174,9 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if candidate.DrawCount <= 0 {
 				continue
 			}
+			if candidate.DrawCount == 1 && candidate.StepNumber == phase.StepNumber && candidate.PriceType == phase.PriceType && candidate.FixedCount == 0 {
+				page.SingleUsesNormal = true
+			}
 			q := r.URL.Query()
 			q.Set("gachaPricePhaseId", strconv.Itoa(int(candidate.PhaseId)))
 			label := fmt.Sprintf(page.Text["draws"], candidate.DrawCount)
@@ -184,6 +193,14 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if slot.First != slot.Last {
 				label = fmt.Sprintf(page.Text["slots"], slot.First, slot.Last)
 			}
+			if phase.DrawCount == 10 && slot.First == 1 && slot.Last == 9 {
+				label = page.Text["multiNormalSlots"]
+				if page.SingleUsesNormal {
+					label = page.Text["normalSlots"]
+				}
+			} else if phase.DrawCount == 10 && slot.First == 10 && slot.Last == 10 {
+				label = page.Text["tenthSlot"]
+			}
 			page.Columns = append(page.Columns, label)
 		}
 		for groupIndex, group := range odds[0].Groups {
@@ -191,15 +208,15 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if group.GrantType == gacha.GrantCharacterWeapon {
 				kind = page.Text["characterWeapon"]
 			}
-			row := gachaWebRow{Name: fmt.Sprintf("%d★", group.Star), Kind: kind}
+			row := gachaWebRow{gachaWebReward: gachaWebReward{Rarity: s.gachaRarity(group.Star)}, Kind: kind}
 			for _, slot := range odds {
 				row.Rates = append(row.Rates, slot.Groups[groupIndex].Rate)
 			}
 			page.Groups = append(page.Groups, row)
 			for itemIndex, item := range group.Items {
-				row := gachaWebRow{Name: s.gachaPossessionName(cat, language, int32(model.PossessionTypeWeapon), item.WeaponId), ID: item.WeaponId, Kind: fmt.Sprintf("%d★ · %s", group.Star, kind), Pickup: item.Pickup}
+				row := gachaWebRow{gachaWebReward: s.gachaWeaponReward(cat, language, item.WeaponId, group.Star), ID: item.WeaponId, Pickup: item.Pickup}
 				if item.CostumeId != 0 {
-					row.Bonus = s.gachaPossessionName(cat, language, int32(model.PossessionTypeCostume), item.CostumeId)
+					row.Bonus = s.gachaCostumeReward(cat, language, item.CostumeId)
 				}
 				for _, slot := range odds {
 					row.Rates = append(row.Rates, slot.Groups[groupIndex].Items[itemIndex].Rate)
@@ -224,17 +241,20 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			page.Reset = time.UnixMilli(gametime.StartOfNextBusinessMonthAtMillis(now)).UTC().Format("2006-01-02 15:04 UTC")
 		}
 		for _, item := range odds.Items {
-			page.Items = append(page.Items, gachaWebRow{Name: s.gachaPossessionName(cat, language, item.PossessionType, item.PossessionId), ID: item.PossessionId, Count: item.Count, Remaining: item.Remaining, Maximum: item.MaxCount, Unlimited: item.Unlimited, Rates: []float64{item.Rate}})
+			page.Items = append(page.Items, gachaWebRow{gachaWebReward: gachaWebReward{Name: s.gachaPossessionName(cat, language, item.PossessionType, item.PossessionId)}, ID: item.PossessionId, Count: item.Count, Remaining: item.Remaining, Maximum: item.MaxCount, Unlimited: item.Unlimited, Rates: []float64{item.Rate}})
 		}
 	default:
 		fail(http.StatusNotFound, "missing")
 		return
 	}
-	// Stable ordering keeps searches and refreshes easy to follow.
+	// Keep Pickup rewards first, then order by rarity and weapon ID.
 	if !page.Box {
 		sort.SliceStable(page.Items, func(i, j int) bool {
 			if page.Items[i].Pickup != page.Items[j].Pickup {
 				return page.Items[i].Pickup
+			}
+			if page.Items[i].Rarity.Count != page.Items[j].Rarity.Count {
+				return page.Items[i].Rarity.Count > page.Items[j].Rarity.Count
 			}
 			return page.Items[i].ID < page.Items[j].ID
 		})

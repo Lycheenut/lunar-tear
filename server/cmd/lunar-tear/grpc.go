@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ func startGRPC(
 	registerServices(grpcServer, publicAddr, octoURL, authURL, userStore, holder, noRegister)
 
 	reflection.Register(grpcServer)
-	web := service.NewGachaWebHandler(userStore, userStore, holder, names)
+	web := service.NewGachaWebHandler(userStore, userStore, holder, names, filepath.Dir(filepath.Dir(masterDataPath)))
 	httpServer := newGameHTTPServer(grpcServer, web)
 
 	log.Printf("gRPC server listening on %s", lis.Addr())

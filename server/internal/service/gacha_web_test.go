@@ -174,7 +174,7 @@ func TestGachaWebBoxUsesCurrentIDAndLiveDrawState(t *testing.T) {
 		t.Fatalf("reset: %v, %v", err, drawErr)
 	}
 	body = requestGachaPage(web, path).Body.String()
-	if !strings.Contains(body, "<span>2</span>") || !strings.Contains(body, "60.000000%") || !strings.Contains(body, "40.000000%") || !strings.Contains(body, "×7") || !strings.Contains(body, "×9") || !strings.Contains(body, "2 / 2") || !strings.Contains(body, "Unlimited") {
+	if !strings.Contains(body, "<span>2</span>") || !strings.Contains(body, "60.000000%") || !strings.Contains(body, "40.000000%") || !strings.Contains(body, "×7") || !strings.Contains(body, "×9") || !strings.Contains(body, "2 / 2") || !strings.Contains(body, ">∞</td>") {
 		t.Fatal("reset box was not refreshed")
 	}
 	config := cat.GachaHandler.Premium.Config
@@ -198,7 +198,7 @@ func TestGachaWebBoxUsesCurrentIDAndLiveDrawState(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = requestGachaPage(web, path).Body.String()
-	if !strings.Contains(body, "70.000000%") || !strings.Contains(body, "30.000000%") || !strings.Contains(body, "3 / 3") || !strings.Contains(body, "Unlimited") {
+	if !strings.Contains(body, "70.000000%") || !strings.Contains(body, "30.000000%") || !strings.Contains(body, "3 / 3") || !strings.Contains(body, ">∞</td>") {
 		t.Fatal("chapter monthly reset/unlimited rates missing")
 	}
 	delete(config.ChapterBanners, 201)
