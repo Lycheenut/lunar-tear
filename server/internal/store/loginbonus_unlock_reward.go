@@ -18,4 +18,7 @@ func GrantLoginBonusUnlockReward(user *UserState, granter *PossessionGranter, no
 	granter.GrantFull(user, model.PossessionTypeMaterial, 313197, 5, nowMillis)
 	granter.GrantFull(user, model.PossessionTypeWeapon, 240271, 1, nowMillis)
 	granter.GrantFull(user, model.PossessionTypeMaterial, 312011, 4, nowMillis)
+	// Owning companions does not unlock their deck slots; the client checks
+	// Companion tutorial progress independently. See docs/COMPANION_UNLOCK_REWARD.md.
+	GrantCompanionUnlockReward(user, granter, nowMillis)
 }
