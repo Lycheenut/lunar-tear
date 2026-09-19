@@ -22,6 +22,7 @@ func main() {
 	publicAddr := flag.String("public-addr", "127.0.0.1:8080", "externally-reachable host:port used for list.bin URL rewriting")
 	resourcesBaseURLFlag := flag.String("resources-base-url", "", "public HTTP(S) resource base URL embedded in list.bin; padded to the required 43 bytes")
 	assetsDir := flag.String("assets-dir", ".", "root directory containing the assets/ tree")
+	gachaBackend := flag.String("game-server", "http://127.0.0.1:8003", "game server HTTP base URL for live Gacha details")
 	flag.Parse()
 
 	resourcesBaseURLInput := *resourcesBaseURLFlag
@@ -35,6 +36,9 @@ func main() {
 	log.Printf("[config] resources base URL: %s", resourcesBaseURL)
 
 	octoServer := service.NewOctoHTTPServer(resourcesBaseURL, *assetsDir)
+	if err := octoServer.SetGachaWebBackend(*gachaBackend); err != nil {
+		log.Fatal(err)
+	}
 	h2s := &http2.Server{}
 	handler := h2c.NewHandler(octoServer.Handler(), h2s)
 

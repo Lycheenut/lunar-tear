@@ -305,6 +305,9 @@ Security defaults are fail-closed:
 | `--public-addr` | `127.0.0.1:8080` | externally-reachable address (used in list.bin rewriting) |
 | `--resources-base-url` | _(derived from `--public-addr`)_ | public HTTP(S) resource URL embedded in `list.bin`; padded to 43 bytes |
 | `--assets-dir`  | `.`              | root directory containing the `assets/` tree              |
+| `--game-server` | `http://127.0.0.1:8003` | game server address for live Gacha detail/rate pages |
+
+Gacha detail pages read live rates and Box counts from the game server. Wizard/dev and Docker Compose configure the connection automatically; for separate hosts or custom manual ports, set `--game-server` on the CDN. Rebuild both services when upgrading. Game titles and reward names are loaded directly from `assets/revisions/0/assetbundle/text/{en,ja}/` at game-server startup, so those assets must also be present on the game host. Restart the game server after replacing text bundles. See [Gacha WebView requests and rates](docs/GACHA_WEB_DETAILS.md) for deployment requirements, client URL/parameter analysis and probability rules.
 
 ### Docker
 

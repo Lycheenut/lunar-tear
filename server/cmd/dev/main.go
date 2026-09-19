@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -119,6 +120,14 @@ func main() {
 	if *grpcAuthURL == "" {
 		*grpcAuthURL = fmt.Sprintf("http://%s", *authListen)
 	}
+	gachaHost, gachaPort, err := net.SplitHostPort(*grpcListen)
+	if err != nil {
+		log.Fatalf("invalid grpc.listen: %v", err)
+	}
+	if gachaHost == "" || gachaHost == "0.0.0.0" || gachaHost == "::" {
+		gachaHost = "127.0.0.1"
+	}
+	gachaBackend := "http://" + net.JoinHostPort(gachaHost, gachaPort)
 
 	if *noColor || !colorSupported() {
 		colorReset = ""
@@ -163,6 +172,7 @@ func main() {
 			cmd: exec.CommandContext(ctx, filepath.Join("bin", "octo-cdn"+ext),
 				"--listen", *cdnListen,
 				"--public-addr", *cdnPublicAddr,
+				"--game-server", gachaBackend,
 			),
 		},
 		{

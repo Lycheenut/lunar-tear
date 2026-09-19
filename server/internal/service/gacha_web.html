@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="{{.Language}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{.Text.title}} · {{.Title}}</title>
+<style>
+:root{color-scheme:light;--paper:#f0eee5;--ink:#39382f;--muted:#747064;--gold:#8b784c;--line:#c9c4b4}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.65 Georgia,"Yu Mincho","Hiragino Mincho ProN",serif;background-image:radial-gradient(ellipse at top,#faf9f3,transparent 80%)}
+main{max-width:960px;margin:auto;padding:28px 20px 36px}header{text-align:center;border-top:1px solid var(--gold);padding:24px 8px 20px;position:relative}header:before{content:"◆";position:absolute;top:-13px;left:calc(50% - 18px);width:36px;background:var(--paper);color:var(--gold)}
+.eyebrow{font:10px/1.5 Arial,sans-serif;letter-spacing:.26em;color:var(--gold)}h1{font-size:25px;font-weight:400;letter-spacing:.14em;margin:10px 0}h2{font-size:17px;font-weight:400;letter-spacing:.07em;margin:30px 0 12px;border-bottom:1px solid var(--gold);padding-bottom:8px}.banner{font-size:14px;margin:0}.meta,.note,small{color:var(--muted)}.meta{font:11px/1.7 Arial,sans-serif;margin-top:8px}.note{font-size:12px;line-height:1.9;margin:12px 0}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0}.toolbar label{flex:1;min-width:180px}select,input,button{font:13px/1.5 Arial,"Yu Gothic",sans-serif;color:var(--ink);border:1px solid var(--line);background:#faf9f3;border-radius:0;padding:10px 12px;min-height:42px}select,input{width:100%}button{cursor:pointer;white-space:nowrap}button:hover{border-color:var(--gold)}input:focus,select:focus,button:focus{outline:2px solid var(--gold);outline-offset:2px}.table-wrap{overflow-x:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font:13px/1.6 Arial,"Yu Gothic",sans-serif}th{text-align:left;color:#655b40;font-size:11px;font-weight:400;background:#e5e1d4;letter-spacing:.03em}th,td{padding:12px 10px;border-bottom:1px solid #d9d5c9}tr:last-child td{border-bottom:0}.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.name{min-width:145px}small{display:block;font-size:10px}.bonus{font-size:11px;color:var(--gold)}.badge{display:inline-block;font-size:9px;letter-spacing:.1em;color:var(--gold);border:1px solid #b7a77f;padding:0 4px;margin-bottom:4px}.exhausted{color:#918d83}.box-heading{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--gold);padding:12px 0}.box-heading span{font-size:24px;color:var(--gold)}.error{padding:30px 12px;text-align:center;border-top:1px solid var(--line)}footer{margin-top:28px;border-top:1px solid var(--line);padding-top:16px}.hidden,[hidden]{display:none!important}
+@media(max-width:480px){main{padding:22px 12px 28px}h1{font-size:21px}th,td{padding:10px 7px}table{font-size:12px}.name{min-width:128px}.num{font-size:11px}.toolbar label{min-width:150px}}
+</style>
+</head>
+<body><main>
+<header><div class="eyebrow">{{if .Kind}}{{.Kind}}{{else}}LUNAR TEAR{{end}}</div><h1>{{if .Box}}{{.Text.title}}{{else}}{{.Text.rates}}{{end}}</h1><p class="banner">{{.Title}}</p>{{if .GachaID}}<div class="meta">No. {{.GachaID}}</div>{{end}}</header>
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{else}}
+{{if .Box}}
+<div class="box-heading">{{.Text.box}}<span>{{.BoxNumber}}</span></div>
+<p class="note">{{.Text.boxNote}}</p>{{if .Reset}}<p class="note">{{.Text.chapterNote}}</p><div class="meta">{{.Text.reset}} · {{.Reset}}</div>{{end}}
+{{else}}
+<div class="toolbar"><label>{{.Text.phase}}<select id="phase">{{range .Phases}}<option value="{{.URL}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}</select></label></div>
+<p class="note">{{.Text.premiumNote}}</p>
+<h2>{{.Text.groups}}</h2><div class="table-wrap"><table aria-label="{{.Text.groups}}"><thead><tr><th>{{.Text.rarity}}</th>{{range .Columns}}<th class="num">{{.}}</th>{{end}}</tr></thead><tbody>{{range .Groups}}<tr><td>{{.Name}}<small>{{.Kind}}</small></td>{{range .Rates}}<td class="num">{{percent .}}</td>{{end}}</tr>{{end}}</tbody></table></div>
+<h2>{{.Text.items}}</h2>
+{{end}}
+<div class="toolbar"><label><input id="search" type="search" placeholder="{{.Text.search}}" aria-label="{{.Text.search}}" autocomplete="off"></label><button id="refresh" type="button">{{.Text.refresh}}</button></div>
+<div class="table-wrap"><table id="rewards" aria-label="{{.Text.reward}}"><thead><tr><th>{{if .Box}}{{.Text.reward}}{{else}}{{.Text.weapon}}{{end}}</th>{{if .Box}}<th class="num">{{.Text.remaining}}</th><th class="num">{{.Text.probability}}</th>{{else}}{{range .Columns}}<th class="num">{{.}}</th>{{end}}{{end}}</tr></thead><tbody>
+{{range .Items}}<tr{{if and $.Box (not .Unlimited) (eq .Remaining 0)}} class="exhausted"{{end}}><td class="name">{{if .Pickup}}<span class="badge">{{$.Text.pickup}}</span><br>{{end}}{{.Name}}{{if $.Box}} ×{{.Count}}{{end}}<small>{{.Kind}}{{if .Kind}} · {{end}}#{{.ID}}</small>{{if .Bonus}}<div class="bonus">＋ {{.Bonus}}</div>{{end}}</td>{{if $.Box}}<td class="num">{{if .Unlimited}}∞<small>{{$.Text.unlimited}}</small>{{else}}{{.Remaining}} / {{.Maximum}}{{if eq .Remaining 0}}<small>{{$.Text.soldOut}}</small>{{end}}{{end}}</td>{{end}}{{range .Rates}}<td class="num">{{percent .}}</td>{{end}}</tr>{{end}}
+</tbody></table></div><p id="empty" class="note" hidden>{{.Text.empty}}</p>
+<footer><p class="note">{{.Text.rounding}}</p><div class="meta">{{.Text.updated}} · {{.Updated}}</div></footer>
+{{end}}
+</main>
+<script>
+(function(){
+var search=document.getElementById('search');
+if(search){var rows=Array.prototype.slice.call(document.querySelectorAll('#rewards tbody tr'));search.addEventListener('input',function(){var query=search.value.toLowerCase().trim(),visible=0;rows.forEach(function(row){var match=row.cells[0].textContent.toLowerCase().indexOf(query)!==-1;row.hidden=!match;if(match)visible++;});document.getElementById('empty').hidden=visible!==0;});document.getElementById('refresh').addEventListener('click',function(){location.reload();});}
+var phase=document.getElementById('phase');if(phase)phase.addEventListener('change',function(){location.assign(phase.value);});
+window.addEventListener('pageshow',function(event){if(event.persisted)location.reload();});
+})();
+</script>
+</body></html>

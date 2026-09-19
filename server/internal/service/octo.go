@@ -77,6 +77,7 @@ type OctoHTTPServer struct {
 	BaseDir          string // root directory containing the assets/ tree; empty means current directory
 	revisions        *revisionTracker
 	resolver         *assetResolver
+	gachaWeb         http.Handler
 }
 
 func staticPageLanguage(path string) string {
@@ -181,6 +182,17 @@ func (s *OctoHTTPServer) listBinPath(revision, platform string) string {
 
 func (s *OctoHTTPServer) handleAll(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	// WebView URLs carry session credentials: dispatch before request URL logging.
+	if IsGachaWebPath(path) {
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		if s.gachaWeb == nil {
+			http.Error(w, "Gacha details backend is not configured.", http.StatusServiceUnavailable)
+			return
+		}
+		s.gachaWeb.ServeHTTP(w, r)
+		return
+	}
 	platform := platformFromUserAgent(r)
 	isAssetRequest := strings.Contains(path, "/unso-")
 	isMasterDataRequest := strings.Contains(path, "/assets/release/") && strings.Contains(path, "database.bin")
