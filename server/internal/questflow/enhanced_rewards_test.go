@@ -30,7 +30,7 @@ func TestBuildGranterAndDropPreserveEnhancedRewards(t *testing.T) {
 		{PossessionType: model.PossessionTypeWeaponEnhanced, PossessionId: 9001, Count: 2},
 		{PossessionType: model.PossessionTypePartsEnhanced, PossessionId: 9002, Count: 3},
 	}
-	h.grantDropRewards(user, drops, nil, nil, 1000)
+	drops = h.grantDropRewards(user, drops, nil, nil, 1000)
 	if len(user.Weapons) != 2 || len(user.Parts) != 3 || len(user.PartsStatusSubs) != 3 {
 		t.Fatalf("drop inventory: weapons=%v parts=%v subs=%v", user.Weapons, user.Parts, user.PartsStatusSubs)
 	}
@@ -49,11 +49,11 @@ func TestBuildGranterAndDropPreserveEnhancedRewards(t *testing.T) {
 		t.Fatalf("kept drop=%+v", drops[1])
 	}
 	user = store.SeedUserState(2, "test", 1, model.ClientPlatform{})
-	h.grantDropRewards(user, drops[1:], map[int32]bool{40: true}, map[int32]bool{3: true}, 2000)
+	soldDrops := h.grantDropRewards(user, drops[1:], map[int32]bool{40: true}, map[int32]bool{3: true}, 2000)
 	if len(user.Parts)+len(user.PartsStatusSubs) != 0 || user.ConsumableItems[99] != 465 {
 		t.Fatalf("enhanced auto sale: parts=%v gold=%d", user.Parts, user.ConsumableItems[99])
 	}
-	if drops[1].PossessionType != model.PossessionTypeParts || drops[1].PossessionId != 201 || !drops[1].IsAutoSale || drops[1].Count != 3 {
-		t.Fatalf("sold popup=%+v", drops[1])
+	if soldDrops[0].PossessionType != model.PossessionTypeParts || soldDrops[0].PossessionId != 201 || !soldDrops[0].IsAutoSale || soldDrops[0].Count != 3 {
+		t.Fatalf("sold popup=%+v", soldDrops[0])
 	}
 }

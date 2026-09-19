@@ -75,3 +75,55 @@ func TestBuildGranterBuildsEnhancedCostumeGrant(t *testing.T) {
 		t.Fatalf("enhanced costume grant = %+v, want id=10103 level=15 exp=4321", got)
 	}
 }
+
+func TestBuildGranterRandomizesPartsMainStatus(t *testing.T) {
+	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := masterdata.LoadPartsCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := BuildGranter(&masterdata.QuestCatalog{PartsCatalog: parts}, nil)
+	for _, test := range []struct {
+		group   int32
+		allowed []int32
+	}{
+		{1, []int32{4, 8, 12, 16, 20, 24}},
+		{2, []int32{4, 8, 12, 16, 20, 24, 28, 32}},
+		{3, []int32{4, 8, 12, 16, 20, 24, 36}},
+		{401, []int32{4, 8, 12, 16, 20, 24}},
+		{402, []int32{4, 8, 12, 16, 20, 24}},
+		{403, []int32{4, 8, 12, 16, 20, 24}},
+		{455, []int32{4, 8, 12, 16, 20, 24}},
+	} {
+		t.Run(fmt.Sprintf("group=%d", test.group), func(t *testing.T) {
+			var partID int32
+			for id, part := range parts.PartsById {
+				if part.PartsGroupId == test.group && part.RarityType == 40 {
+					partID = id
+					break
+				}
+			}
+			if partID == 0 {
+				t.Fatal("missing test part")
+			}
+			user := store.SeedUserState(1, "parts", 1, model.ClientPlatform{})
+			for range 256 {
+				g.GrantParts(user, partID, 1000)
+			}
+			seen := make(map[int32]int)
+			for _, part := range user.Parts {
+				seen[part.PartsStatusMainId]++
+			}
+			for _, id := range test.allowed {
+				if seen[id] == 0 {
+					t.Errorf("main status %d was never rolled: %v", id, seen)
+				}
+			}
+			if len(seen) != len(test.allowed) {
+				t.Errorf("rolled main statuses=%v, want only %v", seen, test.allowed)
+			}
+		})
+	}
+}

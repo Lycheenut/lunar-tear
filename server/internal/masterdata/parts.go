@@ -15,14 +15,14 @@ type PartsStatusMainDef struct {
 }
 
 type PartsCatalog struct {
-	PartsById                            map[int32]EntityMParts
-	EnhancedById                         map[int32]EntityMPartsEnhanced
-	EnhancedSubStatuses                  map[int32][]EntityMPartsEnhancedSubStatus
-	DefaultPartsStatusMainByLotteryGroup map[int32]int32
-	RarityByRarityType                   map[model.RarityType]EntityMPartsRarity
-	RateByGroupAndLevel                  map[int32]map[int32]int32
-	PriceByGroupAndLevel                 map[int32]map[int32]int32
-	SellPriceByRarity                    map[model.RarityType]NumericalFunc
+	PartsById            map[int32]EntityMParts
+	EnhancedById         map[int32]EntityMPartsEnhanced
+	EnhancedSubStatuses  map[int32][]EntityMPartsEnhancedSubStatus
+	MainStatusPool       map[int32][]int32
+	RarityByRarityType   map[model.RarityType]EntityMPartsRarity
+	RateByGroupAndLevel  map[int32]map[int32]int32
+	PriceByGroupAndLevel map[int32]map[int32]int32
+	SellPriceByRarity    map[model.RarityType]NumericalFunc
 
 	PartsStatusMainById map[int32]PartsStatusMainDef
 	SubStatusPool       map[int32][]int32            // lotteryGroupId -> eligible PartsStatusMainIds
@@ -78,14 +78,22 @@ func LoadPartsCatalog() (*PartsCatalog, error) {
 		enhancedSubStatuses[row.PartsEnhancedId] = append(enhancedSubStatuses[row.PartsEnhancedId], row)
 	}
 
-	// Lottery group ID encodes tier (first digit 1-4) and stat category
-	// (second digit 1-6). Formula: mainStatId = (category - 1) * 4 + tier.
-	defaultPartsStatusMainByLotteryGroup := make(map[int32]int32, 24)
+	// The snapshot contains lottery group references but no main-status lottery
+	// table. Reconstruct the pools from the game rules: all parts allow flat and
+	// percentage attack, defense and HP. Dungeon slot 2 also allows both critical
+	// stats, and slot 3 allows agility. Variation groups have no extra stats.
+	// Group IDs encode tier (1-4) and pool (1-3 dungeon, 4-6 Variation).
+	mainStatusPool := make(map[int32][]int32, 24)
 	for tier := int32(1); tier <= 4; tier++ {
-		for cat := int32(1); cat <= 6; cat++ {
-			groupId := tier*10 + cat
-			mainStatId := (cat-1)*4 + tier
-			defaultPartsStatusMainByLotteryGroup[groupId] = mainStatId
+		for pool := int32(1); pool <= 6; pool++ {
+			ids := []int32{tier, 4 + tier, 8 + tier, 12 + tier, 16 + tier, 20 + tier}
+			switch pool {
+			case 2:
+				ids = append(ids, 24+tier, 28+tier)
+			case 3:
+				ids = append(ids, 32+tier)
+			}
+			mainStatusPool[tier*10+pool] = ids
 		}
 	}
 
@@ -130,18 +138,18 @@ func LoadPartsCatalog() (*PartsCatalog, error) {
 	}
 
 	return &PartsCatalog{
-		PartsById:                            partsById,
-		EnhancedById:                         enhancedById,
-		EnhancedSubStatuses:                  enhancedSubStatuses,
-		DefaultPartsStatusMainByLotteryGroup: defaultPartsStatusMainByLotteryGroup,
-		RarityByRarityType:                   rarityByRarityType,
-		RateByGroupAndLevel:                  rateByGroupAndLevel,
-		PriceByGroupAndLevel:                 priceByGroupAndLevel,
-		SellPriceByRarity:                    sellPriceByRarity,
-		PartsStatusMainById:                  partsStatusMainById,
-		SubStatusPool:                        subStatusPool,
-		SubStatusUnlockLvls:                  subStatusUnlockLvls,
-		FuncResolver:                         funcResolver,
+		PartsById:            partsById,
+		EnhancedById:         enhancedById,
+		EnhancedSubStatuses:  enhancedSubStatuses,
+		MainStatusPool:       mainStatusPool,
+		RarityByRarityType:   rarityByRarityType,
+		RateByGroupAndLevel:  rateByGroupAndLevel,
+		PriceByGroupAndLevel: priceByGroupAndLevel,
+		SellPriceByRarity:    sellPriceByRarity,
+		PartsStatusMainById:  partsStatusMainById,
+		SubStatusPool:        subStatusPool,
+		SubStatusUnlockLvls:  subStatusUnlockLvls,
+		FuncResolver:         funcResolver,
 	}, nil
 }
 

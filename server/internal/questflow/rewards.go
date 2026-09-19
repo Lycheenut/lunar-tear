@@ -202,7 +202,22 @@ func extractInts(s string) []int32 {
 	return out
 }
 
-func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGrant, raritySet, rankSet map[int32]bool, nowMillis int64) {
+func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGrant, raritySet, rankSet map[int32]bool, nowMillis int64) []RewardGrant {
+	// Ordinary parts roll their rank independently, so each copy needs its own
+	// inventory grant and auto-sale result, including count/guaranteed bonuses.
+	expanded := make([]RewardGrant, 0, len(drops))
+	for _, drop := range drops {
+		if drop.PossessionType == model.PossessionTypeParts {
+			count := drop.Count
+			drop.Count = 1
+			for range count {
+				expanded = append(expanded, drop)
+			}
+		} else {
+			expanded = append(expanded, drop)
+		}
+	}
+	drops = expanded
 	for i := range drops {
 		d := drops[i]
 		if d.PossessionType == model.PossessionTypePartsEnhanced {
@@ -228,6 +243,7 @@ func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGra
 		}
 		h.applyRewardPossession(user, d.PossessionType, d.PossessionId, d.Count, nowMillis)
 	}
+	return drops
 }
 
 func battleDropSeed(userId int64, questId int32, runSeed int64) int64 {
@@ -366,7 +382,14 @@ func (h *QuestHandler) computeDropRewardsForRun(
 		dropRate = h.Campaigns.QuestDropRate(target, h.campaignFilter(user, nowMillis))
 		dropCount = h.Campaigns.QuestDropCount(target, h.campaignFilter(user, nowMillis))
 	}
+	// Bonus draws use a separate, repeatable stream so they cannot change any
+	// of the original battle reveals or rewards.
+	partsRandom := rand.New(rand.NewSource(battleDropSeed(user.UserId, questDef.QuestId, runSeed^0x5041525453)))
 	for _, planned := range h.battleDropPlan(user, questDef.QuestId, runSeed) {
+		if h.BattleDropRewardById[planned.BattleDropRewardId].PossessionType == int32(model.PossessionTypeParts) {
+			drops = append(drops, h.partsDropRewards(user, questDef, planned, target, nowMillis, dropRate, dropCount, partsRandom)...)
+			continue
+		}
 		if grant, ok := h.battleDropRewardGrant(user, planned.BattleDropRewardId, planned.BattleDropEffectId, target, nowMillis, dropRate, dropCount); ok {
 			drops = append(drops, grant)
 		}
@@ -398,20 +421,30 @@ func (h *QuestHandler) battleDropRewardGrant(
 	if !ok {
 		return RewardGrant{}, false
 	}
-	itemDropRate := dropRate
-	itemDropCount := dropCount
-	if h.ImportantItemEffects != nil {
-		ratePermil, countPermil := h.ImportantItemEffects.QuestBonuses(
-			user.ImportantItems, target, model.PossessionType(bdr.PossessionType), bdr.PossessionId, nowMillis)
-		itemDropRate = itemDropRate.WithBonusPermil(ratePermil)
-		itemDropCount = itemDropCount.WithBonusPermil(countPermil)
-	}
+	itemDropRate, itemDropCount := h.battleDropMultipliers(user, bdr, target, nowMillis, dropRate, dropCount)
 	return RewardGrant{
 		PossessionType: model.PossessionType(bdr.PossessionType),
 		PossessionId:   bdr.PossessionId,
 		Count:          itemDropCount.Apply(itemDropRate.Apply(bdr.Count)),
 		RewardEffectId: effectID,
 	}, true
+}
+
+func (h *QuestHandler) battleDropMultipliers(
+	user *store.UserState,
+	bdr masterdata.EntityMBattleDropReward,
+	target campaign.QuestTarget,
+	nowMillis int64,
+	dropRate campaign.DropRateMul,
+	dropCount campaign.DropCountMul,
+) (campaign.DropRateMul, campaign.DropCountMul) {
+	if h.ImportantItemEffects != nil {
+		ratePermil, countPermil := h.ImportantItemEffects.QuestBonuses(
+			user.ImportantItems, target, model.PossessionType(bdr.PossessionType), bdr.PossessionId, nowMillis)
+		dropRate = dropRate.WithBonusPermil(ratePermil)
+		dropCount = dropCount.WithBonusPermil(countPermil)
+	}
+	return dropRate, dropCount
 }
 
 func (h *QuestHandler) applyExpRewards(user *store.UserState, questId int32, nowMillis int64) {
