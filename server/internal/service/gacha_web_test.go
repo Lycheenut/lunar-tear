@@ -149,7 +149,7 @@ func TestGachaWebBoxUsesCurrentIDAndLiveDrawState(t *testing.T) {
 		t.Fatalf("reset: %v, %v", err, drawErr)
 	}
 	body = requestGachaPage(web, path).Body.String()
-	if !strings.Contains(body, "<span>2</span>") || !strings.Contains(body, "75.000000%") {
+	if !strings.Contains(body, "3 / 3") || !strings.Contains(body, "1 / 1") || !strings.Contains(body, "75.000000%") {
 		t.Fatal("reset box was not refreshed")
 	}
 	// Chapter Gacha displays unlimited rewards and applies monthly reset without a draw.

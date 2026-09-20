@@ -6,21 +6,18 @@
 <meta name="referrer" content="no-referrer">
 <title>{{.Text.title}} · {{.Title}}</title>
 <style>
-:root{color-scheme:dark;--surface:#302b2c;--ink:#eeeae1;--muted:#c0b9b2;--line:#716a6a;--bar:#c8c4b4;--pickup:#d5a0a9}
-*{box-sizing:border-box}html{background:var(--surface)}body{margin:0;color:var(--ink);font:clamp(14px,1.85vw,23px)/1.45 Arial,"Noto Sans JP","Yu Gothic",sans-serif}main{max-width:1440px;margin:auto;padding:12px 20px 26px}h1{font-size:1.15em;font-weight:500;margin:8px 0 18px;text-align:center;letter-spacing:.12em}h2{font-size:1em;font-weight:400;margin:22px 0 14px;padding:2px 16px;background:var(--bar);color:#393536;line-height:1.4}h3{font-size:1em;font-weight:400;margin:14px 0;padding:0 0 12px;border-bottom:1px solid var(--line)}h3:before{content:"◆";display:inline-block;margin-right:.35em;color:#eeeade;transform:scaleX(.8)}
-.context{font-size:.72em;color:var(--muted);margin-bottom:12px}.options{margin-top:6px}.options summary{cursor:pointer;width:fit-content}.toolbar{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:10px 0}.toolbar label{display:flex;gap:8px;align-items:center;max-width:100%}select,button{font:inherit;font-size:.85em;color:var(--ink);border:1px solid var(--line);background:#494142;border-radius:0;padding:6px 12px;min-height:34px;max-width:100%}button{cursor:pointer}select:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--bar);outline-offset:3px}.note{font-size:.72em;line-height:1.55;margin:10px 0 20px;color:var(--ink)}.meta{font-size:.65em;color:var(--muted)}
+:root{--ink:#eeeae1;--muted:#c0b9b2;--line:#716a6a;--bar:#c8c4b4;--pickup:#d5a0a9}
+*{box-sizing:border-box}html,body{background:transparent}body{margin:0;color:var(--ink);font:clamp(14px,1.85vw,23px)/1.45 Arial,"Noto Sans JP","Yu Gothic",sans-serif}main{max-width:1440px;margin:auto;padding:12px 20px 26px}h1{font-size:1.15em;font-weight:500;margin:8px 0 18px;text-align:center;letter-spacing:.12em}h2{font-size:1em;font-weight:400;margin:22px 0 14px;padding:2px 16px;background:var(--bar);color:#393536;line-height:1.4}h3{font-size:1em;font-weight:400;margin:14px 0;padding:0 0 12px;border-bottom:1px solid var(--line)}h3:before{content:"◆";display:inline-block;margin-right:.35em;color:#eeeade;transform:scaleX(.8)}
+.note{font-size:.72em;line-height:1.55;margin:10px 0 20px;color:var(--ink)}.meta{font-size:.65em;color:var(--muted)}
 table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid var(--line);padding:7px 10px;vertical-align:middle;font-weight:400}th{background:#4b4345;text-align:center;line-height:1.25}td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:.015em}.summary-table{width:57%;min-width:min(410px,100%)}.summary-table .num{width:35%}.summary-name{display:grid;grid-template-columns:calc(clamp(14px,2.35vw,29px)*4) 1fr;align-items:center;gap:1em}.rarity{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle}.sprite{display:inline-block;background-size:contain;background-repeat:no-repeat;background-position:center}.rarity-sprite{--star-size:clamp(14px,2.35vw,29px);width:calc(var(--star-size)*var(--stars));height:calc(var(--star-size)*20/19);background-size:var(--star-size) 100%;background-repeat:repeat-x;background-position:left center}.rarity-2{color:#d7d7d7}.rarity-3{color:#d8cf99}.rarity-4{color:#9dc4d0}.rarity-cell{text-align:center;padding-left:4px;padding-right:4px}.rarity-col{width:15%}.rate-col{width:17%}
 .reward-line{display:flex;align-items:center;gap:.3em;min-width:0}.icons{display:flex;align-items:center;gap:.18em;flex-shrink:0}.icon{width:clamp(20px,3.2vw,40px);aspect-ratio:1;vertical-align:middle}.icon-label{font-size:.65em;padding:1px 3px;border:1px solid var(--line);white-space:nowrap}.reward-name{overflow-wrap:anywhere;min-width:0}.character{display:inline-block;background:#807778;padding:0 .3em;margin-right:.3em;line-height:1.3}.pickup .num{color:var(--pickup)}.pickup-label{margin-left:auto;padding-left:.6em;white-space:nowrap;color:var(--pickup);font-size:.85em}.box-name{width:50%}.box-table td:first-child{overflow-wrap:anywhere}.exhausted{color:#a69d9a}footer{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}.error{padding:30px 12px;text-align:center}
-@media(max-width:600px){main{padding:10px 10px 24px}h2{padding:4px 8px}th,td{padding:7px 5px}.summary-table{width:100%;min-width:0}.rarity-col{width:20%}.rate-col{width:29%}.reward-line{flex-wrap:wrap;gap:3px}.icons{gap:2px}.icon{width:20px}.reward-name{flex:1 1 65px}.pickup-label{flex-basis:100%;text-align:right;padding-left:0;font-size:.75em}.note{font-size:.8em}.context{font-size:.8em}.toolbar label{flex-wrap:wrap}.num{font-size:.9em}.weapon-table th{font-size:.85em}}
+@media(max-width:600px){main{padding:10px 10px 24px}h2{padding:4px 8px}th,td{padding:7px 5px}.summary-table{width:100%;min-width:0}.rarity-col{width:20%}.rate-col{width:29%}.reward-line{flex-wrap:wrap;gap:3px}.icons{gap:2px}.icon{width:20px}.reward-name{flex:1 1 65px}.pickup-label{flex-basis:100%;text-align:right;padding-left:0;font-size:.75em}.note{font-size:.8em}.num{font-size:.9em}.weapon-table th{font-size:.85em}}
 {{range $name, $url := .Icons}}.{{$name}}{background-image:url("{{$url}}")}{{end}}
 </style>
 </head>
 <body><main>
 {{if .Error}}<h1>{{.Text.rates}}</h1><p class="error" role="alert">{{.Error}}</p>{{else}}
-<div class="context">{{.Title}}{{if not .Box}}<details class="options"><summary>{{.Text.phase}}</summary><div class="toolbar"><label>{{.Text.phase}}<select id="phase">{{range .Phases}}<option value="{{.URL}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}</select></label></div></details>{{end}}</div>
 {{if .Box}}
-<h2>{{.Text.box}} <span>{{.BoxNumber}}</span></h2>
-<div class="toolbar"><button id="refresh" type="button">{{.Text.refresh}}</button></div>
 <table class="box-table" aria-label="{{.Text.reward}}"><colgroup><col class="box-name"><col><col></colgroup><thead><tr><th>{{.Text.reward}}</th><th>{{.Text.remaining}}</th><th>{{.Text.probability}}</th></tr></thead><tbody>
 {{range .Items}}<tr{{if and (not .Unlimited) (eq .Remaining 0)}} class="exhausted"{{end}}><td>{{.Name}} ×{{.Count}}</td><td class="num">{{if .Unlimited}}∞{{else}}{{.Remaining}} / {{.Maximum}}{{end}}</td><td class="num">{{percent (index .Rates 0)}}</td></tr>{{end}}
 </tbody></table>
@@ -48,8 +45,6 @@ table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px so
 </main>
 <script>
 (function(){
-var refresh=document.getElementById('refresh');if(refresh)refresh.addEventListener('click',function(){location.reload();});
-var phase=document.getElementById('phase');if(phase)phase.addEventListener('change',function(){location.assign(phase.value);});
 window.addEventListener('pageshow',function(event){if(event.persisted)location.reload();});
 })();
 </script>

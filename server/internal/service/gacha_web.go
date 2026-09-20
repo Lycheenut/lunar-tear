@@ -55,20 +55,15 @@ type gachaWebRow struct {
 	Unlimited          bool
 }
 
-type gachaWebChoice struct {
-	Label, URL string
-	Selected   bool
-}
 type gachaWebPage struct {
 	Language                           string
 	Text                               map[string]string
 	Icons                              map[string]template.URL
 	Title, Kind, Error, Updated, Reset string
-	GachaID, BoxNumber                 int32
+	GachaID                            int32
 	Box                                bool
 	Columns                            []string
 	Groups, Items                      []gachaWebRow
-	Phases                             []gachaWebChoice
 	SingleUsesNormal                   bool
 }
 
@@ -171,22 +166,10 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, candidate := range entry.PricePhases {
-			if candidate.DrawCount <= 0 {
-				continue
-			}
 			if candidate.DrawCount == 1 && candidate.StepNumber == phase.StepNumber && candidate.PriceType == phase.PriceType && candidate.FixedCount == 0 {
 				page.SingleUsesNormal = true
+				break
 			}
-			q := r.URL.Query()
-			q.Set("gachaPricePhaseId", strconv.Itoa(int(candidate.PhaseId)))
-			label := fmt.Sprintf(page.Text["draws"], candidate.DrawCount)
-			if candidate.StepNumber > 0 {
-				label = fmt.Sprintf("STEP %d · %s", candidate.StepNumber, label)
-			}
-			if candidate.PriceType == model.PriceTypeConsumableItem {
-				label += " · " + page.Text["ticket"]
-			}
-			page.Phases = append(page.Phases, gachaWebChoice{label, r.URL.Path + "?" + q.Encode(), candidate.PhaseId == phase.PhaseId})
 		}
 		for _, slot := range odds {
 			label := fmt.Sprintf(page.Text["slot"], slot.First)
@@ -225,7 +208,7 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case model.GachaLabelChapter, model.GachaLabelEvent:
-		page.Box, page.BoxNumber = true, max(state.BoxNumber, 1)
+		page.Box = true
 		page.Kind = "EVENT GACHA"
 		if entry.GachaLabelType == model.GachaLabelChapter {
 			page.Kind = "CHAPTER GACHA"
