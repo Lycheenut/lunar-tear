@@ -1626,7 +1626,8 @@
 
     const groupRows = state.shopCellGroupDraft.map((row, draftIndex) => ({ row, draftIndex }))
       .filter(({ row }) => String(row.shopItemCellGroupId) === groupID)
-      .filter(({ row }) => !query || shopCellGroupSearchText(row).includes(query));
+      .filter(({ row }) => !query || shopCellGroupSearchText(row).includes(query))
+      .sort((left, right) => Number(left.row.sortOrder) - Number(right.row.sortOrder));
     elements.shopCellGroupBody.replaceChildren();
     groupRows.forEach(({ row, draftIndex }) => elements.shopCellGroupBody.append(renderShopCellGroupCard(row, draftIndex, contentTable)));
     if (!groupRows.length) {
@@ -1686,10 +1687,33 @@
     cellPicker.input.classList.toggle("changed", state.shopCellGroupDirty);
     selectSlot.append(cellPicker.wrapper);
 
+    const sortLabel = document.createElement("label");
+    sortLabel.className = "shop-cell-sort-order field-editor";
+    const sortInput = document.createElement("input");
+    sortInput.type = "text";
+    sortInput.inputMode = "numeric";
+    sortInput.value = String(row.sortOrder);
+    sortInput.setAttribute("aria-label", `Cell ${row.shopItemCellId} SortOrder`);
+    sortInput.classList.toggle("changed", state.shopCellGroupDirty);
+    sortInput.addEventListener("change", () => {
+      const value = sortInput.value.trim();
+      if (!/^-?\d+$/.test(value) || BigInt(value) < -2147483648n || BigInt(value) > 2147483647n) {
+        sortInput.classList.add("invalid");
+        showNotice("SortOrder 必须是有效的 32 位整数。", true);
+        return;
+      }
+      sortInput.classList.remove("invalid");
+      clearErrorNotice();
+      state.shopCellGroupDraft[draftIndex].sortOrder = Number(value);
+      markShopCellGroupDirty();
+      renderTable();
+    });
+    sortLabel.append(makeCell("span", "SortOrder"), sortInput);
+
     const meta = document.createElement("div");
     meta.className = "shop-cell-card-meta";
     meta.append(
-      makeCell("span", `SortOrder ${row.sortOrder}`),
+      sortLabel,
       makeCell("code", `Term ${row.shopItemCellTermId}`),
       makeCell("span", `${shopReadonlyTime(row.startDatetime)} → ${shopReadonlyTime(row.endDatetime)}`)
     );

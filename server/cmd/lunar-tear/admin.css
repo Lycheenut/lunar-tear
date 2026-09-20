@@ -755,6 +755,8 @@ tbody tr:hover td { background-color: rgba(255, 255, 255, .018); }
 .shop-item-table th:nth-child(3) { width: 220px; }
 .shop-item-table td { padding-top: 14px; padding-bottom: 14px; vertical-align: top; }
 .shop-editor select, .shop-editor input { width: 100%; min-width: 0; font-size: 12px; }
+.shop-cell-sort-order { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+.shop-cell-sort-order input { width: 100px; min-height: 28px; padding: 4px 7px; }
 .shop-editor .mission-reward-content-search { width: 280px; }
 .shop-editor .mission-reward-panel-heading-actions { flex-wrap: wrap; }
 .shop-unreferenced-filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
