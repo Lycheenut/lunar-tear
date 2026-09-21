@@ -216,7 +216,7 @@ func TestActivityGroupRoutesPersistPreviewAndPublish(t *testing.T) {
 		t.Fatalf("Gacha config does not separate schedules from activity membership: %v", err)
 	}
 	snapshot = holder.Get()
-	empty := &activitygroup.Config{Version: 1, Units: []activitygroup.ActivityUnit{}, Groups: []activitygroup.ActivityGroup{}}
+	empty := &activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{}, Groups: []activitygroup.ActivityGroup{}}
 	response = request("POST", base, "Bearer test", activityGroupRequest{ExpectedContentHash: snapshot.ActivityConfigHash, ExpectedGachaConfigHash: snapshot.GachaConfigHash, ExpectedMasterDataHash: snapshot.MasterDataHash, Config: empty})
 	if response.Code != 200 {
 		t.Fatal(response.Body.String())

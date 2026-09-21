@@ -3,6 +3,7 @@ package masterdataadmin
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -20,17 +21,30 @@ func TestActivityGroupsValidateMembersAndReferences(t *testing.T) {
 		{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: 3}, RelatedChapterID: 1},
 		{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: 4}},
 		{ActivityMember: activitygroup.ActivityMember{Kind: "banner", ID: 5}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "shop", ID: 6}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "chapter", ID: 7}, ChapterType: 10},
 	}}
-	valid := activitygroup.Config{Version: 1, Units: []activitygroup.ActivityUnit{
-		{ID: "event", Name: "Event", Type: 1, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 1}, {Kind: "chapter", ID: 2}, {Kind: "event", ID: 3}}},
-		{ID: "premium", Name: "Premium", Type: 2, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 4}, {Kind: "banner", ID: 5}}},
+	valid := activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{
+		{ID: "event", Name: "Event", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 1}, {Kind: "event", ID: 3}}},
+		{ID: "premium", Name: "Premium", Type: activitygroup.TypePremium, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 4}, {Kind: "banner", ID: 5}}},
 	}, Groups: []activitygroup.ActivityGroup{{ID: "mixed", Name: "Mixed", UnitIDs: []string{"event", "premium"}}}}
 	if err := ValidateActivityGroups(&valid, catalog); err != nil {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*activitygroup.Config){
-		"empty unit":               func(c *activitygroup.Config) { c.Units[0].Members = nil },
-		"wrong source":             func(c *activitygroup.Config) { c.Units[0].Type = 2 },
+		"empty unit":   func(c *activitygroup.Config) { c.Units[0].Members = nil },
+		"wrong source": func(c *activitygroup.Config) { c.Units[0].Type = 2 },
+		"mixed chapter types": func(c *activitygroup.Config) {
+			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "chapter", ID: 2})
+		},
+		"variation shop": func(c *activitygroup.Config) {
+			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "shop", ID: 6})
+		},
+		"record event gacha": func(c *activitygroup.Config) {
+			c.Units[0].Type = activitygroup.TypeRecord
+			c.Units[0].Members[0].ID = 2
+		},
+		"unsupported chapter":      func(c *activitygroup.Config) { c.Units[0].Members[0].ID = 7 },
 		"missing source":           func(c *activitygroup.Config) { c.Units[0].Members = c.Units[0].Members[1:] },
 		"missing member":           func(c *activitygroup.Config) { c.Units[1].Members[0].ID = 99 },
 		"duplicate member":         func(c *activitygroup.Config) { c.Units[1].Members = append(c.Units[1].Members, c.Units[1].Members[0]) },
@@ -98,7 +112,7 @@ func TestActivityGroupGenerationIsOneTimeAndDoesNotReschedule(t *testing.T) {
 	if err != nil || again != generated {
 		t.Fatalf("existing configuration was regenerated: %v", err)
 	}
-	generated = &activitygroup.Config{Version: 1, Units: []activitygroup.ActivityUnit{}, Groups: []activitygroup.ActivityGroup{}}
+	generated = &activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{}, Groups: []activitygroup.ActivityGroup{}}
 	again, err = GenerateActivityGroups("missing.bin", generated, config, nil)
 	if err != nil || len(again.Groups) != 0 {
 		t.Fatal("empty saved configuration was regenerated")
@@ -124,9 +138,9 @@ func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.
 	config := gacha.DefaultConfig()
 	config.Banners[588] = gacha.BannerConfig{BannerAssetName: "limited_588", StartDatetime: 1000, EndDatetime: 2000}
 	config.Banners[589] = gacha.BannerConfig{BannerAssetName: "limited_589", StartDatetime: 3000, EndDatetime: 4000}
-	groups := &activitygroup.Config{Version: 1, Units: []activitygroup.ActivityUnit{
-		{ID: "chapter", Name: "Chapter", Type: 1, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 300}, {Kind: "event", ID: 300001}, {Kind: "shop", ID: 6005}, {Kind: "term", ID: 8003}, {Kind: "tip", ID: 1000}}},
-		{ID: "premium", Name: "Premium", Type: 2, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 588}, {Kind: "shop", ID: 6005}, {Kind: "medal", ID: 8003}}},
+	groups := &activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{
+		{ID: "chapter", Name: "Chapter", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 300}, {Kind: "event", ID: 300001}, {Kind: "term", ID: 8003}, {Kind: "tip", ID: 1000}}},
+		{ID: "premium", Name: "Premium", Type: activitygroup.TypePremium, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 588}, {Kind: "shop", ID: 6005}, {Kind: "term", ID: 8003}, {Kind: "medal", ID: 8003}}},
 	}, Groups: []activitygroup.ActivityGroup{{ID: "combined", Name: "Combined", UnitIDs: []string{"chapter", "premium"}}}}
 	config.EventSchedules = map[int32]gacha.EventSchedule{300001: {StartDatetime: 1000, EndDatetime: 2000}}
 	entries := []store.GachaCatalogEntry{{GachaId: 300001, GachaLabelType: model.GachaLabelEvent, RelatedEventQuestChapterId: 300}}
@@ -174,5 +188,86 @@ func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.
 		if _, _, _, err := BuildActivitySchedule(path, groups, config, catalog, "combined", invalid[0], invalid[1]); err == nil {
 			t.Fatal("invalid date accepted")
 		}
+	}
+}
+
+func TestActivityCatalogRestrictsSourcesAndResolvesPremiumTitles(t *testing.T) {
+	path, _ := linkedUpdateTestCatalog(t)
+	cacheKey, _ := filepath.Abs(filepath.Join(filepath.Dir(filepath.Dir(path)), "revisions", "0", "assetbundle"))
+	previous, existed := localizationCache.Load(cacheKey)
+	localizationCache.Store(cacheKey, localizationIndex{"en": {"gacha.title.limitd_588": "Celebratory Summons"}, "ja": {"gacha.title.limitd_588": "記念ガチャ"}})
+	t.Cleanup(func() {
+		if existed {
+			localizationCache.Store(cacheKey, previous)
+		} else {
+			localizationCache.Delete(cacheKey)
+		}
+	})
+	config := gacha.DefaultConfig()
+	config.Banners[588] = gacha.BannerConfig{BannerAssetName: "limited_588"}
+	catalog, err := LoadActivityGroups(path, nil, config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, option := range catalog.Options {
+		if option.Kind == "chapter" && option.ChapterType != 1 && option.ChapterType != 2 {
+			t.Fatalf("unsupported chapter offered: %+v", option)
+		}
+		if option.Kind == "premium" && option.ID == 588 {
+			found = true
+			if option.Titles["en"] != "Celebratory Summons" || option.Titles["ja"] != "記念ガチャ" {
+				t.Fatalf("missing Premium titles: %+v", option.Titles)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("Premium option missing")
+	}
+}
+
+func TestMigrateActivityGroupsSplitsTypesAndPreservesCustomNames(t *testing.T) {
+	catalog := &ActivityGroupCatalog{Options: []ActivityMemberOption{
+		{ActivityMember: activitygroup.ActivityMember{Kind: "chapter", ID: 1}, ChapterType: 1},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "chapter", ID: 2}, ChapterType: 2},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "chapter", ID: 3}, ChapterType: 10},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: 20}, RelatedChapterID: 2},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "shop", ID: 30}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "banner", ID: 40}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: 588}, Titles: map[string]string{"en": "Celebratory Summons"}},
+	}}
+	legacy := &activitygroup.Config{Version: 1, Units: []activitygroup.ActivityUnit{
+		{ID: "mixed", Name: "Custom name", Type: 1, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 1}, {Kind: "chapter", ID: 2}, {Kind: "event", ID: 20}, {Kind: "shop", ID: 30}, {Kind: "banner", ID: 40}}},
+		{ID: "unsupported", Name: "Other", Type: 1, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 3}}},
+		{ID: "premium:588", Name: "limited_588", Type: 2, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 588}}},
+	}, Groups: []activitygroup.ActivityGroup{
+		{ID: "combined", Name: "Custom group", UnitIDs: []string{"mixed", "unsupported"}},
+		{ID: "unsupported", Name: "Other", UnitIDs: []string{"unsupported"}},
+		{ID: "premium:588", Name: "limited_588", UnitIDs: []string{"premium:588"}},
+	}}
+	config := gacha.DefaultConfig()
+	config.Banners[588] = gacha.BannerConfig{BannerAssetName: "limited_588"}
+	before, _ := json.Marshal(legacy)
+	migrated, err := migrateActivityGroups(legacy, catalog, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrated.Units) != 3 || len(migrated.Groups) != 2 || len(migrated.Groups[0].UnitIDs) != 2 {
+		t.Fatalf("unexpected migration: %+v", migrated)
+	}
+	if migrated.Units[0].Type != activitygroup.TypeRecord || migrated.Units[1].Type != activitygroup.TypeVariation || migrated.Units[2].Type != activitygroup.TypePremium {
+		t.Fatal("incorrect type mapping")
+	}
+	assertActivityMember(t, &migrated.Units[0], activitygroup.ActivityMember{Kind: "shop", ID: 30})
+	assertActivityMember(t, &migrated.Units[1], activitygroup.ActivityMember{Kind: "event", ID: 20})
+	if migrated.Units[0].Name != "Custom name" || migrated.Groups[0].Name != "Custom group" || migrated.Groups[1].Name != "Celebratory Summons" {
+		t.Fatal("names not preserved/restored")
+	}
+	after, _ := json.Marshal(legacy)
+	if string(before) != string(after) {
+		t.Fatal("migration changed input")
+	}
+	if again, err := GenerateActivityGroups("missing.bin", migrated, config, nil); err != nil || again != migrated {
+		t.Fatal("version 2 was regenerated")
 	}
 }

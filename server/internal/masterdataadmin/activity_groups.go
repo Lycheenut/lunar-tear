@@ -22,16 +22,16 @@ type ActivityMemberKind struct {
 }
 
 var activityMemberKinds = []ActivityMemberKind{
-	{"chapter", "EventQuestChapter", "m_event_quest_chapter", []int{1}, false},
-	{"premium", "Premium Gacha", "", []int{2}, false},
-	{"banner", "MomBanner", "m_mom_banner", []int{1, 2}, false},
-	{"navi", "NaviCutIn", "m_navi_cut_in", []int{1}, false},
+	{"chapter", "EventQuestChapter", "m_event_quest_chapter", []int{2, 3}, false},
+	{"premium", "Premium Gacha", "", []int{1}, false},
+	{"banner", "MomBanner", "m_mom_banner", []int{1, 2, 3}, false},
+	{"navi", "NaviCutIn", "m_navi_cut_in", []int{2, 3}, false},
 	{"shop", "兑换商店", "m_shop", []int{1, 2}, true},
-	{"mission", "活动任务（MissionTerm）", "m_mission_term", []int{1}, true},
-	{"event", "Event Gacha（Variation）", "", []int{1}, true},
-	{"term", "兑换币 / Ticket / 碎片有效期", "m_consumable_item_term", []int{1, 2}, true},
-	{"medal", "碎片自动转换期限", "m_gacha_medal", []int{2}, true},
-	{"tip", "Tip", "m_tip", []int{1}, false},
+	{"mission", "活动任务", "m_mission_term", []int{2, 3}, true},
+	{"event", "Event Gacha", "", []int{3}, true},
+	{"term", "道具有效期", "m_consumable_item_term", []int{1, 2, 3}, true},
+	{"medal", "碎片自动转换期限", "m_gacha_medal", []int{1}, true},
+	{"tip", "Tip", "m_tip", []int{2, 3}, false},
 }
 
 type ActivityMemberOption struct {
@@ -75,12 +75,24 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 			}
 			if kind.Kind == "chapter" {
 				option.ChapterType, _ = strconv.ParseInt(row.Values["EventQuestType"], 10, 64)
+				if activitySourceType(option) == 0 {
+					continue
+				}
 			}
 			catalog.Options = append(catalog.Options, option)
 		}
 	}
 	for id, banner := range config.Banners {
-		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: int64(id)}, Titles: map[string]string{"en": banner.BannerAssetName}, StartDatetime: banner.StartDatetime, EndDatetime: banner.EndDatetime})
+		titles := resolver.byKey("gacha.title." + banner.BannerAssetName)
+		if len(titles) == 0 {
+			if suffix, ok := strings.CutPrefix(banner.BannerAssetName, "limited_"); ok {
+				titles = resolver.byKey("gacha.title.limitd_" + suffix)
+			}
+		}
+		if len(titles) == 0 {
+			titles = map[string]string{"en": banner.BannerAssetName}
+		}
+		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: int64(id)}, Titles: titles, StartDatetime: banner.StartDatetime, EndDatetime: banner.EndDatetime})
 	}
 	for _, entry := range entries {
 		if entry.GachaLabelType != model.GachaLabelEvent {
@@ -90,7 +102,7 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 		if schedule, ok := config.EventSchedules[entry.GachaId]; ok {
 			start, end = schedule.StartDatetime, schedule.EndDatetime
 		}
-		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: int64(entry.GachaId)}, Titles: map[string]string{"en": entry.BannerAssetName}, StartDatetime: start, EndDatetime: end, RelatedChapterID: int64(entry.RelatedEventQuestChapterId)})
+		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: int64(entry.GachaId)}, Titles: resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", entry.DescriptionTextId)), StartDatetime: start, EndDatetime: end, RelatedChapterID: int64(entry.RelatedEventQuestChapterId)})
 	}
 	sort.Slice(catalog.Options, func(i, j int) bool {
 		if catalog.Options[i].Kind != catalog.Options[j].Kind {
@@ -105,9 +117,40 @@ func activityKey(member activitygroup.ActivityMember) string {
 	return fmt.Sprintf("%s:%d", member.Kind, member.ID)
 }
 
+func activitySourceType(option ActivityMemberOption) int {
+	if option.Kind == "premium" {
+		return activitygroup.TypePremium
+	}
+	if option.Kind == "chapter" {
+		switch option.ChapterType {
+		case 1:
+			return activitygroup.TypeRecord
+		case 2:
+			return activitygroup.TypeVariation
+		}
+	}
+	return 0
+}
+
+func activityMemberAllowed(option ActivityMemberOption, unitType int) bool {
+	if option.Kind == "chapter" || option.Kind == "premium" {
+		return activitySourceType(option) == unitType
+	}
+	for _, kind := range activityMemberKinds {
+		if kind.Kind == option.Kind {
+			for _, allowed := range kind.Types {
+				if allowed == unitType {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroupCatalog) error {
-	if config == nil || config.Version != 1 {
-		return fmt.Errorf("活动组配置版本必须为 1")
+	if config == nil || config.Version != activitygroup.ConfigVersion {
+		return fmt.Errorf("活动组配置版本必须为 %d", activitygroup.ConfigVersion)
 	}
 	if len(config.Units) > 2000 || len(config.Groups) > 2000 {
 		return fmt.Errorf("活动组或单位数量不能超过 2000")
@@ -121,8 +164,8 @@ func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroup
 		if strings.TrimSpace(unit.ID) == "" || strings.TrimSpace(unit.Name) == "" || units[unit.ID] {
 			return fmt.Errorf("活动单位 ID / 名称不能为空且 ID 不能重复")
 		}
-		if unit.Type != 1 && unit.Type != 2 {
-			return fmt.Errorf("活动单位 %s 类型必须为 1 或 2", unit.Name)
+		if unit.Type < activitygroup.TypePremium || unit.Type > activitygroup.TypeVariation {
+			return fmt.Errorf("活动单位 %s 必须为 Premium Gacha、Record 或 Variation", unit.Name)
 		}
 		units[unit.ID] = true
 		seen := make(map[string]bool)
@@ -135,20 +178,10 @@ func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroup
 				return fmt.Errorf("活动单位 %s 的成员 %s 不存在或重复", unit.Name, key)
 			}
 			seen[key] = true
-			allowed := false
-			for _, kind := range activityMemberKinds {
-				if kind.Kind == member.Kind {
-					for _, typ := range kind.Types {
-						if typ == unit.Type {
-							allowed = true
-						}
-					}
-				}
-			}
-			if !allowed {
+			if !activityMemberAllowed(option, unit.Type) {
 				return fmt.Errorf("活动单位 %s 不支持成员类型 %s", unit.Name, member.Kind)
 			}
-			if unit.Type == 1 && member.Kind == "chapter" || unit.Type == 2 && member.Kind == "premium" {
+			if activitySourceType(option) == unit.Type {
 				hasSource = true
 			}
 			if member.Kind == "chapter" && option.ChapterType == 2 {
@@ -156,7 +189,7 @@ func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroup
 			}
 		}
 		if !hasSource {
-			return fmt.Errorf("活动单位 %s 至少需要 1 个对应类型的 EventQuestChapter 或 Premium Gacha", unit.Name)
+			return fmt.Errorf("活动单位 %s 至少需要 1 个对应类型的 Premium Gacha、Record 或 Variation", unit.Name)
 		}
 		for _, member := range unit.Members {
 			if member.Kind == "event" && !variationChapters[options[activityKey(member)].RelatedChapterID] {
@@ -185,14 +218,17 @@ func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroup
 }
 
 // GenerateActivityGroups captures relationships once. It never changes a
-// schedule and never runs again for a non-nil config, including an empty one.
+// schedule. Version 1 membership is migrated once to the three unit types.
 func GenerateActivityGroups(path string, existing *activitygroup.Config, config *gacha.Config, entries []store.GachaCatalogEntry) (*activitygroup.Config, error) {
-	if existing != nil {
+	if existing != nil && existing.Version == activitygroup.ConfigVersion {
 		return existing, nil
 	}
 	catalog, err := LoadActivityGroups(path, nil, config, entries)
 	if err != nil {
 		return nil, err
+	}
+	if existing != nil {
+		return migrateActivityGroups(existing, catalog, config)
 	}
 	file, err := memorydb.OpenFile(path)
 	if err != nil {
@@ -203,7 +239,7 @@ func GenerateActivityGroups(path string, existing *activitygroup.Config, config 
 	if err != nil {
 		return nil, err
 	}
-	groups := &activitygroup.Config{Version: 1, Units: []activitygroup.ActivityUnit{}, Groups: []activitygroup.ActivityGroup{}}
+	groups := &activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{}, Groups: []activitygroup.ActivityGroup{}}
 	byRef := make(map[rowRef]activitygroup.ActivityMember)
 	for _, option := range catalog.Options {
 		for _, kind := range activityMemberKinds {
@@ -228,7 +264,7 @@ func GenerateActivityGroups(path string, existing *activitygroup.Config, config 
 		if source.Kind != "chapter" && source.Kind != "premium" {
 			continue
 		}
-		unit := activitygroup.ActivityUnit{ID: activityKey(source.ActivityMember), Type: 1, Name: fmt.Sprintf("EventQuestChapter %d", source.ID), Members: []activitygroup.ActivityMember{source.ActivityMember}}
+		unit := activitygroup.ActivityUnit{ID: activityKey(source.ActivityMember), Type: activitySourceType(source), Name: fmt.Sprintf("EventQuestChapter %d", source.ID), Members: []activitygroup.ActivityMember{source.ActivityMember}}
 		for _, language := range []string{"en", "ja", "ko"} {
 			if source.Titles[language] != "" {
 				unit.Name = source.Titles[language]
@@ -260,7 +296,7 @@ func GenerateActivityGroups(path string, existing *activitygroup.Config, config 
 			if link := index.eventLinks[linkID]; link != nil {
 				domain, _ := integerAt(link, 1)
 				destination, _ := integerAt(link, 2)
-				if domain == eventLinkDomainShop {
+				if domain == eventLinkDomainShop && unit.Type == activitygroup.TypeRecord {
 					if shop, ok := index.shopsByID[destination]; ok {
 						add(shop)
 					}
@@ -303,7 +339,6 @@ func GenerateActivityGroups(path string, existing *activitygroup.Config, config 
 				}
 			}
 		} else {
-			unit.Type = 2
 			banner := config.Banners[int32(source.ID)]
 			for i, row := range banners {
 				domain, _ := integerAt(row, 2)

@@ -11,6 +11,13 @@ import (
 	"lunar-tear/server/internal/gacha"
 )
 
+const (
+	ConfigVersion = 2
+	TypePremium   = 1
+	TypeRecord    = 2
+	TypeVariation = 3
+)
+
 // Config is persisted independently in activity-groups.json.
 type Config struct {
 	Version int             `json:"version"`
@@ -71,8 +78,8 @@ func EncodeConfig(config *Config) ([]byte, error) {
 }
 
 func validateConfig(config *Config) error {
-	if config == nil || config.Version != 1 {
-		return fmt.Errorf("activity group config version must be 1")
+	if config == nil || (config.Version != 1 && config.Version != ConfigVersion) {
+		return fmt.Errorf("unsupported activity group config version")
 	}
 	return nil
 }

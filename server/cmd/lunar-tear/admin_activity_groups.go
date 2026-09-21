@@ -18,7 +18,7 @@ import (
 
 func initializeActivityGroups(binPath, configPath, gachaConfigPath string, holder *runtime.Holder) error {
 	snapshot := holder.Get()
-	if snapshot.ActivityConfig != nil && snapshot.GachaConfig.EventSchedules != nil {
+	if snapshot.ActivityConfig != nil && snapshot.ActivityConfig.Version == activitygroup.ConfigVersion && snapshot.GachaConfig.EventSchedules != nil {
 		return nil
 	}
 	config, err := masterdataadmin.GenerateActivityGroups(binPath, snapshot.ActivityConfig, snapshot.GachaConfig, snapshot.GachaEntries)

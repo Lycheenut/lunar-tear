@@ -8,16 +8,36 @@
     return new Date(value - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
   };
   const formatTime = value => value ? new Date(value).toLocaleString() : "未配置";
+  const unitTypes = [[1, "Premium Gacha"], [2, "記録（Record）"], [3, "変異（Variation）"]];
+  const sectionsByType = {
+    1: [["Premium Gacha", ["premium"]], ["MomBanner", ["banner"]], ["兑换处", ["shop"]], ["碎片有效期", ["term", "medal"]]],
+    2: [["記録（Record）", ["chapter"]], ["MomBanner", ["banner"]], ["活动商店", ["shop"]], ["兑换币有效期", ["term"]], ["活动任务", ["mission"]], ["NaviCutIn", ["navi"]], ["Tip", ["tip"]]],
+    3: [["変異（Variation）", ["chapter"]], ["MomBanner", ["banner"]], ["Event Gacha", ["event"]], ["Event Gacha Ticket 有效期", ["term"]], ["活动任务", ["mission"]], ["NaviCutIn", ["navi"]], ["Tip", ["tip"]]]
+  };
 
-  window.createActivityGroupEditor = ({ root, api, showNotice, hasOtherChanges, onPublished }) => {
+  window.createActivityGroupEditor = ({ root, api, showNotice, localizedText, hasOtherChanges, onPublished }) => {
     let data = null, draft = null, baseline = "", mode = "groups", selected = "", search = "", busy = false;
+    let optionIndex = new Map();
+    const listScroll = { groups: 0, units: 0 };
     const dirty = () => draft && JSON.stringify(draft) !== baseline;
-    const optionFor = member => data.catalog.options.find(option => key(option) === key(member));
+    const optionFor = member => optionIndex.get(key(member));
     const title = member => {
       const option = optionFor(member);
-      return `${option?.titles?.en || option?.titles?.ja || option?.titles?.ko || member.kind} · ${member.id}${option ? "" : "（引用已失效）"}`;
+      return `${member.id}. ${localizedText(option?.titles) || member.kind}${option ? "" : "（引用已失效）"}`;
     };
-    const kindLabel = kind => data.catalog.kinds.find(item => item.kind === kind)?.label || kind;
+    const typeLabel = type => unitTypes.find(([value]) => value === type)?.[1] || "未知类型";
+    const itemName = item => {
+      const unit = item.members ? item : draft.units.find(unit => unit.id === item.id && item.unitIds?.includes(unit.id));
+      const source = unit?.members.find(member => key(member) === item.id);
+      const titles = source && optionFor(source)?.titles;
+      return titles && Object.values(titles).includes(item.name) ? localizedText(titles) || item.name : item.name;
+    };
+    const itemTitle = item => `${item.id.replace(/^(chapter|premium):/, "")}. ${itemName(item)}`;
+    const memberAllowed = (option, unit) => {
+      if (!option || !data.catalog.kinds.find(kind => kind.kind === option.kind)?.types.includes(unit.type)) return false;
+      if (option.kind === "chapter") return option.chapterType === unit.type - 1;
+      return option.kind !== "event" || unit.members.some(member => member.kind === "chapter" && member.id === option.relatedChapterId && optionFor(member)?.chapterType === 2);
+    };
     const el = (tag, text, className) => {
       const node = document.createElement(tag);
       if (text != null) node.textContent = text;
@@ -35,7 +55,9 @@
     };
     function select(options, value, onChange, label) {
       const node = el("select"); node.setAttribute("aria-label", label); node.disabled = busy;
-      options.forEach(([id, name]) => node.append(new Option(name, id)));
+      options.forEach(([id, name]) => {
+        const option = new Option(name, id); option.dataset.searchLabel = name; option.dataset.search = id; node.append(option);
+      });
       node.value = value; node.addEventListener("change", () => onChange(node.value)); return node;
     }
     async function run(action) {
@@ -48,6 +70,7 @@
     async function load(force = false) {
       if (data && !force) { render(); return; }
       data = await api("/api/admin/activity-groups");
+      optionIndex = new Map(data.catalog.options.map(option => [key(option), option]));
       draft = clone(data.catalog.config); baseline = JSON.stringify(draft); render();
     }
     async function save() {
@@ -61,9 +84,18 @@
       selected = id; search = ""; render();
     }
     function remove(item) {
-      if (mode === "units" && draft.groups.some(group => group.unitIds.includes(item.id))) { showNotice("该单位仍被活动组引用，请先从活动组中移除。", true); return; }
-      if (!window.confirm(`删除“${item.name}”？保存配置后生效。`)) return;
-      draft[mode] = draft[mode].filter(row => row.id !== item.id); selected = ""; render();
+      const affected = mode === "units" ? draft.groups.filter(group => group.unitIds.includes(item.id)) : [];
+      const emptyCount = affected.filter(group => group.unitIds.length === 1).length;
+      const impact = affected.length ? `将从 ${affected.length} 个活动组移除该单位${emptyCount ? `，并删除因此变空的 ${emptyCount} 个活动组` : ""}。` : "";
+      if (!window.confirm(`删除“${itemTitle(item)}”？${impact}保存配置后生效。`)) return;
+      draft[mode] = draft[mode].filter(row => row.id !== item.id);
+      if (mode === "units") draft.groups = draft.groups.flatMap(group => {
+        if (!group.unitIds.includes(item.id)) return [group];
+        const unitIds = group.unitIds.filter(id => id !== item.id);
+        return unitIds.length ? [{ ...group, unitIds }] : [];
+      });
+      if (selected === item.id) selected = "";
+      render();
     }
     function updateSaveState() {
       const saveButton = root.querySelector("[data-group-save]");
@@ -73,6 +105,8 @@
       root.querySelectorAll("[data-group-schedule]").forEach(node => { node.disabled = busy || dirty(); });
     }
     function render() {
+      const previousList = root.querySelector(".activity-group-list");
+      if (previousList) listScroll[previousList.dataset.mode] = previousList.scrollTop;
       root.replaceChildren();
       if (!draft) return;
       const heading = el("div", null, "data-heading");
@@ -86,65 +120,94 @@
         const tab = button(`${label} · ${draft[value].length}`, () => { mode = value; selected = ""; search = ""; render(); }, `button ${mode === value ? "primary" : "ghost"}`);
         tab.setAttribute("aria-pressed", String(mode === value)); toolbar.append(tab);
       }
-      toolbar.append(button(mode === "groups" ? "新建活动组" : "新建活动单位", add)); root.append(toolbar);
+      toolbar.append(button(mode === "groups" ? "新建活动组" : "新建活动单位", add, "button ghost activity-group-add")); root.append(toolbar);
       const layout = el("div", null, "activity-group-layout"), sidebar = el("aside", null, "activity-group-sidebar"), detail = el("section", null, "activity-group-detail");
-      const searchInput = input(search, value => { search = value; renderList(); }, "search"); searchInput.placeholder = "搜索名称或 ID"; searchInput.setAttribute("aria-label", "搜索活动组或单位");
-      const list = el("div", null, "activity-group-list"); sidebar.append(searchInput, list);
+      const searchInput = input(search, value => { search = value; list.scrollTop = 0; renderList(); }, "search"); searchInput.placeholder = "搜索名称或 ID"; searchInput.setAttribute("aria-label", "搜索活动组或单位");
+      const list = el("div", null, "activity-group-list"); list.dataset.mode = mode; sidebar.append(searchInput, list);
       function renderList() {
+        const scrollTop = list.scrollTop;
         list.replaceChildren();
-        const rows = draft[mode].filter(item => `${item.name} ${item.id}`.toLowerCase().includes(search.toLowerCase()));
+        const rows = draft[mode].filter(item => `${item.id} ${item.name} ${itemTitle(item)}`.toLowerCase().includes(search.toLowerCase()));
         if (!rows.length) list.append(el("p", "暂无匹配内容"));
         rows.forEach(item => {
-          const row = button(item.name, () => { selected = item.id; render(); }, `activity-group-list-item${selected === item.id ? " active" : ""}`);
-          row.title = item.id;
-          row.append(el("small", mode === "groups" ? `${item.unitIds.length} 个单位` : `类型 ${item.type} · ${item.members.length} 个成员`)); list.append(row);
+          const row = el("div", null, `activity-group-list-row${selected === item.id ? " active" : ""}`);
+          const choose = button(itemTitle(item), () => { selected = item.id; renderList(); renderDetail(); updateSaveState(); }, "activity-group-list-item");
+          choose.title = item.id; choose.setAttribute("aria-pressed", String(selected === item.id));
+          choose.append(el("small", mode === "groups" ? `${item.unitIds.length} 个单位` : `${typeLabel(item.type)} · ${item.members.length} 个条目`));
+          const removeButton = button("删除", () => remove(item), "button ghost activity-group-list-delete");
+          removeButton.setAttribute("aria-label", `删除${mode === "groups" ? "活动组" : "活动单位"} ${itemTitle(item)}`);
+          row.append(choose, removeButton); list.append(row);
         });
+        list.scrollTop = scrollTop;
       }
       renderList();
-      const item = draft[mode].find(row => row.id === selected);
-      if (!item) detail.append(el("p", "选择已有内容，或新建活动组 / 活动单位。", "activity-group-note"));
-      else {
-        const name = input(item.name, value => { item.name = value; renderList(); updateSaveState(); });
-        name.maxLength = 200;
-        const header = el("div", null, "activity-group-toolbar"); header.append(field("名称", name), button("删除", () => remove(item))); detail.append(header);
-        if (mode === "units") renderUnit(detail, item); else renderGroup(detail, item);
+      function renderDetail() {
+        detail.replaceChildren();
+        const item = draft[mode].find(row => row.id === selected);
+        if (!item) detail.append(el("p", "选择已有内容，或新建活动组 / 活动单位。", "activity-group-note"));
+        else {
+          const name = input(itemName(item), value => { item.name = value; renderList(); updateSaveState(); });
+          name.maxLength = 200;
+          const header = el("div", null, `activity-group-header${mode === "units" ? " has-type" : ""}`);
+          if (mode === "units") {
+            const type = select(unitTypes, item.type, value => {
+              const next = { ...item, type: Number(value) };
+              const compatible = item.members.filter(member => memberAllowed(optionFor(member), next));
+              const removed = item.members.length - compatible.length;
+              if (removed && !window.confirm(`切换类型会移除 ${removed} 个不适用的条目，是否继续？`)) { type.value = item.type; return; }
+              item.type = next.type; item.members = compatible; render();
+            }, "单位类型");
+            header.append(field("单位类型", type));
+          }
+          header.append(field("名称", name), button("删除", () => remove(item))); detail.append(header);
+          if (mode === "units") renderUnit(detail, item); else renderGroup(detail, item);
+        }
       }
+      renderDetail();
       layout.append(sidebar, detail); root.append(layout);
+      list.scrollTop = listScroll[mode];
       const footer = el("div", null, "save-bar"); const summary = el("span"); summary.dataset.groupSummary = "";
       const actions = el("div", null, "save-actions");
       const saveButton = button("保存活动组配置", () => run(save), "button primary"); saveButton.dataset.groupSave = "";
       actions.append(button("放弃修改", () => { draft = clone(data.catalog.config); render(); }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
     }
     function renderUnit(detail, unit) {
-      detail.append(field("单位类型", select([[1, "类型 1 · 活动副本"], [2, "类型 2 · Premium Gacha"]], unit.type, value => { unit.type = Number(value); render(); }, "单位类型")));
-      detail.append(el("p", unit.type === 1 ? "至少添加 1 个 EventQuestChapter；Event Gacha 需要包含对应的 Variation 副本。" : "至少添加 1 个 Premium Gacha。", "activity-group-note"));
-      const table = el("table", null, "activity-group-members");
-      const head = el("thead"), header = el("tr"); ["类型", "成员", "当前时间", "操作"].forEach(text => header.append(el("th", text))); head.append(header); table.append(head);
-      const body = el("tbody");
-      unit.members.forEach((member, index) => {
-        const row = el("tr"), option = optionFor(member), action = el("td"); action.append(button("移除", () => { unit.members.splice(index, 1); render(); }));
-        row.append(el("td", kindLabel(member.kind)), el("td", title(member)), el("td", option ? `${formatTime(option.startDatetime)} → ${formatTime(option.endDatetime)}` : "引用已失效"), action); body.append(row);
-      }); table.append(body); detail.append(table);
-      const addRow = el("div", null, "activity-group-toolbar"); let memberKind = unit.type === 1 ? "chapter" : "premium", memberID = "";
-      const memberHost = el("span", null, "activity-group-member-picker");
-      function renderOptions() {
-        const options = data.catalog.options.filter(option => option.kind === memberKind && !unit.members.some(member => key(member) === key(option)) && (memberKind !== "event" || unit.members.some(member => member.kind === "chapter" && member.id === option.relatedChapterId && optionFor(member)?.chapterType === 2)));
-        memberID = "";
-        memberHost.replaceChildren(select([["", "请选择成员"], ...options.map(option => [option.id, title(option)])], "", value => { memberID = value; }, "添加活动成员"));
+      detail.append(el("p", `至少添加 1 个 ${typeLabel(unit.type)}。${unit.type === 3 ? "Event Gacha 仅可选择已添加的 Variation 副本所对应的条目。" : ""}`, "activity-group-note"));
+      for (const [label, kinds] of sectionsByType[unit.type] || []) {
+        const section = el("section", null, "activity-group-member-section"); section.dataset.memberSection = kinds[0];
+        const members = unit.members.filter(member => kinds.includes(member.kind));
+        const heading = el("div", null, "activity-group-section-heading"); heading.append(el("h3", label), el("span", String(members.length), "activity-group-section-count")); section.append(heading);
+        if (!members.length) section.append(el("p", "尚未添加条目", "activity-group-empty"));
+        const memberTitle = member => `${title(member)}${kinds.length > 1 ? `（${member.kind === "medal" ? "自动转换" : "有效期"}）` : ""}`;
+        for (const member of members) {
+          const option = optionFor(member), row = el("div", null, "activity-group-entry"), copy = el("div", null, "activity-group-entry-copy");
+          copy.append(el("strong", memberTitle(member)), el("small", option ? member.kind === "medal" ? `自动转换：${formatTime(option.endDatetime)}` : `${formatTime(option.startDatetime)} → ${formatTime(option.endDatetime)}` : "引用已失效"));
+          row.append(copy, button("移除", () => {
+            unit.members = unit.members.filter(item => key(item) !== key(member));
+            if (member.kind === "chapter") unit.members = unit.members.filter(item => item.kind !== "event" || optionFor(item)?.relatedChapterId !== member.id);
+            render();
+          })); section.append(row);
+        }
+        const options = data.catalog.options.filter(option => kinds.includes(option.kind) && memberAllowed(option, unit) && !unit.members.some(member => key(member) === key(option)));
+        let memberKey = "";
+        const picker = select([["", `选择${label}`], ...options.map(option => [key(option), memberTitle(option)])], "", value => { memberKey = value; addButton.disabled = busy || !value; }, `添加${label}`);
+        picker.dataset.searchable = "true";
+        const addButton = button("添加条目", () => {
+          const option = options.find(option => key(option) === memberKey);
+          if (option) { unit.members.push({ kind: option.kind, id: option.id }); render(); }
+        }); addButton.disabled = true;
+        const addRow = el("div", null, "activity-group-section-add"); addRow.append(picker, addButton); section.append(addRow); detail.append(section);
       }
-      addRow.append(select(data.catalog.kinds.filter(kind => kind.types.includes(unit.type)).map(kind => [kind.kind, kind.label]), memberKind, value => { memberKind = value; renderOptions(); }, "成员类型"), memberHost, button("添加成员", () => {
-        if (!memberID) return; unit.members.push({ kind: memberKind, id: Number(memberID) }); render();
-      })); renderOptions(); detail.append(addRow);
     }
     function renderGroup(detail, group) {
       detail.append(el("h3", "活动单位"));
       const unitList = el("div", null, "activity-group-unit-list");
       group.unitIds.forEach(id => {
         const unit = draft.units.find(item => item.id === id), row = el("div", null, "activity-group-toolbar");
-        row.append(el("span", unit ? `${unit.name} · 类型 ${unit.type}` : `${id}（引用已失效）`), button("编辑单位", () => { mode = "units"; selected = id; search = ""; render(); }), button("移除", () => { group.unitIds = group.unitIds.filter(value => value !== id); render(); })); unitList.append(row);
+        row.append(el("span", unit ? `${itemTitle(unit)}（${typeLabel(unit.type)}）` : `${id}（引用已失效）`), button("编辑单位", () => { mode = "units"; selected = id; search = ""; render(); }), button("移除", () => { group.unitIds = group.unitIds.filter(value => value !== id); render(); })); unitList.append(row);
       }); detail.append(unitList);
       let unitID = ""; const addRow = el("div", null, "activity-group-toolbar");
-      addRow.append(select([["", "选择活动单位"], ...draft.units.filter(unit => !group.unitIds.includes(unit.id)).map(unit => [unit.id, unit.name])], "", value => { unitID = value; }, "组合活动单位"), button("加入活动组", () => { if (unitID) { group.unitIds.push(unitID); render(); } })); detail.append(addRow);
+      addRow.append(select([["", "选择活动单位"], ...draft.units.filter(unit => !group.unitIds.includes(unit.id)).map(unit => [unit.id, itemTitle(unit)])], "", value => { unitID = value; }, "组合活动单位"), button("加入活动组", () => { if (unitID) { group.unitIds.push(unitID); render(); } })); detail.append(addRow);
       detail.append(el("h3", "整体修改时间"), el("p", "使用本机时区。副本、Premium Gacha、Banner、NaviCutIn 和 Tip 使用活动起止时间；活动任务、Event Gacha、兑换商店与道具 / 碎片有效期延长至结束后 48 小时。请先保存配置，再预览改时。", "activity-group-note"));
       const source = draft.units.filter(unit => group.unitIds.includes(unit.id)).flatMap(unit => unit.members).find(member => member.kind === "chapter" || member.kind === "premium");
       const option = source && optionFor(source);
@@ -165,7 +228,7 @@
     }
     function showPreview(group, request, changes) {
       const dialog = el("dialog", null, "confirm-dialog activity-group-dialog");
-      dialog.append(el("h2", `${group.name} · 改时预览`), el("p", `${changes.length} 个字段将被修改。共享成员只更新一次，也会影响使用这些成员的其他活动组。`));
+      dialog.append(el("h2", `${itemTitle(group)}：改时预览`), el("p", `${changes.length} 个字段将被修改。共享成员只更新一次，也会影响使用这些成员的其他活动组。`));
       const scroll = el("div", null, "activity-group-preview-scroll"), table = el("table");
       const header = el("tr"); ["成员", "字段", "修改前", "修改后"].forEach(text => header.append(el("th", text))); table.append(header);
       changes.forEach(change => { const row = el("tr"); [title(change), change.field, formatTime(change.before), formatTime(change.after)].forEach(text => row.append(el("td", text))); table.append(row); });
@@ -185,6 +248,6 @@
       actions.append(close, submit); dialog.append(actions); document.body.append(dialog);
       dialog.addEventListener("close", () => dialog.remove()); dialog.showModal();
     }
-    return { load, dirty, reset: () => { data = null; draft = null; baseline = ""; } };
+    return { load, render, dirty, reset: () => { data = null; draft = null; baseline = ""; } };
   };
 })();

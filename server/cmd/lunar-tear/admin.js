@@ -65,7 +65,7 @@
     tabDrop: $("#tab-drop"), tabGacha: $("#tab-gacha"), gachaEditor: $("#gacha-editor"),
     gachaStandardCount: $("#gacha-standard-count"), gachaOverrideCount: $("#gacha-override-count"),
     gachaBannerCount: $("#gacha-banner-count"), gachaPickupCount: $("#gacha-pickup-count"), gachaWarnings: $("#gacha-warnings"),
-    gachaLanguageSelect: $("#gacha-language-select"), gachaLimitedSetId: $("#gacha-limited-set-id"),
+    gachaLimitedSetId: $("#gacha-limited-set-id"),
     gachaLimitedSetName: $("#gacha-limited-set-name"), gachaAddLimitedSet: $("#gacha-add-limited-set"),
     gachaLimitedSets: $("#gacha-limited-sets"), gachaWeaponSearch: $("#gacha-weapon-search"),
     gachaAvailabilityFilter: $("#gacha-availability-filter"), gachaStarFilter: $("#gacha-star-filter"),
@@ -159,7 +159,7 @@
     pendingMasterChanges: null
   };
   const statusLabels = { active: "进行中", upcoming: "未开始", expired: "已结束", disabled: "已禁用" };
-  const languageLabels = { en: "English", ja: "日本語", ko: "한국어" };
+  const languageLabels = { en: "英语", ja: "日语", ko: "韩语" };
   const missionCategoryLabels = {
     "1": "每日任务", "2": "挑战任务", "3": "特殊任务", "4": "WebView 任务",
     "5": "完成任务", "6": "商店购买任务", "7": "条件评估任务", "8": "妈妈积分任务",
@@ -211,7 +211,7 @@
   }
 
   const activityGroupEditor = window.createActivityGroupEditor?.({
-    root: $("#activity-group-editor"), api, showNotice,
+    root: $("#activity-group-editor"), api, showNotice, localizedText,
     hasOtherChanges: () => Boolean(masterDirtyCount() || questDropStructuralDirty() || state.gachaDirty),
     onPublished: async () => {
       state.gachaCatalog = null;
@@ -237,6 +237,7 @@
     try {
       activityGroupEditor?.reset();
       state.catalog = await api("/api/admin/master-data/catalog");
+      renderLanguages();
       elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
       state.gachaCatalog = null;
       state.questDropCatalog = null;
@@ -392,7 +393,6 @@
     });
     elements.tableSelect.value = tables.some((table) => table.name === previous) ? previous : "";
     state.tableSelections[state.section] = elements.tableSelect.value;
-    renderLanguages();
     elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
     elements.version.title = state.catalog.version;
     elements.tableCount.textContent = tables.length.toLocaleString();
@@ -4153,6 +4153,7 @@
     elements.questDropSave.disabled = isBusy || !questDropStructuralDirty() || questDropValidationErrors().length > 0;
     elements.questDropDiscard.disabled = isBusy || !questDropStructuralDirty();
     elements.refresh.disabled = isBusy;
+    elements.languageSelect.disabled = isBusy;
   }
 
   const availabilityLabels = { standard: "常驻", event: "活动", limited: "限定" };
@@ -4368,7 +4369,6 @@
       button.setAttribute("aria-pressed", String(active));
     });
     if (isPremium) {
-      renderGachaLanguages();
       renderGachaLimitedSets();
       renderGachaWeapons();
       renderGachaBanners();
@@ -4379,19 +4379,6 @@
     }
     renderGachaWarnings();
     updateGachaDirtyUI();
-  }
-
-  function renderGachaLanguages() {
-    const languages = state.gachaCatalog.languages?.length ? state.gachaCatalog.languages : [state.gachaCatalog.defaultLanguage || "en"];
-    elements.gachaLanguageSelect.replaceChildren();
-    languages.forEach((language) => {
-      const option = document.createElement("option");
-      option.value = language;
-      option.textContent = languageLabels[language] || language;
-      elements.gachaLanguageSelect.append(option);
-    });
-    if (!languages.includes(state.language)) state.language = state.gachaCatalog.defaultLanguage || "en";
-    elements.gachaLanguageSelect.value = state.language;
   }
 
   function renderGachaWarnings() {
@@ -5476,9 +5463,14 @@
   elements.languageSelect.addEventListener("change", () => {
     state.language = elements.languageSelect.value;
     localStorage.setItem("lunar-admin-language", state.language);
-    renderTypeFilters(currentTable());
-    renderTable();
-    renderGachaEditor();
+    if (state.section === "groups") {
+      activityGroupEditor?.render();
+    } else if (state.section === "gacha") {
+      renderGachaEditor();
+    } else {
+      renderTypeFilters(currentTable());
+      renderTable();
+    }
   });
 
   elements.missionRewardContentPageSize.addEventListener("change", () => {
@@ -5756,13 +5748,6 @@
     }
   });
 
-  elements.gachaLanguageSelect.addEventListener("change", () => {
-    state.language = elements.gachaLanguageSelect.value;
-    localStorage.setItem("lunar-admin-language", state.language);
-    if (elements.languageSelect.querySelector(`option[value="${CSS.escape(state.language)}"]`)) elements.languageSelect.value = state.language;
-    renderGachaEditor();
-    renderTable();
-  });
   elements.gachaAddLimitedSet.addEventListener("click", addLimitedSet);
   elements.gachaWeaponSearch.addEventListener("input", renderGachaWeapons);
   elements.gachaAvailabilityFilter.addEventListener("change", renderGachaWeapons);

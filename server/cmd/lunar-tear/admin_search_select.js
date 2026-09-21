@@ -4,6 +4,7 @@
   const disabled = option => Boolean(option.disabled || option.parentElement?.disabled);
   let current = null, serial = 0, scheduled = false;
   const labelFor = option => {
+    if (option.dataset.searchLabel != null) return option.dataset.searchLabel;
     const title = option.textContent.trim(), id = option.value;
     return id && !title.includes(id) ? `${title} · ${id}` : title;
   };
