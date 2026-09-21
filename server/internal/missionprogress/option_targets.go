@@ -91,7 +91,22 @@ var gachaTargetsByOption = map[int32][]int32{
 	101120601: {209},
 }
 
+// Exploration score missions without a stated difficulty accept either mode;
+// only explicitly hard missions restrict the target. These IDs are not ExploreIds.
+var exploreHighScoreTargetsByOption = map[int32][]int32{
+	3:  {1, 11}, // Shooting (no difficulty specified)
+	7:  {2, 12}, // Flying Mama (no difficulty specified)
+	26: {11},    // Shooting (hard)
+	27: {12},    // Flying Mama (hard)
+	28: {1, 11}, // Shooting (either difficulty)
+	29: {2, 12}, // Flying Mama (either difficulty)
+}
+
 func knownOptionTargets(conditionType model.MissionClearConditionType, optionGroupId int32) ([]int32, bool) {
+	if conditionType == model.MissionClearConditionTypeExploreHighScore {
+		targetIds, ok := exploreHighScoreTargetsByOption[optionGroupId]
+		return targetIds, ok
+	}
 	if !isEquipmentTargetCondition(conditionType) || optionGroupId == 0 {
 		return nil, false
 	}

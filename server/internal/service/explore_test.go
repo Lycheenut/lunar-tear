@@ -9,6 +9,7 @@ import (
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/database"
 	"lunar-tear/server/internal/masterdata"
+	"lunar-tear/server/internal/missionprogress"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
@@ -140,5 +141,85 @@ func TestFinishExploreGrantsHardModeStaminaAndGold(t *testing.T) {
 	}
 	if user.Status.Exp != 0 {
 		t.Fatalf("experience = %d, want unchanged", user.Status.Exp)
+	}
+}
+
+func TestFinishExploreUpdatesSecretStoryMissions(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrations.Up(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	repo := sqlite.New(db, nil)
+	userId, err := repo.CreateUser("explore-secret-story", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterData, err := os.ReadFile(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterDataPath := filepath.Join(t.TempDir(), "master-data.bin.e")
+	if err := os.WriteFile(masterDataPath, masterData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := runtime.NewHolder(masterDataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewExploreServiceServer(missionprogress.NewRepository(repo, holder), repo, holder)
+
+	for _, test := range []struct {
+		name      string
+		exploreId int32
+		option    int32
+	}{
+		{"shooting normal", 1, 28}, {"shooting hard", 11, 28},
+		{"flying mama normal", 2, 29}, {"flying mama hard", 12, 29},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := repo.UpdateUser(userId, func(user *store.UserState) {
+				user.Quests[31] = store.UserQuestState{QuestId: 31, QuestStateType: model.UserQuestStateTypeCleared}
+				user.Missions = make(map[int32]store.UserMissionState)
+				user.ExploreScores = make(map[int32]store.ExploreScoreState)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			var highScore int32
+			for _, score := range []int32{99_999, 100_000, 90_000, 110_000} {
+				if _, err := repo.UpdateUser(userId, func(user *store.UserState) {
+					user.Explore.PlayingExploreId = test.exploreId
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := server.FinishExplore(context.Background(), &pb.FinishExploreRequest{ExploreId: test.exploreId, Score: score}); err != nil {
+					t.Fatal(err)
+				}
+				highScore = max(highScore, score)
+				user, err := repo.LoadUser(userId)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for missionId, conditionId := range map[int32]int32{500004: 5104, 500016: 5118, 500022: 5127, 500075: 5194, 500100: 5223} {
+					mission := holder.Get().Mission.MissionById[missionId]
+					wantProgress, wantStatus := int32(0), int32(model.MissionProgressStatusTypeInProgress)
+					if mission.MissionClearConditionOptionGroupId == test.option {
+						wantProgress = min(highScore, mission.ClearConditionValue)
+						if highScore >= mission.ClearConditionValue {
+							wantStatus = int32(model.MissionProgressStatusTypeClear)
+						}
+					}
+					if state := user.Missions[missionId]; state.ProgressValue != wantProgress || state.MissionProgressStatusType != wantStatus {
+						t.Fatalf("score %d: mission %d = %+v, want progress %d status %d", score, missionId, state, wantProgress, wantStatus)
+					}
+					if got := holder.Get().ConditionResolver.Satisfied(conditionId, &user); got != (wantStatus == int32(model.MissionProgressStatusTypeClear)) {
+						t.Fatalf("score %d: secret story condition %d satisfied = %v", score, conditionId, got)
+					}
+				}
+			}
+		})
 	}
 }
