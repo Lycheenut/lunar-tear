@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"testing"
 
+	"lunar-tear/server/internal/activitygroup"
 	"lunar-tear/server/internal/gacha"
 	"lunar-tear/server/internal/masterdataadmin"
 	"lunar-tear/server/internal/questdrop"
@@ -178,7 +180,7 @@ func TestInstallGachaConfigPublishesValidatedSnapshot(t *testing.T) {
 	}
 }
 
-func TestInstallGachaConfigAndMasterDataPublishesSynchronizedMomBanner(t *testing.T) {
+func TestInstallActivityConfigPublishesIndependentConfigAndSchedule(t *testing.T) {
 	source := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	original, err := os.ReadFile(source)
 	if errors.Is(err, os.ErrNotExist) {
@@ -190,10 +192,15 @@ func TestInstallGachaConfigAndMasterDataPublishesSynchronizedMomBanner(t *testin
 	directory := t.TempDir()
 	masterDataPath := filepath.Join(directory, "current.bin.e")
 	configPath := filepath.Join(directory, "gacha.json")
+	activityPath := filepath.Join(directory, "activity-groups.json")
+	originalActivity := []byte(`{"version":1,"units":[],"groups":[]}`)
+	if err := os.WriteFile(activityPath, originalActivity, 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(masterDataPath, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	holder, err := runtime.NewHolderWithGachaConfig(masterDataPath, configPath)
+	holder, err := runtime.NewHolderWithConfigs(masterDataPath, configPath, "", activityPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +211,15 @@ func TestInstallGachaConfigAndMasterDataPublishesSynchronizedMomBanner(t *testin
 		StartDatetime:   gacha.DefaultBannerStartDatetime,
 		EndDatetime:     gacha.DefaultBannerEndDatetime,
 	}
-	masterCandidateRaw, _, err := masterdataadmin.BuildGachaMomBannerUpdate(masterDataPath, config)
+	groups, err := masterdataadmin.GenerateActivityGroups(masterDataPath, nil, config, before.GachaEntries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupCatalog, err := masterdataadmin.LoadActivityGroups(masterDataPath, groups, config, before.GachaEntries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterCandidateRaw, config, _, err := masterdataadmin.BuildActivitySchedule(masterDataPath, groups, config, groupCatalog, "premium:588", gacha.DefaultBannerStartDatetime, gacha.DefaultBannerEndDatetime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,10 +236,67 @@ func TestInstallGachaConfigAndMasterDataPublishesSynchronizedMomBanner(t *testin
 	if err := os.WriteFile(configCandidatePath, configCandidateRaw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := holder.InstallGachaConfigAndMasterData(configCandidatePath, masterCandidatePath, before.GachaConfigHash, before.MasterDataHash); err != nil {
+	activityRaw, err := activitygroup.EncodeConfig(groups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activityCandidatePath := filepath.Join(directory, "activity-candidate.json")
+	if err := os.WriteFile(activityCandidatePath, []byte(`{"version":99}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := holder.InstallActivityConfig(activityCandidatePath, configCandidatePath, masterCandidatePath, before.ActivityConfigHash, before.GachaConfigHash, before.MasterDataHash); err == nil {
+		t.Fatal("invalid activity file accepted")
+	}
+	if holder.Get() != before {
+		t.Fatal("failed validation published a snapshot")
+	}
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed validation installed Gacha config")
+	}
+	if err := os.WriteFile(activityCandidatePath, activityRaw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if stdruntime.GOOS == "windows" {
+		// Holding the activity file open rejects its replacement after the
+		// master-data and Gacha candidates have already been installed.
+		locked, err := os.Open(activityPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		installErr := holder.InstallActivityConfig(activityCandidatePath, configCandidatePath, masterCandidatePath, before.ActivityConfigHash, before.GachaConfigHash, before.MasterDataHash)
+		_ = locked.Close()
+		if installErr == nil {
+			t.Fatal("replaced locked activity file")
+		}
+		if holder.Get() != before {
+			t.Fatal("failed installation published a snapshot")
+		}
+		if hash, err := gacha.FileHash(masterDataPath); err != nil || hash != before.MasterDataHash {
+			t.Fatalf("master data was not rolled back: %v", err)
+		}
+		if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("new Gacha config was not removed on rollback")
+		}
+		if hash, err := gacha.FileHash(activityPath); err != nil || hash != before.ActivityConfigHash {
+			t.Fatalf("failed installation changed activity config: %v", err)
+		}
+		if err := os.WriteFile(masterCandidatePath, masterCandidateRaw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configCandidatePath, configCandidateRaw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := holder.InstallActivityConfig(activityCandidatePath, configCandidatePath, masterCandidatePath, before.ActivityConfigHash, before.GachaConfigHash, before.MasterDataHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := holder.Reload(); err != nil {
 		t.Fatal(err)
 	}
 	after := holder.Get()
+	if after.ActivityConfigHash != gacha.ContentHash(activityRaw) || len(after.ActivityConfig.Groups) != len(groups.Groups) {
+		t.Fatal("independent activity config missing after reload")
+	}
 	if after.GachaConfigHash != configHash || after.MasterDataHash != config.SourceMasterDataHash {
 		t.Fatalf("published hashes = Gacha %q, master %q", after.GachaConfigHash, after.MasterDataHash)
 	}
@@ -267,7 +339,7 @@ func TestInstallQuestDropConfigPublishesWeightedPools(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	holder, err := runtime.NewHolderWithConfigs(masterDataPath, "", configPath)
+	holder, err := runtime.NewHolderWithConfigs(masterDataPath, "", configPath, "")
 	if err != nil {
 		t.Fatal(err)
 	}

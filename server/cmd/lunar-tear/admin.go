@@ -19,15 +19,19 @@ import (
 	"lunar-tear/server/internal/runtime"
 )
 
-//go:embed admin.html admin.css admin.js admin_quest_bonus.js admin_search_select.js
+//go:embed admin.html admin.css admin.js admin_quest_bonus.js admin_search_select.js admin_activity_groups.js
 var adminAssets embed.FS
 
 // startAdmin serves the token-gated master-data API and its static management
 // UI. The listener stays disabled when LUNAR_ADMIN_TOKEN is empty.
-func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, holder *runtime.Holder) {
+func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath, activityConfigPath string, holder *runtime.Holder) {
 	token := os.Getenv("LUNAR_ADMIN_TOKEN")
 	if token == "" {
 		log.Println("[admin] disabled (no LUNAR_ADMIN_TOKEN set)")
+		return
+	}
+	if err := initializeActivityGroups(binPath, activityConfigPath, gachaConfigPath, holder); err != nil {
+		log.Printf("[admin] initialize activity groups failed: %v", err)
 		return
 	}
 	expected := []byte("Bearer " + token)
@@ -38,6 +42,7 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 
 	var updateMu sync.Mutex
 	mux := http.NewServeMux()
+	registerActivityGroupRoutes(mux, authorized, &updateMu, binPath, activityConfigPath, gachaConfigPath, holder)
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/admin" {
 			http.NotFound(w, r)
@@ -267,36 +272,20 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 			}
 			snapshot := holder.Get()
 			filtered := gacha.ConfigWithoutAutomaticEventWeapons(&request.Config, snapshot.GachaPool)
-			masterDataCandidateRaw, masterDataUpdate, err := masterdataadmin.BuildGachaMomBannerUpdate(binPath, filtered)
-			if err != nil {
-				writeAdminError(w, http.StatusBadRequest, "生成 MomBanner 联动更新失败: "+err.Error())
-				return
-			}
 			filtered.SourceMasterDataHash = snapshot.MasterDataHash
-			masterDataCandidate := ""
-			if masterDataCandidateRaw != nil {
-				filtered.SourceMasterDataHash = gacha.ContentHash(masterDataCandidateRaw)
-				masterDataCandidate, err = writeCandidate(binPath, masterDataCandidateRaw)
-				if err != nil {
-					log.Printf("[admin] write synchronized MomBanner candidate failed: %v", err)
-					writeAdminError(w, http.StatusInternalServerError, "写入 MomBanner 候选主数据失败")
-					return
-				}
-				defer os.Remove(masterDataCandidate)
-			}
 			raw, _, err := gacha.EncodeConfig(filtered)
 			if err != nil {
 				writeAdminError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			candidate, err := writeGachaCandidate(gachaConfigPath, raw)
+			candidate, err := writeConfigCandidate(gachaConfigPath, raw)
 			if err != nil {
 				log.Printf("[admin] write Gacha candidate failed: %v", err)
 				writeAdminError(w, http.StatusInternalServerError, "写入 Gacha 候选配置失败")
 				return
 			}
 			defer os.Remove(candidate)
-			if err := holder.InstallGachaConfigAndMasterData(candidate, masterDataCandidate, request.ExpectedContentHash, snapshot.MasterDataHash); err != nil {
+			if err := holder.InstallGachaConfig(candidate, request.ExpectedContentHash); err != nil {
 				if errors.Is(err, runtime.ErrGachaConfigConflict) {
 					writeAdminError(w, http.StatusConflict, "Gacha 配置已被其他操作更新，请刷新后重试")
 					return
@@ -313,8 +302,8 @@ func startAdmin(listen, binPath, gachaConfigPath, questDropConfigPath string, ho
 			writeAdminJSON(w, http.StatusOK, map[string]interface{}{
 				"contentHash":            updated.GachaConfigHash,
 				"masterDataHash":         updated.MasterDataHash,
-				"changedMasterDataRows":  masterDataUpdate.ChangedRows,
-				"changedMasterDataCells": masterDataUpdate.ChangedCells,
+				"changedMasterDataRows":  0,
+				"changedMasterDataCells": 0,
 			})
 		default:
 			w.Header().Set("Allow", "GET, POST")
@@ -415,10 +404,12 @@ func serveAdminAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	var name, contentType string
 	switch r.URL.Path {
-	case "/admin/", "/admin/activities", "/admin/related", "/admin/delivery", "/admin/drops", "/admin/gacha":
+	case "/admin/", "/admin/activities", "/admin/related", "/admin/delivery", "/admin/drops", "/admin/gacha", "/admin/groups":
 		name, contentType = "admin.html", "text/html; charset=utf-8"
 	case "/admin/admin.css":
 		name, contentType = "admin.css", "text/css; charset=utf-8"
+	case "/admin/admin_activity_groups.js":
+		name, contentType = "admin_activity_groups.js", "text/javascript; charset=utf-8"
 	case "/admin/admin.js":
 		name, contentType = "admin.js", "text/javascript; charset=utf-8"
 	case "/admin/admin_quest_bonus.js":
@@ -466,12 +457,12 @@ func writeCandidate(binPath string, data []byte) (path string, err error) {
 	return path, nil
 }
 
-func writeGachaCandidate(configPath string, data []byte) (path string, err error) {
+func writeConfigCandidate(configPath string, data []byte) (path string, err error) {
 	directory := filepath.Dir(configPath)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return "", err
 	}
-	file, err := os.CreateTemp(directory, ".gacha-admin-*.json")
+	file, err := os.CreateTemp(directory, ".config-admin-*.json")
 	if err != nil {
 		return "", err
 	}

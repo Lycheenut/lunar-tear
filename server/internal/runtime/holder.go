@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"lunar-tear/server/internal/activitygroup"
 	"lunar-tear/server/internal/campaign"
 	"lunar-tear/server/internal/gacha"
 	"lunar-tear/server/internal/importantitem"
@@ -44,6 +45,8 @@ type Catalogs struct {
 	GachaConfig           *gacha.Config
 	GachaConfigHash       string
 	GachaConfigExists     bool
+	ActivityConfig        *activitygroup.Config
+	ActivityConfigHash    string
 	QuestDropConfig       *questdrop.Config
 	QuestDropConfigHash   string
 	QuestDropConfigExists bool
@@ -80,20 +83,21 @@ type Holder struct {
 	binPath             string
 	gachaConfigPath     string
 	questDropConfigPath string
+	activityConfigPath  string
 	cur                 atomic.Pointer[Catalogs]
 	mu                  sync.Mutex
 }
 
 func NewHolder(binPath string) (*Holder, error) {
-	return NewHolderWithConfigs(binPath, "", "")
+	return NewHolderWithConfigs(binPath, "", "", "")
 }
 
 func NewHolderWithGachaConfig(binPath, gachaConfigPath string) (*Holder, error) {
-	return NewHolderWithConfigs(binPath, gachaConfigPath, "")
+	return NewHolderWithConfigs(binPath, gachaConfigPath, "", "")
 }
 
-func NewHolderWithConfigs(binPath, gachaConfigPath, questDropConfigPath string) (*Holder, error) {
-	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath, questDropConfigPath: questDropConfigPath}
+func NewHolderWithConfigs(binPath, gachaConfigPath, questDropConfigPath, activityConfigPath string) (*Holder, error) {
+	h := &Holder{binPath: binPath, gachaConfigPath: gachaConfigPath, questDropConfigPath: questDropConfigPath, activityConfigPath: activityConfigPath}
 	if err := h.Reload(); err != nil {
 		return nil, err
 	}
@@ -104,7 +108,7 @@ func (h *Holder) Reload() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, h.questDropConfigPath, false, false)
+	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, h.questDropConfigPath, h.activityConfigPath, false, false)
 	if err != nil {
 		return err
 	}
@@ -133,7 +137,7 @@ func (h *Holder) InstallAndReload(candidatePath string) error {
 		}
 	}
 
-	c, err := loadCatalogs(candidatePath, h.gachaConfigPath, h.questDropConfigPath, false, false)
+	c, err := loadCatalogs(candidatePath, h.gachaConfigPath, h.questDropConfigPath, h.activityConfigPath, false, false)
 	if err != nil {
 		_ = memorydb.Init(h.binPath)
 		return fmt.Errorf("validate candidate: %w", err)
@@ -149,6 +153,7 @@ func (h *Holder) InstallAndReload(candidatePath string) error {
 
 var ErrGachaConfigConflict = errors.New("Gacha config changed since it was loaded")
 var ErrMasterDataConflict = errors.New("master data changed since it was loaded")
+var ErrActivityConfigConflict = errors.New("activity group config changed since it was loaded")
 
 func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 	h.mu.Lock()
@@ -172,7 +177,7 @@ func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 			return fmt.Errorf("preserve Gacha config permissions: %w", err)
 		}
 	}
-	c, err := loadCatalogs(h.binPath, candidatePath, h.questDropConfigPath, true, false)
+	c, err := loadCatalogs(h.binPath, candidatePath, h.questDropConfigPath, h.activityConfigPath, true, false)
 	if err != nil {
 		return fmt.Errorf("validate Gacha config candidate: %w", err)
 	}
@@ -184,63 +189,99 @@ func (h *Holder) InstallGachaConfig(candidatePath, expectedHash string) error {
 }
 
 // InstallGachaConfigAndMasterData validates a Gacha config together with its
-// derived MomBanner master-data candidate, then publishes both as one runtime
+// explicitly edited master-data candidate, then publishes both as one runtime
 // snapshot. If installing the config fails after the master-data replacement,
 // the original master data is restored before returning.
 func (h *Holder) InstallGachaConfigAndMasterData(gachaCandidatePath, masterDataCandidatePath, expectedGachaHash, expectedMasterDataHash string) error {
+	return h.installActivityCandidates("", gachaCandidatePath, masterDataCandidatePath, "", expectedGachaHash, expectedMasterDataHash, true)
+}
+
+// InstallActivityConfig preserves existing pool completeness while publishing
+// explicit activity membership or schedule edits.
+func (h *Holder) InstallActivityConfig(activityCandidatePath, gachaCandidatePath, masterDataCandidatePath, expectedActivityHash, expectedGachaHash, expectedMasterDataHash string) error {
+	if activityCandidatePath == "" || h.activityConfigPath == "" {
+		return fmt.Errorf("activity group config path is not configured")
+	}
+	return h.installActivityCandidates(activityCandidatePath, gachaCandidatePath, masterDataCandidatePath, expectedActivityHash, expectedGachaHash, expectedMasterDataHash, false)
+}
+
+func (h *Holder) installActivityCandidates(activityCandidatePath, gachaCandidatePath, masterDataCandidatePath, expectedActivityHash, expectedGachaHash, expectedMasterDataHash string, requireComplete bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.gachaConfigPath == "" {
+	if gachaCandidatePath != "" && h.gachaConfigPath == "" {
 		return fmt.Errorf("Gacha config path is not configured")
 	}
 	current := h.cur.Load()
 	if current == nil || expectedGachaHash == "" || current.GachaConfigHash != expectedGachaHash {
 		return ErrGachaConfigConflict
 	}
-	if masterDataCandidatePath != "" && current.MasterDataHash != expectedMasterDataHash {
+	if expectedMasterDataHash == "" || current.MasterDataHash != expectedMasterDataHash {
 		return ErrMasterDataConflict
 	}
-	if err := prepareReplacementCandidate(gachaCandidatePath, h.gachaConfigPath, "Gacha config"); err != nil {
-		return err
+	if activityCandidatePath != "" && (expectedActivityHash == "" || current.ActivityConfigHash != expectedActivityHash) {
+		return ErrActivityConfigConflict
 	}
-	masterDataPath := h.binPath
-	if masterDataCandidatePath != "" {
-		if err := prepareReplacementCandidate(masterDataCandidatePath, h.binPath, "master data"); err != nil {
+	type replacement struct {
+		candidate, target, label string
+		original                 []byte
+		mode                     os.FileMode
+		existed                  bool
+	}
+	files := []replacement{
+		{candidate: masterDataCandidatePath, target: h.binPath, label: "master data"},
+		{candidate: gachaCandidatePath, target: h.gachaConfigPath, label: "Gacha config"},
+		{candidate: activityCandidatePath, target: h.activityConfigPath, label: "activity group config"},
+	}
+	paths := make([]string, len(files))
+	for i := range files {
+		file := &files[i]
+		paths[i] = file.target
+		if file.candidate == "" {
+			continue
+		}
+		paths[i] = file.candidate
+		if err := prepareReplacementCandidate(file.candidate, file.target, file.label); err != nil {
 			return err
 		}
-		masterDataPath = masterDataCandidatePath
+		var err error
+		file.original, err = os.ReadFile(file.target)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("back up %s: %w", file.label, err)
+		}
+		file.existed = err == nil
+		if info, err := os.Stat(file.target); err == nil {
+			file.mode = info.Mode().Perm()
+		}
 	}
-	catalogs, err := loadCatalogs(masterDataPath, gachaCandidatePath, h.questDropConfigPath, true, false)
+	catalogs, err := loadCatalogs(paths[0], paths[1], h.questDropConfigPath, paths[2], requireComplete, false)
 	if err != nil {
 		_ = memorydb.Init(h.binPath)
-		return fmt.Errorf("validate synchronized Gacha candidates: %w", err)
+		return fmt.Errorf("validate activity candidates: %w", err)
 	}
-
-	var originalMasterData []byte
-	var originalMasterDataMode os.FileMode
-	if masterDataCandidatePath != "" {
-		originalMasterData, err = os.ReadFile(h.binPath)
-		if err != nil {
-			_ = memorydb.Init(h.binPath)
-			return fmt.Errorf("back up master data: %w", err)
+	for i, file := range files {
+		if file.candidate == "" {
+			continue
 		}
-		if info, statErr := os.Stat(h.binPath); statErr == nil {
-			originalMasterDataMode = info.Mode().Perm()
-		}
-		if err := replaceFile(masterDataCandidatePath, h.binPath); err != nil {
-			_ = memorydb.Init(h.binPath)
-			return fmt.Errorf("install synchronized master data: %w", err)
-		}
-	}
-	if err := replaceFile(gachaCandidatePath, h.gachaConfigPath); err != nil {
-		if masterDataCandidatePath != "" {
-			if rollbackErr := restoreFile(h.binPath, originalMasterData, originalMasterDataMode); rollbackErr != nil {
-				_ = memorydb.Init(h.binPath)
-				return fmt.Errorf("install Gacha config: %v; restore master data: %w", err, rollbackErr)
+		if err := replaceFile(file.candidate, file.target); err != nil {
+			failure := fmt.Errorf("install %s: %w", file.label, err)
+			for j := i - 1; j >= 0; j-- {
+				previous := files[j]
+				if previous.candidate == "" {
+					continue
+				}
+				var rollbackErr error
+				if previous.existed {
+					rollbackErr = restoreFile(previous.target, previous.original, previous.mode)
+				} else {
+					rollbackErr = os.Remove(previous.target)
+				}
+				if rollbackErr != nil {
+					failure = errors.Join(failure, fmt.Errorf("restore %s: %w", previous.label, rollbackErr))
+				}
 			}
+			_ = memorydb.Init(h.binPath)
+			return failure
 		}
-		_ = memorydb.Init(h.binPath)
-		return fmt.Errorf("install Gacha config: %w", err)
 	}
 	h.publish(catalogs)
 	if masterDataCandidatePath != "" {
@@ -316,7 +357,7 @@ func (h *Holder) InstallQuestDropConfig(candidatePath, expectedHash string) erro
 			return fmt.Errorf("preserve quest drop config permissions: %w", err)
 		}
 	}
-	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, candidatePath, false, true)
+	c, err := loadCatalogs(h.binPath, h.gachaConfigPath, candidatePath, h.activityConfigPath, false, true)
 	if err != nil {
 		return fmt.Errorf("validate quest drop config candidate: %w", err)
 	}
@@ -327,7 +368,7 @@ func (h *Holder) InstallQuestDropConfig(candidatePath, expectedHash string) erro
 	return nil
 }
 
-func loadCatalogs(path, gachaConfigPath, questDropConfigPath string, requireCompleteGacha, requireCurrentQuestDrops bool) (*Catalogs, error) {
+func loadCatalogs(path, gachaConfigPath, questDropConfigPath, activityConfigPath string, requireCompleteGacha, requireCurrentQuestDrops bool) (*Catalogs, error) {
 	if err := memorydb.Init(path); err != nil {
 		return nil, fmt.Errorf("memorydb.Init: %w", err)
 	}
@@ -353,10 +394,20 @@ func loadCatalogs(path, gachaConfigPath, questDropConfigPath string, requireComp
 			return nil, err
 		}
 	}
+	var activityConfig *activitygroup.Config
+	activityConfigHash := gacha.ContentHash(nil)
+	if activityConfigPath != "" {
+		activityConfig, activityConfigHash, err = activitygroup.ReadConfig(activityConfigPath)
+		if err != nil {
+			return nil, err
+		}
+	}
 	c, err := buildCatalogs(config, configHash, configExists, questDropConfig, questDropConfigHash, questDropConfigExists, masterDataHash, requireCompleteGacha, requireCurrentQuestDrops)
 	if err != nil {
 		return nil, fmt.Errorf("buildCatalogs: %w", err)
 	}
+	c.ActivityConfig = activityConfig
+	c.ActivityConfigHash = activityConfigHash
 	return c, nil
 }
 

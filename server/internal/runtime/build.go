@@ -88,6 +88,12 @@ func buildCatalogs(
 	if err != nil {
 		return nil, fmt.Errorf("load gacha catalog: %w", err)
 	}
+	for i := range gachaEntries {
+		if schedule, ok := gachaConfig.EventSchedules[gachaEntries[i].GachaId]; ok {
+			gachaEntries[i].StartDatetime = schedule.StartDatetime
+			gachaEntries[i].EndDatetime = schedule.EndDatetime
+		}
+	}
 	gachaEntries = gacha.ApplyConfiguredPremiumBanners(gachaConfig, gachaEntries, medalInfo)
 	masterdata.EnrichGachaUnlockConditions(gachaEntries, questCatalog)
 	log.Printf("gacha catalog loaded: %d entries", len(gachaEntries))

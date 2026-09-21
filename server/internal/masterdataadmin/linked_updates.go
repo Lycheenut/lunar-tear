@@ -11,14 +11,11 @@ import (
 )
 
 const (
-	momBannerDomainLoginBonus  int64 = 21
 	momBannerDomainMission     int64 = 22
 	momBannerDomainEvent       int64 = 23
 	eventLinkDomainShop        int64 = 3
 	missionLinkDomainEvent     int64 = 4
 	naviCutInFunctionEvent     int64 = 2
-	mamaMedalItemType          int64 = 110
-	mamaMedalAssetCategory     int64 = 117
 	claimRedemptionGraceMillis       = int64(48 * 60 * 60 * 1000)
 )
 
@@ -70,45 +67,22 @@ type rowRef struct {
 	row   int
 }
 
-type linkedTarget struct {
-	ref      rowRef
-	relation string
-	note     string
-}
-
-type linkedImpact struct {
-	kind       string
-	upstream   rowRef
-	targets    []linkedTarget
-	targetKeys map[string]bool
-}
-
 type relationIndex struct {
-	shopsByID                      map[int64]rowRef
-	shopsByCurrency                map[int64][]rowRef
-	termsByID                      map[int64]rowRef
-	termByCurrency                 map[int64]rowRef
-	gachaCurrencies                map[int64][]int64
-	gachaMedalsByGacha             map[int64][]rowRef
-	eventLinks                     map[int64][]interface{}
-	missionTermsByChapter          map[int64][]rowRef
-	missionTermsByCurrency         map[int64][]rowRef
-	monthlyCurrenciesByMissionTerm map[int64][]int64
-	eventBannersByText             map[int64][]rowRef
-	loginBannersByID               map[int64][]rowRef
-	missionBannersByTerm           map[int64][]rowRef
-	naviCutInsByChapter            map[int64][]rowRef
-	monthlyCurrenciesByLoginBonus  map[int64][]int64
+	shopsByID             map[int64]rowRef
+	shopsByCurrency       map[int64][]rowRef
+	termsByID             map[int64]rowRef
+	termByCurrency        map[int64]rowRef
+	eventLinks            map[int64][]interface{}
+	missionTermsByChapter map[int64][]rowRef
+	eventBannersByText    map[int64][]rowRef
+	missionBannersByTerm  map[int64][]rowRef
+	naviCutInsByChapter   map[int64][]rowRef
 }
 
-type linkedUpdatePlanner struct {
-	file      *memorydb.File
-	rows      map[string][][]interface{}
-	explicit  map[string]Change
-	effective map[string]interface{}
-	generated map[string]Change
-	impacts   []linkedImpact
-	index     *relationIndex
+type activityRelationReader struct {
+	file  *memorydb.File
+	rows  map[string][][]interface{}
+	index *relationIndex
 }
 
 func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
@@ -122,12 +96,7 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 	if file.Version() != request.ExpectedVersion {
 		return UpdatePreview{}, ErrVersionConflict
 	}
-	planned, impacts, generated, err := expandLinkedChanges(file, request.Changes)
-	if err != nil {
-		return UpdatePreview{}, err
-	}
 	validated := request
-	validated.Changes = planned
 	validated, bonusPreviews, err := planQuestBonusUpdates(file, validated)
 	if err != nil {
 		return UpdatePreview{}, err
@@ -152,7 +121,7 @@ func PreviewUpdate(path string, request UpdateRequest) (UpdatePreview, error) {
 			break
 		}
 	}
-	preview := assembleUpdatePreview(catalog, request.Changes, validated.Changes, impacts, generated, result)
+	preview := assembleUpdatePreview(catalog, request.Changes, validated.Changes, result)
 	preview.QuestBonusRestores = bonusPreviews
 	if request.MissionRewards != nil {
 		current, _, readErr := file.TableRows(missionRewardTable)
@@ -250,521 +219,7 @@ func validateUpdateEnvelope(request UpdateRequest) error {
 	return nil
 }
 
-func expandLinkedChanges(file *memorydb.File, requested []Change) ([]Change, []linkedImpact, map[string]bool, error) {
-	planner := &linkedUpdatePlanner{
-		file:      file,
-		rows:      make(map[string][][]interface{}),
-		explicit:  make(map[string]Change, len(requested)),
-		effective: make(map[string]interface{}, len(requested)),
-		generated: make(map[string]Change),
-	}
-	changedRows := make(map[string]rowRef)
-	for _, change := range requested {
-		spec, ok := findActivitySpec(change.Table)
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("table %q is not an editable activity table", change.Table)
-		}
-		field, ok := findField(spec, change.Field)
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("field %q does not exist on table %q", change.Field, change.Table)
-		}
-		if field.PrimaryKey {
-			return nil, nil, nil, fmt.Errorf("primary key field %q is read-only on table %q", change.Field, change.Table)
-		}
-		rows, err := planner.tableRows(change.Table)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if change.Row < 0 || change.Row >= len(rows) {
-			return nil, nil, nil, fmt.Errorf("row %d is outside table %q", change.Row, change.Table)
-		}
-		value, err := parseChangeValue(field, change.Value)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s row %d field %s: %w", change.Table, change.Row, change.Field, err)
-		}
-		key := previewCellKey(change.Table, change.Row, change.Field)
-		if _, duplicate := planner.explicit[key]; duplicate {
-			return nil, nil, nil, fmt.Errorf("duplicate change for %s row %d field %s", change.Table, change.Row, change.Field)
-		}
-		planner.explicit[key] = change
-		planner.effective[key] = value
-		ref := rowRef{table: change.Table, row: change.Row}
-		changedRows[previewRecordKey(ref)] = ref
-	}
-
-	refs := make([]rowRef, 0, len(changedRows))
-	for _, ref := range changedRows {
-		refs = append(refs, ref)
-	}
-	sort.Slice(refs, func(i, j int) bool {
-		if refs[i].table != refs[j].table {
-			return refs[i].table < refs[j].table
-		}
-		return refs[i].row < refs[j].row
-	})
-	for _, ref := range refs {
-		switch ref.table {
-		case "m_mom_banner":
-			if err := planner.planGachaMomBanner(ref); err != nil {
-				return nil, nil, nil, err
-			}
-		case "m_event_quest_chapter":
-			if err := planner.planEventQuestChapter(ref); err != nil {
-				return nil, nil, nil, err
-			}
-		case "m_login_bonus":
-			if err := planner.planLoginBonus(ref); err != nil {
-				return nil, nil, nil, err
-			}
-		}
-	}
-
-	generatedKeys := make([]string, 0, len(planner.generated))
-	for key := range planner.generated {
-		generatedKeys = append(generatedKeys, key)
-	}
-	sort.Strings(generatedKeys)
-	planned := append([]Change(nil), requested...)
-	generatedSet := make(map[string]bool, len(generatedKeys))
-	for _, key := range generatedKeys {
-		planned = append(planned, planner.generated[key])
-		generatedSet[key] = true
-	}
-	if len(planned) > 10000 {
-		return nil, nil, nil, fmt.Errorf("linked update expands to too many changes")
-	}
-	return planned, planner.impacts, generatedSet, nil
-}
-
-func (p *linkedUpdatePlanner) planGachaMomBanner(ref rowRef) error {
-	rows, err := p.tableRows(ref.table)
-	if err != nil {
-		return err
-	}
-	row := rows[ref.row]
-	oldDomain, _ := integerAt(row, 2)
-	oldGachaID, _ := integerAt(row, 3)
-	newDomain, err := p.effectiveInt(ref, "DestinationDomainType")
-	if err != nil {
-		return err
-	}
-	newGachaID, err := p.effectiveInt(ref, "DestinationDomainId")
-	if err != nil {
-		return err
-	}
-	if oldDomain != int64(model.MomBannerDomainGacha) && newDomain != int64(model.MomBannerDomainGacha) {
-		return nil
-	}
-	impact := p.newImpact("Gacha", ref)
-	index, err := p.relations()
-	if err != nil {
-		return err
-	}
-	stable := oldDomain == int64(model.MomBannerDomainGacha) && newDomain == oldDomain && newGachaID == oldGachaID
-	ids := []int64{oldGachaID}
-	if newGachaID != oldGachaID {
-		ids = append(ids, newGachaID)
-	}
-	seen := make(map[string]bool)
-	for _, gachaID := range ids {
-		for _, medal := range index.gachaMedalsByGacha[gachaID] {
-			key := previewRecordKey(medal)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			note := ""
-			cascade := stable && gachaID == oldGachaID
-			if !stable {
-				note = "Gacha 关联字段发生变化，本次仅展示关联 Medal，不自动调整截止时间。"
-			}
-			target := p.addTarget(impact, medal, "Gacha Medal", note)
-			if cascade {
-				if err := p.cascadeEndWithOffset(ref, target, "AutoConvertDatetime", claimRedemptionGraceMillis); err != nil {
-					return err
-				}
-			}
-		}
-		for _, currencyID := range index.gachaCurrencies[gachaID] {
-			for _, shop := range index.shopsByCurrency[currencyID] {
-				key := previewRecordKey(shop)
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				overlaps, err := p.rowsOverlap(ref, shop)
-				if err != nil {
-					return err
-				}
-				note := ""
-				cascade := stable && gachaID == oldGachaID && overlaps
-				if !overlaps {
-					note = "通过 Gacha 天井币确定关联，但当前档期不重叠，因此不自动调整。"
-				}
-				if !stable {
-					note = "Gacha 关联字段发生变化，本次仅展示关联内容，不自动调整档期。"
-				}
-				target := p.addTarget(impact, shop, "天井兑换商店", note)
-				if cascade {
-					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
-						return err
-					}
-				}
-			}
-			if term, ok := index.termByCurrency[currencyID]; ok {
-				key := previewRecordKey(term)
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				overlaps, err := p.rowsOverlap(ref, term)
-				if err != nil {
-					return err
-				}
-				note := ""
-				cascade := stable && gachaID == oldGachaID && overlaps
-				if !overlaps {
-					note = "通过 Gacha 天井币确定关联，但当前档期不重叠，因此不自动调整。"
-				}
-				if !stable {
-					note = "Gacha 关联字段发生变化，本次仅展示关联内容，不自动调整档期。"
-				}
-				target := p.addTarget(impact, term, "天井币有效期", note)
-				if cascade {
-					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func (p *linkedUpdatePlanner) planEventQuestChapter(ref rowRef) error {
-	rows, err := p.tableRows(ref.table)
-	if err != nil {
-		return err
-	}
-	row := rows[ref.row]
-	chapterID, _ := integerAt(row, 0)
-	nameTextID, _ := integerAt(row, 3)
-	eventLinkID, _ := integerAt(row, 5)
-	newNameTextID, err := p.effectiveInt(ref, "NameEventQuestTextId")
-	if err != nil {
-		return err
-	}
-	newEventLinkID, err := p.effectiveInt(ref, "EventQuestLinkId")
-	if err != nil {
-		return err
-	}
-	impact := p.newImpact("EventQuestChapter", ref)
-	index, err := p.relations()
-	if err != nil {
-		return err
-	}
-
-	textIDs := []int64{nameTextID}
-	if newNameTextID != nameTextID {
-		textIDs = append(textIDs, newNameTextID)
-	}
-	for _, textID := range textIDs {
-		for _, banner := range index.eventBannersByText[textID] {
-			overlaps, err := p.rowsOverlap(ref, banner)
-			if err != nil {
-				return err
-			}
-			if !overlaps {
-				continue
-			}
-			stable := newNameTextID == nameTextID
-			note := ""
-			if !stable {
-				note = "活动标题文本 ID 已变化，旧、新资源命名关系仅作提示，不自动调整档期。"
-			}
-			target := p.addTarget(impact, banner, "活动 MomBanner", note)
-			if stable && textID == nameTextID {
-				if err := p.cascadePair(ref, target); err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	eventLinkIDs := []int64{eventLinkID}
-	if newEventLinkID != eventLinkID {
-		eventLinkIDs = append(eventLinkIDs, newEventLinkID)
-	}
-	for _, linkID := range eventLinkIDs {
-		link := index.eventLinks[linkID]
-		if link == nil {
-			continue
-		}
-		domain, _ := integerAt(link, 1)
-		destination, _ := integerAt(link, 2)
-		possessionType, _ := integerAt(link, 3)
-		currencyID, _ := integerAt(link, 4)
-		stable := newEventLinkID == eventLinkID
-		if domain == eventLinkDomainShop {
-			if shop, ok := index.shopsByID[destination]; ok {
-				note := ""
-				if !stable {
-					note = "EventQuestLinkId 已变化，旧、新活动商店仅作提示，不自动调整档期。"
-				}
-				target := p.addTarget(impact, shop, "活动商店", note)
-				if stable && linkID == eventLinkID {
-					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		if possessionType == int64(model.PossessionTypeConsumableItem) {
-			if term, ok := index.termByCurrency[currencyID]; ok {
-				note := ""
-				if !stable {
-					note = "EventQuestLinkId 已变化，旧、新活动币有效期仅作提示，不自动调整。"
-				}
-				target := p.addTarget(impact, term, "活动币有效期", note)
-				if stable && linkID == eventLinkID {
-					if err := p.cascadePairWithEndOffset(ref, target, claimRedemptionGraceMillis); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-
-	for _, term := range index.missionTermsByChapter[chapterID] {
-		target := p.addTarget(impact, term, "限时任务档期", "")
-		if err := p.cascadePair(ref, target); err != nil {
-			return err
-		}
-		termRows, err := p.tableRows(term.table)
-		if err != nil {
-			return err
-		}
-		termID, _ := integerAt(termRows[term.row], 0)
-		for _, banner := range index.missionBannersByTerm[termID] {
-			bannerTarget := p.addTarget(impact, banner, "限时任务 MomBanner", "")
-			if err := p.cascadePair(ref, bannerTarget); err != nil {
-				return err
-			}
-		}
-		for _, currencyID := range index.monthlyCurrenciesByMissionTerm[termID] {
-			note := fmt.Sprintf("关联限时任务奖励包含月度妈妈兑换币 %d；该档期由多个奖励来源共享，不自动调整。", currencyID)
-			for _, shop := range index.shopsByCurrency[currencyID] {
-				p.addTarget(impact, shop, "限时任务关联的月度妈妈兑换商店", note)
-			}
-			if currencyTerm, ok := index.termByCurrency[currencyID]; ok {
-				p.addTarget(impact, currencyTerm, "月度妈妈兑换币有效期", note)
-			}
-		}
-	}
-	chapterStart, _, err := p.rowTimes(ref)
-	if err != nil {
-		return err
-	}
-	naviCutIns, err := p.selectNaviCutIns(index.naviCutInsByChapter[chapterID], chapterStart)
-	if err != nil {
-		return err
-	}
-	for _, navi := range naviCutIns {
-		target := p.addTarget(impact, navi, "活动 NaviCutIn", "")
-		if err := p.cascadePair(ref, target); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (p *linkedUpdatePlanner) planLoginBonus(ref rowRef) error {
-	rows, err := p.tableRows(ref.table)
-	if err != nil {
-		return err
-	}
-	loginBonusID, _ := integerAt(rows[ref.row], 0)
-	impact := p.newImpact("LoginBonus", ref)
-	index, err := p.relations()
-	if err != nil {
-		return err
-	}
-	for _, banner := range index.loginBannersByID[loginBonusID] {
-		overlaps, err := p.rowsOverlap(ref, banner)
-		if err != nil {
-			return err
-		}
-		note := ""
-		if !overlaps {
-			note = "通过 LoginBonusId 确定关联，但当前档期不重叠，因此不自动调整。"
-		}
-		target := p.addTarget(impact, banner, "签到 MomBanner", note)
-		if overlaps {
-			if err := p.cascadePair(ref, target); err != nil {
-				return err
-			}
-		}
-	}
-	for _, currencyID := range index.monthlyCurrenciesByLoginBonus[loginBonusID] {
-		note := fmt.Sprintf("签到奖励包含月度妈妈兑换币 %d；该档期由多个奖励来源共享，不自动调整。", currencyID)
-		for _, shop := range index.shopsByCurrency[currencyID] {
-			p.addTarget(impact, shop, "月度妈妈兑换商店", note)
-		}
-		if term, ok := index.termByCurrency[currencyID]; ok {
-			p.addTarget(impact, term, "月度妈妈兑换币有效期", note)
-		}
-		for _, missionTerm := range index.missionTermsByCurrency[currencyID] {
-			p.addTarget(impact, missionTerm, "共享月度兑换币的限时任务", note)
-		}
-	}
-	return nil
-}
-
-func (p *linkedUpdatePlanner) newImpact(kind string, upstream rowRef) *linkedImpact {
-	p.impacts = append(p.impacts, linkedImpact{
-		kind:       kind,
-		upstream:   upstream,
-		targetKeys: make(map[string]bool),
-	})
-	return &p.impacts[len(p.impacts)-1]
-}
-
-func (p *linkedUpdatePlanner) addTarget(impact *linkedImpact, ref rowRef, relation, note string) linkedTarget {
-	key := previewRecordKey(ref) + "\x00" + relation
-	if !impact.targetKeys[key] {
-		impact.targetKeys[key] = true
-		impact.targets = append(impact.targets, linkedTarget{ref: ref, relation: relation, note: note})
-	}
-	return linkedTarget{ref: ref, relation: relation, note: note}
-}
-
-func (p *linkedUpdatePlanner) cascadePair(source rowRef, target linkedTarget) error {
-	return p.cascadePairWithEndOffset(source, target, 0)
-}
-
-func (p *linkedUpdatePlanner) cascadePairWithEndOffset(source rowRef, target linkedTarget, endOffset int64) error {
-	sourceSpec, _ := findActivitySpec(source.table)
-	targetSpec, _ := findActivitySpec(target.ref.table)
-	sourcePairs := sourceSpec.pairs()
-	targetPairs := targetSpec.pairs()
-	if len(sourcePairs) == 0 || len(targetPairs) == 0 {
-		return nil
-	}
-	timeChanged, err := p.sourceTimeChanged(source)
-	if err != nil {
-		return err
-	}
-	if !timeChanged {
-		return nil
-	}
-	start, err := p.effectiveInt(source, sourcePairs[0].Start)
-	if err != nil {
-		return err
-	}
-	end, err := p.effectiveInt(source, sourcePairs[0].End)
-	if err != nil {
-		return err
-	}
-	end, err = datetimeWithOffset(end, endOffset)
-	if err != nil {
-		return err
-	}
-	if err := p.setCascadeTime(target, targetPairs[0].Start, start); err != nil {
-		return err
-	}
-	return p.setCascadeTime(target, targetPairs[0].End, end)
-}
-
-func (p *linkedUpdatePlanner) cascadeEndWithOffset(source rowRef, target linkedTarget, targetField string, endOffset int64) error {
-	sourceSpec, _ := findActivitySpec(source.table)
-	sourcePairs := sourceSpec.pairs()
-	if len(sourcePairs) == 0 {
-		return nil
-	}
-	timeChanged, err := p.sourceTimeChanged(source)
-	if err != nil || !timeChanged {
-		return err
-	}
-	end, err := p.effectiveInt(source, sourcePairs[0].End)
-	if err != nil {
-		return err
-	}
-	end, err = datetimeWithOffset(end, endOffset)
-	if err != nil {
-		return err
-	}
-	return p.setCascadeTime(target, targetField, end)
-}
-
-func (p *linkedUpdatePlanner) sourceTimeChanged(source rowRef) (bool, error) {
-	sourceSpec, _ := findActivitySpec(source.table)
-	sourceRows, err := p.tableRows(source.table)
-	if err != nil {
-		return false, err
-	}
-	for _, field := range sourceSpec.Times {
-		value, changed := p.effective[previewCellKey(source.table, source.row, field.Name)]
-		if !changed {
-			continue
-		}
-		original, err := valueAsInt64(sourceRows[source.row][field.Index])
-		if err != nil {
-			return false, err
-		}
-		effective, err := valueAsInt64(value)
-		if err != nil {
-			return false, err
-		}
-		if original != effective {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func datetimeWithOffset(value, offset int64) (int64, error) {
-	if value == 0 || offset == 0 {
-		return value, nil
-	}
-	if offset < 0 || value > maxDatetimeMillis-offset {
-		return 0, fmt.Errorf("级联更新时间加偏移后超出支持的日期范围")
-	}
-	return value + offset, nil
-}
-
-func (p *linkedUpdatePlanner) setCascadeTime(target linkedTarget, targetField string, value int64) error {
-	targetRows, err := p.tableRows(target.ref.table)
-	if err != nil {
-		return err
-	}
-	targetSpec, _ := findActivitySpec(target.ref.table)
-	targetColumn, _ := findField(targetSpec, targetField)
-	oldTarget, err := valueAsInt64(targetRows[target.ref.row][targetColumn.Index])
-	if err != nil {
-		return err
-	}
-	if value == oldTarget {
-		return nil
-	}
-	if value < 0 || value > maxDatetimeMillis {
-		return fmt.Errorf("级联更新 %s row %d field %s 超出支持的日期范围", target.ref.table, target.ref.row, targetField)
-	}
-	key := previewCellKey(target.ref.table, target.ref.row, targetField)
-	if _, explicit := p.explicit[key]; explicit {
-		return nil
-	}
-	change := Change{Table: target.ref.table, Row: target.ref.row, Field: targetField, Value: strconv.FormatInt(value, 10)}
-	if existing, duplicate := p.generated[key]; duplicate {
-		if fmt.Sprint(existing.Value) != fmt.Sprint(change.Value) {
-			return fmt.Errorf("多个上游修改会把 %s row %d field %s 设置为不同值，请拆分修改", target.ref.table, target.ref.row, targetField)
-		}
-		return nil
-	}
-	p.generated[key] = change
-	return nil
-}
-
-func (p *linkedUpdatePlanner) selectNaviCutIns(candidates []rowRef, sourceStart int64) ([]rowRef, error) {
+func (p *activityRelationReader) selectNaviCutIns(candidates []rowRef, sourceStart int64) ([]rowRef, error) {
 	// Event reruns reuse both the chapter and content-group IDs, and SortOrder is
 	// usually identical. The occurrence closest to the chapter start is unique
 	// in the current master data; ID only makes an unexpected tie deterministic.
@@ -804,24 +259,7 @@ func datetimeDistance(left, right int64) uint64 {
 	return uint64(right - left)
 }
 
-func (p *linkedUpdatePlanner) effectiveInt(ref rowRef, fieldName string) (int64, error) {
-	key := previewCellKey(ref.table, ref.row, fieldName)
-	if value, ok := p.effective[key]; ok {
-		return valueAsInt64(value)
-	}
-	spec, _ := findActivitySpec(ref.table)
-	field, ok := findField(spec, fieldName)
-	if !ok {
-		return 0, fmt.Errorf("field %q does not exist on table %q", fieldName, ref.table)
-	}
-	rows, err := p.tableRows(ref.table)
-	if err != nil {
-		return 0, err
-	}
-	return valueAsInt64(rows[ref.row][field.Index])
-}
-
-func (p *linkedUpdatePlanner) rowsOverlap(left, right rowRef) (bool, error) {
+func (p *activityRelationReader) rowsOverlap(left, right rowRef) (bool, error) {
 	leftStart, leftEnd, err := p.rowTimes(left)
 	if err != nil {
 		return false, err
@@ -836,7 +274,7 @@ func (p *linkedUpdatePlanner) rowsOverlap(left, right rowRef) (bool, error) {
 	return leftStart <= rightEnd && rightStart <= leftEnd, nil
 }
 
-func (p *linkedUpdatePlanner) rowTimes(ref rowRef) (int64, int64, error) {
+func (p *activityRelationReader) rowTimes(ref rowRef) (int64, int64, error) {
 	spec, ok := findActivitySpec(ref.table)
 	if !ok || len(spec.pairs()) == 0 {
 		return 0, 0, fmt.Errorf("table %q has no schedule", ref.table)
@@ -856,7 +294,7 @@ func (p *linkedUpdatePlanner) rowTimes(ref rowRef) (int64, int64, error) {
 	return start, end, err
 }
 
-func (p *linkedUpdatePlanner) tableRows(name string) ([][]interface{}, error) {
+func (p *activityRelationReader) tableRows(name string) ([][]interface{}, error) {
 	if rows, ok := p.rows[name]; ok {
 		return rows, nil
 	}
@@ -871,26 +309,20 @@ func (p *linkedUpdatePlanner) tableRows(name string) ([][]interface{}, error) {
 	return rows, nil
 }
 
-func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
+func (p *activityRelationReader) relations() (*relationIndex, error) {
 	if p.index != nil {
 		return p.index, nil
 	}
 	index := &relationIndex{
-		shopsByID:                      make(map[int64]rowRef),
-		shopsByCurrency:                make(map[int64][]rowRef),
-		termsByID:                      make(map[int64]rowRef),
-		termByCurrency:                 make(map[int64]rowRef),
-		gachaCurrencies:                make(map[int64][]int64),
-		gachaMedalsByGacha:             make(map[int64][]rowRef),
-		eventLinks:                     make(map[int64][]interface{}),
-		missionTermsByChapter:          make(map[int64][]rowRef),
-		missionTermsByCurrency:         make(map[int64][]rowRef),
-		monthlyCurrenciesByMissionTerm: make(map[int64][]int64),
-		eventBannersByText:             make(map[int64][]rowRef),
-		loginBannersByID:               make(map[int64][]rowRef),
-		missionBannersByTerm:           make(map[int64][]rowRef),
-		naviCutInsByChapter:            make(map[int64][]rowRef),
-		monthlyCurrenciesByLoginBonus:  make(map[int64][]int64),
+		shopsByID:             make(map[int64]rowRef),
+		shopsByCurrency:       make(map[int64][]rowRef),
+		termsByID:             make(map[int64]rowRef),
+		termByCurrency:        make(map[int64]rowRef),
+		eventLinks:            make(map[int64][]interface{}),
+		missionTermsByChapter: make(map[int64][]rowRef),
+		eventBannersByText:    make(map[int64][]rowRef),
+		missionBannersByTerm:  make(map[int64][]rowRef),
+		naviCutInsByChapter:   make(map[int64][]rowRef),
 	}
 
 	shopRows, err := p.tableRows("m_shop")
@@ -959,32 +391,17 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 		}
 	}
 
-	monthlyCurrencies := make(map[int64]bool)
 	consumableRows, err := p.tableRows("m_consumable_item")
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range consumableRows {
 		itemID, _ := integerAt(row, 0)
-		itemType, _ := integerAt(row, 1)
 		termID, _ := integerAt(row, 4)
-		assetCategory, _ := integerAt(row, 6)
 		if term, ok := index.termsByID[termID]; ok && termID != 0 {
 			index.termByCurrency[itemID] = term
 		}
-		if itemType == mamaMedalItemType && assetCategory == mamaMedalAssetCategory {
-			monthlyCurrencies[itemID] = true
-		}
-	}
-	gachaMedalRows, err := p.tableRows("m_gacha_medal")
-	if err != nil {
-		return nil, err
-	}
-	for rowIndex, row := range gachaMedalRows {
-		currencyID, _ := integerAt(row, 2)
-		gachaID, _ := integerAt(row, 3)
-		index.gachaCurrencies[gachaID] = appendUniqueInt64(index.gachaCurrencies[gachaID], currencyID)
-		index.gachaMedalsByGacha[gachaID] = append(index.gachaMedalsByGacha[gachaID], rowRef{table: "m_gacha_medal", row: rowIndex})
+
 	}
 	eventLinkRows, err := p.tableRows("m_event_quest_link")
 	if err != nil {
@@ -995,19 +412,6 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 		index.eventLinks[linkID] = row
 	}
 
-	missionRewardRows, err := p.tableRows("m_mission_reward")
-	if err != nil {
-		return nil, err
-	}
-	monthlyCurrencyByReward := make(map[int64]int64)
-	for _, row := range missionRewardRows {
-		rewardID, _ := integerAt(row, 0)
-		possessionType, _ := integerAt(row, 1)
-		possessionID, _ := integerAt(row, 2)
-		if possessionType == int64(model.PossessionTypeConsumableItem) && monthlyCurrencies[possessionID] {
-			monthlyCurrencyByReward[rewardID] = possessionID
-		}
-	}
 	missionLinkRows, err := p.tableRows("m_mission_link")
 	if err != nil {
 		return nil, err
@@ -1035,10 +439,8 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 		return nil, err
 	}
 	missionChapterSeen := make(map[string]bool)
-	missionCurrencySeen := make(map[string]bool)
 	for _, row := range missionRows {
 		linkID, _ := integerAt(row, 6)
-		rewardID, _ := integerAt(row, 11)
 		termID, _ := integerAt(row, 12)
 		term, ok := missionTermByID[termID]
 		if !ok || termID == 0 {
@@ -1049,14 +451,6 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 			if !missionChapterSeen[key] {
 				missionChapterSeen[key] = true
 				index.missionTermsByChapter[chapterID] = append(index.missionTermsByChapter[chapterID], term)
-			}
-		}
-		if currencyID := monthlyCurrencyByReward[rewardID]; currencyID != 0 {
-			key := fmt.Sprintf("%d\x00%s", currencyID, previewRecordKey(term))
-			if !missionCurrencySeen[key] {
-				missionCurrencySeen[key] = true
-				index.missionTermsByCurrency[currencyID] = append(index.missionTermsByCurrency[currencyID], term)
-				index.monthlyCurrenciesByMissionTerm[termID] = appendUniqueInt64(index.monthlyCurrenciesByMissionTerm[termID], currencyID)
 			}
 		}
 	}
@@ -1071,8 +465,6 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 		assetName, _ := stringAt(row, 4)
 		ref := rowRef{table: "m_mom_banner", row: rowIndex}
 		switch domain {
-		case momBannerDomainLoginBonus:
-			index.loginBannersByID[destination] = append(index.loginBannersByID[destination], ref)
 		case momBannerDomainMission:
 			index.missionBannersByTerm[destination] = append(index.missionBannersByTerm[destination], ref)
 		case momBannerDomainEvent:
@@ -1092,19 +484,6 @@ func (p *linkedUpdatePlanner) relations() (*relationIndex, error) {
 			index.naviCutInsByChapter[chapterID] = append(index.naviCutInsByChapter[chapterID], rowRef{table: "m_navi_cut_in", row: rowIndex})
 		}
 	}
-	loginStampRows, err := p.tableRows("m_login_bonus_stamp")
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range loginStampRows {
-		loginBonusID, _ := integerAt(row, 0)
-		possessionType, _ := integerAt(row, 3)
-		currencyID, _ := integerAt(row, 4)
-		if possessionType == int64(model.PossessionTypeConsumableItem) && monthlyCurrencies[currencyID] {
-			index.monthlyCurrenciesByLoginBonus[loginBonusID] = appendUniqueInt64(index.monthlyCurrenciesByLoginBonus[loginBonusID], currencyID)
-		}
-	}
-
 	p.index = index
 	return index, nil
 }
@@ -1122,15 +501,6 @@ func eventBannerTextID(assetName string) (int64, bool) {
 	return id, err == nil
 }
 
-func appendUniqueInt64(values []int64, value int64) []int64 {
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
-	}
-	return append(values, value)
-}
-
 func findActivitySpec(name string) (tableSpec, bool) {
 	for _, spec := range editableTableSpecs {
 		if spec.Name == name {
@@ -1140,7 +510,7 @@ func findActivitySpec(name string) (tableSpec, bool) {
 	return tableSpec{}, false
 }
 
-func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, impacts []linkedImpact, generated map[string]bool, result UpdateResult) UpdatePreview {
+func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, result UpdateResult) UpdatePreview {
 	rows := make(map[string]Row)
 	fields := make(map[string]map[string]Field)
 	for _, table := range catalog.Tables {
@@ -1212,51 +582,20 @@ func assembleUpdatePreview(catalog *Catalog, requested, planned []Change, impact
 		}
 	}
 	requestedByRecord := changesByRecord(requested)
-	plannedByRecord := changesByRecord(planned)
-	coveredRequested := make(map[string]bool)
 	preview := UpdatePreview{
 		RequestedChanges: len(requested),
-		GeneratedChanges: len(generated),
 		TotalChanges:     len(planned),
 		ChangedRows:      result.ChangedRows,
 	}
-	for _, impact := range impacts {
-		upstreamKey := previewRecordKey(impact.upstream)
-		coveredRequested[upstreamKey] = true
-		entry := UpdateImpactPreview{
-			Kind:     impact.kind,
-			Upstream: makeRecordPreview(impact.upstream, "", "", rows, fields, requestedByRecord[upstreamKey], generated),
-		}
-		sort.Slice(impact.targets, func(i, j int) bool {
-			if impact.targets[i].relation != impact.targets[j].relation {
-				return impact.targets[i].relation < impact.targets[j].relation
-			}
-			if impact.targets[i].ref.table != impact.targets[j].ref.table {
-				return impact.targets[i].ref.table < impact.targets[j].ref.table
-			}
-			return impact.targets[i].ref.row < impact.targets[j].ref.row
-		})
-		for _, target := range impact.targets {
-			key := previewRecordKey(target.ref)
-			if len(requestedByRecord[key]) != 0 {
-				coveredRequested[key] = true
-			}
-			entry.Downstream = append(entry.Downstream,
-				makeRecordPreview(target.ref, target.relation, target.note, rows, fields, plannedByRecord[key], generated))
-		}
-		preview.Impacts = append(preview.Impacts, entry)
-	}
 	otherKeys := make([]string, 0)
 	for key := range requestedByRecord {
-		if !coveredRequested[key] {
-			otherKeys = append(otherKeys, key)
-		}
+		otherKeys = append(otherKeys, key)
 	}
 	sort.Strings(otherKeys)
 	for _, key := range otherKeys {
 		ref := parsePreviewRecordKey(key)
 		preview.OtherChanges = append(preview.OtherChanges,
-			makeRecordPreview(ref, "", "", rows, fields, requestedByRecord[key], generated))
+			makeRecordPreview(ref, "", "", rows, fields, requestedByRecord[key], nil))
 	}
 	return preview
 }

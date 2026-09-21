@@ -215,11 +215,6 @@ func BuildUpdate(path string, request UpdateRequest) ([]byte, UpdateResult, erro
 	if file.Version() != request.ExpectedVersion {
 		return nil, UpdateResult{}, ErrVersionConflict
 	}
-	planned, _, _, err := expandLinkedChanges(file, request.Changes)
-	if err != nil {
-		return nil, UpdateResult{}, err
-	}
-	request.Changes = planned
 	request, _, err = planQuestBonusUpdates(file, request)
 	if err != nil {
 		return nil, UpdateResult{}, err

@@ -210,6 +210,16 @@
     return payload;
   }
 
+  const activityGroupEditor = window.createActivityGroupEditor?.({
+    root: $("#activity-group-editor"), api, showNotice,
+    hasOtherChanges: () => Boolean(masterDirtyCount() || questDropStructuralDirty() || state.gachaDirty),
+    onPublished: async () => {
+      state.gachaCatalog = null;
+      state.catalog = await api("/api/admin/master-data/catalog");
+      elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
+    }
+  });
+
   const questBonusEditor = window.createQuestBonusEditor?.({
     root: $("#quest-bonus-editor"), searchRoot: elements.questBonusSearch, onChange: updateDirtyUI, localizedText,
     formatDatetime: (value) => previewChangeValue(value, true),
@@ -225,7 +235,9 @@
   async function loadCatalog() {
     setBusy(true, "正在读取配置表元信息…");
     try {
+      activityGroupEditor?.reset();
       state.catalog = await api("/api/admin/master-data/catalog");
+      elements.version.textContent = `版本 ${state.catalog.version.slice(0, 12)}`;
       state.gachaCatalog = null;
       state.questDropCatalog = null;
       state.rewardCatalog = null;
@@ -256,7 +268,8 @@
       "/admin/related": "related",
       "/admin/delivery": "delivery",
       "/admin/drops": "drop",
-      "/admin/gacha": "gacha"
+      "/admin/gacha": "gacha",
+      "/admin/groups": "groups"
     };
     return sections[window.location.pathname] || "master";
   }
@@ -267,7 +280,8 @@
       related: "/admin/related",
       delivery: "/admin/delivery",
       drop: "/admin/drops",
-      gacha: "/admin/gacha"
+      gacha: "/admin/gacha",
+      groups: "/admin/groups"
     }[section] || "/admin/activities";
   }
 
@@ -3703,7 +3717,7 @@
 
   function renderMasterUpdatePreview(preview) {
     const replacementCount = (preview.tableReplacements || []).length;
-    elements.masterUpdateSummary.textContent = `${preview.requestedChanges} 个字段修改将生成 ${preview.generatedChanges} 个确定的下游修改${replacementCount ? `，并整表替换 ${replacementCount} 张表` : ""}，共影响 ${preview.changedRows} 行。`;
+    elements.masterUpdateSummary.textContent = `${preview.requestedChanges} 个字段修改${replacementCount ? `，并整表替换 ${replacementCount} 张表` : ""}，共影响 ${preview.changedRows} 行。`;
     if (preview.questBonusRestores?.length) elements.masterUpdateSummary.textContent = `${preview.questBonusRestores.length} 个活动共鸣配置／期限更新，共影响 ${preview.changedRows} 行。下方列出实际关卡分组和完整突破数量。`;
     elements.masterUpdatePreview.replaceChildren();
     questBonusEditor?.renderPreview(elements.masterUpdatePreview, preview);
@@ -4242,17 +4256,21 @@
   }
 
   async function switchAdminSection(section, navigate = true) {
-    state.section = ["master", "related", "delivery", "drop", "gacha"].includes(section) ? section : "master";
+    state.section = ["master", "related", "delivery", "drop", "gacha", "groups"].includes(section) ? section : "master";
     if (navigate && window.location.pathname !== sectionPath(state.section)) {
       window.history.pushState({}, "", sectionPath(state.section));
     } else if (!navigate && window.location.pathname === "/admin/") {
       window.history.replaceState({}, "", sectionPath(state.section));
     }
     const isGacha = state.section === "gacha";
+    const isGroups = state.section === "groups";
+    $("#activity-group-editor").classList.toggle("hidden", !isGroups);
+    $("#tab-groups").classList.toggle("active", isGroups);
+    $("#tab-groups").setAttribute("aria-pressed", String(isGroups));
     const isDrop = state.section === "drop";
     const isDelivery = state.section === "delivery";
-    document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha));
-    document.querySelectorAll(".table-section-only").forEach((element) => element.classList.toggle("hidden", isGacha || isDrop));
+    document.querySelectorAll(".master-only").forEach((element) => element.classList.toggle("hidden", isGacha || isGroups));
+    document.querySelectorAll(".table-section-only").forEach((element) => element.classList.toggle("hidden", isGacha || isDrop || isGroups));
     document.querySelectorAll(".drop-section-only").forEach((element) => element.classList.toggle("hidden", !isDrop));
     elements.gachaEditor.classList.toggle("hidden", !isGacha);
     elements.tableSearchLabel.classList.toggle("hidden", isDelivery);
@@ -4271,6 +4289,10 @@
     if (!state.catalog) return;
     setBusy(true, isGacha ? "正在读取 Gacha 配置…" : isDrop ? "正在读取掉落配置…" : "正在读取当前数据表…");
     try {
+      if (isGroups) {
+        await activityGroupEditor?.load();
+        return;
+      }
       if (isGacha) {
         await Promise.all([ensureGachaCatalog(), ensureRewardCatalog()]);
         renderGachaEditor();
@@ -5418,6 +5440,7 @@
   elements.tabRelated.addEventListener("click", () => activateSection("related"));
   elements.tabDelivery.addEventListener("click", () => activateSection("delivery"));
   elements.tabDrop.addEventListener("click", () => activateSection("drop"));
+  $("#tab-groups").addEventListener("click", () => activateSection("groups"));
   elements.tabGacha.addEventListener("click", () => activateSection("gacha"));
   window.addEventListener("popstate", () => activateSection(sectionFromPath(), false));
   elements.gachaKindPremium.addEventListener("click", () => setGachaKind("premium"));
@@ -5624,7 +5647,7 @@
     renderTable();
   }));
   elements.refresh.addEventListener("click", async () => {
-    if ((masterDirtyCount() || questDropStructuralDirty() || state.gachaDirty) && !confirm("刷新会放弃尚未应用的修改，是否继续？")) return;
+    if ((masterDirtyCount() || questDropStructuralDirty() || state.gachaDirty || activityGroupEditor?.dirty()) && !confirm("刷新会放弃尚未应用的修改，是否继续？")) return;
     try { await loadCatalog(); } catch (_) { /* notice is already shown */ }
   });
   elements.discard.addEventListener("click", () => {
@@ -5654,7 +5677,7 @@
     if (!changes.length && !bonusPayload.questBonusGroups.length && !bonusRestores.length && !scheduleChanges.length && !rewardStructural && !state.shopCellGroupDirty && !shopItemCellStructuralDirty() && !shopItemStructuralDirty()) return;
     if (scheduleChanges.length) {
       if (changes.length || bonusPayload.questBonusGroups.length || bonusRestores.length || rewardStructural || state.shopCellGroupDirty || shopItemCellStructuralDirty() || shopItemStructuralDirty()) {
-        showNotice("Gacha 日程会联动更新 MomBanner，不能与其他主数据修改同时发布；请先放弃其中一类修改。", true);
+        showNotice("Gacha 日程与其他主数据修改需要分别发布；请先保存或放弃其中一类修改。", true);
         return;
       }
       const validationErrors = gachaValidationErrors();
@@ -5677,7 +5700,7 @@
     }
     if (shopItemCellStructuralDirty()) request.shopItemCells = shopItemCellStructuralPayload();
     if (shopItemStructuralDirty()) request.shopItems = shopItemStructuralPayload();
-    setBusy(true, "正在计算确定链路及变更预览…");
+    setBusy(true, "正在校验修改并生成预览…");
     try {
       const preview = await api("/api/admin/master-data/schedules/preview", {
         method: "POST",
@@ -5713,7 +5736,7 @@
     elements.masterUpdateDialog.returnValue = "confirm";
     elements.masterUpdateDialog.close();
     state.pendingMasterChanges = null;
-    setBusy(true, "正在重建、验证并热更新上游及关联主数据…");
+    setBusy(true, "正在重建、验证并热更新主数据…");
     try {
       const result = await api("/api/admin/master-data/schedules", {
         method: "POST",
@@ -5820,7 +5843,7 @@
   });
 
   window.addEventListener("beforeunload", (event) => {
-    if (!masterDirtyCount() && !questDropStructuralDirty() && !state.gachaDirty) return;
+    if (!masterDirtyCount() && !questDropStructuralDirty() && !state.gachaDirty && !activityGroupEditor?.dirty()) return;
     event.preventDefault();
     event.returnValue = "";
   });

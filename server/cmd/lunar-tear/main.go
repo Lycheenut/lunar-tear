@@ -26,6 +26,7 @@ func main() {
 	adminListen := flag.String("admin-listen", "127.0.0.1:8082", "admin UI/API listen address (host:port). Loopback by default; only binds when LUNAR_ADMIN_TOKEN is set.")
 	gachaConfigPath := flag.String("gacha-config", "config/gacha.json", "server-owned plaintext Gacha configuration path")
 	questDropConfigPath := flag.String("quest-drop-config", "config/quest_drops.json", "server-owned plaintext quest drop configuration path")
+	activityConfigPath := flag.String("activity-group-config", "config/activity-groups.json", "server-owned plaintext activity group configuration path")
 	noRegister := flag.Bool("no-register", false, "Disallow new account registrations for clients, when present. Default = false")
 	flag.Parse()
 
@@ -33,7 +34,7 @@ func main() {
 		log.Fatalf("--octo-url is required (e.g. http://10.0.2.2:8080)")
 	}
 
-	holder, err := runtime.NewHolderWithConfigs(masterDataPath, *gachaConfigPath, *questDropConfigPath)
+	holder, err := runtime.NewHolderWithConfigs(masterDataPath, *gachaConfigPath, *questDropConfigPath, *activityConfigPath)
 	if err != nil {
 		log.Fatalf("init master data: %v", err)
 	}
@@ -57,7 +58,7 @@ func main() {
 
 	stopGRPC := startGRPC(*listen, *publicAddr, *octoURL, *authURL, userStore, holder, names, *noRegister)
 
-	startAdmin(*adminListen, masterDataPath, *gachaConfigPath, *questDropConfigPath, holder)
+	startAdmin(*adminListen, masterDataPath, *gachaConfigPath, *questDropConfigPath, *activityConfigPath, holder)
 
 	<-ctx.Done()
 	log.Println("shutting down...")

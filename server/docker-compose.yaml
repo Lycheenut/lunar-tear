@@ -14,6 +14,7 @@ services:
       LUNAR_ADMIN_TOKEN: ${LUNAR_ADMIN_TOKEN:-}
       LUNAR_GACHA_CONFIG: db/gacha.json
       LUNAR_QUEST_DROP_CONFIG: db/quest_drops.json
+      LUNAR_ACTIVITY_GROUP_CONFIG: db/activity-groups.json
     volumes:
       - ./db:/opt/lunar-tear/db
       - ./assets:/opt/lunar-tear/assets

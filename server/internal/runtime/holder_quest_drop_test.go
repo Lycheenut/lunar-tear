@@ -55,7 +55,7 @@ func TestHolderLoadsQuestDropOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	holder, err := runtime.NewHolderWithConfigs(masterDataPath, "", configPath)
+	holder, err := runtime.NewHolderWithConfigs(masterDataPath, "", configPath, "")
 	if err != nil {
 		t.Fatal(err)
 	}

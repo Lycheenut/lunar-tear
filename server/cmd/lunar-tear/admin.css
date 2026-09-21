@@ -40,6 +40,37 @@ code {
 
 .hidden { display: none !important; }
 
+.activity-group-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px 0; }
+#activity-group-editor > .activity-group-toolbar { padding: 14px 20px; }
+.activity-group-toolbar label { display: grid; gap: 6px; }
+.activity-group-toolbar select { max-width: 440px; }
+.activity-group-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 540px; border-top: 1px solid var(--line); }
+.activity-group-sidebar { padding: 16px; border-right: 1px solid var(--line); }
+.activity-group-sidebar > input { width: 100%; }
+.activity-group-list { max-height: 660px; overflow-y: auto; margin-top: 12px; }
+.activity-group-list-item { display: block; width: 100%; padding: 12px; text-align: left; border: 0; border-radius: 8px; color: var(--text); background: transparent; overflow-wrap: anywhere; }
+.activity-group-list-item.active, .activity-group-list-item:hover { background: var(--panel-2); color: var(--accent); }
+.activity-group-list-item small { display: block; margin-top: 6px; color: var(--muted); }
+.activity-group-detail { min-width: 0; padding: 12px 20px 24px; overflow-x: auto; }
+.activity-group-detail h3 { margin: 24px 0 8px; }
+.activity-group-note { color: var(--muted); line-height: 1.7; max-width: 800px; }
+.activity-group-members { width: 100%; margin: 16px 0; }
+.activity-group-members td { white-space: normal; overflow-wrap: anywhere; }
+.activity-group-member-picker { min-width: 230px; flex: 1; }
+.activity-group-member-picker > select { width: 100%; }
+dialog.activity-group-dialog { width: min(1100px, 95vw); max-width: 1100px; }
+.activity-group-preview-scroll { overflow: auto; max-height: 60vh; margin: 20px 0; }
+.activity-group-preview-scroll table, table.activity-group-members { width: 100%; min-width: 0; table-layout: fixed; }
+.activity-group-preview-scroll td, .activity-group-preview-scroll th { white-space: normal; overflow-wrap: anywhere; }
+.activity-group-preview-scroll td:first-child, .activity-group-preview-scroll th:first-child { position: static; width: 32%; min-width: 0; }
+.activity-group-members td:first-child, .activity-group-members th:first-child { position: static; width: 18%; min-width: 0; }
+.activity-group-toolbar > label:first-child { flex: 1; min-width: 180px; }
+@media (max-width: 760px) {
+  .activity-group-layout { grid-template-columns: 1fr; }
+  .activity-group-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+  .activity-group-list { max-height: 220px; }
+}
+
 .search-select { display: inline-flex; position: relative; align-items: center; min-width: 0; width: 100%; vertical-align: middle; }
 .search-select-native { display: none !important; }
 .search-select > input { width: 100%; min-width: 0; padding-right: 28px; text-overflow: ellipsis; }

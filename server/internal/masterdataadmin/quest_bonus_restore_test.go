@@ -276,8 +276,8 @@ func TestQuestBonusRestorePreservesPhasesAndSynchronizesDates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := bonusTestGroup(updated, bonusTerms, plan.TermGroupID).Rows[0]; got[2] != bonusString(plan.StartDatetime) || got[3] != bonusString(newEnd) {
-		t.Fatalf("date did not cascade: %v", got)
+	if got := bonusTestGroup(updated, bonusTerms, plan.TermGroupID).Rows[0]; got[2] != bonusString(plan.StartDatetime) || got[3] != bonusString(plan.EndDatetime) {
+		t.Fatalf("individual date edit changed bonus term: %v", got)
 	}
 	if !reflect.DeepEqual(readRows(rebuilt, questTable), readRows(updated, questTable)) {
 		t.Fatal("private term synchronization unnecessarily reassigned quests")
@@ -379,13 +379,13 @@ func TestQuestBonusRestoreExternalRulesRemapActualMedals(t *testing.T) {
 	}
 }
 
-func TestQuestBonusInitialDateEditIsolatesAllMemberTerms(t *testing.T) {
+func TestQuestBonusIndividualDateEditPreservesMemberTerms(t *testing.T) {
 	path, file := bonusTestFile(t)
 	var index int
-	var start, end int64
+	var end int64
 	for i, row := range readRows(file, "m_event_quest_chapter") {
 		if bonusInt(row, 0) == 501 {
-			index, start, end = i, bonusInt(row, 8), bonusInt(row, 9)
+			index, end = i, bonusInt(row, 9)
 		}
 	}
 	request := UpdateRequest{ExpectedVersion: file.Version(), Changes: []Change{{Table: "m_event_quest_chapter", Row: index, Field: "EndDatetime", Value: bonusString(end + 86400000)}}}
@@ -393,9 +393,8 @@ func TestQuestBonusInitialDateEditIsolatesAllMemberTerms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := preview.QuestBonusRestores[0]
-	if !plan.ScheduleOnly || plan.StartDatetime != start || plan.EndDatetime != end+86400000 {
-		t.Fatalf("invalid date preview: %+v", plan)
+	if len(preview.QuestBonusRestores) != 0 {
+		t.Fatal("schedule unexpectedly restores bonuses")
 	}
 	candidate, _, err := BuildUpdate(path, request)
 	if err != nil {
@@ -405,15 +404,9 @@ func TestQuestBonusInitialDateEditIsolatesAllMemberTerms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := newBonusRestorePlanner(rebuilt)
-	for _, q := range p.quests {
-		if q.ChapterID == 501 {
-			terms := p.terms(q.BonusID)
-			if len(terms) != 1 || !terms[plan.TermGroupID] {
-				t.Fatalf("unsynchronized member: %v", terms)
-			}
-		} else if p.terms(q.BonusID)[plan.TermGroupID] {
-			t.Fatalf("activity term shared with %d", q.ChapterID)
+	for _, table := range []string{questTable, questBonusTable, bonusTerms} {
+		if !reflect.DeepEqual(readRows(file, table), readRows(rebuilt, table)) {
+			t.Fatalf("individual schedule edit changed %s", table)
 		}
 	}
 }

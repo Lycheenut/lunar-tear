@@ -24,6 +24,11 @@ if [ -n "${LUNAR_QUEST_DROP_CONFIG}" ]; then
   QUEST_DROP_CONFIG_FLAG="--quest-drop-config ${LUNAR_QUEST_DROP_CONFIG}"
 fi
 
+ACTIVITY_GROUP_CONFIG_FLAG=""
+if [ -n "${LUNAR_ACTIVITY_GROUP_CONFIG}" ]; then
+  ACTIVITY_GROUP_CONFIG_FLAG="--activity-group-config ${LUNAR_ACTIVITY_GROUP_CONFIG}"
+fi
+
 REGISTER_FLAG=""
 case "${LUNAR_NO_REGISTER:-}" in
   1|true|TRUE|yes|YES)
@@ -39,4 +44,5 @@ exec ./lunar-tear \
   ${ADMIN_FLAG} \
   ${GACHA_CONFIG_FLAG} \
   ${QUEST_DROP_CONFIG_FLAG} \
+  ${ACTIVITY_GROUP_CONFIG_FLAG} \
   ${REGISTER_FLAG}

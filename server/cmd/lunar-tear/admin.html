@@ -38,6 +38,7 @@
 
     <section id="workspace" class="workspace hidden" aria-live="polite">
       <nav class="admin-tabs" aria-label="配置区域">
+        <button id="tab-groups" class="admin-tab" type="button" aria-pressed="false">活动组</button>
         <button id="tab-master" class="admin-tab active" type="button" aria-pressed="true">运营活动配置</button>
         <button id="tab-related" class="admin-tab" type="button" aria-pressed="false">关联表配置</button>
         <button id="tab-delivery" class="admin-tab" type="button" aria-pressed="false">投放配置</button>
@@ -90,6 +91,8 @@
       </div>
 
       <div id="notice" class="notice hidden" role="status"></div>
+
+      <section id="activity-group-editor" class="data-panel hidden"></section>
 
       <div id="master-layout" class="master-layout master-only">
         <section class="data-panel">
@@ -629,7 +632,7 @@
     <div class="impact-dialog-heading">
       <div>
         <p class="eyebrow">APPLY LINKED MASTER DATA</p>
-        <h2>确认应用上游及关联变更？</h2>
+        <h2>确认应用配置变更？</h2>
       </div>
       <p id="master-update-summary" class="impact-summary"></p>
     </div>
@@ -676,7 +679,7 @@
     <div>
       <p class="eyebrow">PUBLISH GACHA CONFIG</p>
       <h2>发布当前 Gacha 配置？</h2>
-      <p>服务端会重新校验全部武器和卡池，并把时间同步到匹配的 MomBanner；成功后安装配置与主数据并立即切换新请求。</p>
+      <p>服务端会重新校验全部武器和卡池；成功后安装 Gacha 配置并立即切换新请求。各环节的整体改时请使用活动组。</p>
     </div>
     <div class="save-actions">
       <button id="gacha-publish-cancel" class="button ghost" type="button">取消</button>
@@ -686,6 +689,7 @@
 
   <script src="/admin/admin_search_select.js" defer></script>
   <script src="/admin/admin_quest_bonus.js" defer></script>
+  <script src="/admin/admin_activity_groups.js" defer></script>
   <script src="/admin/admin.js" defer></script>
 </body>
 
