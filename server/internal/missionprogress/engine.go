@@ -845,11 +845,15 @@ func eventDailyQuestMatches(catalog *masterdata.QuestCatalog, questId int32) boo
 }
 
 func exploreHighScore(user *store.UserState, mission masterdata.EntityMMission) int32 {
-	if id := mission.MissionClearConditionOptionGroupId; id != 0 {
+	targetIds, hasTarget := knownOptionTargets(model.MissionClearConditionTypeExploreHighScore, mission.MissionClearConditionOptionGroupId)
+	if id := mission.MissionClearConditionOptionGroupId; id != 0 && !hasTarget {
 		return user.ExploreScores[id].MaxScore
 	}
 	var value int32
-	for _, score := range user.ExploreScores {
+	for id, score := range user.ExploreScores {
+		if hasTarget && !containsTarget(targetIds, id) {
+			continue
+		}
 		value = max(value, score.MaxScore)
 	}
 	return value
