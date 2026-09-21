@@ -77,28 +77,15 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 			user.BigHuntStatuses[bossQuestId] = st
 		}
 
-		for _, boss := range bhCatalog.BossByBossId {
-			key := store.BigHuntWeeklyScoreKey{
-				BigHuntWeeklyVersion: weeklyVersion,
-				AttributeType:        boss.AttributeType,
-			}
-			wms := user.BigHuntWeeklyMaxScores[key]
-			gradeIcon := bhCatalog.ResolveGradeIconId(boss.BigHuntBossId, wms.MaxScore)
-			weeklyScoreResults = append(weeklyScoreResults, &pb.WeeklyScoreResult{
-				AttributeType:           boss.AttributeType,
-				BeforeMaxScore:          wms.MaxScore,
-				CurrentMaxScore:         wms.MaxScore,
-				BeforeAssetGradeIconId:  gradeIcon,
-				CurrentAssetGradeIconId: gradeIcon,
-				AfterMaxScore:           wms.MaxScore,
-				AfterAssetGradeIconId:   gradeIcon,
-			})
-		}
+		weeklyScoreResults = buildBigHuntWeeklyScoreResults(bhCatalog, *user, weeklyVersion)
 
 		weeklyRewards, isReceived = receiveBigHuntWeeklyReward(cat, user, nowMillis)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("receive big hunt reward: %w", err)
+	}
+	if len(weeklyRewards) > 0 {
+		log.Printf("[RewardService] ReceiveBigHuntReward: userId=%d weeklyVersion=%d granted %d weekly rewards", userId, weeklyVersion-bigHuntWeekMillis, len(weeklyRewards))
 	}
 
 	if weeklyRewards == nil {

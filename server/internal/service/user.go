@@ -106,6 +106,7 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 		ensureComebackCampaign(catalogs.Campaign, user, nowMillis)
 		newComeback := activateComebackCampaign(catalogs.Campaign, user, nowMillis, user.Login.LastLoginDatetime)
 		syncLoginBonuses(catalogs.LoginBonus, catalogs.Campaign, user, nowMillis, newComeback)
+		ensureBigHuntWeeklyStatuses(user, nowMillis)
 		advanceLoginState(&user.Login, nowMillis)
 		store.AddMissionCount(user, int32(model.MissionClearConditionTypeTitleTransitionByCount), 1, 0, missionOptionTitleScreen)
 	})
