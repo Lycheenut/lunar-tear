@@ -173,8 +173,8 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 
 var autoSaleRarityTiers = map[int32]bool{10: true, 20: true, 30: true, 40: true, 50: true}
 
-// Rarity tiers (10..50) and ranks (1..5) are disjoint, so the delimited values
-// are classified by range — independent of the client's map key or delimiter.
+// The client sends rarity tiers (10..50) and zero-based sub-status counts
+// (0..4). Convert the latter to the parts lottery ranks (1..5) used for sales.
 func parseAutoSaleRules(settings map[int32]store.AutoSaleSettingState) (raritySet, rankSet map[int32]bool) {
 	raritySet = map[int32]bool{}
 	rankSet = map[int32]bool{}
@@ -183,8 +183,8 @@ func parseAutoSaleRules(settings map[int32]store.AutoSaleSettingState) (raritySe
 			switch {
 			case autoSaleRarityTiers[n]:
 				raritySet[n] = true
-			case n >= 1 && n <= 5:
-				rankSet[n] = true
+			case n >= 0 && n <= 4:
+				rankSet[n+1] = true
 			}
 		}
 	}
