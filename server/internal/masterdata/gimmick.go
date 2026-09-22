@@ -131,6 +131,8 @@ type SequenceReward struct {
 type GimmickCatalog struct {
 	schedules               []gimmickScheduleEntry
 	scheduleByKey           map[store.GimmickSequenceKey]gimmickScheduleEntry
+	sequenceChains          map[int32][]int32
+	sequencePredecessors    map[int32][]int32
 	hiddenSequences         map[int32]bool             // GimmickSequenceId -> report/cage-memory
 	sequenceRewards         map[int32][]SequenceReward // GimmickSequenceId -> clear rewards
 	gimmickTypes            map[int32]model.GimmickType
@@ -227,7 +229,7 @@ func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnament
 		return nil, err
 	}
 	scheduleByKey := make(map[store.GimmickSequenceKey]gimmickScheduleEntry)
-	chains := LoadGimmickSequenceChains()
+	chains, predecessors := loadGimmickSequenceGraph()
 	for _, entry := range entries {
 		for _, sequenceId := range chains[entry.FirstSequenceId] {
 			scheduleByKey[store.GimmickSequenceKey{GimmickSequenceScheduleId: entry.ScheduleId, GimmickSequenceId: sequenceId}] = entry
@@ -239,6 +241,8 @@ func LoadGimmickCatalog(resolver *ConditionResolver, cageOrnaments *CageOrnament
 	return &GimmickCatalog{
 		schedules:               entries,
 		scheduleByKey:           scheduleByKey,
+		sequenceChains:          chains,
+		sequencePredecessors:    predecessors,
 		hiddenSequences:         hiddenSeq,
 		sequenceRewards:         sequenceRewards,
 		gimmickTypes:            gimmickTypes().byGimmick,
@@ -524,17 +528,35 @@ func (c *GimmickCatalog) ActiveScheduleKeys(user store.UserState, nowMillis int6
 		if !c.conditions.Satisfied(s.ReleaseConditionId, &user) {
 			continue
 		}
-		keys = append(keys, store.GimmickSequenceKey{
-			GimmickSequenceScheduleId: s.ScheduleId,
-			GimmickSequenceId:         s.FirstSequenceId,
-		})
+		for _, sequenceId := range c.sequenceChains[s.FirstSequenceId] {
+			if c.SequenceAvailable(&user, s.ScheduleId, sequenceId, nowMillis) {
+				keys = append(keys, store.GimmickSequenceKey{
+					GimmickSequenceScheduleId: s.ScheduleId,
+					GimmickSequenceId:         sequenceId,
+				})
+			}
+		}
 	}
 	return keys
 }
 
 func (c *GimmickCatalog) SequenceAvailable(user *store.UserState, scheduleId, sequenceId int32, nowMillis int64) bool {
 	entry, ok := c.scheduleByKey[store.GimmickSequenceKey{GimmickSequenceScheduleId: scheduleId, GimmickSequenceId: sequenceId}]
-	return ok && nowMillis >= entry.StartDatetime && c.conditions.Satisfied(entry.ReleaseConditionId, user)
+	if !ok || nowMillis < entry.StartDatetime || !c.conditions.Satisfied(entry.ReleaseConditionId, user) {
+		return false
+	}
+	if sequenceId == entry.FirstSequenceId {
+		return true
+	}
+	// A sequence being in a schedule's chain does not make it available yet.
+	// Its preceding story must have been collected in this same schedule.
+	for _, predecessor := range c.sequencePredecessors[sequenceId] {
+		key := store.GimmickSequenceKey{GimmickSequenceScheduleId: scheduleId, GimmickSequenceId: predecessor}
+		if _, belongs := c.scheduleByKey[key]; belongs && user.Gimmick.Sequences[key].IsGimmickSequenceCleared {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *GimmickCatalog) GimmickUnlockAvailable(user *store.UserState, scheduleId, sequenceId, gimmickId int32, nowMillis int64) bool {
@@ -629,15 +651,20 @@ func LoadBirdGimmickIDs() map[int32]bool {
 }
 
 func LoadGimmickSequenceChains() map[int32][]int32 {
+	chains, _ := loadGimmickSequenceGraph()
+	return chains
+}
+
+func loadGimmickSequenceGraph() (map[int32][]int32, map[int32][]int32) {
 	empty := map[int32][]int32{}
 
 	sequences, ok := readGimmickTable[EntityMGimmickSequence]("m_gimmick_sequence", "sequence chains")
 	if !ok {
-		return empty
+		return empty, nil
 	}
 	groups, ok := readGimmickTable[EntityMGimmickSequenceGroup]("m_gimmick_sequence_group", "sequence chains")
 	if !ok {
-		return empty
+		return empty, nil
 	}
 
 	membersByGroup := make(map[int32][]int32)
@@ -645,8 +672,12 @@ func LoadGimmickSequenceChains() map[int32][]int32 {
 		membersByGroup[g.GimmickSequenceGroupId] = append(membersByGroup[g.GimmickSequenceGroupId], g.GimmickSequenceId)
 	}
 	nextGroupBySequence := make(map[int32]int32, len(sequences))
+	predecessors := make(map[int32][]int32)
 	for _, seq := range sequences {
 		nextGroupBySequence[seq.GimmickSequenceId] = seq.NextGimmickSequenceGroupId
+		for _, next := range membersByGroup[seq.NextGimmickSequenceGroupId] {
+			predecessors[next] = append(predecessors[next], seq.GimmickSequenceId)
+		}
 	}
 
 	chains := make(map[int32][]int32, len(sequences))
@@ -671,5 +702,5 @@ func LoadGimmickSequenceChains() map[int32][]int32 {
 		}
 		chains[start] = chain
 	}
-	return chains
+	return chains, predecessors
 }
