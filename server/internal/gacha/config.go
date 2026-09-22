@@ -558,7 +558,7 @@ var dailyPromotionWeaponIds = []int32{
 
 var guaranteedThreeStarPromotionWeaponIds = []int32{
 	220021, // Dissenting Traveler / 異存たる冒険者
-	210031, // Dissenting Exile / 異存たる亡命者
+	240121, // Dissenting Exile / 異存たる亡命者
 }
 
 var guaranteedFourStarPromotionWeaponIds = []int32{

@@ -8,6 +8,7 @@ import (
 
 	pb "lunar-tear/server/gen/proto"
 	"lunar-tear/server/internal/database"
+	"lunar-tear/server/internal/gacha"
 	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
@@ -195,6 +196,14 @@ func TestGuaranteedFourStarGachaResponseMatchesConfirmBanner(t *testing.T) {
 
 func TestGuaranteedThreeStarGachaResponseUsesRequestedPromotions(t *testing.T) {
 	holder := newGachaResponseTestHolder(t)
+	config := gacha.DefaultConfig()
+	// The Aerie Warrior's weapon is event-only and must not stand in for Rion.
+	config.Weapons[210031] = gacha.WeaponConfig{Availability: gacha.AvailabilityEvent}
+	catalog, err := gacha.BuildPremiumCatalog(config, holder.Get().GachaPool, holder.Get().GachaEntries, gacha.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gacha.ApplyConfiguredPromotions(holder.Get().GachaEntries, catalog)
 
 	var entry *store.GachaCatalogEntry
 	for i := range holder.Get().GachaEntries {
@@ -215,7 +224,7 @@ func TestGuaranteedThreeStarGachaResponseUsesRequestedPromotions(t *testing.T) {
 		weaponId  int32
 	}{
 		{22001, 220021},
-		{21001, 210031},
+		{24001, 240121}, // Dissenting Exile / 異存たる亡命者
 	}
 	if len(mode.PromotionGachaOddsItem) != len(want) {
 		t.Fatalf("promotion count = %d, want %d", len(mode.PromotionGachaOddsItem), len(want))
