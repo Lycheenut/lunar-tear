@@ -548,15 +548,44 @@ func (c *GimmickCatalog) SequenceAvailable(user *store.UserState, scheduleId, se
 	if sequenceId == entry.FirstSequenceId {
 		return true
 	}
+	// Older servers allowed report stories to be unlocked out of order. Keep
+	// those explicit unlocks/completions usable; an initialized row alone is
+	// not evidence that the player unlocked the story.
+	if unlocked, _ := c.reportSequenceState(user, scheduleId, sequenceId); unlocked {
+		return true
+	}
 	// A sequence being in a schedule's chain does not make it available yet.
 	// Its preceding story must have been collected in this same schedule.
 	for _, predecessor := range c.sequencePredecessors[sequenceId] {
 		key := store.GimmickSequenceKey{GimmickSequenceScheduleId: scheduleId, GimmickSequenceId: predecessor}
-		if _, belongs := c.scheduleByKey[key]; belongs && user.Gimmick.Sequences[key].IsGimmickSequenceCleared {
+		if _, belongs := c.scheduleByKey[key]; belongs && (user.Gimmick.Sequences[key].IsGimmickSequenceCleared || c.ReportSequenceCleared(user, scheduleId, predecessor)) {
 			return true
 		}
 	}
 	return false
+}
+
+// ReportSequenceCleared also recognizes a collected story whose sequence row
+// is missing, so restoring that row never grants the story reward again.
+func (c *GimmickCatalog) ReportSequenceCleared(user *store.UserState, scheduleId, sequenceId int32) bool {
+	_, cleared := c.reportSequenceState(user, scheduleId, sequenceId)
+	return cleared
+}
+
+func (c *GimmickCatalog) reportSequenceState(user *store.UserState, scheduleId, sequenceId int32) (unlocked, cleared bool) {
+	seqKey := store.GimmickSequenceKey{GimmickSequenceScheduleId: scheduleId, GimmickSequenceId: sequenceId}
+	if _, exists := c.scheduleByKey[seqKey]; !exists {
+		return false, false
+	}
+	for gimmickId := range c.gimmicksBySequence[sequenceId] {
+		if c.gimmickTypes[gimmickId] != model.GimmickTypeReport {
+			continue
+		}
+		key := store.GimmickKey{GimmickSequenceScheduleId: scheduleId, GimmickSequenceId: sequenceId, GimmickId: gimmickId}
+		cleared = cleared || user.Gimmick.Sequences[seqKey].IsGimmickSequenceCleared || user.Gimmick.Progress[key].IsGimmickCleared
+		unlocked = unlocked || cleared || user.Gimmick.Unlocks[key].IsUnlocked
+	}
+	return unlocked, cleared
 }
 
 func (c *GimmickCatalog) GimmickUnlockAvailable(user *store.UserState, scheduleId, sequenceId, gimmickId int32, nowMillis int64) bool {
