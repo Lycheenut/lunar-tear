@@ -11,8 +11,8 @@ type questDeckUnit struct {
 	weapon  masterdata.EntityMWeapon
 }
 
-func (h *QuestHandler) questDeckMissionContext(user *store.UserState, userDeckNumber int32) ([]int32, []int32) {
-	deck, ok := user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: userDeckNumber}]
+func (h *QuestHandler) questDeckMissionContext(user *store.UserState, questId, userDeckNumber int32) ([]int32, []int32) {
+	deck, ok := h.questDeckForNumber(user, questId, userDeckNumber)
 	if !ok {
 		return nil, nil
 	}

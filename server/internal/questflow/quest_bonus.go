@@ -21,7 +21,10 @@ type questBonusDeckUnit struct {
 }
 
 func (h *QuestHandler) questDeck(user *store.UserState, questId int32) (store.DeckState, bool) {
-	deckNumber := user.Quests[questId].UserDeckNumber
+	return h.questDeckForNumber(user, questId, user.Quests[questId].UserDeckNumber)
+}
+
+func (h *QuestHandler) questDeckForNumber(user *store.UserState, questId, deckNumber int32) (store.DeckState, bool) {
 	if deckNumber == 0 {
 		return store.DeckState{}, false
 	}

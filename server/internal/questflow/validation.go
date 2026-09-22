@@ -249,7 +249,7 @@ func (h *QuestHandler) recordQuestClears(user *store.UserState, state *store.Use
 	state.DailyClearCount += count
 	state.LastClearDatetime = nowMillis
 	if withoutSkip {
-		deckCharacterIds, deckCostumeIds := h.questDeckMissionContext(user, state.UserDeckNumber)
+		deckCharacterIds, deckCostumeIds := h.questDeckMissionContext(user, questId, state.UserDeckNumber)
 		user.PendingMissionEvents = append(user.PendingMissionEvents, store.MissionEvent{
 			ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
 			Count:              count,
