@@ -35,7 +35,9 @@ func (s *GimmickServiceServer) UpdateSequence(ctx context.Context, req *pb.Updat
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
-		if !s.holder.Get().Gimmick.SequenceAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, gametime.NowMillis()) {
+		catalog := s.holder.Get().Gimmick
+		nowMillis := gametime.NowMillis()
+		if !catalog.SequenceAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, nowMillis) {
 			validationErr = status.Error(codes.FailedPrecondition, "gimmick sequence is not available")
 			return
 		}
@@ -43,9 +45,7 @@ func (s *GimmickServiceServer) UpdateSequence(ctx context.Context, req *pb.Updat
 			GimmickSequenceScheduleId: req.GimmickSequenceScheduleId,
 			GimmickSequenceId:         req.GimmickSequenceId,
 		}
-		sequence := user.Gimmick.Sequences[key]
-		sequence.Key = key
-		user.Gimmick.Sequences[key] = sequence
+		syncGimmickSequence(user, catalog, key, nowMillis)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update gimmick sequence: %w", err)
@@ -67,6 +67,17 @@ func (s *GimmickServiceServer) UpdateGimmickProgress(ctx context.Context, req *p
 	var validationErr error
 	_, err := s.users.UpdateUser(userId, func(user *store.UserState) {
 		nowMillis := gametime.NowMillis()
+		// A collected report is an idempotent retry, even if its old mission
+		// state is absent. Restore missing sequence state without issuing rewards.
+		if cat.Gimmick.GimmickUnlockAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, req.GimmickId, nowMillis) &&
+			cat.Gimmick.GimmickType(req.GimmickId) == model.GimmickTypeReport &&
+			cat.Gimmick.ReportSequenceCleared(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId) {
+			syncGimmickSequence(user, cat.Gimmick, store.GimmickSequenceKey{
+				GimmickSequenceScheduleId: req.GimmickSequenceScheduleId,
+				GimmickSequenceId:         req.GimmickSequenceId,
+			}, nowMillis)
+			return
+		}
 		if !cat.Gimmick.GimmickAvailable(user, req.GimmickSequenceScheduleId, req.GimmickSequenceId, req.GimmickId, nowMillis) {
 			validationErr = status.Error(codes.FailedPrecondition, "gimmick is not available")
 			return
@@ -204,12 +215,24 @@ func markSequenceClearedOnce(user *store.UserState, cat *runtime.Catalogs, sched
 	return true
 }
 
+func syncGimmickSequence(user *store.UserState, catalog *masterdata.GimmickCatalog, key store.GimmickSequenceKey, nowMillis int64) {
+	sequence := user.Gimmick.Sequences[key]
+	sequence.Key = key
+	if !sequence.IsGimmickSequenceCleared && catalog.ReportSequenceCleared(user, key.GimmickSequenceScheduleId, key.GimmickSequenceId) {
+		sequence.IsGimmickSequenceCleared = true
+		sequence.ClearDatetime = nowMillis
+		sequence.LatestVersion = nowMillis
+	}
+	user.Gimmick.Sequences[key] = sequence
+}
+
 func (s *GimmickServiceServer) InitSequenceSchedule(ctx context.Context, _ *emptypb.Empty) (*pb.InitSequenceScheduleResponse, error) {
 	log.Printf("[GimmickService] InitSequenceSchedule")
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	now := gametime.NowMillis()
 	s.users.UpdateUser(userId, func(user *store.UserState) {
-		eligible := s.holder.Get().Gimmick.ActiveScheduleKeys(*user, now)
+		catalog := s.holder.Get().Gimmick
+		eligible := catalog.ActiveScheduleKeys(*user, now)
 		eligibleSet := make(map[store.GimmickSequenceKey]struct{}, len(eligible))
 		for _, key := range eligible {
 			eligibleSet[key] = struct{}{}
@@ -228,13 +251,13 @@ func (s *GimmickServiceServer) InitSequenceSchedule(ctx context.Context, _ *empt
 
 		added := 0
 		for _, key := range eligible {
-			if len(user.Gimmick.Sequences) >= masterdata.MaxUserGimmickRows {
-				break
-			}
 			if _, exists := user.Gimmick.Sequences[key]; !exists {
-				user.Gimmick.Sequences[key] = store.GimmickSequenceState{Key: key}
+				if len(user.Gimmick.Sequences) >= masterdata.MaxUserGimmickRows {
+					continue
+				}
 				added++
 			}
+			syncGimmickSequence(user, catalog, key, now)
 		}
 		if pruned > 0 || added > 0 {
 			log.Printf("[GimmickService] InitSequenceSchedule: pruned %d stale, added %d sequences (total %d, eligible %d, cap %d)",

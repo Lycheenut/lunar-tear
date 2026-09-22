@@ -480,7 +480,7 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, userDeckNu
 	h.recordQuestClears(user, &questState, questId, skipCount, false, nowMillis)
 	user.Quests[questId] = questState
 	// Skips count toward deck-based missions, but not without-skip conditions.
-	deckCharacterIds, deckCostumeIds := h.questDeckMissionContext(user, questState.UserDeckNumber)
+	deckCharacterIds, deckCostumeIds := h.questDeckMissionContext(user, questId, questState.UserDeckNumber)
 	user.PendingMissionEvents = append(user.PendingMissionEvents, store.MissionEvent{
 		ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
 		Count:              skipCount,

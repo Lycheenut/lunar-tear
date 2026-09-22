@@ -24,6 +24,7 @@ func TestSecretStoryCharacterQuestClearsIncludeSkipTickets(t *testing.T) {
 		mode                       string
 		previousDeck, selectedDeck int32
 		count, wantProgress        int32
+		restricted                 bool
 	}{
 		{name: "normal clear", mode: "normal", previousDeck: 2, count: 1, wantProgress: 95},
 		{name: "single skip", previousDeck: 1, selectedDeck: 2, count: 1, wantProgress: 95},
@@ -33,6 +34,10 @@ func TestSecretStoryCharacterQuestClearsIncludeSkipTickets(t *testing.T) {
 		{name: "bulk wrong selected character", mode: "bulk", previousDeck: 2, selectedDeck: 1, count: 6, wantProgress: 94},
 		{name: "omitted deck uses previous deck", previousDeck: 2, count: 6, wantProgress: 100},
 		{name: "missing selected deck", previousDeck: 2, selectedDeck: 3, count: 6, wantProgress: 94},
+		{name: "restricted normal clear", mode: "normal", previousDeck: 2, count: 1, wantProgress: 95, restricted: true},
+		{name: "restricted skip", previousDeck: 1, selectedDeck: 2, count: 6, wantProgress: 100, restricted: true},
+		{name: "restricted bulk skips", mode: "bulk", previousDeck: 1, selectedDeck: 2, count: 6, wantProgress: 100, restricted: true},
+		{name: "restricted wrong character", previousDeck: 2, selectedDeck: 1, count: 6, wantProgress: 94, restricted: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			catalogs := testCatalog(mission,
@@ -65,6 +70,19 @@ func TestSecretStoryCharacterQuestClearsIncludeSkipTickets(t *testing.T) {
 			}
 			user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 1}] = store.DeckState{UserDeckCharacterUuid01: "wrong"}
 			user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 2}] = store.DeckState{UserDeckCharacterUuid01: "gayle"}
+			if tt.restricted {
+				for _, id := range []int32{10, 11} {
+					quest := catalogs.Quest.QuestById[id]
+					quest.QuestDeckRestrictionGroupId = 101
+					catalogs.Quest.QuestById[id] = quest
+				}
+				for number := int32(1); number <= 2; number++ {
+					user.Decks[store.DeckKey{DeckType: model.DeckTypeRestrictedQuest, UserDeckNumber: number}] = user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: number}]
+				}
+				// Ordinary decks deliberately contain the opposite character.
+				user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 1}] = store.DeckState{UserDeckCharacterUuid01: "gayle"}
+				user.Decks[store.DeckKey{DeckType: model.DeckTypeQuest, UserDeckNumber: 2}] = store.DeckState{UserDeckCharacterUuid01: "wrong"}
+			}
 			user.DeckCharacters["wrong"] = store.DeckCharacterState{UserCostumeUuid: "wrong-costume"}
 			user.DeckCharacters["gayle"] = store.DeckCharacterState{UserCostumeUuid: "gayle-costume"}
 			user.Costumes["wrong-costume"] = store.CostumeState{CostumeId: 901}
