@@ -102,9 +102,23 @@ var exploreHighScoreTargetsByOption = map[int32][]int32{
 	29: {2, 12}, // Flying Mama (either difficulty)
 }
 
+// Finish-count descriptions use option 3 for any exploration, unlike scores.
+var exploreFinishTargetsByOption = map[int32][]int32{
+	3:  {1, 2, 11, 12}, // Any exploration
+	26: {11},           // Shooting (hard)
+	27: {12},           // Flying Mama (hard)
+	28: {1, 11},        // Shooting (either difficulty)
+	29: {2, 12},        // Flying Mama (either difficulty)
+	31: {11, 12},       // Any hard exploration
+}
+
 func knownOptionTargets(conditionType model.MissionClearConditionType, optionGroupId int32) ([]int32, bool) {
 	if conditionType == model.MissionClearConditionTypeExploreHighScore {
 		targetIds, ok := exploreHighScoreTargetsByOption[optionGroupId]
+		return targetIds, ok
+	}
+	if conditionType == model.MissionClearConditionTypeExploreFinishByCount {
+		targetIds, ok := exploreFinishTargetsByOption[optionGroupId]
 		return targetIds, ok
 	}
 	if !isEquipmentTargetCondition(conditionType) || optionGroupId == 0 {
