@@ -100,6 +100,14 @@ It defaults to a read-only preview and records no receipt, so apply it only once
 See [backfill instructions](server/cmd/repair-player-data/README.md) for the
 eligibility rule, report format, and application command.
 
+### Clearing a Player's Restricted Decks
+
+The dedicated `repair-restricted-decks` tool empties all condition-restricted
+decks (types 4 and 6) for a required `--player-id`, including every equipment slot.
+It defaults to a read-only preview; use `--apply` while the server is stopped to
+commit. Inventory and other deck types are preserved. See
+[restricted deck repair instructions](server/cmd/repair-restricted-decks/README.md).
+
 ### Exporting a Player Snapshot
 
 Export one player by their in-game player ID. JSON is written to stdout; the
