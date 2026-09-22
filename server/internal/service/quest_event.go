@@ -85,6 +85,7 @@ func (s *QuestServiceServer) FinishEventQuest(ctx context.Context, req *pb.Finis
 				return
 			}
 			releaseClearedLimitContentDifficultyDecks(user, cat.Quest, req.EventQuestChapterId, req.QuestId)
+			releaseCompletedLimitContentDecks(user, cat.Quest, cat.LimitContent, req.EventQuestChapterId, req.QuestId)
 		}
 		endedDrops, loopEnded = finishAutoOrbit(user, req.IsAutoOrbit, req.IsRetired, req.IsAnnihilated, model.QuestTypeEvent, req.EventQuestChapterId, req.QuestId, nowMillis, outcome.DropRewards)
 	})
@@ -111,6 +112,44 @@ func (s *QuestServiceServer) FinishEventQuest(ctx context.Context, req *pb.Finis
 		UserStatusCampaignReward:        []*pb.QuestReward{},
 		AutoOrbitReward:                 autoOrbitReward,
 	}, nil
+}
+
+func releaseCompletedLimitContentDecks(user *store.UserState, quests *masterdata.QuestCatalog, content *masterdata.LimitContentCatalog, chapterId, questId int32) {
+	if content == nil {
+		return
+	}
+	var highestDifficulty int32
+	for difficulty := range quests.EventQuestIdsByChapterDifficulty[chapterId] {
+		highestDifficulty = max(highestDifficulty, difficulty)
+	}
+	questIds := quests.EventQuestIdsByChapterDifficulty[chapterId][highestDifficulty]
+	if len(questIds) == 0 || questIds[len(questIds)-1] != questId {
+		return
+	}
+	for _, current := range content.ContentsByChapter[chapterId] {
+		// A character's recollection spans several rooms sharing one limit-content ID.
+		chapterIds := make(map[int32]bool)
+		finalChapterId := chapterId
+		for id, contents := range content.ContentsByChapter {
+			if !slices.ContainsFunc(contents, func(candidate masterdata.EntityMEventQuestLimitContent) bool {
+				return candidate.EventQuestLimitContentId == current.EventQuestLimitContentId
+			}) {
+				continue
+			}
+			chapterIds[id] = true
+			if quests.EventChapterById[id].SortOrder > quests.EventChapterById[finalChapterId].SortOrder {
+				finalChapterId = id
+			}
+		}
+		if chapterId != finalChapterId {
+			continue
+		}
+		for id, restricted := range user.DeckLimitContentRestricted {
+			if chapterIds[restricted.EventQuestChapterId] {
+				delete(user.DeckLimitContentRestricted, id)
+			}
+		}
+	}
 }
 
 func releaseClearedLimitContentDifficultyDecks(user *store.UserState, catalog *masterdata.QuestCatalog, chapterId, questId int32) {

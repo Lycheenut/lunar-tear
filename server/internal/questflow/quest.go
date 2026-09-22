@@ -479,6 +479,16 @@ func (h *QuestHandler) applyQuestSkip(user *store.UserState, questId, userDeckNu
 	questState := user.Quests[questId]
 	h.recordQuestClears(user, &questState, questId, skipCount, false, nowMillis)
 	user.Quests[questId] = questState
+	// Skips count toward deck-based missions, but not without-skip conditions.
+	deckCharacterIds, deckCostumeIds := h.questDeckMissionContext(user, questState.UserDeckNumber)
+	user.PendingMissionEvents = append(user.PendingMissionEvents, store.MissionEvent{
+		ConditionType:      int32(model.MissionClearConditionTypeQuestClearByCount),
+		Count:              skipCount,
+		TargetId:           questId,
+		DeckCharacterIds:   deckCharacterIds,
+		DeckCostumeIds:     deckCostumeIds,
+		QuestClearWithDeck: true,
+	})
 
 	log.Printf("[HandleQuestSkip] questId=%d skipCount=%d drops=%d gold=%d", questId, skipCount, len(allDrops), goldPerSkip*skipCount)
 	return FinishOutcome{DropRewards: allDrops}, nil

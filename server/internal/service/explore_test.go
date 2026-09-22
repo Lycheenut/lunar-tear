@@ -189,13 +189,24 @@ func TestFinishExploreUpdatesSecretStoryMissions(t *testing.T) {
 				t.Fatal(err)
 			}
 			var highScore int32
-			for _, score := range []int32{99_999, 100_000, 90_000, 110_000} {
+			for index, score := range []int32{0, 99_999, 100_000, 90_000, 110_000} {
 				if _, err := repo.UpdateUser(userId, func(user *store.UserState) {
 					user.Explore.PlayingExploreId = test.exploreId
 				}); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := server.FinishExplore(context.Background(), &pb.FinishExploreRequest{ExploreId: test.exploreId, Score: score}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := server.FinishExplore(context.Background(), &pb.FinishExploreRequest{ExploreId: test.exploreId, Score: score}); err == nil {
+					t.Fatal("duplicate explore finish was accepted")
+				}
+				if _, err := repo.UpdateUser(userId, func(user *store.UserState) {
+					user.Explore.PlayingExploreId = test.exploreId
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := server.RetireExplore(context.Background(), &pb.RetireExploreRequest{ExploreId: test.exploreId}); err != nil {
 					t.Fatal(err)
 				}
 				highScore = max(highScore, score)
@@ -217,6 +228,20 @@ func TestFinishExploreUpdatesSecretStoryMissions(t *testing.T) {
 					}
 					if got := holder.Get().ConditionResolver.Satisfied(conditionId, &user); got != (wantStatus == int32(model.MissionProgressStatusTypeClear)) {
 						t.Fatalf("score %d: secret story condition %d satisfied = %v", score, conditionId, got)
+					}
+				}
+				for _, missionId := range []int32{500025, 500030, 500044, 500060, 500065, 500091} {
+					mission := holder.Get().Mission.MissionById[missionId]
+					option := mission.MissionClearConditionOptionGroupId
+					wantProgress, wantStatus := int32(0), int32(model.MissionProgressStatusTypeInProgress)
+					if option == test.option || option == 26 && test.exploreId == 11 || option == 27 && test.exploreId == 12 {
+						wantProgress = min(int32(index+1), mission.ClearConditionValue)
+						if wantProgress == mission.ClearConditionValue {
+							wantStatus = int32(model.MissionProgressStatusTypeClear)
+						}
+					}
+					if state := user.Missions[missionId]; state.ProgressValue != wantProgress || state.MissionProgressStatusType != wantStatus {
+						t.Fatalf("finish %d: mission %d = %+v, want progress %d status %d", index+1, missionId, state, wantProgress, wantStatus)
 					}
 				}
 			}

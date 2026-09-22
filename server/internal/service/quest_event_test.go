@@ -341,3 +341,147 @@ func TestFinishEventQuestReleasesCompletedDifficultyDeck(t *testing.T) {
 		})
 	}
 }
+
+func TestFinishEventQuestReleasesAllCharacterDecksAfterFinalVictory(t *testing.T) {
+	holder, err := runtime.NewHolder(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cat := holder.Get()
+	type testCase struct {
+		name          string
+		chapterId     int32
+		questId       int32
+		difficulty    int32
+		isRetired     bool
+		isAnnihilated bool
+		firstClear    bool
+		wantAll       bool
+	}
+	tests := []testCase{
+		{name: "first final victory", chapterId: 500004, questId: 130045, difficulty: 3, firstClear: true, wantAll: true},
+		{name: "normal final", chapterId: 500004, questId: 130015, difficulty: 1},
+		{name: "hard final", chapterId: 500004, questId: 130030, difficulty: 2},
+		{name: "earlier room final", chapterId: 500003, questId: 130040, difficulty: 3},
+		{name: "highest difficulty non-final", chapterId: 500004, questId: 130044, difficulty: 3},
+		{name: "final retired", chapterId: 500004, questId: 130045, difficulty: 3, isRetired: true},
+		{name: "final annihilated", chapterId: 500004, questId: 130045, difficulty: 3, isAnnihilated: true},
+		{name: "final retired and annihilated", chapterId: 500004, questId: 130045, difficulty: 3, isRetired: true, isAnnihilated: true},
+	}
+	for i, questId := range []int32{130045, 130090, 130135, 130180, 130225, 130264, 130303, 130342, 130381, 130420, 130459, 130498} {
+		tests = append(tests, testCase{name: fmt.Sprintf("character %d final", i+1), chapterId: 500004 + int32(i)*10, questId: questId, difficulty: 3, wantAll: true})
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if err := migrations.Up(context.Background(), db); err != nil {
+				t.Fatal(err)
+			}
+			repo := sqlite.New(db, nil)
+			userId, err := repo.CreateUser("limit-final", model.ClientPlatform{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repo.UpdateUser(userId, func(user *store.UserState) {
+				for _, id := range cat.Quest.EventUnlockQuestIdsForChapter(tt.chapterId) {
+					user.Quests[id] = store.UserQuestState{QuestId: id, QuestStateType: model.UserQuestStateTypeCleared}
+				}
+				for chapterId := range cat.LimitContent.ContentsByChapter {
+					for _, questId := range cat.Quest.EventQuestIdsByChapterId[chapterId] {
+						user.Quests[questId] = store.UserQuestState{QuestId: questId, QuestStateType: model.UserQuestStateTypeCleared, ClearCount: 1}
+						user.QuestLimitContentStatus[questId] = store.QuestLimitContentStatus{EventQuestChapterId: chapterId, LimitContentQuestStatusType: 1}
+						for _, possessionType := range []model.PossessionType{model.PossessionTypeCostume, model.PossessionTypeWeapon} {
+							id := fmt.Sprintf("locked-%d-%d", questId, possessionType)
+							user.DeckLimitContentRestricted[id] = store.DeckLimitContentRestrictedState{
+								DeckRestrictedUuid: id, EventQuestChapterId: chapterId, QuestId: questId, PossessionType: int32(possessionType), TargetUuid: id,
+							}
+						}
+					}
+				}
+				quest := user.Quests[tt.questId]
+				quest.QuestStateType = model.UserQuestStateTypeActive
+				quest.UserDeckNumber = 1
+				if tt.firstClear {
+					quest.ClearCount = 0
+				}
+				user.Quests[tt.questId] = quest
+				user.EventQuest = store.EventQuestState{CurrentEventQuestChapterId: tt.chapterId, CurrentQuestId: tt.questId}
+				user.Decks[store.DeckKey{DeckType: model.DeckTypeRestrictedLimitContentQuest, UserDeckNumber: 1}] = store.DeckState{UserDeckCharacterUuid01: "dc"}
+				user.DeckCharacters["dc"] = store.DeckCharacterState{UserDeckCharacterUuid: "dc", UserCostumeUuid: "costume", MainUserWeaponUuid: "weapon"}
+				user.Costumes["costume"] = store.CostumeState{UserCostumeUuid: "costume"}
+				user.Weapons["weapon"] = store.WeaponState{UserWeaponUuid: "weapon"}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			before, err := repo.LoadUser(userId)
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := NewQuestServiceServer(repo, repo, holder)
+			if _, err := server.FinishEventQuest(context.Background(), &pb.FinishEventQuestRequest{
+				EventQuestChapterId: tt.chapterId, QuestId: tt.questId, IsRetired: tt.isRetired, IsAnnihilated: tt.isAnnihilated,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := repo.LoadUser(userId)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantLocks := maps.Clone(before.DeckLimitContentRestricted)
+			wantDeleted := make(map[string]bool)
+			for id, row := range wantLocks {
+				// Fixture chapters x1 through x4 belong to one character.
+				sameCharacter := row.EventQuestChapterId/10 == tt.chapterId/10
+				sameDifficulty := row.EventQuestChapterId == tt.chapterId && slices.Contains(cat.Quest.EventQuestIdsByChapterDifficulty[tt.chapterId][tt.difficulty], row.QuestId)
+				if !tt.isRetired && !tt.isAnnihilated && (tt.wantAll && sameCharacter || sameDifficulty) {
+					delete(wantLocks, id)
+					wantDeleted[id] = true
+				}
+			}
+			if !maps.Equal(after.DeckLimitContentRestricted, wantLocks) {
+				t.Fatalf("persisted restrictions = %d, want %d with only the expected locks removed", len(after.DeckLimitContentRestricted), len(wantLocks))
+			}
+			for id, quest := range before.Quests {
+				if id != tt.questId && after.Quests[id] != quest {
+					t.Fatalf("unlock changed quest %d progress", id)
+				}
+				if id != tt.questId && after.QuestLimitContentStatus[id] != before.QuestLimitContentStatus[id] {
+					t.Fatalf("unlock changed limit-content quest %d progress", id)
+				}
+			}
+			delta := userdata.ComputeDelta(&before, &after, userdata.ChangedTables(&before, &after))["IUserDeckLimitContentRestricted"]
+			if len(wantDeleted) == 0 {
+				if delta != nil {
+					t.Fatalf("defeat sent a restriction delta: %+v", delta)
+				}
+				return
+			}
+			if delta == nil || delta.UpdateRecordsJson != "[]" {
+				t.Fatalf("expected only lock deletions, got %+v", delta)
+			}
+			var deletes []struct {
+				UserId              int64  `json:"userId"`
+				EventQuestChapterId int32  `json:"eventQuestChapterId"`
+				QuestId             int32  `json:"questId"`
+				DeckRestrictedUuid  string `json:"deckRestrictedUuid"`
+			}
+			if err := json.Unmarshal([]byte(delta.DeleteKeysJson), &deletes); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range deletes {
+				row := before.DeckLimitContentRestricted[key.DeckRestrictedUuid]
+				if !wantDeleted[key.DeckRestrictedUuid] || key.UserId != userId || key.EventQuestChapterId != row.EventQuestChapterId || key.QuestId != row.QuestId {
+					t.Fatalf("unexpected client deletion key: %+v", key)
+				}
+				delete(wantDeleted, key.DeckRestrictedUuid)
+			}
+			if len(wantDeleted) != 0 {
+				t.Fatalf("client delta omitted %d lock deletions", len(wantDeleted))
+			}
+		})
+	}
+}

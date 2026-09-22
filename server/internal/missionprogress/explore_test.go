@@ -73,3 +73,55 @@ func TestExploreHighScoreDoesNotSumDifficulties(t *testing.T) {
 		t.Fatalf("mission should use the highest matching score: %+v", state)
 	}
 }
+
+func TestExploreFinishCountMatchesMissionOptions(t *testing.T) {
+	tests := []struct {
+		name   string
+		option int32
+		ids    []int32
+	}{
+		{"any explore", 0, []int32{1, 2, 11, 12}},
+		{"legacy any explore", 3, []int32{1, 2, 11, 12}},
+		{"shooting hard", 26, []int32{11}},
+		{"flying mama hard", 27, []int32{12}},
+		{"shooting unspecified difficulty", 28, []int32{1, 11}},
+		{"flying mama unspecified difficulty", 29, []int32{2, 12}},
+		{"any hard explore", 31, []int32{11, 12}},
+		{"direct explore ID", 11, []int32{11}},
+		{"unknown option", 999, nil},
+	}
+	for _, test := range tests {
+		for _, exploreId := range []int32{1, 2, 11, 12} {
+			t.Run(fmt.Sprintf("%s/%d", test.name, exploreId), func(t *testing.T) {
+				catalogs := testCatalog(masterdata.EntityMMission{
+					MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeExploreFinishByCount),
+					MissionClearConditionOptionGroupId: test.option, ClearConditionValue: 3,
+				})
+				user := &store.UserState{ExploreScores: map[int32]store.ExploreScoreState{
+					exploreId: {ExploreId: exploreId, MaxScore: 100_000},
+				}}
+				Sync(catalogs, user, 1)
+				if state := user.Missions[1]; state.ProgressValue != 0 {
+					t.Fatalf("a saved high score must not invent completion counts: %+v", state)
+				}
+				for count := int32(1); count <= 3; count++ {
+					Apply(catalogs, nil, user, []store.MissionEvent{{
+						ConditionType: int32(model.MissionClearConditionTypeExploreFinishByCount),
+						Count:         1, TargetId: exploreId, OptionGroupId: exploreId,
+					}}, int64(count+1))
+					Sync(catalogs, user, int64(count+1))
+					wantProgress, wantStatus := int32(0), int32(model.MissionProgressStatusTypeInProgress)
+					if containsTarget(test.ids, exploreId) {
+						wantProgress = count
+						if count == 3 {
+							wantStatus = int32(model.MissionProgressStatusTypeClear)
+						}
+					}
+					if state := user.Missions[1]; state.ProgressValue != wantProgress || state.MissionProgressStatusType != wantStatus {
+						t.Fatalf("finish %d: mission = %+v, want progress %d status %d", count, state, wantProgress, wantStatus)
+					}
+				}
+			})
+		}
+	}
+}
