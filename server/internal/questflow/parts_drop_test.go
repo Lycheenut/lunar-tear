@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -193,6 +194,97 @@ func TestPartsDropSkipGrantsEveryReward(t *testing.T) {
 		if drop.Count != 1 || drop.IsAutoSale {
 			t.Fatalf("parts reward must represent one independently generated item: %+v", drop)
 		}
+	}
+}
+
+func TestPartsDropRewardsMatchIndependentlyRolledInventory(t *testing.T) {
+	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := masterdata.LoadPartsCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	campaigns := partsDropCampaign(t, 1000, 1000)
+	for _, mode := range []string{"finish", "skip"} {
+		t.Run(mode, func(t *testing.T) {
+			h := partsDropHandler()
+			h.PartsCatalog = parts
+			h.Granter = BuildGranter(h.QuestCatalog, h.Config)
+			h.Campaigns = campaigns
+			h.BattleDropRewardById[1001] = masterdata.EntityMBattleDropReward{
+				PossessionType: int32(model.PossessionTypeParts), PossessionId: 16, Count: 1,
+			}
+			h.DropRewardsByQuestID = map[int32][]questdrop.Reward{10: {{BattleDropRewardID: 1001, Weight: 1}}}
+			user := store.SeedUserState(99, "parts", 1, model.ClientPlatform{})
+			user.Quests[10] = store.UserQuestState{QuestId: 10, QuestStateType: model.UserQuestStateTypeCleared, IsRewardGranted: true}
+			user.ConsumableItems[7] = 16
+			reported := map[int32]int{}
+			reportedEquipment := map[string]int{}
+			for range 16 {
+				var outcome FinishOutcome
+				if mode == "skip" {
+					outcome, err = h.HandleQuestSkip(user, 10, int32(model.QuestTypeEvent), 0, 0, 1, 1000)
+					if err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					outcome = h.HandleEventQuestFinish(user, 0, 10, false, false, 1000)
+				}
+				if len(outcome.DropRewards) != 4 {
+					t.Fatalf("rewards=%d, want 4 independently rolled copies", len(outcome.DropRewards))
+				}
+				for _, drop := range outcome.DropRewards {
+					if drop.Count != 1 || drop.IsAutoSale {
+						t.Fatalf("unexpected parts reward: %+v", drop)
+					}
+					reported[drop.PossessionId]++
+					reportedEquipment[fmt.Sprintf("%d:%x", drop.PossessionId, drop.EquipmentData)]++
+				}
+			}
+			actual := map[int32]int{}
+			actualEquipment := map[string]int{}
+			for uuid, part := range user.Parts {
+				actual[part.PartsId]++
+				actualEquipment[fmt.Sprintf("%d:%x", part.PartsId, partsRewardEquipmentData(user, uuid))]++
+				var subCount int32
+				for key := range user.PartsStatusSubs {
+					if key.UserPartsUuid == uuid {
+						subCount++
+					}
+				}
+				if want := parts.PartsById[part.PartsId].PartsInitialLotteryId - 1; subCount != want {
+					t.Fatalf("parts %d has %d sub statuses, rank requires %d", part.PartsId, subCount, want)
+				}
+			}
+			if len(actual) < 2 {
+				t.Fatal("all copies inherited the same rank")
+			}
+			if !reflect.DeepEqual(reported, actual) {
+				t.Fatalf("reward ranks=%v, inventory ranks=%v", reported, actual)
+			}
+			if !reflect.DeepEqual(reportedEquipment, actualEquipment) {
+				t.Fatal("reward equipment snapshots do not match the independently granted parts")
+			}
+		})
+	}
+}
+
+func TestPartsRewardEquipmentDataClientWireFormat(t *testing.T) {
+	user := store.SeedUserState(99, "parts", 1, model.ClientPlatform{})
+	user.Parts["drop"] = store.PartsState{Level: 1, PartsStatusMainId: 24}
+	user.PartsStatusSubs[store.PartsStatusSubKey{UserPartsUuid: "drop", StatusIndex: 2}] = store.PartsStatusSubState{
+		StatusIndex: 2, PartsStatusSubLotteryId: 8, Level: 1, StatusKindType: 7, StatusCalculationType: 1, StatusChangeValue: 250,
+	}
+	user.PartsStatusSubs[store.PartsStatusSubKey{UserPartsUuid: "drop", StatusIndex: 1}] = store.PartsStatusSubState{
+		StatusIndex: 1, PartsStatusSubLotteryId: 4, Level: 1, StatusKindType: 2, StatusCalculationType: 1, StatusChangeValue: 250,
+	}
+	user.PartsStatusSubs[store.PartsStatusSubKey{UserPartsUuid: "other", StatusIndex: 1}] = store.PartsStatusSubState{StatusIndex: 1}
+	// apb.api.gift.Parts from the client protocol: level 1, main status 24,
+	// then two PartsStatusSub messages with fields 1..6 in status-index order.
+	const want = "080110181a0d0801100418012002280130fa011a0d0802100818012007280130fa01"
+	if got := hex.EncodeToString(partsRewardEquipmentData(user, "drop")); got != want {
+		t.Fatalf("equipment wire data = %s, want %s", got, want)
 	}
 }
 

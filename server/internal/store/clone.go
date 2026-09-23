@@ -105,6 +105,9 @@ func CloneUserState(u UserState) UserState {
 	out.AutoSaleSettings = maps.Clone(u.AutoSaleSettings)
 	out.CharacterRebirths = maps.Clone(u.CharacterRebirths)
 	out.QuestAutoOrbit.AccumulatedDrops = append([]AutoOrbitDropEntry(nil), u.QuestAutoOrbit.AccumulatedDrops...)
+	for i := range out.QuestAutoOrbit.AccumulatedDrops {
+		out.QuestAutoOrbit.AccumulatedDrops[i].EquipmentData = append([]byte(nil), u.QuestAutoOrbit.AccumulatedDrops[i].EquipmentData...)
+	}
 	return out
 }
 

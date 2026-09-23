@@ -55,6 +55,7 @@ func finishAutoOrbit(user *store.UserState, isAutoOrbit, isRetired, isAnnihilate
 				PossessionId:   d.PossessionId,
 				Count:          d.Count,
 				IsAutoSale:     d.IsAutoSale,
+				EquipmentData:  d.EquipmentData,
 			})
 			added++
 		}
