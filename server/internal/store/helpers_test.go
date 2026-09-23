@@ -6,6 +6,25 @@ import (
 	"lunar-tear/server/internal/model"
 )
 
+func TestAutoOrbitEquipmentSnapshotCloneAndEquality(t *testing.T) {
+	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
+	user.QuestAutoOrbit.AccumulatedDrops = []AutoOrbitDropEntry{{
+		PossessionType: int32(model.PossessionTypeParts), PossessionId: 16, Count: 1,
+		EquipmentData: []byte{8, 1, 16, 24},
+	}}
+	cloned := CloneUserState(*user)
+	if !user.QuestAutoOrbit.Equal(cloned.QuestAutoOrbit) {
+		t.Fatal("identical equipment snapshots compare unequal")
+	}
+	cloned.QuestAutoOrbit.AccumulatedDrops[0].EquipmentData[3] = 4
+	if user.QuestAutoOrbit.AccumulatedDrops[0].EquipmentData[3] != 24 {
+		t.Fatal("cloned equipment snapshot aliases the original")
+	}
+	if user.QuestAutoOrbit.Equal(cloned.QuestAutoOrbit) {
+		t.Fatal("changed equipment snapshot was not detected")
+	}
+}
+
 func TestPossessionGranterGrantFullHonorsEquipmentCountAndDuplicates(t *testing.T) {
 	user := SeedUserState(1, "test", 1, model.ClientPlatform{})
 	granter := &PossessionGranter{

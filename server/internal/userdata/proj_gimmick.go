@@ -3,8 +3,12 @@ package userdata
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 
+	pb "lunar-tear/server/gen/proto"
+	"lunar-tear/server/internal/gametime"
 	"lunar-tear/server/internal/masterdata"
+	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
 	"lunar-tear/server/internal/utils"
 )
@@ -14,26 +18,67 @@ var gimmickSequenceChains = sync.OnceValue(masterdata.LoadGimmickSequenceChains)
 var hiddenSequenceSet = sync.OnceValue(masterdata.LoadHiddenGimmickSequenceIDs)
 var gimmickSequenceRanks = sync.OnceValue(masterdata.LoadGimmickSequenceRanks)
 var birdGimmicks = sync.OnceValue(masterdata.LoadBirdGimmickIDs)
+var gimmickCatalog atomic.Pointer[masterdata.GimmickCatalog]
+
+func SetGimmickCatalog(catalog *masterdata.GimmickCatalog) {
+	gimmickCatalog.Store(catalog)
+}
 
 const birdDefaultBaseDatetime int64 = 1577836800000 // 2020-01-01 00:00:00 UTC in ms
 
+var gimmickRecordBuilders = map[string]func(store.UserState) []map[string]any{
+	"IUserGimmick":                 sortedGimmickRecords,
+	"IUserGimmickOrnamentProgress": sortedGimmickOrnamentProgressRecords,
+	"IUserGimmickSequence":         sortedGimmickSequenceRecords,
+	"IUserGimmickUnlock":           sortedGimmickUnlockRecords,
+}
+
 func init() {
-	register("IUserGimmick", func(user store.UserState) string {
-		s, _ := utils.EncodeJSONMaps(sortedGimmickRecords(user)...)
-		return s
-	})
-	register("IUserGimmickOrnamentProgress", func(user store.UserState) string {
-		s, _ := utils.EncodeJSONMaps(sortedGimmickOrnamentProgressRecords(user)...)
-		return s
-	})
-	register("IUserGimmickSequence", func(user store.UserState) string {
-		s, _ := utils.EncodeJSONMaps(sortedGimmickSequenceRecords(user)...)
-		return s
-	})
-	register("IUserGimmickUnlock", func(user store.UserState) string {
-		s, _ := utils.EncodeJSONMaps(sortedGimmickUnlockRecords(user)...)
-		return s
-	})
+	for table, records := range gimmickRecordBuilders {
+		register(table, func(user store.UserState) string {
+			s, _ := utils.EncodeJSONMaps(visibleGimmickRecords(user, records(user))...)
+			return s
+		})
+	}
+}
+
+func visibleGimmickRecords(user store.UserState, records []map[string]any) []map[string]any {
+	catalog := gimmickCatalog.Load()
+	if catalog == nil {
+		return records
+	}
+	now := gametime.NowMillis()
+	visible := records[:0]
+	for _, row := range records {
+		scheduleId := row["gimmickSequenceScheduleId"].(int32)
+		sequenceId := row["gimmickSequenceId"].(int32)
+		gimmickId, hasGimmick := row["gimmickId"].(int32)
+		if catalog.IsReportSequence(sequenceId) || catalog.GimmickType(gimmickId) == model.GimmickTypeReport {
+			// Map visibility follows entry/unlock prerequisites, not the story's
+			// own mission completion condition used when collecting its reward.
+			if !catalog.SequenceAvailable(&user, scheduleId, sequenceId, now) ||
+				(hasGimmick && !catalog.GimmickUnlockAvailable(&user, scheduleId, sequenceId, gimmickId, now)) {
+				continue
+			}
+		}
+		visible = append(visible, row)
+	}
+	return visible
+}
+
+// GimmickRefreshDiff also removes unavailable markers cached from older servers,
+// even when the saved state has not changed since that unfiltered projection.
+func GimmickRefreshDiff(before, after store.UserState) map[string]*pb.DiffData {
+	diff := ComputeDelta(&before, &after, ChangedTables(&before, &after))
+	for table, records := range gimmickRecordBuilders {
+		visible := visibleGimmickRecords(after, records(after))
+		updates, _ := utils.EncodeJSONMaps(visible...)
+		diff[table] = &pb.DiffData{
+			UpdateRecordsJson: updates,
+			DeleteKeysJson:    ComputeDeleteKeys(records(before), visible, keyFieldsForTable(table)),
+		}
+	}
+	return diff
 }
 
 func projectActiveChainOrnaments(

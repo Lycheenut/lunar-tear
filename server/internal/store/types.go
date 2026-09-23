@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -464,6 +465,7 @@ type AutoOrbitDropEntry struct {
 	PossessionId   int32
 	Count          int32
 	IsAutoSale     bool
+	EquipmentData  []byte `json:",omitempty"`
 }
 
 type QuestAutoOrbitState struct {
@@ -491,7 +493,9 @@ func (s QuestAutoOrbitState) Equal(other QuestAutoOrbitState) bool {
 		return false
 	}
 	for i := range s.AccumulatedDrops {
-		if s.AccumulatedDrops[i] != other.AccumulatedDrops[i] {
+		a, b := s.AccumulatedDrops[i], other.AccumulatedDrops[i]
+		if a.PossessionType != b.PossessionType || a.PossessionId != b.PossessionId ||
+			a.Count != b.Count || a.IsAutoSale != b.IsAutoSale || !bytes.Equal(a.EquipmentData, b.EquipmentData) {
 			return false
 		}
 	}

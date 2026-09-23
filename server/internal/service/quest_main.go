@@ -158,6 +158,7 @@ func autoOrbitDropsToProto(drops []store.AutoOrbitDropEntry) []*pb.QuestReward {
 			PossessionId:   d.PossessionId,
 			Count:          d.Count,
 			IsAutoSale:     d.IsAutoSale,
+			EquipmentData:  d.EquipmentData,
 		}
 	}
 	return out
@@ -175,6 +176,7 @@ func toProtoRewards(grants []questflow.RewardGrant) []*pb.QuestReward {
 			Count:          g.Count,
 			RewardEffectId: g.RewardEffectId,
 			IsAutoSale:     g.IsAutoSale,
+			EquipmentData:  g.EquipmentData,
 		}
 	}
 	return out
@@ -269,14 +271,7 @@ func (s *QuestServiceServer) FinishAutoOrbit(ctx context.Context, req *emptypb.E
 	s.users.UpdateUser(userId, func(user *store.UserState) {
 		drops = consumeAutoOrbitRewards(user)
 	})
-	pbDrops := make([]*pb.QuestReward, len(drops))
-	for i, d := range drops {
-		pbDrops[i] = &pb.QuestReward{
-			PossessionType: d.PossessionType,
-			PossessionId:   d.PossessionId,
-			Count:          d.Count,
-		}
-	}
+	pbDrops := autoOrbitDropsToProto(drops)
 	return &pb.FinishAutoOrbitResponse{
 		AutoOrbitResult: []*pb.QuestReward{},
 		AutoOrbitReward: &pb.QuestAutoOrbitResult{

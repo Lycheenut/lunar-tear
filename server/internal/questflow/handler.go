@@ -17,6 +17,7 @@ type RewardGrant struct {
 	Count          int32
 	RewardEffectId int32
 	IsAutoSale     bool
+	EquipmentData  []byte
 }
 
 type FinishOutcome struct {

@@ -334,21 +334,13 @@ func ChangedTables(before, after *store.UserState) []string {
 		add("IUserBigHuntWeeklyStatus")
 	}
 
-	if !gimmickStateEqual(before.Gimmick, after.Gimmick) {
-		if !mapsEqualStruct(before.Gimmick.Progress, after.Gimmick.Progress) ||
-			!mapsEqualStruct(before.Gimmick.Sequences, after.Gimmick.Sequences) {
-			add("IUserGimmick")
-		}
-		if !mapsEqualStruct(before.Gimmick.OrnamentProgress, after.Gimmick.OrnamentProgress) ||
-			!mapsEqualStruct(before.Gimmick.Sequences, after.Gimmick.Sequences) {
-			add("IUserGimmickOrnamentProgress")
-		}
-		if !mapsEqualStruct(before.Gimmick.Sequences, after.Gimmick.Sequences) {
-			add("IUserGimmickSequence")
-		}
-		if !mapsEqualStruct(before.Gimmick.Unlocks, after.Gimmick.Unlocks) {
-			add("IUserGimmickUnlock")
-		}
+	// Story visibility across all four tables depends on chapter progress and
+	// predecessor completion, including legacy unlocks and progress-only clears.
+	if !gimmickStateEqual(before.Gimmick, after.Gimmick) || !mapsEqualStruct(before.Quests, after.Quests) {
+		add("IUserGimmick")
+		add("IUserGimmickOrnamentProgress")
+		add("IUserGimmickSequence")
+		add("IUserGimmickUnlock")
 	}
 
 	return changed

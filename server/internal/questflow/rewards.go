@@ -232,12 +232,11 @@ func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGra
 			continue
 		}
 		if d.PossessionType == model.PossessionTypeParts {
-			chosenId, sold := h.Granter.GrantOrSellPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis)
-			if sold {
-				// Sold parts have no inventory row, so the popup needs the rolled
-				// variant id; kept parts read theirs from the parts table diff.
-				drops[i].PossessionId = chosenId
-				drops[i].IsAutoSale = true
+			chosenId, partsUUID, sold := h.Granter.GrantOrSellPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis)
+			drops[i].PossessionId = chosenId
+			drops[i].IsAutoSale = sold
+			if !sold {
+				drops[i].EquipmentData = partsRewardEquipmentData(user, partsUUID)
 			}
 			continue
 		}

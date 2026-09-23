@@ -515,6 +515,15 @@ func (c *GimmickCatalog) IsHiddenSequence(sequenceId int32) bool {
 	return c.hiddenSequences[sequenceId]
 }
 
+func (c *GimmickCatalog) IsReportSequence(sequenceId int32) bool {
+	for gimmickId := range c.gimmicksBySequence[sequenceId] {
+		if c.gimmickTypes[gimmickId] == model.GimmickTypeReport {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *GimmickCatalog) SequenceRewards(sequenceId int32) []SequenceReward {
 	return c.sequenceRewards[sequenceId]
 }
