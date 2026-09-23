@@ -469,7 +469,7 @@ func keyFieldsForTable(table string) []string {
 	case "IUserGimmickOrnamentProgress":
 		return []string{"userId", "gimmickSequenceScheduleId", "gimmickSequenceId", "gimmickId", "gimmickOrnamentIndex"}
 	case "IUserGimmickSequence":
-		return []string{"userId", "gimmickSequenceScheduleId", "gimmickSequenceId"}
+		return []string{"userId", "gimmickSequenceScheduleId"}
 	case "IUserGimmickUnlock":
 		return []string{"userId", "gimmickSequenceScheduleId", "gimmickSequenceId", "gimmickId"}
 	case "IUserCostumeActiveSkill":

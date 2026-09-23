@@ -95,8 +95,11 @@ func TestSecretStoryMapOnlyProjectsAvailableEntries(t *testing.T) {
 				if got := hasGimmickSequenceJSON(payload, root, sequenceId); got != (i == 0) {
 					t.Errorf("%s chain %d sequence %d visible=%v, want %v", table, root, sequenceId, got, i == 0)
 				}
-				if got := hasGimmickSequenceJSON(refresh[table].DeleteKeysJson, root, sequenceId); got != (i > 0) {
-					t.Errorf("%s cached sequence %d deleted=%v, want %v", table, sequenceId, got, i > 0)
+				// Sequence deletion uses the schedule's key, so deleting a future
+				// placeholder would also delete the current story in the client.
+				wantDeleted := i > 0 && table != "IUserGimmickSequence"
+				if got := hasGimmickSequenceJSON(refresh[table].DeleteKeysJson, root, sequenceId); got != wantDeleted {
+					t.Errorf("%s cached sequence %d deleted=%v, want %v", table, sequenceId, got, wantDeleted)
 				}
 			}
 		}
@@ -120,6 +123,67 @@ func TestSecretStoryMapOnlyProjectsAvailableEntries(t *testing.T) {
 				t.Errorf("%s revealed a later entry in chain %d", table, root)
 			}
 		}
+	}
+}
+
+func TestGimmickSequenceLoginDiffUsesClientScheduleKey(t *testing.T) {
+	_, resolver := loadGimmickProjectionCatalog(t)
+	user := store.SeedUserState(1, "login-story", 1, model.ClientPlatform{})
+	questId, ok := resolver.RequiredQuestId(4104)
+	if !ok {
+		t.Fatal("missing chapter condition")
+	}
+	user.Quests[questId] = store.UserQuestState{QuestId: questId, QuestStateType: model.UserQuestStateTypeCleared}
+	chain := masterdata.LoadGimmickSequenceChains()[900305]
+	for _, sequenceId := range chain {
+		key := store.GimmickSequenceKey{GimmickSequenceScheduleId: 900305, GimmickSequenceId: sequenceId}
+		user.Gimmick.Sequences[key] = store.GimmickSequenceState{Key: key}
+	}
+	// The actual client selector at RVA 0x4198B00 uses UserId (0x10) and
+	// GimmickSequenceScheduleId (0x18), excluding GimmickSequenceId (0x1c).
+	clientKeys := []string{"userId", "gimmickSequenceScheduleId"}
+	loadClient := func(payload string) map[string]map[string]any {
+		rows := make(map[string]map[string]any)
+		for _, row := range parseJSONRecords(payload) {
+			key := compositeKey(row, clientKeys)
+			if _, duplicate := rows[key]; duplicate {
+				t.Fatalf("duplicate client schedule key %s in login data", key)
+			}
+			rows[key] = row
+		}
+		return rows
+	}
+	for step, sequenceId := range chain {
+		// GetUserData precedes InitSequenceSchedule during login. Apply the
+		// refresh exactly as the client does: updates first, then deletions.
+		client := loadClient(projectTable("IUserGimmickSequence", *user))
+		for range 2 {
+			refresh := GimmickRefreshDiff(*user, *user)["IUserGimmickSequence"]
+			for key, row := range loadClient(refresh.UpdateRecordsJson) {
+				client[key] = row
+			}
+			for _, row := range parseJSONRecords(refresh.DeleteKeysJson) {
+				delete(client, compositeKey(row, clientKeys))
+			}
+			if len(client) != 1 {
+				t.Fatalf("step %d: initialization deleted the active schedule: %v", step, client)
+			}
+			for _, row := range client {
+				if row["gimmickSequenceId"] != float64(sequenceId) {
+					t.Fatalf("step %d: current sequence = %v, want %d", step, row["gimmickSequenceId"], sequenceId)
+				}
+			}
+		}
+		before := store.CloneUserState(*user)
+		key := store.GimmickSequenceKey{GimmickSequenceScheduleId: 900305, GimmickSequenceId: sequenceId}
+		user.Gimmick.Sequences[key] = store.GimmickSequenceState{Key: key, IsGimmickSequenceCleared: true}
+		delta := ComputeDelta(&before, user, ChangedTables(&before, user))["IUserGimmickSequence"]
+		if delta == nil || delta.DeleteKeysJson != "[]" {
+			t.Fatalf("advancing a sequence must update its schedule, not delete it: %+v", delta)
+		}
+	}
+	if len(user.Gimmick.Sequences) != len(chain) {
+		t.Fatal("projection lost saved completion history")
 	}
 }
 
