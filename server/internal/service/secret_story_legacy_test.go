@@ -134,7 +134,7 @@ func TestLegacySecretStoriesSurviveLoginAndResume(t *testing.T) {
 				if !legacy && hasGriff(change.UpdateRecordsJson) {
 					t.Errorf("%s still exposes the unavailable story", table)
 				}
-				if tt.sequenceRow && !legacy && !hasGriff(change.DeleteKeysJson) {
+				if tt.sequenceRow && !legacy && table != "IUserGimmickSequence" && !hasGriff(change.DeleteKeysJson) {
 					t.Errorf("%s did not remove the cached unavailable story", table)
 				}
 				if legacy && hasGriff(change.DeleteKeysJson) {
@@ -150,8 +150,12 @@ func TestLegacySecretStoriesSurviveLoginAndResume(t *testing.T) {
 					t.Fatalf("invalid %s JSON", table)
 				}
 				if table == "IUserGimmick" || table == "IUserGimmickSequence" || table == "IUserGimmickOrnamentProgress" {
-					if got := hasGriff(value); got != legacy {
-						t.Errorf("%s legacy story visibility=%v, want %v", table, got, legacy)
+					want := legacy
+					if table == "IUserGimmickSequence" && completed {
+						want = false // the client's single schedule cursor advances to Argo
+					}
+					if got := hasGriff(value); got != want {
+						t.Errorf("%s legacy story visibility=%v, want %v", table, got, want)
 					}
 				}
 			}

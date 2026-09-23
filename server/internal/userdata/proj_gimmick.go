@@ -34,12 +34,20 @@ var gimmickRecordBuilders = map[string]func(store.UserState) []map[string]any{
 }
 
 func init() {
-	for table, records := range gimmickRecordBuilders {
+	for table := range gimmickRecordBuilders {
 		register(table, func(user store.UserState) string {
-			s, _ := utils.EncodeJSONMaps(visibleGimmickRecords(user, records(user))...)
+			s, _ := utils.EncodeJSONMaps(projectedGimmickRecords(table, user)...)
 			return s
 		})
 	}
+}
+
+func projectedGimmickRecords(table string, user store.UserState) []map[string]any {
+	records := gimmickRecordBuilders[table]
+	if table == "IUserGimmickSequence" {
+		records = currentGimmickSequenceRecords
+	}
+	return visibleGimmickRecords(user, records(user))
 }
 
 func visibleGimmickRecords(user store.UserState, records []map[string]any) []map[string]any {
@@ -71,7 +79,7 @@ func visibleGimmickRecords(user store.UserState, records []map[string]any) []map
 func GimmickRefreshDiff(before, after store.UserState) map[string]*pb.DiffData {
 	diff := ComputeDelta(&before, &after, ChangedTables(&before, &after))
 	for table, records := range gimmickRecordBuilders {
-		visible := visibleGimmickRecords(after, records(after))
+		visible := projectedGimmickRecords(table, after)
 		updates, _ := utils.EncodeJSONMaps(visible...)
 		diff[table] = &pb.DiffData{
 			UpdateRecordsJson: updates,
@@ -225,13 +233,43 @@ func sortedGimmickOrnamentProgressRecords(user store.UserState) []map[string]any
 }
 
 func sortedGimmickSequenceRecords(user store.UserState) []map[string]any {
-
-	ranks := gimmickSequenceRanks()
-
 	keys := make([]store.GimmickSequenceKey, 0, len(user.Gimmick.Sequences))
 	for key := range user.Gimmick.Sequences {
 		keys = append(keys, key)
 	}
+	return gimmickSequenceRecords(user, keys)
+}
+
+func currentGimmickSequenceRecords(user store.UserState) []map[string]any {
+	// The client keys this table by (userId, scheduleId), not sequenceId.
+	// Keep history in the save, but expose only one current cursor per schedule.
+	bySchedule := make(map[int32]store.GimmickSequenceKey)
+	for key, row := range user.Gimmick.Sequences {
+		previous, exists := bySchedule[key.GimmickSequenceScheduleId]
+		previousRow := user.Gimmick.Sequences[previous]
+		if !exists || row.LatestVersion > previousRow.LatestVersion ||
+			(row.LatestVersion == previousRow.LatestVersion && key.GimmickSequenceId > previous.GimmickSequenceId) {
+			bySchedule[key.GimmickSequenceScheduleId] = key
+		}
+	}
+	if catalog := gimmickCatalog.Load(); catalog != nil {
+		// ActiveScheduleKeys follows master-data chain order. Advancing the
+		// cursor also works before the next sequence has a persisted row.
+		for _, key := range catalog.ActiveScheduleKeys(user, gametime.NowMillis()) {
+			if _, initialized := bySchedule[key.GimmickSequenceScheduleId]; initialized {
+				bySchedule[key.GimmickSequenceScheduleId] = key
+			}
+		}
+	}
+	keys := make([]store.GimmickSequenceKey, 0, len(bySchedule))
+	for _, key := range bySchedule {
+		keys = append(keys, key)
+	}
+	return gimmickSequenceRecords(user, keys)
+}
+
+func gimmickSequenceRecords(user store.UserState, keys []store.GimmickSequenceKey) []map[string]any {
+	ranks := gimmickSequenceRanks()
 	sort.Slice(keys, func(i, j int) bool {
 		ri, rj := ranks[keys[i].GimmickSequenceId], ranks[keys[j].GimmickSequenceId]
 		if ri != rj {
@@ -251,8 +289,8 @@ func sortedGimmickSequenceRecords(user store.UserState) []map[string]any {
 		row := user.Gimmick.Sequences[key]
 		records = append(records, map[string]any{
 			"userId":                    user.UserId,
-			"gimmickSequenceScheduleId": row.Key.GimmickSequenceScheduleId,
-			"gimmickSequenceId":         row.Key.GimmickSequenceId,
+			"gimmickSequenceScheduleId": key.GimmickSequenceScheduleId,
+			"gimmickSequenceId":         key.GimmickSequenceId,
 			"isGimmickSequenceCleared":  row.IsGimmickSequenceCleared,
 			"clearDatetime":             row.ClearDatetime,
 			"latestVersion":             row.LatestVersion,
