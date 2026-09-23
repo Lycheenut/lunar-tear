@@ -157,6 +157,7 @@ func buildCatalogs(gachaConfig *gacha.Config, questDropConfig *questdrop.Config)
 	if err != nil {
 		return nil, fmt.Errorf("load gimmick catalog: %w", err)
 	}
+	userdata.SetGimmickCatalog(gimmickCatalog)
 
 	characterBoardCatalog, err := masterdata.LoadCharacterBoardCatalog()
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/runtime"
 	"lunar-tear/server/internal/store"
+	"lunar-tear/server/internal/userdata"
 
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
@@ -230,7 +231,9 @@ func (s *GimmickServiceServer) InitSequenceSchedule(ctx context.Context, _ *empt
 	log.Printf("[GimmickService] InitSequenceSchedule")
 	userId := CurrentUserId(ctx, s.users, s.sessions)
 	now := gametime.NowMillis()
-	s.users.UpdateUser(userId, func(user *store.UserState) {
+	var before store.UserState
+	user, err := s.users.UpdateUser(userId, func(user *store.UserState) {
+		before = store.CloneUserState(*user)
 		catalog := s.holder.Get().Gimmick
 		eligible := catalog.ActiveScheduleKeys(*user, now)
 		eligibleSet := make(map[store.GimmickSequenceKey]struct{}, len(eligible))
@@ -264,7 +267,10 @@ func (s *GimmickServiceServer) InitSequenceSchedule(ctx context.Context, _ *empt
 				pruned, added, len(user.Gimmick.Sequences), len(eligible), masterdata.MaxUserGimmickRows)
 		}
 	})
-	return &pb.InitSequenceScheduleResponse{}, nil
+	if err != nil {
+		return nil, err
+	}
+	return &pb.InitSequenceScheduleResponse{DiffUserData: userdata.GimmickRefreshDiff(before, user)}, nil
 }
 
 func (s *GimmickServiceServer) Unlock(ctx context.Context, req *pb.UnlockRequest) (*pb.UnlockResponse, error) {

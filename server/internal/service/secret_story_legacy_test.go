@@ -35,6 +35,21 @@ func TestLegacySecretStoriesSurviveLoginAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hasGriff := func(payload string) bool {
+		var rows []struct {
+			ScheduleId int32 `json:"gimmickSequenceScheduleId"`
+			SequenceId int32 `json:"gimmickSequenceId"`
+		}
+		if err := json.Unmarshal([]byte(payload), &rows); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.ScheduleId == 900305 && row.SequenceId == 901005 {
+				return true
+			}
+		}
+		return false
+	}
 	for _, tt := range []struct {
 		name                                                string
 		sequenceRow, unlocked, sequenceClear, progressClear bool
@@ -78,6 +93,8 @@ func TestLegacySecretStoriesSurviveLoginAndResume(t *testing.T) {
 				u.Quests[questId] = store.UserQuestState{QuestId: questId, QuestStateType: model.UserQuestStateTypeCleared}
 				if tt.sequenceRow {
 					u.Gimmick.Sequences[seqKey] = store.GimmickSequenceState{Key: seqKey, IsGimmickSequenceCleared: tt.sequenceClear, ClearDatetime: 123, LatestVersion: 123}
+					ornamentKey := store.GimmickOrnamentKey{GimmickSequenceScheduleId: 900305, GimmickSequenceId: 901005, GimmickId: 91104005, GimmickOrnamentIndex: 1}
+					u.Gimmick.OrnamentProgress[ornamentKey] = store.GimmickOrnamentProgressState{Key: ornamentKey, LatestVersion: 123}
 				}
 				if tt.unlocked || tt.sequenceRow {
 					u.Gimmick.Unlocks[key] = store.GimmickUnlockState{Key: key, IsUnlocked: tt.unlocked, LatestVersion: 123}
@@ -105,8 +122,24 @@ func TestLegacySecretStoriesSurviveLoginAndResume(t *testing.T) {
 					t.Fatalf("replaying completed story before init: %+v, %v", response, err)
 				}
 			}
-			if _, err := server.InitSequenceSchedule(ctx, &emptypb.Empty{}); err != nil {
+			initResponse, err := server.InitSequenceSchedule(ctx, &emptypb.Empty{})
+			if err != nil {
 				t.Fatal(err)
+			}
+			for _, table := range []string{"IUserGimmick", "IUserGimmickSequence", "IUserGimmickUnlock", "IUserGimmickOrnamentProgress"} {
+				change := initResponse.DiffUserData[table]
+				if change == nil {
+					t.Fatalf("scene initialization did not refresh %s", table)
+				}
+				if !legacy && hasGriff(change.UpdateRecordsJson) {
+					t.Errorf("%s still exposes the unavailable story", table)
+				}
+				if tt.sequenceRow && !legacy && !hasGriff(change.DeleteKeysJson) {
+					t.Errorf("%s did not remove the cached unavailable story", table)
+				}
+				if legacy && hasGriff(change.DeleteKeysJson) {
+					t.Errorf("%s removed an available legacy story", table)
+				}
 			}
 			snapshot, err := NewDataServiceServer(repo, repo).GetUserData(ctx, &pb.UserDataGetRequest{TableName: []string{"IUserGimmick", "IUserGimmickSequence", "IUserGimmickUnlock", "IUserGimmickOrnamentProgress", "IUserImportantItem"}})
 			if err != nil {
@@ -115,6 +148,11 @@ func TestLegacySecretStoriesSurviveLoginAndResume(t *testing.T) {
 			for table, value := range snapshot.UserDataJson {
 				if !json.Valid([]byte(value)) {
 					t.Fatalf("invalid %s JSON", table)
+				}
+				if table == "IUserGimmick" || table == "IUserGimmickSequence" || table == "IUserGimmickOrnamentProgress" {
+					if got := hasGriff(value); got != legacy {
+						t.Errorf("%s legacy story visibility=%v, want %v", table, got, legacy)
+					}
 				}
 			}
 			user, err := repo.LoadUser(id)
