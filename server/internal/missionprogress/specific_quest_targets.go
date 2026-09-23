@@ -51,11 +51,11 @@ var mainQuestTargetsByOption = map[int32][]int32{
 var mainQuestTargetsByDetail = map[int32][]int32{
 	460002: {41},
 	500056: {20034},
-	500057: {120040},
+	500057: {110040}, // Akeha's Dark Lair: Hard; 120040 is character QUEST 10.
 	500058: {10064},
 	500059: {10074},
 	500084: {20044},
-	500085: {120050},
+	500085: {110050}, // Argo's Dark Lair: Hard; 120050 is character QUEST 10.
 	500087: {10094},
 }
 
