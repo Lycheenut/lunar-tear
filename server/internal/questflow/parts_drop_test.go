@@ -256,9 +256,14 @@ func TestPartsDropRewardsMatchIndependentlyRolledInventory(t *testing.T) {
 				actual[part.PartsId]++
 				actualEquipment[fmt.Sprintf("%d:%x", part.PartsId, partsRewardEquipmentData(user, uuid))]++
 				var subCount int32
-				for key := range user.PartsStatusSubs {
+				for key, sub := range user.PartsStatusSubs {
 					if key.UserPartsUuid == uuid {
 						subCount++
+						def := parts.PartsStatusSubById[sub.PartsStatusSubLotteryId]
+						r := def.Initial
+						if sub.StatusChangeValue < r.Min || sub.StatusChangeValue > r.Max || (sub.StatusChangeValue-r.Min)%r.Step != 0 || sub.StatusKindType != def.StatusKindType || sub.StatusCalculationType != def.StatusCalculationType {
+							t.Fatalf("drop sub-status %+v does not match initial range %+v", sub, r)
+						}
 					}
 				}
 				if want := parts.PartsById[part.PartsId].PartsInitialLotteryId - 1; subCount != want {

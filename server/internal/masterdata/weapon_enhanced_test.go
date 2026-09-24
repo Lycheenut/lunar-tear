@@ -98,7 +98,7 @@ func TestLoadEnhancedWeaponTemplatesResolvesCurvesAndSlots(t *testing.T) {
 
 func TestLoadEnhancedPartsTemplatesAndFixedSubStatuses(t *testing.T) {
 	initEnhancedRewardTables(t, map[string]any{
-		"m_parts":                              []EntityMParts{{PartsId: 101, PartsGroupId: 10, RarityType: 40}},
+		"m_parts":                              []EntityMParts{{PartsId: 101, PartsGroupId: 10, RarityType: 40, PartsInitialLotteryId: 1, PartsStatusSubLotteryGroupId: 4}},
 		"m_parts_rarity":                       []EntityMPartsRarity{},
 		"m_parts_level_up_rate_group":          []EntityMPartsLevelUpRateGroup{},
 		"m_parts_level_up_price_group":         []EntityMPartsLevelUpPriceGroup{},

@@ -182,15 +182,6 @@ type PartsRef struct {
 	PartsStatusSubLotteryGroupId  int32
 }
 
-// PartsStatusSubDef carries the per-lottery-id sub-status shape needed at
-// grant time. Held here so the store package does not import masterdata.
-type PartsStatusSubDef struct {
-	StatusKindType           int32
-	StatusCalculationType    int32
-	StatusChangeInitialValue int32
-	StatusFunc               func(level int32) int32
-}
-
 type PossessionGranter struct {
 	CostumeById           map[int32]CostumeRef
 	CostumeEnhancedById   map[int32]CostumeEnhancedRef
@@ -205,7 +196,7 @@ type PossessionGranter struct {
 	PartsMainStatusPool        map[int32][]int32
 	PartsVariantsByGroupRarity map[int32]map[int32][]int32
 	PartsSubStatusPool         map[int32][]int32
-	PartsSubStatusDefs         map[int32]PartsStatusSubDef
+	PartsSubStatusDefs         map[int32]model.PartsStatusSubDef
 	PartsEnhancedById          map[int32]PartsEnhancedRef
 	PartsSellPriceByRarity     map[int32]func(int32) int32
 
@@ -492,10 +483,7 @@ func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, ch
 			if !ok {
 				continue
 			}
-			val := def.StatusChangeInitialValue
-			if def.StatusFunc != nil {
-				val = def.StatusFunc(1)
-			}
+			val := def.Initial.Roll()
 			user.PartsStatusSubs[PartsStatusSubKey{UserPartsUuid: key, StatusIndex: i + 1}] = PartsStatusSubState{
 				UserPartsUuid:           key,
 				StatusIndex:             i + 1,

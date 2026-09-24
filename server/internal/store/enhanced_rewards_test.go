@@ -84,11 +84,11 @@ func enhancedPartsTestGranter() *PossessionGranter {
 			SubStatuses: []PartsStatusSubState{{StatusIndex: 2, PartsStatusSubLotteryId: 1, Level: 7, StatusKindType: 6, StatusCalculationType: 2, StatusChangeValue: 777}},
 		}},
 		PartsSubStatusPool: map[int32][]int32{1: {1, 2, 3, 4}},
-		PartsSubStatusDefs: map[int32]PartsStatusSubDef{
-			1: {StatusKindType: 6, StatusCalculationType: 2, StatusChangeInitialValue: 5},
-			2: {StatusKindType: 2, StatusCalculationType: 1, StatusFunc: func(level int32) int32 { return level * 10 }},
-			3: {StatusKindType: 7, StatusCalculationType: 1, StatusChangeInitialValue: 25},
-			4: {StatusKindType: 1, StatusCalculationType: 1, StatusChangeInitialValue: 35},
+		PartsSubStatusDefs: map[int32]model.PartsStatusSubDef{
+			1: {StatusKindType: 6, StatusCalculationType: 2, Initial: model.PartsSubStatusRange{Min: 5, Max: 5, Step: 1}},
+			2: {StatusKindType: 2, StatusCalculationType: 1, Initial: model.PartsSubStatusRange{Min: 10, Max: 10, Step: 1}},
+			3: {StatusKindType: 7, StatusCalculationType: 1, Initial: model.PartsSubStatusRange{Min: 25, Max: 25, Step: 1}},
+			4: {StatusKindType: 1, StatusCalculationType: 1, Initial: model.PartsSubStatusRange{Min: 35, Max: 35, Step: 1}},
 		},
 	}
 }
@@ -117,7 +117,7 @@ func TestEnhancedPartsPreserveFixedStatsAndUniqueRandomSlots(t *testing.T) {
 				}
 			} else if sub.Level != 15 || sub.PartsStatusSubLotteryId == 1 {
 				t.Fatalf("random sub=%+v", sub)
-			} else if sub.PartsStatusSubLotteryId == 2 && sub.StatusChangeValue != 150 {
+			} else if sub.PartsStatusSubLotteryId == 2 && sub.StatusChangeValue != 10 {
 				t.Fatalf("calculated sub=%+v", sub)
 			}
 		}

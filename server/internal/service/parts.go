@@ -15,8 +15,6 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-const partsMaxLevel = int32(15)
-
 type PartsServiceServer struct {
 	pb.UnimplementedPartsServiceServer
 	users    store.UserRepository
@@ -146,7 +144,7 @@ func (s *PartsServiceServer) Enhance(ctx context.Context, req *pb.PartsEnhanceRe
 			return
 		}
 
-		if part.Level >= partsMaxLevel {
+		if part.Level >= model.PartsMaxLevel {
 			log.Printf("[PartsService] Enhance: part uuid=%s already at max level %d", req.UserPartsUuid, part.Level)
 			return
 		}
@@ -214,71 +212,45 @@ func (s *PartsServiceServer) Enhance(ctx context.Context, req *pb.PartsEnhanceRe
 }
 
 func grantPartsSubStatuses(catalog *masterdata.PartsCatalog, user *store.UserState, uuid string, part store.PartsState, partDef masterdata.EntityMParts, nowMillis int64) {
-	unlockLevels := catalog.SubStatusUnlockLvls[partDef.RarityType]
-	pool := catalog.SubStatusPool[partDef.PartsStatusSubLotteryGroupId]
-
-	for slotIdx, lvl := range unlockLevels {
-		if part.Level != lvl {
-			continue
-		}
-		statusIndex := int32(slotIdx + 1)
-		existingKeys := make([]store.PartsStatusSubKey, 0, len(unlockLevels))
-		for key := range user.PartsStatusSubs {
-			if key.UserPartsUuid == uuid {
-				existingKeys = append(existingKeys, key)
-			}
-		}
-		if len(existingKeys) >= int(statusIndex) {
-			key := existingKeys[rand.Intn(len(existingKeys))]
-			sub := user.PartsStatusSubs[key]
-			def, ok := catalog.PartsStatusMainById[sub.PartsStatusSubLotteryId]
-			if !ok {
-				continue
-			}
-			sub.Level = part.Level
-			sub.StatusChangeValue += def.StatusChangeInitialValue
-			if f, ok := catalog.FuncResolver.Resolve(def.StatusNumericalFunctionId); ok {
-				sub.StatusChangeValue = f.Evaluate(sub.Level)
-			}
-			sub.LatestVersion = nowMillis
-			user.PartsStatusSubs[key] = sub
-			log.Printf("[PartsService] Enhance: enhanced sub-status slot=%d lotteryId=%d val=%d",
-				sub.StatusIndex, sub.PartsStatusSubLotteryId, sub.StatusChangeValue)
-			continue
-		}
-
-		key := store.PartsStatusSubKey{UserPartsUuid: uuid, StatusIndex: statusIndex}
+	if !model.IsPartsSubStatusEnhancementLevel(part.Level) {
+		return
+	}
+	existingKeys := make([]store.PartsStatusSubKey, 0, model.PartsMaxSubStatusCount)
+	var emptySlot int32
+	for slot := int32(1); slot <= model.PartsMaxSubStatusCount; slot++ {
+		key := store.PartsStatusSubKey{UserPartsUuid: uuid, StatusIndex: slot}
 		if _, exists := user.PartsStatusSubs[key]; exists {
-			continue
+			existingKeys = append(existingKeys, key)
+		} else if emptySlot == 0 {
+			emptySlot = slot
 		}
-
+	}
+	// Every milestone first fills one missing slot, regardless of initial rank.
+	if emptySlot != 0 {
+		pool := catalog.SubStatusPool[partDef.PartsStatusSubLotteryGroupId]
 		pick, picked := store.PickUniquePartsSubStatus(pool, user, uuid)
 		if !picked {
-			continue
+			return
 		}
-		def, ok := catalog.PartsStatusMainById[pick]
-		if !ok {
-			continue
-		}
-
-		statusValue := def.StatusChangeInitialValue
-		if f, ok := catalog.FuncResolver.Resolve(def.StatusNumericalFunctionId); ok {
-			statusValue = f.Evaluate(part.Level)
-		}
-
+		def := catalog.PartsStatusSubById[pick]
+		key := store.PartsStatusSubKey{UserPartsUuid: uuid, StatusIndex: emptySlot}
 		user.PartsStatusSubs[key] = store.PartsStatusSubState{
-			UserPartsUuid:           uuid,
-			StatusIndex:             statusIndex,
-			PartsStatusSubLotteryId: pick,
-			Level:                   part.Level,
-			StatusKindType:          def.StatusKindType,
-			StatusCalculationType:   def.StatusCalculationType,
-			StatusChangeValue:       statusValue,
-			LatestVersion:           nowMillis,
+			UserPartsUuid: uuid, StatusIndex: emptySlot, PartsStatusSubLotteryId: pick,
+			Level: part.Level, StatusKindType: def.StatusKindType, StatusCalculationType: def.StatusCalculationType,
+			StatusChangeValue: def.Initial.Roll(), LatestVersion: nowMillis,
 		}
-		log.Printf("[PartsService] Enhance: granted sub-status slot=%d lotteryId=%d kind=%d calc=%d val=%d",
-			statusIndex, pick, def.StatusKindType, def.StatusCalculationType, statusValue)
+		return
 	}
+	key := existingKeys[rand.Intn(len(existingKeys))]
+	sub := user.PartsStatusSubs[key]
+	def, ok := catalog.PartsStatusSubById[sub.PartsStatusSubLotteryId]
+	if !ok {
+		return
+	}
+	sub.Level = part.Level
+	sub.StatusChangeValue += def.Growth.Roll()
+	sub.LatestVersion = nowMillis
+	user.PartsStatusSubs[key] = sub
 }
 
 func (s *PartsServiceServer) ReplacePreset(ctx context.Context, req *pb.PartsReplacePresetRequest) (*pb.PartsReplacePresetResponse, error) {
