@@ -475,8 +475,8 @@ func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *st
 		if !existed {
 			continue
 		}
-		if current.Level > old.Level || current.Exp > old.Exp {
-			add(model.MissionClearConditionTypeWeaponEnhanceByCount, 1, current.WeaponId)
+		if current.Level > old.Level {
+			add(model.MissionClearConditionTypeWeaponEnhanceByCount, current.Level-old.Level, current.WeaponId)
 		}
 		if current.WeaponId != old.WeaponId {
 			add(model.MissionClearConditionTypeWeaponEvolveByCount, 1, current.WeaponId)
@@ -498,8 +498,8 @@ func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *st
 		if !existed {
 			continue
 		}
-		if current.Level > old.Level || current.Exp > old.Exp {
-			add(model.MissionClearConditionTypeCostumeEnhanceByCount, 1, current.CostumeId)
+		if current.Level > old.Level {
+			add(model.MissionClearConditionTypeCostumeEnhanceByCount, current.Level-old.Level, current.CostumeId)
 		}
 		add(model.MissionClearConditionTypeCostumeLimitBreakByCount, current.LimitBreakCount-old.LimitBreakCount, current.CostumeId)
 	}
@@ -512,7 +512,7 @@ func deriveEvents(catalogs *runtime.Catalogs, before *store.UserState, after *st
 		old, existed := before.Companions[uuid]
 		if !existed {
 		} else if current.Level > old.Level {
-			add(model.MissionClearConditionTypeCompanionEnhanceByCount, 1, current.CompanionId)
+			add(model.MissionClearConditionTypeCompanionEnhanceByCount, current.Level-old.Level, current.CompanionId)
 		}
 	}
 	for uuid, current := range after.Parts {
