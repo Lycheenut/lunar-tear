@@ -287,6 +287,111 @@ func TestPvpRankKeepsBestLowerRank(t *testing.T) {
 	}
 }
 
+func TestCompanionEnhancementCountsLevelsGained(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		oldLevel        int32
+		newLevel        int32
+		initialProgress int32
+		wantProgress    int32
+	}{
+		{name: "single level", oldLevel: 1, newLevel: 2, wantProgress: 1},
+		{name: "multiple levels", oldLevel: 1, newLevel: 6, wantProgress: 5},
+		{name: "accumulates and clears", oldLevel: 6, newLevel: 9, initialProgress: 7, wantProgress: 10},
+		{name: "all levels at once", oldLevel: 1, newLevel: 50, wantProgress: 49},
+		{name: "reaches level cap", oldLevel: 47, newLevel: 50, wantProgress: 3},
+		{name: "already at level cap", oldLevel: 50, newLevel: 50, initialProgress: 2, wantProgress: 2},
+		{name: "level decreases", oldLevel: 10, newLevel: 5, initialProgress: 2, wantProgress: 2},
+		{name: "new companion", newLevel: 50},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mission := masterdata.EntityMMission{
+				MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeCompanionEnhanceByCount), ClearConditionValue: 10,
+			}
+			catalogs := testCatalog(mission)
+			before := &store.UserState{}
+			before.EnsureMaps()
+			before.Missions[1] = store.UserMissionState{
+				MissionId: 1, ProgressValue: tt.initialProgress, MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress),
+			}
+			if tt.oldLevel > 0 {
+				before.Companions["companion"] = store.CompanionState{UserCompanionUuid: "companion", CompanionId: 31, Level: tt.oldLevel}
+			}
+			after := store.CloneUserState(*before)
+			after.Companions["companion"] = store.CompanionState{UserCompanionUuid: "companion", CompanionId: 31, Level: tt.newLevel}
+
+			Apply(catalogs, before, &after, nil, 100)
+			wantStatus := int32(model.MissionProgressStatusTypeInProgress)
+			if tt.wantProgress >= mission.ClearConditionValue {
+				wantStatus = int32(model.MissionProgressStatusTypeClear)
+			}
+			state := after.Missions[1]
+			if state.ProgressValue != tt.wantProgress || state.MissionProgressStatusType != wantStatus {
+				t.Fatalf("mission = %+v, want progress %d and status %d", state, tt.wantProgress, wantStatus)
+			}
+			Sync(catalogs, &after, 200)
+			if got := after.Missions[1]; got != state {
+				t.Fatalf("sync changed enhancement progress: got %+v, want %+v", got, state)
+			}
+		})
+	}
+}
+
+func TestCostumeAndWeaponEnhancementCountsLevelsGained(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		oldLevel        int32
+		newLevel        int32
+		oldExp          int32
+		newExp          int32
+		initialProgress int32
+		wantProgress    int32
+	}{
+		{name: "single level", oldLevel: 1, newLevel: 2, newExp: 100, wantProgress: 1},
+		{name: "multiple levels", oldLevel: 1, newLevel: 6, newExp: 500, wantProgress: 5},
+		{name: "accumulates and clears", oldLevel: 6, newLevel: 9, oldExp: 500, newExp: 800, initialProgress: 7, wantProgress: 10},
+		{name: "levels without exp change", oldLevel: 1, newLevel: 6, wantProgress: 5},
+		{name: "exp without level change", oldLevel: 6, newLevel: 6, oldExp: 500, newExp: 550, initialProgress: 2, wantProgress: 2},
+		{name: "unchanged", oldLevel: 50, newLevel: 50, oldExp: 5000, newExp: 5000, initialProgress: 2, wantProgress: 2},
+		{name: "level decreases", oldLevel: 10, newLevel: 5, oldExp: 900, newExp: 400, initialProgress: 2, wantProgress: 2},
+		{name: "new possession", newLevel: 50, newExp: 5000},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			missions := []masterdata.EntityMMission{
+				{MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeCostumeEnhanceByCount), ClearConditionValue: 10},
+				{MissionId: 2, MissionClearConditionType: int32(model.MissionClearConditionTypeWeaponEnhanceByCount), ClearConditionValue: 10},
+			}
+			catalogs := testCatalog(missions...)
+			before := &store.UserState{}
+			before.EnsureMaps()
+			for _, mission := range missions {
+				before.Missions[mission.MissionId] = store.UserMissionState{
+					MissionId: mission.MissionId, ProgressValue: tt.initialProgress, MissionProgressStatusType: int32(model.MissionProgressStatusTypeInProgress),
+				}
+			}
+			if tt.oldLevel > 0 {
+				before.Costumes["costume"] = store.CostumeState{UserCostumeUuid: "costume", CostumeId: 100, Level: tt.oldLevel, Exp: tt.oldExp}
+				before.Weapons["weapon"] = store.WeaponState{UserWeaponUuid: "weapon", WeaponId: 200, Level: tt.oldLevel, Exp: tt.oldExp}
+			}
+			after := store.CloneUserState(*before)
+			after.Costumes["costume"] = store.CostumeState{UserCostumeUuid: "costume", CostumeId: 100, Level: tt.newLevel, Exp: tt.newExp}
+			after.Weapons["weapon"] = store.WeaponState{UserWeaponUuid: "weapon", WeaponId: 200, Level: tt.newLevel, Exp: tt.newExp}
+
+			Apply(catalogs, before, &after, nil, 100)
+			for _, mission := range missions {
+				wantStatus := int32(model.MissionProgressStatusTypeInProgress)
+				if tt.wantProgress >= mission.ClearConditionValue {
+					wantStatus = int32(model.MissionProgressStatusTypeClear)
+				}
+				state := after.Missions[mission.MissionId]
+				if state.ProgressValue != tt.wantProgress || state.MissionProgressStatusType != wantStatus {
+					t.Errorf("mission = %+v, want progress %d and status %d", state, tt.wantProgress, wantStatus)
+				}
+			}
+		})
+	}
+}
+
 func TestNewWeaponSkillsDoNotCountAsSkillEnhancement(t *testing.T) {
 	mission := masterdata.EntityMMission{
 		MissionId: 1, MissionClearConditionType: int32(model.MissionClearConditionTypeWeaponEnhanceSkillByCount), ClearConditionValue: 1,
