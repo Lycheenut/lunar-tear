@@ -136,20 +136,6 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 		}
 	}
 
-	partsSubDefs := make(map[int32]store.PartsStatusSubDef, len(catalog.PartsStatusMainById))
-	for id, d := range catalog.PartsStatusMainById {
-		var fn func(int32) int32
-		if f, ok := catalog.FuncResolver.Resolve(d.StatusNumericalFunctionId); ok {
-			fn = f.Evaluate
-		}
-		partsSubDefs[id] = store.PartsStatusSubDef{
-			StatusKindType:           d.StatusKindType,
-			StatusCalculationType:    d.StatusCalculationType,
-			StatusChangeInitialValue: d.StatusChangeInitialValue,
-			StatusFunc:               fn,
-		}
-	}
-
 	partsSellPriceL1 := make(map[int32]int32, len(catalog.SellPriceByRarity))
 	partsSellPrice := make(map[int32]func(int32) int32, len(catalog.SellPriceByRarity))
 	for rarity, fn := range catalog.SellPriceByRarity {
@@ -190,7 +176,7 @@ func BuildGranter(catalog *masterdata.QuestCatalog, config *masterdata.GameConfi
 		PartsMainStatusPool:        catalog.MainStatusPool,
 		PartsVariantsByGroupRarity: partsVariants,
 		PartsSubStatusPool:         catalog.SubStatusPool,
-		PartsSubStatusDefs:         partsSubDefs,
+		PartsSubStatusDefs:         catalog.PartsStatusSubById,
 		PartsSellPriceL1ByRarity:   partsSellPriceL1,
 		GoldConsumableItemId:       goldItemId,
 	}

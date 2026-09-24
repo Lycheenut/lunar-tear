@@ -26,19 +26,19 @@ type PartsEnhancedRef struct {
 
 func (g *PossessionGranter) validEnhancedParts(enhanced PartsEnhancedRef) bool {
 	part, ok := g.PartsById[enhanced.PartsId]
-	if !ok || enhanced.Level < 1 || enhanced.PartsStatusMainId <= 0 || enhanced.SubStatusCount < 0 || enhanced.SubStatusCount > 4 {
+	if !ok || enhanced.Level < 1 || enhanced.PartsStatusMainId <= 0 || enhanced.SubStatusCount < 0 || enhanced.SubStatusCount > model.PartsMaxSubStatusCount {
 		return false
 	}
 	usedSlots, usedIDs := map[int32]bool{}, map[int32]bool{}
 	for _, sub := range enhanced.SubStatuses {
-		if sub.StatusIndex < 1 || sub.StatusIndex > 4 || sub.Level < 1 || usedSlots[sub.StatusIndex] || usedIDs[sub.PartsStatusSubLotteryId] {
+		if sub.StatusIndex < 1 || sub.StatusIndex > model.PartsMaxSubStatusCount || sub.Level < 1 || usedSlots[sub.StatusIndex] || usedIDs[sub.PartsStatusSubLotteryId] {
 			return false
 		}
 		usedSlots[sub.StatusIndex], usedIDs[sub.PartsStatusSubLotteryId] = true, true
 	}
 	count := enhanced.SubStatusCount
 	if enhanced.IsRandomSubStatusCount {
-		count = 4
+		count = model.PartsMaxSubStatusCount
 	}
 	for slot := range usedSlots {
 		count = max(count, slot)
@@ -86,10 +86,7 @@ func (g *PossessionGranter) grantEnhancedParts(user *UserState, enhanced PartsEn
 			break
 		}
 		def := g.PartsSubStatusDefs[id]
-		value := def.StatusChangeInitialValue
-		if def.StatusFunc != nil {
-			value = def.StatusFunc(enhanced.Level)
-		}
+		value := def.Initial.Roll()
 		user.PartsStatusSubs[subKey] = PartsStatusSubState{
 			UserPartsUuid: key, StatusIndex: slot, PartsStatusSubLotteryId: id, Level: enhanced.Level,
 			StatusKindType: def.StatusKindType, StatusCalculationType: def.StatusCalculationType,

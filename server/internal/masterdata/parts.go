@@ -25,12 +25,13 @@ type PartsCatalog struct {
 	SellPriceByRarity    map[model.RarityType]NumericalFunc
 
 	PartsStatusMainById map[int32]PartsStatusMainDef
-	SubStatusPool       map[int32][]int32            // lotteryGroupId -> eligible PartsStatusMainIds
-	SubStatusUnlockLvls map[model.RarityType][]int32 // rarity -> levels where sub-slots unlock
+	SubStatusPool       map[int32][]int32 // lotteryGroupId -> eligible sub-status IDs
+	PartsStatusSubById  map[int32]model.PartsStatusSubDef
 	FuncResolver        *FunctionResolver
 }
 
 func LoadPartsCatalog() (*PartsCatalog, error) {
+	partsStatusSubById, subStatusPool := buildPartsStatusSub()
 	partsRows, err := utils.ReadTable[EntityMParts]("m_parts")
 	if err != nil {
 		return nil, fmt.Errorf("load parts table: %w", err)
@@ -53,6 +54,12 @@ func LoadPartsCatalog() (*PartsCatalog, error) {
 
 	partsById := make(map[int32]EntityMParts, len(partsRows))
 	for _, p := range partsRows {
+		if _, ok := subStatusPool[p.PartsStatusSubLotteryGroupId]; !ok {
+			return nil, fmt.Errorf("parts %d references unknown sub-status pool %d", p.PartsId, p.PartsStatusSubLotteryGroupId)
+		}
+		if p.PartsInitialLotteryId < 1 || p.PartsInitialLotteryId-1 > model.PartsMaxSubStatusCount {
+			return nil, fmt.Errorf("parts %d initial rank exceeds sub-status slot limit", p.PartsId)
+		}
 		partsById[p.PartsId] = p
 	}
 	enhancedRows, err := utils.ReadTable[EntityMPartsEnhanced]("m_parts_enhanced")
@@ -127,15 +134,7 @@ func LoadPartsCatalog() (*PartsCatalog, error) {
 		priceByGroupAndLevel[p.PartsLevelUpPriceGroupId][p.LevelLowerLimit] = p.Gold
 	}
 
-	partsStatusMainById, subStatusPool := buildPartsStatusMain()
-
-	unlockLvls := []int32{3, 6, 9, 12}
-	subStatusUnlockLvls := map[model.RarityType][]int32{
-		model.RarityNormal: unlockLvls,
-		model.RarityRare:   unlockLvls,
-		model.RaritySRare:  unlockLvls,
-		model.RaritySSRare: unlockLvls,
-	}
+	partsStatusMainById := buildPartsStatusMain()
 
 	return &PartsCatalog{
 		PartsById:            partsById,
@@ -148,17 +147,15 @@ func LoadPartsCatalog() (*PartsCatalog, error) {
 		SellPriceByRarity:    sellPriceByRarity,
 		PartsStatusMainById:  partsStatusMainById,
 		SubStatusPool:        subStatusPool,
-		SubStatusUnlockLvls:  subStatusUnlockLvls,
+		PartsStatusSubById:   partsStatusSubById,
 		FuncResolver:         funcResolver,
 	}, nil
 }
 
-// buildPartsStatusMain constructs the 36 PartsStatusMain definitions and
-// groups them into sub-status lottery pools by tier (1-4).
+// buildPartsStatusMain constructs the 36 main-status definitions only.
 // The data mirrors EntityMPartsStatusMainTable.json which is structured as
-// 9 stat categories x 4 tiers. Tier within each category maps to the
-// PartsStatusSubLotteryGroupId on the part definition.
-func buildPartsStatusMain() (map[int32]PartsStatusMainDef, map[int32][]int32) {
+// 9 stat categories x 4 tiers. Sub-statuses use their own reconstructed table.
+func buildPartsStatusMain() map[int32]PartsStatusMainDef {
 	type statCat struct {
 		kindType  int32
 		calcType  int32
@@ -178,7 +175,6 @@ func buildPartsStatusMain() (map[int32]PartsStatusMainDef, map[int32][]int32) {
 	}
 
 	defs := make(map[int32]PartsStatusMainDef, 36)
-	pool := map[int32][]int32{1: {}, 2: {}, 3: {}, 4: {}}
 	id := int32(1)
 	for _, c := range cats {
 		for tier := 0; tier < 4; tier++ {
@@ -188,13 +184,8 @@ func buildPartsStatusMain() (map[int32]PartsStatusMainDef, map[int32][]int32) {
 				StatusChangeInitialValue:  c.initVals[tier],
 				StatusNumericalFunctionId: c.funcStart + int32(tier),
 			}
-			pool[int32(tier+1)] = append(pool[int32(tier+1)], id)
 			id++
 		}
 	}
-	// Newer parts groups (PartsGroupId 401-490) use PartsStatusSubLotteryGroupId
-	// 11/12 for rarities 10/20 instead of 1/2. Same stat pools — alias them.
-	pool[11] = pool[1]
-	pool[12] = pool[2]
-	return defs, pool
+	return defs
 }
