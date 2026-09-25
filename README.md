@@ -108,6 +108,14 @@ It defaults to a read-only preview; use `--apply` while the server is stopped to
 commit. Inventory and other deck types are preserved. See
 [restricted deck repair instructions](server/cmd/repair-restricted-decks/README.md).
 
+### Resetting Enhanced Memoirs for All Players
+
+The `repair-parts` tool resets every owned memoir above level 1, keeps its
+existing sub-stat types and slots, rerolls their initial values using the current
+rules, and refunds one successful enhancement cost per level gained. It defaults
+to a read-only preview; apply while the server is stopped. See
+[memoir repair instructions](server/cmd/repair-parts/README.md).
+
 ### Exporting a Player Snapshot
 
 Export one player by their in-game player ID. JSON is written to stdout; the
