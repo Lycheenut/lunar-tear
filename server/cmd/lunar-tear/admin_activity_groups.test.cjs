@@ -23,12 +23,12 @@ function element(tagName = "div") {
 const findText = (root, text) => descendants(root).find(node => node.textContent === text);
 const check = (checkbox, value = true) => { checkbox.checked = value; checkbox.listeners.change(); };
 
-async function createEditor() {
+async function createEditor(premiumMembers = []) {
   const root = element(), posts = [], confirmations = [];
   let allowDelete = true;
   const member = (kind, id) => ({ kind, id });
   let config = { version: 2, units: [
-    { id: "premium:1", name: "Summons", type: 1, members: [member("premium", 1)] },
+    { id: "premium:1", name: "Summons", type: 1, members: [member("premium", 1), ...premiumMembers] },
     { id: "chapter:2", name: "Record", type: 2, members: [member("chapter", 2)] },
     { id: "chapter:3", name: "Variation", type: 3, members: [member("chapter", 3)] }
   ], groups: [
@@ -41,7 +41,10 @@ async function createEditor() {
     { ...member("chapter", 2), titles: { en: "Record" }, chapterType: 1 },
     { ...member("chapter", 3), titles: { en: "Variation" }, chapterType: 2 },
     { ...member("event", 4), titles: { en: "Event" }, relatedChapterId: 3 },
-    { ...member("event", 5), titles: { en: "Unrelated" }, relatedChapterId: 99 }
+    { ...member("event", 5), titles: { en: "Unrelated" }, relatedChapterId: 99 },
+    { ...member("banner", 6), titles: { en: "Summons banner" }, previewPath: ["gacha", "limited_1", "mom_banner.png"] },
+    { ...member("term", 8), titles: { en: "Shards" }, endDatetime: 1800000000000 },
+    { ...member("medal", 8), titles: { en: "Shards" }, endDatetime: 1800100000000 }
   ];
   const context = vm.createContext({
     document: { createElement: element },
@@ -51,6 +54,7 @@ async function createEditor() {
   vm.runInContext(readFileSync(path.join(__dirname, "admin_activity_groups.js"), "utf8"), context);
   const editor = context.window.createActivityGroupEditor({
     root, localizedText: titles => titles?.ja || titles?.en || "", hasOtherChanges: () => false,
+    renderBannerPreview: option => Object.assign(element("img"), { src: option.previewPath.join("/") }),
     showNotice: (_, error) => assert.equal(Boolean(error), false), onPublished: async () => {},
     api: async (_, request) => {
       if (request) { config = JSON.parse(request.body).config; posts.push(config); }
@@ -149,4 +153,52 @@ test("deleting one selected unit preserves groups with remaining units", async (
   await findText(root, "保存活动组配置").listeners.click();
   assert.deepEqual(posts[0].units.map(unit => unit.id), ["chapter:2", "chapter:3"]);
   assert.deepEqual(posts[0].groups, [{ id: "shared", name: "Shared", unitIds: ["chapter:2"] }]);
+});
+
+test("type filters intersect search, limit select-all, and match groups by their member units", async () => {
+  const { root, editor } = await createEditor();
+  const filter = descendants(root).find(node => node.attributes["aria-label"] === "类型筛选");
+  filter.value = "2"; filter.listeners.change();
+  assert.deepEqual(root.querySelectorAll(".activity-group-list-item").map(node => node.title), ["chapter:2"]);
+  check(root.querySelector(".activity-group-select-all"));
+  assert.equal(root.querySelector(".activity-group-batch-delete").textContent, "删除所选（1）");
+  const search = descendants(root).find(node => node.attributes["aria-label"] === "搜索活动组或单位");
+  search.value = "Summons"; search.listeners.input();
+  assert.equal(root.querySelectorAll(".activity-group-list-item").length, 0);
+  assert.equal(editor.dirty(), false);
+  findText(root, "活动组 · 2").listeners.click();
+  const groupFilter = descendants(root).find(node => node.attributes["aria-label"] === "类型筛选");
+  groupFilter.value = "2"; groupFilter.listeners.change();
+  assert.deepEqual(root.querySelectorAll(".activity-group-list-item").map(node => node.title), ["shared"]);
+});
+
+test("shard terms add and remove same-ID conversion entries together without a separate picker", async () => {
+  const { root, posts } = await createEditor();
+  findText(root, "1. 記念ガチャ").listeners.click();
+  let section = descendants(root).find(node => node.dataset.memberSection === "term");
+  const picker = descendants(section).find(node => node.tagName === "select");
+  assert.deepEqual(picker.children.map(node => node.value), ["", "term:8"]);
+  assert.equal(picker.children[1].textContent, "8. Shards");
+  picker.value = "term:8"; picker.listeners.change();
+  findText(section, "添加条目").listeners.click();
+  section = descendants(root).find(node => node.dataset.memberSection === "term");
+  assert.equal(section.querySelectorAll(".activity-group-entry").length, 1);
+  assert.ok(descendants(section).some(node => node.textContent.startsWith("自动转换时间：")));
+  assert.equal(descendants(section).some(node => /（有效期）|（自动转换）/.test(node.textContent)), false);
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[0].units[0].members.slice(1), [{ kind: "term", id: 8 }, { kind: "medal", id: 8 }]);
+  section = descendants(root).find(node => node.dataset.memberSection === "term");
+  findText(section, "移除").listeners.click();
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[1].units[0].members, [{ kind: "premium", id: 1 }]);
+});
+
+test("legacy conversion-only selections remain visible as shard terms and banner cards render previews", async () => {
+  const { root, editor } = await createEditor([{ kind: "medal", id: 8 }, { kind: "banner", id: 6 }]);
+  findText(root, "1. 記念ガチャ").listeners.click();
+  assert.ok(findText(root, "8. Shards"));
+  const card = root.querySelector(".activity-group-banner-card");
+  assert.equal(card.children[0].src, "gacha/limited_1/mom_banner.png");
+  assert.ok(findText(card, "6. Summons banner"));
+  assert.equal(editor.dirty(), false);
 });

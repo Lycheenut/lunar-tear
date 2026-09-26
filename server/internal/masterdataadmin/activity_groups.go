@@ -41,6 +41,7 @@ type ActivityMemberOption struct {
 	EndDatetime      int64             `json:"endDatetime"`
 	ChapterType      int64             `json:"chapterType,omitempty"`
 	RelatedChapterID int64             `json:"relatedChapterId,omitempty"`
+	PreviewPath      []string          `json:"previewPath,omitempty"`
 	row              int
 }
 
@@ -57,6 +58,10 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 		return nil, err
 	}
 	resolver := newTitleResolver(file, loadLocalizationIndex(path))
+	bannerPaths, err := activityBannerPreviewPaths(file)
+	if err != nil {
+		return nil, err
+	}
 	catalog := &ActivityGroupCatalog{Version: file.Version(), Config: groups, Kinds: activityMemberKinds}
 	for _, kind := range activityMemberKinds {
 		if kind.Table == "" {
@@ -70,6 +75,9 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 		for _, row := range table.Rows {
 			id, _ := strconv.ParseInt(row.Identity[0].Value, 10, 64)
 			option := ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: kind.Kind, ID: id}, Titles: row.Titles, StartDatetime: row.Times["StartDatetime"], EndDatetime: row.Times["EndDatetime"], row: row.Index}
+			if kind.Kind == "banner" {
+				option.PreviewPath = bannerPaths[id]
+			}
 			if kind.Kind == "medal" {
 				option.EndDatetime = row.Times["AutoConvertDatetime"]
 			}
@@ -115,6 +123,47 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 
 func activityKey(member activitygroup.ActivityMember) string {
 	return fmt.Sprintf("%s:%d", member.Kind, member.ID)
+}
+
+// Paths omit the language segment, which the admin's shared preview renderer supplies.
+func activityBannerPreviewPaths(file *memorydb.File) (map[int64][]string, error) {
+	paths := make(map[int64][]string)
+	loginAssets := make(map[int64]string)
+	chapterAssets := make(map[int64]int64)
+	for _, table := range []string{"m_login_bonus", "m_event_quest_chapter", "m_mom_banner"} {
+		rows, _, err := file.TableRows(table)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			id, _ := integerAt(row, 0)
+			switch table {
+			case "m_login_bonus":
+				loginAssets[id], _ = stringAt(row, 7)
+			case "m_event_quest_chapter":
+				chapterAssets[id], _ = integerAt(row, 4)
+			case "m_mom_banner":
+				domain, _ := integerAt(row, 2)
+				destination, _ := integerAt(row, 3)
+				asset, _ := stringAt(row, 4)
+				switch {
+				case domain == 1 && asset != "":
+					paths[id] = []string{"gacha", asset, "mom_banner.png"}
+				case domain == 21:
+					if asset := loginAssets[destination]; asset != "" {
+						paths[id] = []string{"login_bonus", "banner", asset + ".png"}
+					}
+				case domain == 25:
+					if asset, ok := chapterAssets[destination]; ok {
+						paths[id] = []string{"quest", "mom_banner", fmt.Sprintf("event_mom_banner_%03d.png", asset)}
+					}
+				case asset != "":
+					paths[id] = []string{"mom_banner", "mom_banner_" + asset + ".png"}
+				}
+			}
+		}
+	}
+	return paths, nil
 }
 
 func activitySourceType(option ActivityMemberOption) int {
@@ -376,8 +425,8 @@ type ActivityScheduleChange struct {
 	After  int64  `json:"after"`
 }
 
-// BuildActivitySchedule only visits explicitly configured members. References
-// shared by units are deduplicated before constructing either candidate.
+// BuildActivitySchedule visits configured members and binds Premium shard terms
+// to same-ID conversion deadlines. Shared references are updated only once.
 func BuildActivitySchedule(path string, groups *activitygroup.Config, config *gacha.Config, catalog *ActivityGroupCatalog, groupID string, start, end int64) ([]byte, *gacha.Config, []ActivityScheduleChange, error) {
 	if err := ValidateActivityGroups(groups, catalog); err != nil {
 		return nil, nil, nil, err
@@ -425,7 +474,24 @@ func BuildActivitySchedule(path string, groups *activitygroup.Config, config *ga
 		if !selected[unit.ID] {
 			continue
 		}
-		for _, member := range unit.Members {
+		members := append([]activitygroup.ActivityMember(nil), unit.Members...)
+		if unit.Type == activitygroup.TypePremium {
+			for _, member := range unit.Members {
+				paired := activitygroup.ActivityMember{ID: member.ID}
+				switch member.Kind {
+				case "term":
+					paired.Kind = "medal"
+				case "medal":
+					paired.Kind = "term"
+				default:
+					continue
+				}
+				if _, exists := options[activityKey(paired)]; exists {
+					members = append(members, paired)
+				}
+			}
+		}
+		for _, member := range members {
 			key := activityKey(member)
 			if seen[key] {
 				continue

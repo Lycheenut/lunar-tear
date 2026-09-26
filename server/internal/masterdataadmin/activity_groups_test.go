@@ -140,7 +140,7 @@ func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.
 	config.Banners[589] = gacha.BannerConfig{BannerAssetName: "limited_589", StartDatetime: 3000, EndDatetime: 4000}
 	groups := &activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{
 		{ID: "chapter", Name: "Chapter", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 300}, {Kind: "event", ID: 300001}, {Kind: "term", ID: 8003}, {Kind: "tip", ID: 1000}}},
-		{ID: "premium", Name: "Premium", Type: activitygroup.TypePremium, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 588}, {Kind: "shop", ID: 6005}, {Kind: "term", ID: 8003}, {Kind: "medal", ID: 8003}}},
+		{ID: "premium", Name: "Premium", Type: activitygroup.TypePremium, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 588}, {Kind: "shop", ID: 6005}, {Kind: "term", ID: 8003}}},
 	}, Groups: []activitygroup.ActivityGroup{{ID: "combined", Name: "Combined", UnitIDs: []string{"chapter", "premium"}}}}
 	config.EventSchedules = map[int32]gacha.EventSchedule{300001: {StartDatetime: 1000, EndDatetime: 2000}}
 	entries := []store.GachaCatalogEntry{{GachaId: 300001, GachaLabelType: model.GachaLabelEvent, RelatedEventQuestChapterId: 300}}
@@ -184,10 +184,61 @@ func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.
 	if len(preview) != 13 {
 		t.Fatalf("preview has %d fields, want 13", len(preview))
 	}
+	groups.Units[1].Members = append(groups.Units[1].Members, activitygroup.ActivityMember{Kind: "medal", ID: 8003})
+	_, _, withExplicitConversion, err := BuildActivitySchedule(path, groups, config, catalog, "combined", start, end)
+	if err != nil || !reflect.DeepEqual(preview, withExplicitConversion) {
+		t.Fatalf("explicit conversion changed the bound schedule: %v", err)
+	}
+	groups.Groups[0].UnitIDs = []string{"chapter"}
+	_, _, chapterOnly, err := BuildActivitySchedule(path, groups, config, catalog, "combined", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range chapterOnly {
+		if change.Kind == "medal" {
+			t.Fatal("non-Premium currency was bound to an automatic conversion")
+		}
+	}
 	for _, invalid := range [][2]int64{{0, end}, {end, start}, {start, maxDatetimeMillis}} {
 		if _, _, _, err := BuildActivitySchedule(path, groups, config, catalog, "combined", invalid[0], invalid[1]); err == nil {
 			t.Fatal("invalid date accepted")
 		}
+	}
+}
+
+func TestActivityBannerPreviewPathsResolveDestinations(t *testing.T) {
+	path, _ := linkedUpdateTestCatalog(t)
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := file.RebuildTables(nil, map[string][][]interface{}{
+		"m_login_bonus":         {{20, 0, 0, 0, 0, 0, 0, "login_20"}},
+		"m_event_quest_chapter": {{30, 1, 0, 0, 7}},
+		"m_mom_banner": {
+			{1, 0, 1, 99, "limited_45"},
+			{2, 0, 21, 20, "ignored"},
+			{3, 0, 25, 30, "ignored"},
+			{4, 0, 22, 90, "mission_90"},
+			{5, 0, 21, 999, "missing"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err = memorydb.OpenBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := activityBannerPreviewPaths(file)
+	want := map[int64][]string{
+		1: {"gacha", "limited_45", "mom_banner.png"},
+		2: {"login_bonus", "banner", "login_20.png"},
+		3: {"quest", "mom_banner", "event_mom_banner_007.png"},
+		4: {"mom_banner", "mom_banner_mission_90.png"},
+	}
+	if err != nil || !reflect.DeepEqual(paths, want) {
+		t.Fatalf("banner paths = %+v, err = %v", paths, err)
 	}
 }
 

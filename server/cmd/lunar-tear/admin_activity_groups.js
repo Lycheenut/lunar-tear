@@ -10,15 +10,16 @@
   const formatTime = value => value ? new Date(value).toLocaleString() : "未配置";
   const unitTypes = [[1, "Premium Gacha"], [2, "記録（Record）"], [3, "変異（Variation）"]];
   const sectionsByType = {
-    1: [["Premium Gacha", ["premium"]], ["MomBanner", ["banner"]], ["兑换处", ["shop"]], ["碎片有效期", ["term", "medal"]]],
+    1: [["Premium Gacha", ["premium"]], ["MomBanner", ["banner"]], ["兑换处", ["shop"]], ["碎片有效期", ["term"]]],
     2: [["記録（Record）", ["chapter"]], ["MomBanner", ["banner"]], ["活动商店", ["shop"]], ["兑换币有效期", ["term"]], ["活动任务", ["mission"]], ["NaviCutIn", ["navi"]], ["Tip", ["tip"]]],
     3: [["変異（Variation）", ["chapter"]], ["MomBanner", ["banner"]], ["Event Gacha", ["event"]], ["Event Gacha Ticket 有效期", ["term"]], ["活动任务", ["mission"]], ["NaviCutIn", ["navi"]], ["Tip", ["tip"]]]
   };
 
-  window.createActivityGroupEditor = ({ root, api, showNotice, localizedText, hasOtherChanges, onPublished }) => {
+  window.createActivityGroupEditor = ({ root, api, showNotice, localizedText, renderBannerPreview, hasOtherChanges, onPublished }) => {
     let data = null, draft = null, baseline = "", mode = "groups", selected = "", search = "", busy = false;
     let optionIndex = new Map();
     const listScroll = { groups: 0, units: 0 };
+    const typeFilters = { groups: "", units: "" };
     const checkedIDs = { groups: new Set(), units: new Set() };
     const clearChecked = () => { checkedIDs.groups.clear(); checkedIDs.units.clear(); };
     const dirty = () => draft && JSON.stringify(draft) !== baseline;
@@ -35,6 +36,10 @@
       return titles && Object.values(titles).includes(item.name) ? localizedText(titles) || item.name : item.name;
     };
     const itemTitle = item => `${item.id.replace(/^(chapter|premium):/, "")}. ${itemName(item)}`;
+    const visibleMembers = unit => [...new Map(unit.members.map(member => {
+      const visible = unit.type === 1 && member.kind === "medal" ? { kind: "term", id: member.id } : member;
+      return [key(visible), visible];
+    })).values()];
     const memberAllowed = (option, unit) => {
       if (!option || !data.catalog.kinds.find(kind => kind.kind === option.kind)?.types.includes(unit.type)) return false;
       if (option.kind === "chapter") return option.chapterType === unit.type - 1;
@@ -83,7 +88,7 @@
     function add() {
       const id = `${mode === "groups" ? "group" : "unit"}-${crypto.randomUUID()}`;
       draft[mode].push(mode === "groups" ? { id, name: "新活动组", unitIds: [] } : { id, name: "新活动单位", type: 1, members: [] });
-      selected = id; search = ""; render();
+      selected = id; search = ""; typeFilters[mode] = ""; render();
     }
     function remove(items) {
       if (!items.length) return;
@@ -132,7 +137,14 @@
       toolbar.append(button(mode === "groups" ? "新建活动组" : "新建活动单位", add, "button ghost activity-group-add")); root.append(toolbar);
       const layout = el("div", null, "activity-group-layout"), sidebar = el("aside", null, "activity-group-sidebar"), detail = el("section", null, "activity-group-detail");
       const searchInput = input(search, value => { search = value; list.scrollTop = 0; renderList(); }, "search"); searchInput.placeholder = "搜索名称或 ID"; searchInput.setAttribute("aria-label", "搜索活动组或单位");
-      const filteredItems = () => draft[mode].filter(item => `${item.id} ${item.name} ${itemTitle(item)}`.toLowerCase().includes(search.toLowerCase()));
+      const typeFilter = select([["", "全部类型"], ...unitTypes], typeFilters[mode], value => {
+        typeFilters[mode] = value; list.scrollTop = 0; renderList();
+      }, "类型筛选");
+      const filteredItems = () => {
+        const type = Number(typeFilters[mode]), types = new Map(draft.units.map(unit => [unit.id, unit.type]));
+        return draft[mode].filter(item => (!type || (mode === "units" ? item.type === type : item.unitIds.some(id => types.get(id) === type)))
+          && `${item.id} ${item.name} ${itemTitle(item)}`.toLowerCase().includes(search.toLowerCase()));
+      };
       const batchActions = el("div", null, "activity-group-batch-actions");
       const selectAll = el("input", null, "activity-group-select-all"); selectAll.type = "checkbox";
       selectAll.addEventListener("change", () => {
@@ -144,7 +156,7 @@
       const selectAllLabel = el("label"); selectAllLabel.append(selectAll, el("span", "全选当前结果"));
       const deleteSelected = button("", () => remove(draft[mode].filter(item => checkedIDs[mode].has(item.id))), "button ghost activity-group-batch-delete");
       batchActions.append(selectAllLabel, deleteSelected);
-      const list = el("div", null, "activity-group-list"); list.dataset.mode = mode; sidebar.append(searchInput, batchActions, list);
+      const list = el("div", null, "activity-group-list"); list.dataset.mode = mode; sidebar.append(searchInput, field("类型筛选", typeFilter), batchActions, list);
       function updateSelectionState() {
         const rows = filteredItems(), count = rows.filter(item => checkedIDs[mode].has(item.id)).length;
         selectAll.checked = rows.length > 0 && count === rows.length;
@@ -162,7 +174,7 @@
           const row = el("div", null, `activity-group-list-row${selected === item.id ? " active" : ""}`);
           const choose = button(itemTitle(item), () => { selected = item.id; renderList(); renderDetail(); updateSaveState(); }, "activity-group-list-item");
           choose.title = item.id; choose.setAttribute("aria-pressed", String(selected === item.id));
-          choose.append(el("small", mode === "groups" ? `${item.unitIds.length} 个单位` : `${typeLabel(item.type)} · ${item.members.length} 个条目`));
+          choose.append(el("small", mode === "groups" ? `${item.unitIds.length} 个单位` : `${typeLabel(item.type)} · ${visibleMembers(item).length} 个条目`));
           const checkbox = el("input", null, "activity-group-list-check"); checkbox.type = "checkbox";
           checkbox.checked = checkedIDs[mode].has(item.id); checkbox.disabled = busy;
           checkbox.setAttribute("aria-label", `勾选${mode === "groups" ? "活动组" : "活动单位"} ${itemTitle(item)}`);
@@ -210,26 +222,37 @@
       detail.append(el("p", `至少添加 1 个 ${typeLabel(unit.type)}。${unit.type === 3 ? "Event Gacha 仅可选择已添加的 Variation 副本所对应的条目。" : ""}`, "activity-group-note"));
       for (const [label, kinds] of sectionsByType[unit.type] || []) {
         const section = el("section", null, "activity-group-member-section"); section.dataset.memberSection = kinds[0];
-        const members = unit.members.filter(member => kinds.includes(member.kind));
+        const members = visibleMembers(unit).filter(member => kinds.includes(member.kind));
         const heading = el("div", null, "activity-group-section-heading"); heading.append(el("h3", label), el("span", String(members.length), "activity-group-section-count")); section.append(heading);
         if (!members.length) section.append(el("p", "尚未添加条目", "activity-group-empty"));
-        const memberTitle = member => `${title(member)}${kinds.length > 1 ? `（${member.kind === "medal" ? "自动转换" : "有效期"}）` : ""}`;
+        const entries = el("div", null, kinds[0] === "banner" ? "activity-group-banner-grid" : "");
         for (const member of members) {
-          const option = optionFor(member), row = el("div", null, "activity-group-entry"), copy = el("div", null, "activity-group-entry-copy");
-          copy.append(el("strong", memberTitle(member)), el("small", option ? member.kind === "medal" ? `自动转换：${formatTime(option.endDatetime)}` : `${formatTime(option.startDatetime)} → ${formatTime(option.endDatetime)}` : "引用已失效"));
+          const option = optionFor(member), row = el("div", null, member.kind === "banner" ? "activity-group-banner-card" : "activity-group-entry"), copy = el("div", null, "activity-group-entry-copy");
+          if (member.kind === "banner") row.append(renderBannerPreview(option));
+          copy.append(el("strong", title(member)), el("small", option ? `${formatTime(option.startDatetime)} → ${formatTime(option.endDatetime)}` : "引用已失效"));
+          if (unit.type === 1 && member.kind === "term") {
+            const conversion = optionFor({ kind: "medal", id: member.id });
+            if (conversion) copy.append(el("small", `自动转换时间：${formatTime(conversion.endDatetime)}`));
+          }
           row.append(copy, button("移除", () => {
-            unit.members = unit.members.filter(item => key(item) !== key(member));
+            unit.members = unit.members.filter(item => key(item) !== key(member) && !(unit.type === 1 && member.kind === "term" && item.kind === "medal" && item.id === member.id));
             if (member.kind === "chapter") unit.members = unit.members.filter(item => item.kind !== "event" || optionFor(item)?.relatedChapterId !== member.id);
             render();
-          })); section.append(row);
+          })); entries.append(row);
         }
-        const options = data.catalog.options.filter(option => kinds.includes(option.kind) && memberAllowed(option, unit) && !unit.members.some(member => key(member) === key(option)));
+        section.append(entries);
+        const options = data.catalog.options.filter(option => kinds.includes(option.kind) && memberAllowed(option, unit) && !members.some(member => key(member) === key(option)));
         let memberKey = "";
-        const picker = select([["", `选择${label}`], ...options.map(option => [key(option), memberTitle(option)])], "", value => { memberKey = value; addButton.disabled = busy || !value; }, `添加${label}`);
+        const picker = select([["", `选择${label}`], ...options.map(option => [key(option), title(option)])], "", value => { memberKey = value; addButton.disabled = busy || !value; }, `添加${label}`);
         picker.dataset.searchable = "true";
         const addButton = button("添加条目", () => {
           const option = options.find(option => key(option) === memberKey);
-          if (option) { unit.members.push({ kind: option.kind, id: option.id }); render(); }
+          if (option) {
+            unit.members.push({ kind: option.kind, id: option.id });
+            const conversion = { kind: "medal", id: option.id };
+            if (unit.type === 1 && option.kind === "term" && optionFor(conversion) && !unit.members.some(member => key(member) === key(conversion))) unit.members.push(conversion);
+            render();
+          }
         }); addButton.disabled = true;
         const addRow = el("div", null, "activity-group-section-add"); addRow.append(picker, addButton); section.append(addRow); detail.append(section);
       }
@@ -239,7 +262,7 @@
       const unitList = el("div", null, "activity-group-unit-list");
       group.unitIds.forEach(id => {
         const unit = draft.units.find(item => item.id === id), row = el("div", null, "activity-group-toolbar");
-        row.append(el("span", unit ? `${itemTitle(unit)}（${typeLabel(unit.type)}）` : `${id}（引用已失效）`), button("编辑单位", () => { mode = "units"; selected = id; search = ""; render(); }), button("移除", () => { group.unitIds = group.unitIds.filter(value => value !== id); render(); })); unitList.append(row);
+        row.append(el("span", unit ? `${itemTitle(unit)}（${typeLabel(unit.type)}）` : `${id}（引用已失效）`), button("编辑单位", () => { mode = "units"; selected = id; search = ""; typeFilters.units = ""; render(); }), button("移除", () => { group.unitIds = group.unitIds.filter(value => value !== id); render(); })); unitList.append(row);
       }); detail.append(unitList);
       let unitID = ""; const addRow = el("div", null, "activity-group-toolbar");
       addRow.append(select([["", "选择活动单位"], ...draft.units.filter(unit => !group.unitIds.includes(unit.id)).map(unit => [unit.id, itemTitle(unit)])], "", value => { unitID = value; }, "组合活动单位"), button("加入活动组", () => { if (unitID) { group.unitIds.push(unitID); render(); } })); detail.append(addRow);
@@ -283,6 +306,6 @@
       actions.append(close, submit); dialog.append(actions); document.body.append(dialog);
       dialog.addEventListener("close", () => dialog.remove()); dialog.showModal();
     }
-    return { load, render, dirty, reset: () => { data = null; draft = null; baseline = ""; clearChecked(); } };
+    return { load, render, dirty, reset: () => { data = null; draft = null; baseline = ""; clearChecked(); typeFilters.groups = typeFilters.units = ""; } };
   };
 })();

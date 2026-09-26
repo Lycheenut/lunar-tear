@@ -212,6 +212,9 @@
 
   const activityGroupEditor = window.createActivityGroupEditor?.({
     root: $("#activity-group-editor"), api, showNotice, localizedText,
+    renderBannerPreview: option => option?.previewPath
+      ? renderMomBannerContentCell(option, false, "div")
+      : renderMomBannerPreviewMissing(localizedText(option?.titles) || "MomBanner"),
     hasOtherChanges: () => Boolean(masterDirtyCount() || questDropStructuralDirty() || state.gachaDirty),
     onPublished: async () => {
       state.gachaCatalog = null;
@@ -3236,8 +3239,8 @@
     return section;
   }
 
-  function renderMomBannerContentCell(row, gachaSchedule = false) {
-    const cell = document.createElement("td");
+  function renderMomBannerContentCell(row, gachaSchedule = false, tagName = "td") {
+    const cell = document.createElement(tagName);
     const tooltipParts = [
       localizedText(row.titles),
       ...(row.contentFootnotes || []).map(localizedInlineText)
@@ -3298,6 +3301,7 @@
   }
 
   function momBannerPreviewPath(row, language) {
+    if (row.previewPath) return [row.previewPath[0], language, ...row.previewPath.slice(1)];
     const domainType = Number(effectiveValue("m_mom_banner", row, "DestinationDomainType"));
     const domainId = effectiveValue("m_mom_banner", row, "DestinationDomainId");
     const assetName = effectiveValue("m_mom_banner", row, "BannerAssetName");

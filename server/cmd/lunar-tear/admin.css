@@ -48,6 +48,8 @@ code {
 .activity-group-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 540px; border-top: 1px solid var(--line); }
 .activity-group-sidebar { padding: 16px; border-right: 1px solid var(--line); }
 .activity-group-sidebar > input { width: 100%; }
+.activity-group-sidebar > label { display: grid; gap: 6px; margin: 12px 0 0; }
+.activity-group-sidebar > label select { width: 100%; }
 .activity-group-list { max-height: 660px; overflow-y: auto; overflow-anchor: none; margin-top: 12px; }
 .activity-group-list-row { display: flex; align-items: center; border-radius: 8px; }
 .activity-group-list-row.active, .activity-group-list-row:hover { background: var(--panel-2); }
@@ -76,6 +78,10 @@ code {
 .activity-group-entry-copy strong { display: block; font-size: 13px; font-weight: 500; }
 .activity-group-entry-copy small { display: block; margin-top: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .activity-group-entry > button { flex: none; }
+.activity-group-banner-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; margin-bottom: 12px; }
+.activity-group-banner-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 12px; border-radius: 8px; background: var(--panel-2); }
+.activity-group-banner-card .mom-banner-preview, .activity-group-banner-card .mom-banner-preview-missing { width: 100%; }
+.activity-group-banner-card > button { align-self: end; margin-top: auto; }
 .activity-group-section-add { display: flex; gap: 10px; align-items: center; }
 .activity-group-section-add > select, .activity-group-section-add > .search-select { flex: 1; min-width: 0; }
 .activity-group-section-add > button { flex: none; }
