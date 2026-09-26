@@ -37,7 +37,7 @@ async function createEditor(premiumMembers = []) {
   ] };
   const kinds = Object.entries({ premium: [1], chapter: [2, 3], banner: [1, 2, 3], shop: [1, 2], event: [3], term: [1, 2, 3], medal: [1], mission: [2, 3], navi: [2, 3], tip: [2, 3] }).map(([kind, types]) => ({ kind, types }));
   const options = [
-    { ...member("premium", 1), titles: { en: "Summons", ja: "記念ガチャ" } },
+    { ...member("premium", 1), titles: { en: "Summons", ja: "記念ガチャ" }, previewPath: ["gacha", "limited_1", "banner.png"] },
     { ...member("chapter", 2), titles: { en: "Record" }, chapterType: 1 },
     { ...member("chapter", 3), titles: { en: "Variation" }, chapterType: 2 },
     { ...member("event", 4), titles: { en: "Event" }, relatedChapterId: 3 },
@@ -197,8 +197,13 @@ test("legacy conversion-only selections remain visible as shard terms and banner
   const { root, editor } = await createEditor([{ kind: "medal", id: 8 }, { kind: "banner", id: 6 }]);
   findText(root, "1. 記念ガチャ").listeners.click();
   assert.ok(findText(root, "8. Shards"));
-  const card = root.querySelector(".activity-group-banner-card");
+  const bannerSection = descendants(root).find(node => node.dataset.memberSection === "banner");
+  const card = bannerSection.querySelector(".activity-group-banner-card");
   assert.equal(card.children[0].src, "gacha/limited_1/mom_banner.png");
   assert.ok(findText(card, "6. Summons banner"));
+  const premiumSection = descendants(root).find(node => node.dataset.memberSection === "premium");
+  const premiumCard = premiumSection.querySelector(".activity-group-banner-card");
+  assert.equal(premiumCard.children[0].src, "gacha/limited_1/banner.png");
+  assert.ok(findText(premiumCard, "1. 記念ガチャ"));
   assert.equal(editor.dirty(), false);
 });

@@ -51,7 +51,8 @@ type titleResolver struct {
 	dailyGroupChapters   map[int64][]int64
 	limitContentChapters map[int64][]int64
 	restrictionContents  map[int64][]int64
-	missionTermTextIDs   map[int64]int64
+	missionGroupTextIDs  map[int64]int64
+	missionTermGroups    map[int64][]int64
 	shopTermTextIDs      map[int64]int64
 	shopTextIDs          map[int64]int64
 	shopItemTextIDs      map[int64]int64
@@ -88,7 +89,8 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 		dailyGroupChapters:   make(map[int64][]int64),
 		limitContentChapters: make(map[int64][]int64),
 		restrictionContents:  make(map[int64][]int64),
-		missionTermTextIDs:   make(map[int64]int64),
+		missionGroupTextIDs:  make(map[int64]int64),
+		missionTermGroups:    make(map[int64][]int64),
 		shopTermTextIDs:      make(map[int64]int64),
 		shopTextIDs:          make(map[int64]int64),
 		shopItemTextIDs:      make(map[int64]int64),
@@ -124,8 +126,11 @@ func newTitleResolver(file *memorydb.File, texts localizationIndex) *titleResolv
 	for _, row := range readRows(file, "m_event_quest_limit_content") {
 		resolver.appendPair(resolver.restrictionContents, row, 7, 0)
 	}
+	for _, row := range readRows(file, "m_mission_group") {
+		resolver.putPair(resolver.missionGroupTextIDs, row, 0, 2)
+	}
 	for _, row := range readRows(file, "m_mission") {
-		resolver.putPairIfAbsent(resolver.missionTermTextIDs, row, 12, 5)
+		resolver.appendPair(resolver.missionTermGroups, row, 12, 1)
 	}
 	for _, row := range readRows(file, "m_shop") {
 		resolver.putPair(resolver.shopTextIDs, row, 0, 4)
@@ -262,7 +267,7 @@ func (r *titleResolver) resolve(table string, row []interface{}) map[string]stri
 		}
 	case "m_mission_term":
 		if termID, ok := integerAt(row, 0); ok {
-			key = fmt.Sprintf("mission.name.%d", r.missionTermTextIDs[termID])
+			return r.missionGroupTitles(r.missionTermGroups[termID])
 		}
 	case "m_navi_cut_in":
 		if groupID, ok := integerAt(row, 5); ok {
@@ -492,22 +497,25 @@ func (r *titleResolver) momBannerTitles(row []interface{}) map[string]string {
 		case 2:
 			return r.byKey(fmt.Sprintf("shop.name.%d", r.shopTextIDs[domainID]))
 		case 22:
-			if titles := r.byKey(fmt.Sprintf("mission.name.%d", r.missionTermTextIDs[domainID])); len(titles) != 0 {
-				return titles
-			}
+			return r.missionGroupTitles(r.missionTermGroups[domainID])
 		}
 	}
 	if assetOK {
 		if key := numberedAssetKey(assetName, "event_mom_banner_", "quest.event.chapter_title.%d"); key != "" {
 			return r.byKey(key)
 		}
-		for _, prefix := range []string{"mission_mom_banner_", "mission_"} {
-			if key := numberedAssetKey(assetName, prefix, "mission.name.%d"); key != "" {
-				return r.byKey(key)
-			}
-		}
 	}
 	return nil
+}
+
+func (r *titleResolver) missionGroupTitles(groupIDs []int64) map[string]string {
+	var keys []string
+	for _, groupID := range groupIDs {
+		if textID, ok := r.missionGroupTextIDs[groupID]; ok {
+			keys = append(keys, fmt.Sprintf("mission.label.%d", textID))
+		}
+	}
+	return r.titlesForKeys(keys)
 }
 
 func numberedAssetKey(assetName, prefix, format string) string {
@@ -591,16 +599,6 @@ func (r *titleResolver) putPair(target map[int64]int64, row []interface{}, keyIn
 	value, valueOK := integerAt(row, valueIndex)
 	if keyOK && valueOK && key != 0 {
 		target[key] = value
-	}
-}
-
-func (r *titleResolver) putPairIfAbsent(target map[int64]int64, row []interface{}, keyIndex, valueIndex int) {
-	key, keyOK := integerAt(row, keyIndex)
-	value, valueOK := integerAt(row, valueIndex)
-	if keyOK && valueOK && key != 0 {
-		if _, exists := target[key]; !exists {
-			target[key] = value
-		}
 	}
 }
 

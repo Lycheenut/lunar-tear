@@ -100,7 +100,7 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 		if len(titles) == 0 {
 			titles = map[string]string{"en": banner.BannerAssetName}
 		}
-		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: int64(id)}, Titles: titles, StartDatetime: banner.StartDatetime, EndDatetime: banner.EndDatetime})
+		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: int64(id)}, Titles: titles, StartDatetime: banner.StartDatetime, EndDatetime: banner.EndDatetime, PreviewPath: []string{"gacha", banner.BannerAssetName, "banner.png"}})
 	}
 	for _, entry := range entries {
 		if entry.GachaLabelType != model.GachaLabelEvent {

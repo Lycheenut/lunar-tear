@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"lunar-tear/server/internal/masterdata"
+	"lunar-tear/server/internal/masterdata/memorydb"
 )
 
 func TestResolveAdditionalAssetTitles(t *testing.T) {
@@ -14,7 +15,7 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 				"gacha.title.limitd_442":        "Merry Summons",
 				"shop.name.101":                 "Medal Exchange",
 				"shop.item.name.501":            "Mama Medal",
-				"mission.name.201":              "Anniversary Missions",
+				"mission.label.201":             "Anniversary Missions",
 				"quest.event.chapter_title.301": "Record: The Festival",
 				"consumable_item.name.110004":   "Gold Automata Medal",
 				"important_item.name.401":       "Mystic Slab",
@@ -28,7 +29,8 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 		},
 		shopTextIDs:          map[int64]int64{55: 101},
 		shopItemTextIDs:      map[int64]int64{500: 501},
-		missionTermTextIDs:   map[int64]int64{77: 201},
+		missionGroupTextIDs:  map[int64]int64{77: 201},
+		missionTermGroups:    map[int64][]int64{77: {77}},
 		consumableTermKeys:   map[int64][]string{5: {"consumable_item.name.110004"}},
 		importantEffectTexts: map[int64]int64{9: 401},
 		enhanceTargets:       map[int64][]campaignTarget{2: {{targetType: 2}}},
@@ -70,6 +72,53 @@ func TestResolveAdditionalAssetTitles(t *testing.T) {
 	}
 	if got, want := resolver.resolveContentBody("m_tip", tipRow)["en"], "Weapons gain strength when enhanced."; got != want {
 		t.Fatalf("Tip body = %q, want %q", got, want)
+	}
+}
+
+func TestMissionTitlesUseGroupLabelsInsteadOfIndividualMissions(t *testing.T) {
+	path, _ := linkedUpdateTestCatalog(t)
+	file, err := memorydb.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := file.RebuildTables(nil, map[string][][]interface{}{
+		"m_mission_group": {{16, 3, 1020}, {17, 3, 1021}, {18, 3, 1020}},
+		"m_mission": {
+			{1, 16, 1, 0, false, 201, 0, 0, 0, 0, 0, 0, 77},
+			{2, 16, 2, 0, false, 202, 0, 0, 0, 0, 0, 0, 77},
+			{3, 17, 1, 0, false, 203, 0, 0, 0, 0, 0, 0, 78},
+			{4, 16, 3, 0, false, 204, 0, 0, 0, 0, 0, 0, 78},
+			{5, 18, 1, 0, false, 205, 0, 0, 0, 0, 0, 0, 78},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err = memorydb.OpenBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := newTitleResolver(file, localizationIndex{"ja": {
+		"mission.label.1020": "不平の都イベントミッション",
+		"mission.label.1021": "記念ミッション",
+		"mission.name.201":   "クエストを1回クリアする",
+		"mission.name.505":   "誤った個別ミッション",
+	}})
+	for _, test := range []struct {
+		table string
+		row   []interface{}
+		want  string
+	}{
+		{"m_mission_term", []interface{}{77}, "不平の都イベントミッション"},
+		{"m_mission_term", []interface{}{78}, "記念ミッション / 不平の都イベントミッション"},
+		{"m_mom_banner", []interface{}{1, 0, 22, 77, "mission_mom_banner_505"}, "不平の都イベントミッション"},
+		{"m_mom_banner", []interface{}{2, 0, 22, 78, "mission_505"}, "記念ミッション / 不平の都イベントミッション"},
+		{"m_mission_term", []interface{}{999}, ""},
+		{"m_mom_banner", []interface{}{3, 0, 22, 999, "mission_mom_banner_505"}, ""},
+	} {
+		if got := resolver.resolve(test.table, test.row)["ja"]; got != test.want {
+			t.Errorf("%s %v title = %q, want %q", test.table, test.row, got, test.want)
+		}
 	}
 }
 

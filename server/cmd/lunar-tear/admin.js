@@ -213,7 +213,7 @@
   const activityGroupEditor = window.createActivityGroupEditor?.({
     root: $("#activity-group-editor"), api, showNotice, localizedText,
     renderBannerPreview: option => option?.previewPath
-      ? renderMomBannerContentCell(option, false, "div")
+      ? renderMomBannerContentCell(option, option.kind === "premium", "div")
       : renderMomBannerPreviewMissing(localizedText(option?.titles) || "MomBanner"),
     hasOtherChanges: () => Boolean(masterDirtyCount() || questDropStructuralDirty() || state.gachaDirty),
     onPublished: async () => {
@@ -3245,7 +3245,7 @@
       localizedText(row.titles),
       ...(row.contentFootnotes || []).map(localizedInlineText)
     ];
-    if (gachaSchedule) {
+    if (gachaSchedule && !row.previewPath) {
       const gachaId = effectiveValue("gacha", row, "GachaId");
       const assetName = effectiveValue("gacha", row, "BannerAssetName");
       tooltipParts.push(
@@ -3255,7 +3255,7 @@
     }
     const tooltip = [...new Set(tooltipParts.filter(Boolean))].join("\n") || "无文本说明";
     cell.title = tooltip;
-    const previewURLs = gachaSchedule ? gachaSchedulePreviewURLs(row) : momBannerPreviewURLs(row);
+    const previewURLs = gachaSchedule && !row.previewPath ? gachaSchedulePreviewURLs(row) : momBannerPreviewURLs(row);
     if (!previewURLs.length) {
       cell.append(renderMomBannerPreviewMissing(tooltip, gachaSchedule));
       return cell;
@@ -3292,7 +3292,7 @@
   }
 
   function momBannerPreviewURLs(row) {
-    const languages = [...new Set([state.language, state.catalog.defaultLanguage, "en"].filter(Boolean))];
+    const languages = [...new Set([state.language, state.catalog.defaultLanguage, "en", ...(row.kind === "premium" ? ["ja", "ko"] : [])].filter(Boolean))];
     return [...new Set(languages.map((language) => {
       const segments = momBannerPreviewPath(row, language);
       if (!segments) return "";

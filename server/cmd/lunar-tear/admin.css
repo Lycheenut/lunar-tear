@@ -80,7 +80,7 @@ code {
 .activity-group-entry > button { flex: none; }
 .activity-group-banner-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; margin-bottom: 12px; }
 .activity-group-banner-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 12px; border-radius: 8px; background: var(--panel-2); }
-.activity-group-banner-card .mom-banner-preview, .activity-group-banner-card .mom-banner-preview-missing { width: 100%; }
+.activity-group-banner-card .mom-banner-preview, .activity-group-banner-card .mom-banner-preview-missing { width: 100%; max-width: 100%; }
 .activity-group-banner-card > button { align-self: end; margin-top: auto; }
 .activity-group-section-add { display: flex; gap: 10px; align-items: center; }
 .activity-group-section-add > select, .activity-group-section-add > .search-select { flex: 1; min-width: 0; }

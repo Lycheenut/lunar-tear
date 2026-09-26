@@ -213,7 +213,7 @@
       renderDetail();
       layout.append(sidebar, detail); root.append(layout);
       list.scrollTop = listScroll[mode];
-      const footer = el("div", null, "save-bar"); const summary = el("span"); summary.dataset.groupSummary = "";
+      const footer = el("div", null, "savebar"); const summary = el("strong"); summary.dataset.groupSummary = "";
       const actions = el("div", null, "save-actions");
       const saveButton = button("保存活动组配置", () => run(save), "button primary"); saveButton.dataset.groupSave = "";
       actions.append(button("放弃修改", () => { draft = clone(data.catalog.config); clearChecked(); render(); }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
@@ -225,10 +225,11 @@
         const members = visibleMembers(unit).filter(member => kinds.includes(member.kind));
         const heading = el("div", null, "activity-group-section-heading"); heading.append(el("h3", label), el("span", String(members.length), "activity-group-section-count")); section.append(heading);
         if (!members.length) section.append(el("p", "尚未添加条目", "activity-group-empty"));
-        const entries = el("div", null, kinds[0] === "banner" ? "activity-group-banner-grid" : "");
+        const hasPreview = kinds[0] === "banner" || kinds[0] === "premium";
+        const entries = el("div", null, hasPreview ? "activity-group-banner-grid" : "");
         for (const member of members) {
-          const option = optionFor(member), row = el("div", null, member.kind === "banner" ? "activity-group-banner-card" : "activity-group-entry"), copy = el("div", null, "activity-group-entry-copy");
-          if (member.kind === "banner") row.append(renderBannerPreview(option));
+          const option = optionFor(member), row = el("div", null, hasPreview ? "activity-group-banner-card" : "activity-group-entry"), copy = el("div", null, "activity-group-entry-copy");
+          if (hasPreview) row.append(renderBannerPreview(option));
           copy.append(el("strong", title(member)), el("small", option ? `${formatTime(option.startDatetime)} → ${formatTime(option.endDatetime)}` : "引用已失效"));
           if (unit.type === 1 && member.kind === "term") {
             const conversion = optionFor({ kind: "medal", id: member.id });

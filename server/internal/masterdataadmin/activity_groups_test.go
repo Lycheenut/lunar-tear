@@ -270,6 +270,9 @@ func TestActivityCatalogRestrictsSourcesAndResolvesPremiumTitles(t *testing.T) {
 			if option.Titles["en"] != "Celebratory Summons" || option.Titles["ja"] != "記念ガチャ" {
 				t.Fatalf("missing Premium titles: %+v", option.Titles)
 			}
+			if !reflect.DeepEqual(option.PreviewPath, []string{"gacha", "limited_588", "banner.png"}) {
+				t.Fatalf("Premium preview path = %v", option.PreviewPath)
+			}
 		}
 	}
 	if !found {
