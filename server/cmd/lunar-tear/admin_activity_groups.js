@@ -19,6 +19,8 @@
     let data = null, draft = null, baseline = "", mode = "groups", selected = "", search = "", busy = false;
     let optionIndex = new Map();
     const listScroll = { groups: 0, units: 0 };
+    const checkedIDs = { groups: new Set(), units: new Set() };
+    const clearChecked = () => { checkedIDs.groups.clear(); checkedIDs.units.clear(); };
     const dirty = () => draft && JSON.stringify(draft) !== baseline;
     const optionFor = member => optionIndex.get(key(member));
     const title = member => {
@@ -71,7 +73,7 @@
       if (data && !force) { render(); return; }
       data = await api("/api/admin/activity-groups");
       optionIndex = new Map(data.catalog.options.map(option => [key(option), option]));
-      draft = clone(data.catalog.config); baseline = JSON.stringify(draft); render();
+      draft = clone(data.catalog.config); baseline = JSON.stringify(draft); clearChecked(); render();
     }
     async function save() {
       if (hasOtherChanges()) throw new Error("请先保存或放弃其他页面的修改，再保存活动组。");
@@ -83,18 +85,21 @@
       draft[mode].push(mode === "groups" ? { id, name: "新活动组", unitIds: [] } : { id, name: "新活动单位", type: 1, members: [] });
       selected = id; search = ""; render();
     }
-    function remove(item) {
-      const affected = mode === "units" ? draft.groups.filter(group => group.unitIds.includes(item.id)) : [];
-      const emptyCount = affected.filter(group => group.unitIds.length === 1).length;
-      const impact = affected.length ? `将从 ${affected.length} 个活动组移除该单位${emptyCount ? `，并删除因此变空的 ${emptyCount} 个活动组` : ""}。` : "";
-      if (!window.confirm(`删除“${itemTitle(item)}”？${impact}保存配置后生效。`)) return;
-      draft[mode] = draft[mode].filter(row => row.id !== item.id);
+    function remove(items) {
+      if (!items.length) return;
+      const ids = new Set(items.map(item => item.id));
+      const affected = mode === "units" ? draft.groups.filter(group => group.unitIds.some(id => ids.has(id))) : [];
+      const emptyCount = affected.filter(group => group.unitIds.every(id => ids.has(id))).length;
+      const impact = affected.length ? `将从 ${affected.length} 个活动组移除所选单位${emptyCount ? `，并删除因此变空的 ${emptyCount} 个活动组` : ""}。` : "";
+      const target = items.length === 1 ? `“${itemTitle(items[0])}”` : `所选的 ${items.length} 个${mode === "units" ? "活动单位" : "活动组"}`;
+      if (!window.confirm(`删除${target}？${impact}保存配置后生效。`)) return;
+      draft[mode] = draft[mode].filter(row => !ids.has(row.id));
       if (mode === "units") draft.groups = draft.groups.flatMap(group => {
-        if (!group.unitIds.includes(item.id)) return [group];
-        const unitIds = group.unitIds.filter(id => id !== item.id);
+        if (!group.unitIds.some(id => ids.has(id))) return [group];
+        const unitIds = group.unitIds.filter(id => !ids.has(id));
         return unitIds.length ? [{ ...group, unitIds }] : [];
       });
-      if (selected === item.id) selected = "";
+      if (ids.has(selected)) selected = "";
       render();
     }
     function updateSaveState() {
@@ -109,6 +114,10 @@
       if (previousList) listScroll[previousList.dataset.mode] = previousList.scrollTop;
       root.replaceChildren();
       if (!draft) return;
+      for (const value of ["groups", "units"]) {
+        const available = new Set(draft[value].map(item => item.id));
+        for (const id of checkedIDs[value]) if (!available.has(id)) checkedIDs[value].delete(id);
+      }
       const heading = el("div", null, "data-heading");
       const copy = el("div"); copy.append(el("p", "ACTIVITY GROUPS", "eyebrow"), el("h2", "活动组"));
       heading.append(copy, button("刷新", () => {
@@ -123,22 +132,48 @@
       toolbar.append(button(mode === "groups" ? "新建活动组" : "新建活动单位", add, "button ghost activity-group-add")); root.append(toolbar);
       const layout = el("div", null, "activity-group-layout"), sidebar = el("aside", null, "activity-group-sidebar"), detail = el("section", null, "activity-group-detail");
       const searchInput = input(search, value => { search = value; list.scrollTop = 0; renderList(); }, "search"); searchInput.placeholder = "搜索名称或 ID"; searchInput.setAttribute("aria-label", "搜索活动组或单位");
-      const list = el("div", null, "activity-group-list"); list.dataset.mode = mode; sidebar.append(searchInput, list);
+      const filteredItems = () => draft[mode].filter(item => `${item.id} ${item.name} ${itemTitle(item)}`.toLowerCase().includes(search.toLowerCase()));
+      const batchActions = el("div", null, "activity-group-batch-actions");
+      const selectAll = el("input", null, "activity-group-select-all"); selectAll.type = "checkbox";
+      selectAll.addEventListener("change", () => {
+        for (const item of filteredItems()) {
+          if (selectAll.checked) checkedIDs[mode].add(item.id); else checkedIDs[mode].delete(item.id);
+        }
+        renderList();
+      });
+      const selectAllLabel = el("label"); selectAllLabel.append(selectAll, el("span", "全选当前结果"));
+      const deleteSelected = button("", () => remove(draft[mode].filter(item => checkedIDs[mode].has(item.id))), "button ghost activity-group-batch-delete");
+      batchActions.append(selectAllLabel, deleteSelected);
+      const list = el("div", null, "activity-group-list"); list.dataset.mode = mode; sidebar.append(searchInput, batchActions, list);
+      function updateSelectionState() {
+        const rows = filteredItems(), count = rows.filter(item => checkedIDs[mode].has(item.id)).length;
+        selectAll.checked = rows.length > 0 && count === rows.length;
+        selectAll.indeterminate = count > 0 && count < rows.length;
+        selectAll.disabled = busy || !rows.length;
+        deleteSelected.textContent = `删除所选（${checkedIDs[mode].size}）`;
+        deleteSelected.disabled = busy || !checkedIDs[mode].size;
+      }
       function renderList() {
         const scrollTop = list.scrollTop;
         list.replaceChildren();
-        const rows = draft[mode].filter(item => `${item.id} ${item.name} ${itemTitle(item)}`.toLowerCase().includes(search.toLowerCase()));
+        const rows = filteredItems();
         if (!rows.length) list.append(el("p", "暂无匹配内容"));
         rows.forEach(item => {
           const row = el("div", null, `activity-group-list-row${selected === item.id ? " active" : ""}`);
           const choose = button(itemTitle(item), () => { selected = item.id; renderList(); renderDetail(); updateSaveState(); }, "activity-group-list-item");
           choose.title = item.id; choose.setAttribute("aria-pressed", String(selected === item.id));
           choose.append(el("small", mode === "groups" ? `${item.unitIds.length} 个单位` : `${typeLabel(item.type)} · ${item.members.length} 个条目`));
-          const removeButton = button("删除", () => remove(item), "button ghost activity-group-list-delete");
-          removeButton.setAttribute("aria-label", `删除${mode === "groups" ? "活动组" : "活动单位"} ${itemTitle(item)}`);
-          row.append(choose, removeButton); list.append(row);
+          const checkbox = el("input", null, "activity-group-list-check"); checkbox.type = "checkbox";
+          checkbox.checked = checkedIDs[mode].has(item.id); checkbox.disabled = busy;
+          checkbox.setAttribute("aria-label", `勾选${mode === "groups" ? "活动组" : "活动单位"} ${itemTitle(item)}`);
+          checkbox.addEventListener("change", () => {
+            if (checkbox.checked) checkedIDs[mode].add(item.id); else checkedIDs[mode].delete(item.id);
+            updateSelectionState();
+          });
+          row.append(checkbox, choose); list.append(row);
         });
         list.scrollTop = scrollTop;
+        updateSelectionState();
       }
       renderList();
       function renderDetail() {
@@ -159,7 +194,7 @@
             }, "单位类型");
             header.append(field("单位类型", type));
           }
-          header.append(field("名称", name), button("删除", () => remove(item))); detail.append(header);
+          header.append(field("名称", name), button("删除", () => remove([item]))); detail.append(header);
           if (mode === "units") renderUnit(detail, item); else renderGroup(detail, item);
         }
       }
@@ -169,7 +204,7 @@
       const footer = el("div", null, "save-bar"); const summary = el("span"); summary.dataset.groupSummary = "";
       const actions = el("div", null, "save-actions");
       const saveButton = button("保存活动组配置", () => run(save), "button primary"); saveButton.dataset.groupSave = "";
-      actions.append(button("放弃修改", () => { draft = clone(data.catalog.config); render(); }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
+      actions.append(button("放弃修改", () => { draft = clone(data.catalog.config); clearChecked(); render(); }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
     }
     function renderUnit(detail, unit) {
       detail.append(el("p", `至少添加 1 个 ${typeLabel(unit.type)}。${unit.type === 3 ? "Event Gacha 仅可选择已添加的 Variation 副本所对应的条目。" : ""}`, "activity-group-note"));
@@ -248,6 +283,6 @@
       actions.append(close, submit); dialog.append(actions); document.body.append(dialog);
       dialog.addEventListener("close", () => dialog.remove()); dialog.showModal();
     }
-    return { load, render, dirty, reset: () => { data = null; draft = null; baseline = ""; } };
+    return { load, render, dirty, reset: () => { data = null; draft = null; baseline = ""; clearChecked(); } };
   };
 })();

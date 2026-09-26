@@ -21,6 +21,7 @@ function element(tagName = "div") {
   };
 }
 const findText = (root, text) => descendants(root).find(node => node.textContent === text);
+const check = (checkbox, value = true) => { checkbox.checked = value; checkbox.listeners.change(); };
 
 async function createEditor() {
   const root = element(), posts = [], confirmations = [];
@@ -64,9 +65,12 @@ async function createEditor() {
 test("activity selection preserves the sidebar node and scroll position, with localized ID-first names", async () => {
   const { root, editor } = await createEditor();
   const list = root.querySelector(".activity-group-list"); list.scrollTop = 420;
+  check(root.querySelector(".activity-group-list-check"));
   findText(root, "1. 記念ガチャ").listeners.click();
   assert.equal(root.querySelector(".activity-group-list"), list);
   assert.equal(list.scrollTop, 420);
+  assert.equal(root.querySelector(".activity-group-list-check").checked, true);
+  assert.equal(root.querySelector(".activity-group-select-all").indeterminate, true);
   assert.equal(editor.dirty(), false);
 });
 
@@ -84,16 +88,65 @@ test("Record and Variation sections restrict chapter and Event Gacha choices", a
   assert.equal(picker.children[1].dataset.searchLabel, "4. Event");
 });
 
-test("sidebar deletion can be cancelled and saves consistent group references when confirmed", async () => {
+test("batch deletion can be cancelled and removes groups emptied by multiple selected units", async () => {
   const { root, editor, posts, confirmations, confirm } = await createEditor();
+  assert.equal(root.querySelector(".activity-group-batch-delete").disabled, true);
+  assert.equal(root.querySelector(".activity-group-list-delete"), null);
+  check(root.querySelectorAll(".activity-group-list-check")[0]);
+  check(root.querySelectorAll(".activity-group-list-check")[1]);
+  assert.equal(root.querySelector(".activity-group-batch-delete").textContent, "删除所选（2）");
   confirm(false);
-  root.querySelector(".activity-group-list-delete").listeners.click();
+  root.querySelector(".activity-group-batch-delete").listeners.click();
   assert.equal(editor.dirty(), false);
+  assert.equal(root.querySelectorAll(".activity-group-list-check").filter(checkbox => checkbox.checked).length, 2);
   confirm(true);
-  root.querySelector(".activity-group-list-delete").listeners.click();
-  assert.match(confirmations.at(-1), /2 个活动组/);
+  root.querySelector(".activity-group-batch-delete").listeners.click();
+  assert.match(confirmations.at(-1), /所选的 2 个活动单位/);
+  assert.match(confirmations.at(-1), /变空的 2 个活动组/);
+  assert.equal(root.querySelector(".activity-group-batch-delete").disabled, true);
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[0].units.map(unit => unit.id), ["chapter:3"]);
+  assert.deepEqual(posts[0].groups, []);
+  assert.equal(editor.dirty(), false);
+});
+
+test("select all applies to filtered results while selections survive filtering and stay separate by mode", async () => {
+  const { root, editor } = await createEditor();
+  check(root.querySelector(".activity-group-list-check"));
+  const search = descendants(root).find(node => node.attributes["aria-label"] === "搜索活动组或单位");
+  search.value = "chapter:"; search.listeners.input();
+  check(root.querySelector(".activity-group-select-all"));
+  assert.equal(root.querySelector(".activity-group-batch-delete").textContent, "删除所选（3）");
+  assert.equal(root.querySelector(".activity-group-select-all").checked, true);
+  check(root.querySelector(".activity-group-select-all"), false);
+  assert.equal(root.querySelector(".activity-group-batch-delete").textContent, "删除所选（1）");
+  search.value = "missing"; search.listeners.input();
+  assert.equal(root.querySelector(".activity-group-select-all").disabled, true);
+  assert.equal(root.querySelector(".activity-group-batch-delete").disabled, false);
+  findText(root, "活动组 · 2").listeners.click();
+  assert.equal(root.querySelector(".activity-group-batch-delete").disabled, true);
+  findText(root, "活动单位 · 3").listeners.click();
+  assert.equal(root.querySelector(".activity-group-list-check").checked, true);
+  assert.equal(editor.dirty(), false);
+  findText(root, "放弃修改").listeners.click();
+  assert.equal(root.querySelector(".activity-group-batch-delete").disabled, true);
+});
+
+test("batch deleting groups leaves their units intact", async () => {
+  const { root, posts } = await createEditor();
+  findText(root, "活动组 · 2").listeners.click();
+  check(root.querySelector(".activity-group-select-all"));
+  root.querySelector(".activity-group-batch-delete").listeners.click();
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.equal(posts[0].groups.length, 0);
+  assert.equal(posts[0].units.length, 3);
+});
+
+test("deleting one selected unit preserves groups with remaining units", async () => {
+  const { root, posts } = await createEditor();
+  check(root.querySelector(".activity-group-list-check"));
+  root.querySelector(".activity-group-batch-delete").listeners.click();
   await findText(root, "保存活动组配置").listeners.click();
   assert.deepEqual(posts[0].units.map(unit => unit.id), ["chapter:2", "chapter:3"]);
   assert.deepEqual(posts[0].groups, [{ id: "shared", name: "Shared", unitIds: ["chapter:2"] }]);
-  assert.equal(editor.dirty(), false);
 });
