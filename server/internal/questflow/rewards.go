@@ -232,7 +232,7 @@ func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGra
 			continue
 		}
 		if d.PossessionType == model.PossessionTypeParts {
-			chosenId, partsUUID, sold := h.Granter.GrantOrSellPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis)
+			chosenId, partsUUID, sold := h.Granter.GrantOrSellPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis, d.partsDropRate.Apply(1000))
 			drops[i].PossessionId = chosenId
 			drops[i].IsAutoSale = sold
 			if !sold {
@@ -253,6 +253,15 @@ func battleDropSeed(userId int64, questId int32, runSeed int64) int64 {
 	value *= 0x94d049bb133111eb
 	value ^= value >> 31
 	return int64(value)
+}
+
+func (h *QuestHandler) battleDropPlanWithRate(user *store.UserState, questId int32, runSeed int64, rate campaign.DropRateMul) []masterdata.BattleDropInfo {
+	plan := h.battleDropPlan(user, questId, runSeed)
+	if rate.Apply(1000) != 1000 {
+		random := rand.New(rand.NewSource(battleDropSeed(user.UserId, questId, runSeed^0x5155414c495459)))
+		h.applyPartsDropRate(plan, h.QuestById[questId], random, rate)
+	}
+	return plan
 }
 
 func (h *QuestHandler) battleDropPlan(user *store.UserState, questId int32, runSeed int64) []masterdata.BattleDropInfo {
@@ -362,28 +371,32 @@ func weightedRewardID(random *rand.Rand, rewards []questdrop.Reward) int32 {
 
 func (h *QuestHandler) computeDropRewards(user *store.UserState, questDef masterdata.EntityMQuest, target campaign.QuestTarget, nowMillis int64) []RewardGrant {
 	runSeed := user.Quests[questDef.QuestId].LatestStartDatetime
-	return h.computeDropRewardsForRun(user, questDef, target, nowMillis, runSeed)
+	return h.computeDropRewardsForRun(user, questDef, target, nowMillis, runSeed, runSeed)
 }
 
 func (h *QuestHandler) computeDropRewardsForRun(
 	user *store.UserState,
 	questDef masterdata.EntityMQuest,
 	target campaign.QuestTarget,
-	nowMillis, runSeed int64,
+	nowMillis, runSeed, startedMillis int64,
 ) []RewardGrant {
 	var drops []RewardGrant
 	var dropRate campaign.DropRateMul
+	var partsRate campaign.DropRateMul
 	var dropCount campaign.DropCountMul
 	if h.Campaigns != nil {
 		dropRate = h.Campaigns.QuestDropRate(target, h.campaignFilter(user, nowMillis))
 		dropCount = h.Campaigns.QuestDropCount(target, h.campaignFilter(user, nowMillis))
+		// Quality must match the battle reveal even if the campaign expires
+		// before settlement. Skips use their request time as the start time.
+		partsRate = h.Campaigns.QuestDropRate(target, h.campaignFilter(user, startedMillis))
 	}
 	// Bonus draws use a separate, repeatable stream so they cannot change any
 	// of the original battle reveals or rewards.
 	partsRandom := rand.New(rand.NewSource(battleDropSeed(user.UserId, questDef.QuestId, runSeed^0x5041525453)))
-	for _, planned := range h.battleDropPlan(user, questDef.QuestId, runSeed) {
+	for _, planned := range h.battleDropPlanWithRate(user, questDef.QuestId, runSeed, partsRate) {
 		if h.BattleDropRewardById[planned.BattleDropRewardId].PossessionType == int32(model.PossessionTypeParts) {
-			drops = append(drops, h.partsDropRewards(user, questDef, planned, target, nowMillis, dropRate, dropCount, partsRandom)...)
+			drops = append(drops, h.partsDropRewards(user, questDef, planned, target, nowMillis, partsRate, dropCount, partsRandom)...)
 			continue
 		}
 		if grant, ok := h.battleDropRewardGrant(user, planned.BattleDropRewardId, planned.BattleDropEffectId, target, nowMillis, dropRate, dropCount); ok {
@@ -602,7 +615,18 @@ func (h *QuestHandler) applyCompanionTutorialReward(user *store.UserState, choic
 }
 
 func (h *QuestHandler) BattleDropRewards(user *store.UserState, questId int32) []masterdata.BattleDropInfo {
-	return h.battleDropPlan(user, questId, user.Quests[questId].LatestStartDatetime)
+	target := h.targetForMain(questId)
+	if user.EventQuest.CurrentQuestId == questId {
+		target = h.targetForEvent(user.EventQuest.CurrentEventQuestChapterId, questId)
+	} else if user.ExtraQuest.CurrentQuestId == questId {
+		target = h.targetForExtra(questId)
+	}
+	started := user.Quests[questId].LatestStartDatetime
+	var rate campaign.DropRateMul
+	if h.Campaigns != nil {
+		rate = h.Campaigns.QuestDropRate(target, h.campaignFilter(user, started))
+	}
+	return h.battleDropPlanWithRate(user, questId, started, rate)
 }
 
 func (h *QuestHandler) grantWeaponStoryUnlocksForQuestScene(user *store.UserState, questId int32, resultType model.QuestResultType, nowMillis int64) []int32 {

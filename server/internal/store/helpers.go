@@ -373,7 +373,7 @@ func (g *PossessionGranter) GrantThought(user *UserState, thoughtId int32, nowMi
 }
 
 func (g *PossessionGranter) GrantParts(user *UserState, requestedPartsId int32, nowMillis int64) {
-	chosenPartsId, chosenRef, ok := g.rollPartsVariant(requestedPartsId)
+	chosenPartsId, chosenRef, ok := g.rollPartsVariant(requestedPartsId, 1000)
 	if !ok {
 		g.grantBareParts(user, requestedPartsId, nowMillis)
 		return
@@ -383,8 +383,8 @@ func (g *PossessionGranter) GrantParts(user *UserState, requestedPartsId int32, 
 
 // The rolled variant sets both rarity and rank, so the auto-sale decision can
 // only happen after the roll. Sold parts have no inventory UUID.
-func (g *PossessionGranter) GrantOrSellPartsDrop(user *UserState, requestedPartsId int32, raritySet, rankSet map[int32]bool, nowMillis int64) (int32, string, bool) {
-	chosenPartsId, chosenRef, ok := g.rollPartsVariant(requestedPartsId)
+func (g *PossessionGranter) GrantOrSellPartsDrop(user *UserState, requestedPartsId int32, raritySet, rankSet map[int32]bool, nowMillis int64, highestRankWeight int32) (int32, string, bool) {
+	chosenPartsId, chosenRef, ok := g.rollPartsVariant(requestedPartsId, highestRankWeight)
 	if !ok {
 		return requestedPartsId, g.grantBareParts(user, requestedPartsId, nowMillis), false
 	}
@@ -412,7 +412,8 @@ func (g *PossessionGranter) grantBareParts(user *UserState, partsId int32, nowMi
 
 // rollPartsVariant picks one of a parts group's 5 variants at random; the five
 // carry distinct PartsInitialLotteryId 1..5, which is the part's rank.
-func (g *PossessionGranter) rollPartsVariant(requestedPartsId int32) (int32, PartsRef, bool) {
+// Campaign drop rate multiplies only the highest rank's weight.
+func (g *PossessionGranter) rollPartsVariant(requestedPartsId int32, highestRankWeight int32) (int32, PartsRef, bool) {
 	ref, refOk := g.PartsById[requestedPartsId]
 	if !refOk {
 		return requestedPartsId, PartsRef{}, false
@@ -420,7 +421,19 @@ func (g *PossessionGranter) rollPartsVariant(requestedPartsId int32) (int32, Par
 	chosenPartsId := requestedPartsId
 	chosenRef := ref
 	if variants := g.PartsVariantsByGroupRarity[ref.PartsGroupId][ref.RarityType]; len(variants) == 5 {
-		chosenPartsId = variants[rand.Intn(len(variants))]
+		highestWeight := int64(highestRankWeight)
+		roll := rand.Int63n(4000 + highestWeight)
+		for _, id := range variants {
+			weight := int64(1000)
+			if g.PartsById[id].PartsInitialLotteryId == 5 {
+				weight = highestWeight
+			}
+			roll -= weight
+			if roll < 0 {
+				chosenPartsId = id
+				break
+			}
+		}
 		chosenRef = g.PartsById[chosenPartsId]
 	} else {
 		log.Printf("[GrantParts] no 5-variant set for group=%d rarity=%d (have %d), granting requested=%d", ref.PartsGroupId, ref.RarityType, len(variants), requestedPartsId)

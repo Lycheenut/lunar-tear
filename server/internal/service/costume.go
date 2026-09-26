@@ -699,19 +699,16 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 			return
 		}
 
-		totalWeight := int32(0)
-		for _, row := range oddsPool {
-			totalWeight += row.Weight
+		var rateBonus campaign.RateBonus
+		if cat.Campaign != nil {
+			cm := catalog.Costumes[costume.CostumeId]
+			rateBonus = cat.Campaign.CostumeRateBonus(campaign.CostumeTarget{
+				CostumeId:          costume.CostumeId,
+				CharacterId:        cm.CharacterId,
+				SkillfulWeaponType: cm.SkillfulWeaponType,
+			}, enhancementCampaignFilter(cat.Campaign, user, nowMillis))
 		}
-		roll := rand.Int31n(totalWeight)
-		var picked masterdata.EntityMCostumeLotteryEffectOddsGroup
-		for _, row := range oddsPool {
-			roll -= row.Weight
-			if roll < 0 {
-				picked = row
-				break
-			}
-		}
+		picked := drawCostumeLotteryEffect(oddsPool, rateBonus, rand.Int63n)
 
 		existing := user.CostumeLotteryEffects[key]
 		if existing.OddsNumber == 0 {
@@ -741,6 +738,41 @@ func (s *CostumeServiceServer) DrawLotteryEffect(ctx context.Context, req *pb.Dr
 	}
 
 	return &pb.DrawLotteryEffectResponse{}, nil
+}
+
+func drawCostumeLotteryEffect(pool []masterdata.EntityMCostumeLotteryEffectOddsGroup, bonus campaign.RateBonus, draw func(int64) int64) masterdata.EntityMCostumeLotteryEffectOddsGroup {
+	var total, fourStarWeight int64
+	for _, row := range pool {
+		total += int64(row.Weight)
+		if row.RarityType == model.RaritySSRare {
+			fourStarWeight += int64(row.Weight)
+		}
+	}
+	// Apply the campaign to the combined four-star probability, then preserve
+	// each entry's relative weight within the selected rarity group.
+	filtered := fourStarWeight > 0 && fourStarWeight < total
+	var fourStar bool
+	if filtered {
+		basePermil := int32(fourStarWeight * 1000 / total)
+		threshold := max(fourStarWeight*1000, int64(bonus.Apply(basePermil))*total)
+		fourStar = draw(total*1000) < threshold
+		if fourStar {
+			total = fourStarWeight
+		} else {
+			total -= fourStarWeight
+		}
+	}
+	roll := draw(total)
+	for _, row := range pool {
+		if filtered && (row.RarityType == model.RaritySSRare) != fourStar {
+			continue
+		}
+		roll -= int64(row.Weight)
+		if roll < 0 {
+			return row
+		}
+	}
+	return masterdata.EntityMCostumeLotteryEffectOddsGroup{}
 }
 
 func (s *CostumeServiceServer) ConfirmLotteryEffect(ctx context.Context, req *pb.ConfirmLotteryEffectRequest) (*pb.ConfirmLotteryEffectResponse, error) {

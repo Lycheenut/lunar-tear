@@ -1,10 +1,41 @@
 package store
 
 import (
+	"math"
 	"testing"
 
 	"lunar-tear/server/internal/model"
 )
+
+func TestPartsDropRateWeightsOnlyHighestRank(t *testing.T) {
+	g := &PossessionGranter{
+		PartsById:                  map[int32]PartsRef{},
+		PartsVariantsByGroupRarity: map[int32]map[int32][]int32{1: {40: {105, 101, 104, 102, 103}}},
+	}
+	for rank := int32(1); rank <= 5; rank++ {
+		g.PartsById[100+rank] = PartsRef{PartsGroupId: 1, RarityType: 40, PartsInitialLotteryId: rank}
+	}
+	const trials = 30000
+	for _, weight := range []int32{1000, 1500, 2000} {
+		counts := map[int32]int{}
+		for range trials {
+			_, part, ok := g.rollPartsVariant(101, weight)
+			if !ok || part.RarityType != 40 {
+				t.Fatalf("rank roll changed rarity: %+v", part)
+			}
+			counts[part.PartsInitialLotteryId]++
+		}
+		for rank := int32(1); rank <= 5; rank++ {
+			want := 1000.0 / float64(4000+weight)
+			if rank == 5 {
+				want = float64(weight) / float64(4000+weight)
+			}
+			if got := float64(counts[rank]) / trials; math.Abs(got-want) > 0.02 {
+				t.Fatalf("weight=%d rank=%d rate=%f, want %f", weight, rank, got, want)
+			}
+		}
+	}
+}
 
 func TestAutoOrbitEquipmentSnapshotCloneAndEquality(t *testing.T) {
 	user := SeedUserState(1, "test", 1, model.ClientPlatform{})

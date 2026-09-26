@@ -57,7 +57,7 @@ func (g *PossessionGranter) grantEnhancedParts(user *UserState, enhanced PartsEn
 	count := enhanced.SubStatusCount
 	if enhanced.IsRandomSubStatusCount {
 		// Use the ordinary rank lottery for the count, while retaining the template's item and main status.
-		_, rolled, _ := g.rollPartsVariant(enhanced.PartsId)
+		_, rolled, _ := g.rollPartsVariant(enhanced.PartsId, 1000)
 		count = max(0, rolled.PartsInitialLotteryId-1)
 	}
 	key := uuid.New().String()

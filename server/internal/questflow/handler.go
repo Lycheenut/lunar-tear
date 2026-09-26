@@ -18,6 +18,7 @@ type RewardGrant struct {
 	RewardEffectId int32
 	IsAutoSale     bool
 	EquipmentData  []byte
+	partsDropRate  campaign.DropRateMul
 }
 
 type FinishOutcome struct {
