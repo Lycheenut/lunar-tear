@@ -48,3 +48,10 @@ current box. Invalid rewards or unknown pool IDs reject the configuration.
 `eventSchedules` on the lowest-tier ID applies to all tiers. An explicit schedule
 on a silver/gold ID overrides that inherited window. Existing configuration
 version 1 is retained.
+
+On `prod`, the Gacha configuration tool lists every tier, including unconfigured
+pools. The ticket-tier filter and each pool's ticket ID/name distinguish pools
+from the same event. Adding/removing boxes or editing rewards affects only the
+selected pool; publishing saves all tiers together using the existing config
+hash check and atomic hot reload. Activity groups retain one member for the
+base event so existing activity schedules continue to cover all three tiers.

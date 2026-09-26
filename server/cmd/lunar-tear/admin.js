@@ -86,6 +86,8 @@
     boxGachaConfig: $("#box-gacha-config"), boxGachaEyebrow: $("#box-gacha-eyebrow"),
     boxGachaTitle: $("#box-gacha-title"), boxGachaState: $("#box-gacha-state"),
     boxGachaBannerSelect: $("#box-gacha-banner-select"), boxGachaNumberLabel: $("#box-gacha-number-label"),
+    boxGachaTierLabel: $("#box-gacha-tier-label"), boxGachaTierSelect: $("#box-gacha-tier-select"),
+    boxGachaTicketInfo: $("#box-gacha-ticket-info"),
     boxGachaNumberSelect: $("#box-gacha-number-select"), boxGachaActions: $("#box-gacha-actions"),
     boxGachaAddBox: $("#box-gacha-add-box"), boxGachaRemoveBox: $("#box-gacha-remove-box"),
     boxGachaEmpty: $("#box-gacha-empty"), boxGachaEditorBody: $("#box-gacha-editor-body"),
@@ -4896,7 +4898,16 @@
 
   function boxBannersForCurrentKind() {
     const labelType = state.gachaKind === "chapter" ? 3 : 2;
-    return (state.gachaCatalog.boxBanners || []).filter((banner) => banner.gachaLabelType === labelType);
+    const tier = state.gachaKind === "event" ? elements.boxGachaTierSelect.value : "";
+    return (state.gachaCatalog.boxBanners || []).filter((banner) => banner.gachaLabelType === labelType
+      && (!tier || (banner.eventGachaTicketTier || "single") === tier));
+  }
+
+  function boxBannerLabel(banner) {
+    const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || (state.gachaKind === "chapter" ? `Chapter ${banner.relatedMainQuestChapterId}` : `Event ${banner.relatedEventQuestChapterId}`);
+    if (banner.gachaLabelType !== 2) return idNameLabel(banner.gachaId, name);
+    const tier = { gold: "金票池", silver: "银票池", bronze: "铜票池" }[banner.eventGachaTicketTier] || "单阶票池";
+    return idNameLabel(banner.gachaId, `${name} · ${tier} · 票券 ${banner.requiredConsumableItemId}`);
   }
 
   function currentBoxBanner() {
@@ -4908,7 +4919,7 @@
   function selectedBoxNumber(banner, boxCount) {
     if (!banner || boxCount <= 0) return 0;
     const key = `${state.gachaKind}:${banner.gachaId}`;
-    const selected = Number(state.boxSelections[key] || elements.boxGachaNumberSelect.value || 1);
+    const selected = Number(state.boxSelections[key] || 1);
     return Math.min(Math.max(selected, 1), boxCount);
   }
 
@@ -5007,8 +5018,7 @@
     banners.forEach((banner) => {
       const option = document.createElement("option");
       option.value = String(banner.gachaId);
-      const name = gachaLocalizedText(banner.titles) || banner.bannerAssetName || (state.gachaKind === "chapter" ? `Chapter ${banner.relatedMainQuestChapterId}` : `Event ${banner.relatedEventQuestChapterId}`);
-      option.textContent = idNameLabel(banner.gachaId, name);
+      option.textContent = boxBannerLabel(banner);
       elements.boxGachaBannerSelect.append(option);
     });
     if (banners.some((banner) => String(banner.gachaId) === previousBanner)) elements.boxGachaBannerSelect.value = previousBanner;
@@ -5016,6 +5026,11 @@
 
     const banner = currentBoxBanner();
     const event = state.gachaKind === "event";
+    elements.boxGachaTierLabel.classList.toggle("hidden", !event);
+    elements.boxGachaTicketInfo.classList.toggle("hidden", !event || !banner);
+    elements.boxGachaTicketInfo.textContent = event && banner
+      ? `消耗票券：${idNameLabel(banner.requiredConsumableItemId, gachaLocalizedText(banner.ticketNames))}。本票池独立配置奖励、箱子和库存；未配置时不开放。`
+      : "";
     elements.boxGachaEyebrow.textContent = event ? "EVENT BOX CONFIG" : "CHAPTER BOX CONFIG";
     elements.boxGachaTitle.textContent = event ? "Event Gacha 奖励箱" : "Chapter Gacha 奖励箱";
 	    elements.boxGachaActions.classList.remove("hidden");
@@ -5762,6 +5777,7 @@
   elements.gachaGrantFilter.addEventListener("change", renderGachaWeapons);
   elements.gachaBannerSelect.addEventListener("change", renderGachaBannerEditor);
   elements.boxGachaBannerSelect.addEventListener("change", renderBoxGachaEditor);
+  elements.boxGachaTierSelect.addEventListener("change", renderBoxGachaEditor);
   elements.boxGachaNumberSelect.addEventListener("change", () => {
     const banner = currentBoxBanner();
     if (banner) state.boxSelections[`${state.gachaKind}:${banner.gachaId}`] = Number(elements.boxGachaNumberSelect.value || 1);

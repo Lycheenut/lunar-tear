@@ -545,6 +545,15 @@
               <span id="box-gacha-state" class="row-badge">已配置</span>
             </div>
             <div class="box-gacha-toolbar">
+              <label id="box-gacha-tier-label" class="hidden">票池阶别
+                <select id="box-gacha-tier-select">
+                  <option value="">全部</option>
+                  <option value="gold">金票池</option>
+                  <option value="silver">银票池</option>
+                  <option value="bronze">铜票池</option>
+                  <option value="single">单阶票池</option>
+                </select>
+              </label>
               <label>卡池
                 <select id="box-gacha-banner-select"></select>
               </label>
@@ -556,6 +565,7 @@
                 <button id="box-gacha-remove-box" class="button ghost danger" type="button">删除当前箱子</button>
               </div>
             </div>
+            <p id="box-gacha-ticket-info" class="box-gacha-rule-note hidden"></p>
             <div id="box-gacha-empty" class="empty-state hidden">
               当前 Event Gacha 尚未配置箱子。点击“新增箱子”开始配置。
             </div>

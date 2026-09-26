@@ -142,6 +142,12 @@ func TestInstallGachaConfigPublishesValidatedSnapshot(t *testing.T) {
 		config.Weapons[weaponID] = gacha.WeaponConfig{Availability: availability}
 	}
 	config = gacha.ConfigWithoutAutomaticEventWeapons(config, before.GachaPool)
+	for _, id := range []int32{329001, 329011, 329021} {
+		config.EventBanners[id] = gacha.EventBoxConfig{Boxes: []gacha.BoxConfig{{
+			GroupWeights:   gacha.BoxGroupWeights{Limited: 10000},
+			LimitedRewards: []gacha.BoxRewardConfig{{PossessionType: 6, PossessionId: 1, Count: 1, MaxCount: 1, Jackpot: true}},
+		}}}
+	}
 	encoded, expectedInstalledHash, err := gacha.EncodeConfig(config)
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +161,20 @@ func TestInstallGachaConfigPublishesValidatedSnapshot(t *testing.T) {
 	}
 
 	after := holder.Get()
+	for _, id := range []int32{329001, 329011, 329021} {
+		if event := after.GachaConfig.EventBanners[id]; len(event.Boxes) != 1 {
+			t.Fatalf("published event tier %d = %+v", id, event)
+		}
+		found := false
+		for _, entry := range after.GachaEntries {
+			if entry.GachaId == id {
+				found = entry.BoxCount == 1
+			}
+		}
+		if !found {
+			t.Fatalf("published tier %d is not available in the runtime catalog", id)
+		}
+	}
 	if !after.GachaConfigExists {
 		t.Fatal("published snapshot does not report an installed Gacha config")
 	}

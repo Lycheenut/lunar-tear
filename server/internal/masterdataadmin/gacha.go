@@ -51,6 +51,9 @@ type GachaBoxBannerReference struct {
 	RelatedEventQuestChapterId int32             `json:"relatedEventQuestChapterId,omitempty"`
 	RequiredConsumableItemId   int32             `json:"requiredConsumableItemId,omitempty"`
 	ConfiguredBoxCount         int32             `json:"configuredBoxCount"`
+	EventGachaBaseId           int32             `json:"eventGachaBaseId,omitempty"`
+	EventGachaTicketTier       string            `json:"eventGachaTicketTier,omitempty"`
+	TicketNames                map[string]string `json:"ticketNames,omitempty"`
 }
 
 type GachaEditorCatalog struct {
@@ -122,11 +125,17 @@ func LoadGachaEditorCatalog(
 		result.Weapons = append(result.Weapons, reference)
 	}
 
+	ticketNames := make(map[int32]map[string]string)
+	for _, row := range readRows(file, "m_consumable_item") {
+		if reference, ok := consumableRewardReference(row, resolver); ok {
+			ticketNames[reference.PossessionId] = reference.Names
+		}
+	}
 	seenBanners := make(map[int32]bool)
 	for _, entry := range entries {
 		if entry.GachaLabelType == model.GachaLabelChapter || entry.GachaLabelType == model.GachaLabelEvent {
 			titles := resolver.byKey("gacha.title." + entry.BannerAssetName)
-			if entry.GachaLabelType == model.GachaLabelEvent {
+			if entry.GachaLabelType == model.GachaLabelEvent && len(titles) == 0 {
 				titles = resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", entry.DescriptionTextId))
 			}
 			boxCount := entry.BoxCount
@@ -144,6 +153,9 @@ func LoadGachaEditorCatalog(
 				RelatedEventQuestChapterId: entry.RelatedEventQuestChapterId,
 				RequiredConsumableItemId:   entry.RequiredConsumableItemId,
 				ConfiguredBoxCount:         boxCount,
+				EventGachaBaseId:           entry.EventGachaBaseId,
+				EventGachaTicketTier:       entry.EventGachaTicketTier,
+				TicketNames:                ticketNames[entry.RequiredConsumableItemId],
 			})
 			continue
 		}

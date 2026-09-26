@@ -106,6 +106,11 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 		if entry.GachaLabelType != model.GachaLabelEvent {
 			continue
 		}
+		// One activity member schedules the whole ticket family. Higher tiers
+		// inherit its window at runtime and are edited in the Gacha tool.
+		if entry.EventGachaBaseId != 0 && entry.EventGachaBaseId != entry.GachaId {
+			continue
+		}
 		start, end := entry.StartDatetime, entry.EndDatetime
 		if schedule, ok := config.EventSchedules[entry.GachaId]; ok {
 			start, end = schedule.StartDatetime, schedule.EndDatetime

@@ -1124,7 +1124,7 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 700;
 .order-button:disabled { opacity: .25; }
 .box-gacha-config { min-width: 0; }
 .box-gacha-heading { border-bottom: 1px solid var(--line); }
-.box-gacha-toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(140px, 220px) auto; align-items: end; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+.box-gacha-toolbar { display: grid; grid-template-columns: 120px minmax(260px, 1fr) minmax(140px, 220px) auto; align-items: end; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
 .box-gacha-toolbar > * { min-width: 0; }
 .box-gacha-toolbar select { width: 100%; }
 .box-gacha-actions { display: flex; justify-content: flex-end; gap: 8px; }
