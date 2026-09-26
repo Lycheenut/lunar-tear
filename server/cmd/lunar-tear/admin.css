@@ -45,8 +45,6 @@ code {
 .activity-group-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px 0; }
 #activity-group-editor > .activity-group-toolbar { padding: 14px 20px; }
 .activity-group-add { margin-left: auto; }
-.activity-group-toolbar label { display: grid; gap: 6px; }
-.activity-group-toolbar select { max-width: 440px; }
 .activity-group-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; border-top: 1px solid var(--line); }
 .activity-group-sidebar { min-height: 0; padding: 16px; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; border-right: 1px solid var(--line); }
 .activity-group-sidebar > input { width: 100%; }
@@ -100,7 +98,22 @@ dialog.activity-group-dialog { width: min(1100px, 95vw); max-width: 1100px; }
 .activity-group-preview-scroll table { width: 100%; min-width: 0; table-layout: fixed; }
 .activity-group-preview-scroll td, .activity-group-preview-scroll th { white-space: normal; overflow-wrap: anywhere; }
 .activity-group-preview-scroll td:first-child, .activity-group-preview-scroll th:first-child { position: static; width: 32%; min-width: 0; }
-.activity-group-toolbar > label:first-child { flex: 1; min-width: 180px; }
+.activity-group-config-preview td { white-space: pre-line; }
+.activity-group-unit-list { overflow-x: auto; }
+.activity-group-unit-table { min-width: 580px; table-layout: fixed; }
+.activity-group-unit-table th, .activity-group-unit-table td { position: static; vertical-align: middle; white-space: normal; overflow-wrap: anywhere; }
+.activity-group-unit-table th:first-child, .activity-group-unit-table td:first-child { width: 90px; min-width: 0; }
+.activity-group-unit-table th:nth-child(3) { width: 180px; }
+.activity-group-unit-table th:last-child { width: 180px; }
+.activity-group-unit-actions { display: flex; gap: 8px; white-space: nowrap; }
+.activity-group-unit-add { margin: 14px 0; }
+.activity-group-schedule { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 10px; padding: 12px 0; }
+.activity-group-schedule label { min-width: 0; }
+.activity-group-schedule input { width: 100%; min-width: 0; }
+@media (max-width: 1100px) {
+  .activity-group-schedule { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .activity-group-schedule > button { grid-column: 1 / -1; justify-self: start; }
+}
 @media (min-width: 761px) {
   body:has(#workspace:not(.hidden) #activity-group-editor:not(.hidden)) { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
   body:has(#workspace:not(.hidden) #activity-group-editor:not(.hidden)) > .topbar { flex-shrink: 0; }
@@ -115,6 +128,7 @@ dialog.activity-group-dialog { width: min(1100px, 95vw); max-width: 1100px; }
   .activity-group-header.has-type { grid-template-columns: minmax(125px, 1fr) minmax(0, 2fr) auto; }
 }
 @media (max-width: 540px) {
+  .activity-group-schedule { grid-template-columns: minmax(0, 1fr); }
   .activity-group-header.has-type { grid-template-columns: minmax(0, 1fr) auto; }
   .activity-group-header.has-type > label:first-child { grid-column: 1 / -1; }
   .activity-group-premium-row { grid-template-columns: minmax(0, 40%) minmax(0, 1fr); }

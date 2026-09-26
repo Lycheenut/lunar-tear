@@ -19,7 +19,7 @@
     let data = null, draft = null, baseline = "", mode = "groups", selected = "", search = "", busy = false;
     let optionIndex = new Map();
     const sidebarScroll = { groups: 0, units: 0 };
-    const typeFilters = { groups: "", units: "" };
+    let unitTypeFilter = "";
     const checkedIDs = { groups: new Set(), units: new Set() };
     const clearChecked = () => { checkedIDs.groups.clear(); checkedIDs.units.clear(); };
     const dirty = () => draft && JSON.stringify(draft) !== baseline;
@@ -35,7 +35,7 @@
       const titles = source && optionFor(source)?.titles;
       return titles && Object.values(titles).includes(item.name) ? localizedText(titles) || item.name : item.name;
     };
-    const itemTitle = item => `${item.id.replace(/^(chapter|premium):/, "")}. ${itemName(item)}`;
+    const itemTitle = item => item.members ? `${item.id.replace(/^(chapter|premium):/, "")}. ${itemName(item)}` : itemName(item);
     const visibleMembers = unit => [...new Map(unit.members.map(member => {
       const visible = unit.type === 1 && member.kind === "medal" ? { kind: "term", id: member.id } : member;
       return [key(visible), visible];
@@ -80,15 +80,66 @@
       optionIndex = new Map(data.catalog.options.map(option => [key(option), option]));
       draft = clone(data.catalog.config); baseline = JSON.stringify(draft); clearChecked(); render();
     }
-    async function save() {
+    async function save(request) {
       if (hasOtherChanges()) throw new Error("请先保存或放弃其他页面的修改，再保存活动组。");
-      await api("/api/admin/activity-groups", { method: "POST", body: JSON.stringify({ ...envelope(), config: draft }) });
+      await api("/api/admin/activity-groups", { method: "POST", body: JSON.stringify(request) });
       await load(true); await onPublished(); showNotice("活动组配置已保存。");
+    }
+    function configChanges(before, after) {
+      const changes = [];
+      const memberName = (member, type) => {
+        const label = sectionsByType[type]?.find(([, kinds]) => kinds.includes(member.kind))?.[0]
+          || data.catalog.kinds.find(kind => kind.kind === member.kind)?.label || member.kind;
+        return `${label}：${title(member)}`;
+      };
+      const unitName = (id, config) => { const unit = config.units.find(unit => unit.id === id); return unit ? itemTitle(unit) : id; };
+      for (const [collection, label] of [["groups", "活动组"], ["units", "活动单位"]]) {
+        const oldItems = new Map(before[collection].map(item => [item.id, item])), newItems = new Map(after[collection].map(item => [item.id, item]));
+        const entries = (item, config) => collection === "units" ? item.members.map(member => [key(member), memberName(member, item.type)]) : item.unitIds.map(id => [id, unitName(id, config)]);
+        const describe = (item, config) => [`名称：${item.name}`, ...(collection === "units" ? [`类型：${typeLabel(item.type)}`] : []), ...entries(item, config).map(([, name]) => name)].join("\n");
+        for (const id of new Set([...oldItems.keys(), ...newItems.keys()])) {
+          const old = oldItems.get(id), current = newItems.get(id), object = `${label}：${itemTitle(current || old)}`;
+          const add = (field, from, to) => changes.push([object, field, from, to]);
+          if (!old) { add("新增", "—", describe(current, after)); continue; }
+          if (!current) { add("删除", describe(old, before), "—"); continue; }
+          if (old.name !== current.name) add("名称", old.name, current.name);
+          if (old.type !== current.type) add("单位类型", typeLabel(old.type), typeLabel(current.type));
+          const oldEntries = new Map(entries(old, before)), newEntries = new Map(entries(current, after));
+          for (const [key, name] of oldEntries) if (!newEntries.has(key)) add("移除成员", name, "—");
+          for (const [key, name] of newEntries) if (!oldEntries.has(key)) add("加入成员", "—", name);
+          if (oldEntries.size === newEntries.size && [...oldEntries.keys()].every(key => newEntries.has(key))
+            && JSON.stringify([...oldEntries.keys()]) !== JSON.stringify([...newEntries.keys()])) add("成员顺序", [...oldEntries.values()].join("\n"), [...newEntries.values()].join("\n"));
+        }
+      }
+      return changes;
+    }
+    function showSavePreview() {
+      if (busy || !dirty()) return;
+      if (hasOtherChanges()) { showNotice("请先保存或放弃其他页面的修改，再保存活动组。", true); return; }
+      const request = { ...envelope(), config: clone(draft) }, changes = configChanges(JSON.parse(baseline), request.config);
+      const dialog = el("dialog", null, "confirm-dialog activity-group-dialog"); dialog.setAttribute("aria-label", "活动组配置变更预览");
+      dialog.append(el("h2", "活动组配置变更预览"), el("p", `共 ${changes.length} 项变更。确认后保存活动组和活动单位配置。`));
+      const scroll = el("div", null, "activity-group-preview-scroll activity-group-config-preview"), table = el("table"), head = el("thead"), header = el("tr"), body = el("tbody");
+      ["对象", "变更", "修改前", "修改后"].forEach(text => { const cell = el("th", text); cell.scope = "col"; header.append(cell); }); head.append(header);
+      changes.forEach(change => { const row = el("tr"); change.forEach(text => row.append(el("td", text))); body.append(row); });
+      table.append(head, body); scroll.append(table); dialog.append(scroll);
+      const errorMessage = el("p", "", "notice error hidden"); errorMessage.setAttribute("role", "alert"); dialog.append(errorMessage);
+      let saving = false;
+      const close = button("取消", () => dialog.close()), submit = button("确认保存", async () => {
+        if (saving) return;
+        saving = true; busy = true; submit.disabled = close.disabled = true; errorMessage.classList.add("hidden"); render();
+        try { await save(request); dialog.close(); }
+        catch (error) { errorMessage.textContent = error.message; errorMessage.classList.remove("hidden"); }
+        finally { saving = false; busy = false; submit.disabled = close.disabled = false; render(); }
+      }, "button primary");
+      const actions = el("div", null, "save-actions"); actions.append(close, submit); dialog.append(actions);
+      dialog.addEventListener("cancel", event => { if (saving) event.preventDefault(); });
+      dialog.addEventListener("close", () => dialog.remove()); document.body.append(dialog); dialog.showModal();
     }
     function add() {
       const id = `${mode === "groups" ? "group" : "unit"}-${crypto.randomUUID()}`;
       draft[mode].push(mode === "groups" ? { id, name: "新活动组", unitIds: [] } : { id, name: "新活动单位", type: 1, members: [] });
-      selected = id; search = ""; typeFilters[mode] = ""; render();
+      selected = id; search = ""; if (mode === "units") unitTypeFilter = ""; render();
     }
     function remove(items) {
       if (!items.length) return;
@@ -140,12 +191,9 @@
       const layout = el("div", null, "activity-group-layout"), sidebar = el("aside", null, "activity-group-sidebar"), detail = el("section", null, "activity-group-detail");
       sidebar.dataset.mode = mode;
       const searchInput = input(search, value => { search = value; sidebar.scrollTop = 0; renderList(); }, "search"); searchInput.placeholder = "搜索名称或 ID"; searchInput.setAttribute("aria-label", "搜索活动组或单位");
-      const typeFilter = select([["", "全部类型"], ...unitTypes], typeFilters[mode], value => {
-        typeFilters[mode] = value; sidebar.scrollTop = 0; renderList();
-      }, "类型筛选");
       const filteredItems = () => {
-        const type = Number(typeFilters[mode]), types = new Map(draft.units.map(unit => [unit.id, unit.type]));
-        return draft[mode].filter(item => (!type || (mode === "units" ? item.type === type : item.unitIds.some(id => types.get(id) === type)))
+        const type = mode === "units" ? Number(unitTypeFilter) : 0;
+        return draft[mode].filter(item => (!type || item.type === type)
           && `${item.id} ${item.name} ${itemTitle(item)}`.toLowerCase().includes(search.toLowerCase()));
       };
       const batchActions = el("div", null, "activity-group-batch-actions");
@@ -159,7 +207,14 @@
       const selectAllLabel = el("label"); selectAllLabel.append(selectAll, el("span", "全选当前结果"));
       const deleteSelected = button("", () => remove(draft[mode].filter(item => checkedIDs[mode].has(item.id))), "button ghost activity-group-batch-delete");
       batchActions.append(selectAllLabel, deleteSelected);
-      const list = el("div", null, "activity-group-list"); sidebar.append(searchInput, field("类型筛选", typeFilter), batchActions, list);
+      const list = el("div", null, "activity-group-list"); sidebar.append(searchInput);
+      if (mode === "units") {
+        const typeFilter = select([["", "全部类型"], ...unitTypes], unitTypeFilter, value => {
+          unitTypeFilter = value; sidebar.scrollTop = 0; renderList();
+        }, "类型筛选");
+        sidebar.append(field("类型筛选", typeFilter));
+      }
+      sidebar.append(batchActions, list);
       function updateSelectionState() {
         const rows = filteredItems(), count = rows.filter(item => checkedIDs[mode].has(item.id)).length;
         selectAll.checked = rows.length > 0 && count === rows.length;
@@ -222,8 +277,11 @@
       if (detailPosition.selection === detail.dataset.selection) detail.scrollTop = detailPosition.top;
       const footer = el("div", null, "savebar"); const summary = el("strong"); summary.dataset.groupSummary = "";
       const actions = el("div", null, "save-actions");
-      const saveButton = button("保存活动组配置", () => run(save), "button primary"); saveButton.dataset.groupSave = "";
-      actions.append(button("放弃修改", () => { draft = clone(data.catalog.config); clearChecked(); render(); }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
+      const saveButton = button("保存活动组配置", showSavePreview, "button primary"); saveButton.dataset.groupSave = "";
+      actions.append(button("放弃修改", () => {
+        if (!window.confirm("放弃全部尚未保存的活动组和活动单位修改？")) return;
+        draft = clone(data.catalog.config); clearChecked(); render();
+      }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
     }
     function renderUnit(detail, unit) {
       if (unit.type === 3) detail.append(el("p", "Event Gacha 仅可添加当前 Variation 副本对应的票池；铜、银、金票池分别配置，整组改时会更新已添加的条目。", "activity-group-note"));
@@ -284,19 +342,27 @@
     }
     function renderGroup(detail, group) {
       detail.append(el("h3", "活动单位"));
-      const unitList = el("div", null, "activity-group-unit-list");
+      const unitList = el("div", null, "activity-group-unit-list"), table = el("table", null, "activity-group-unit-table");
+      const head = el("thead"), header = el("tr"), body = el("tbody");
+      for (const label of ["ID", "名称", "类型", "操作"]) { const cell = el("th", label); cell.scope = "col"; header.append(cell); }
+      head.append(header);
       group.unitIds.forEach(id => {
-        const unit = draft.units.find(item => item.id === id), row = el("div", null, "activity-group-toolbar");
-        row.append(el("span", unit ? `${itemTitle(unit)}（${typeLabel(unit.type)}）` : `${id}（引用已失效）`), button("编辑单位", () => { mode = "units"; selected = id; search = ""; typeFilters.units = ""; render(); }), button("移除", () => { group.unitIds = group.unitIds.filter(value => value !== id); render(); })); unitList.append(row);
-      }); detail.append(unitList);
-      let unitID = ""; const addRow = el("div", null, "activity-group-toolbar");
+        const unit = draft.units.find(item => item.id === id), row = el("tr"), actions = el("td");
+        const buttons = el("div", null, "activity-group-unit-actions");
+        buttons.append(button("编辑单位", () => { mode = "units"; selected = id; search = ""; unitTypeFilter = ""; render(); }), button("移除", () => { group.unitIds = group.unitIds.filter(value => value !== id); render(); }));
+        actions.append(buttons);
+        row.append(el("td", id.replace(/^(chapter|premium):/, "")), el("td", unit ? itemName(unit) : "引用已失效"), el("td", unit ? typeLabel(unit.type) : "—"), actions); body.append(row);
+      });
+      if (!group.unitIds.length) { const row = el("tr"), cell = el("td", "尚未加入活动单位", "activity-group-empty"); cell.colSpan = 4; row.append(cell); body.append(row); }
+      table.append(head, body); unitList.append(table); detail.append(unitList);
+      let unitID = ""; const addRow = el("div", null, "activity-group-section-add activity-group-unit-add");
       addRow.append(select([["", "选择活动单位"], ...draft.units.filter(unit => !group.unitIds.includes(unit.id)).map(unit => [unit.id, itemTitle(unit)])], "", value => { unitID = value; }, "组合活动单位"), button("加入活动组", () => { if (unitID) { group.unitIds.push(unitID); render(); } })); detail.append(addRow);
       detail.append(el("h3", "整体修改时间"), el("p", "使用本机时区。副本、Premium Gacha、Banner、NaviCutIn 和 Tip 使用活动起止时间；活动任务、Event Gacha、兑换商店与道具 / 碎片有效期延长至结束后 48 小时。请先保存配置，再预览改时。", "activity-group-note"));
       const source = draft.units.filter(unit => group.unitIds.includes(unit.id)).flatMap(unit => unit.members).find(member => member.kind === "chapter" || member.kind === "premium");
       const option = source && optionFor(source);
       const start = input(localInput(option?.startDatetime), () => {}, "datetime-local"), end = input(localInput(option?.endDatetime), () => {}, "datetime-local");
       start.step = "1"; end.step = "1";
-      const controls = el("div", null, "activity-group-toolbar");
+      const controls = el("div", null, "activity-group-schedule");
       const previewButton = button("预览整体改时", () => {
         const startTime = new Date(start.value).getTime(), endTime = new Date(end.value).getTime();
         if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) { showNotice("请输入有效的起止时间，结束时间必须晚于开始时间。", true); return; }
@@ -331,6 +397,6 @@
       actions.append(close, submit); dialog.append(actions); document.body.append(dialog);
       dialog.addEventListener("close", () => dialog.remove()); dialog.showModal();
     }
-    return { load, render, dirty, reset: () => { data = null; draft = null; baseline = ""; clearChecked(); typeFilters.groups = typeFilters.units = ""; } };
+    return { load, render, dirty, reset: () => { data = null; draft = null; baseline = ""; clearChecked(); unitTypeFilter = ""; } };
   };
 })();
