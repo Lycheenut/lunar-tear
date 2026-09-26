@@ -130,7 +130,7 @@ func buildEventGachaEntries(chapters map[int32]EntityMEventQuestChapter, links m
 		if link.PossessionType != int32(model.PossessionTypeConsumableItem) || link.PossessionId <= 0 {
 			continue
 		}
-		entries = append(entries, store.GachaCatalogEntry{
+		entry := store.GachaCatalogEntry{
 			GachaId:                    gachaId,
 			IsMamaBanner:               true,
 			GachaLabelType:             model.GachaLabelEvent,
@@ -147,7 +147,8 @@ func buildEventGachaEntries(chapters map[int32]EntityMEventQuestChapter, links m
 			GroupId:                    gachaId,
 			PricePhases:                buildChapterPricePhases(gachaId, link.PossessionId),
 			DescriptionTextId:          chapter.NameEventQuestTextId,
-		})
+		}
+		entries = append(entries, eventGachaTierEntries(entry)...)
 	}
 	return entries
 }

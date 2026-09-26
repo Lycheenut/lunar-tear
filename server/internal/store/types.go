@@ -1428,6 +1428,8 @@ type GachaCatalogEntry struct {
 	IsCurrentBoxResettable     bool
 	IsResettableByAllTargets   bool
 	IsInvalidReset             bool
+	EventGachaBaseId           int32
+	EventGachaTicketTier       string
 }
 
 type GachaBoxItemEntry struct {
