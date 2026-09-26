@@ -10,10 +10,12 @@ import (
 	"lunar-tear/server/internal/store"
 )
 
-func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
+func TestChapterGachaCatalogContainsMetadataWithoutRewards(t *testing.T) {
 	entries := buildChapterGachaEntries()
-	wantChapterIds := [...]int32{2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13}
-	wantWeightTotals := [...]int32{9990, 9990, 10000, 9990, 9990, 10000, 10004, 10004, 10000, 10000, 10000}
+	wantChapterIds := [...]int32{
+		2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14,
+		17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30,
+	}
 	if len(entries) != len(wantChapterIds)+1 {
 		t.Fatalf("chapter Gacha count = %d, want %d", len(entries), len(wantChapterIds)+1)
 	}
@@ -35,77 +37,20 @@ func TestChapterGachaCatalogMatchesReconstructedChapters(t *testing.T) {
 			entry.PricePhases[1].RegularPrice != 0 {
 			t.Fatalf("chapter %d price phases use the wrong ticket: %+v", chapterNumber, entry.PricePhases)
 		}
-		wantRows := 22
-		if chapterNumber == 7 || chapterNumber == 8 {
-			wantRows = 23
-		}
-		if len(entry.BoxItems) != wantRows {
-			t.Fatalf("chapter %d reward row count = %d, want %d", chapterNumber, len(entry.BoxItems), wantRows)
-		}
-		var weightTotal int32
-		for row, item := range entry.BoxItems {
-			weightTotal += item.Weight
-			if item.CounterId != int32(row+1) {
-				t.Fatalf("chapter %d row %d counter id = %d", chapterNumber, row, item.CounterId)
-			}
-		}
-		if weightTotal != wantWeightTotals[i] {
-			t.Fatalf("chapter %d weight total = %d, want %d", chapterNumber, weightTotal, wantWeightTotals[i])
+		if len(entry.BoxItems) != 0 || len(entry.PromotionItems) != 0 || entry.BoxCount != 0 {
+			t.Fatalf("chapter %d contains hardcoded rewards: %+v", chapterNumber, entry)
 		}
 	}
 
-	first := entries[0].BoxItems[0]
-	if first.PossessionId != 100004 || first.Count != 5 || first.MaxCount != 20 || first.Weight != 200 {
-		t.Fatalf("unexpected first chapter reward row: %+v", first)
+	ex := entries[len(entries)-1]
+	if ex.GachaId != chapterGachaIdBase || ex.BannerAssetName != "chapter_ex" ||
+		ex.RelatedMainQuestChapterId != 0 || ex.RelatedEventQuestChapterId != trueDarkMemoryQuestChapterId ||
+		len(ex.PricePhases) != 2 ||
+		ex.PricePhases[0].PriceId != 2002 || ex.PricePhases[1].PriceId != 2002 {
+		t.Fatalf("unexpected true-dark chapter catalog entry: %+v", ex)
 	}
-
-	trueDark := entries[len(entries)-1]
-	if trueDark.GachaId != chapterGachaIdBase || trueDark.BannerAssetName != "chapter_ex" ||
-		trueDark.RelatedMainQuestChapterId != 0 || trueDark.RelatedEventQuestChapterId != trueDarkMemoryQuestChapterId ||
-		len(trueDark.PricePhases) != 2 ||
-		trueDark.PricePhases[0].PriceId != 2002 || trueDark.PricePhases[1].PriceId != 2002 {
-		t.Fatalf("unexpected true-dark chapter catalog entry: %+v", trueDark)
-	}
-}
-
-func TestChapterGachaPromotionsMatchCoverPickups(t *testing.T) {
-	entries := buildChapterGachaEntries()
-	EnrichCatalogPromotions(entries, &GachaCatalog{})
-	wantChapterMaterials := [...][2]int32{
-		{330001, 330009},
-		{330005, 330013},
-		{330002, 330017},
-		{330010, 330006},
-		{330014, 330018},
-		{330003, 330011},
-		{330007, 330015},
-		{330023, 330019},
-		{330004, 330012},
-		{330008, 330016},
-		{330020, 330024},
-	}
-
-	for i, entry := range entries[:len(wantChapterMaterials)] {
-		want := [...]struct {
-			id    int32
-			count int32
-		}{
-			{100003, 6},
-			{100004, 5},
-			{wantChapterMaterials[i][0], 1},
-			{wantChapterMaterials[i][1], 1},
-		}
-		if len(entry.PromotionItems) != len(want) {
-			t.Fatalf("chapter %d promotion count = %d, want %d", i+1, len(entry.PromotionItems), len(want))
-		}
-		for j, pickup := range entry.PromotionItems {
-			if pickup.PossessionId != want[j].id || pickup.Count != want[j].count || !pickup.IsTarget {
-				t.Errorf("chapter %d promotion %d = %+v, want material %d x%d", i+1, j+1, pickup, want[j].id, want[j].count)
-			}
-		}
-	}
-	if got := entries[len(entries)-1].PromotionItems; len(got) != 0 {
-		t.Fatalf("true-dark chapter promotions = %+v, want none without configured rewards", got)
+	if len(ex.BoxItems) != 0 || len(ex.PromotionItems) != 0 || ex.BoxCount != 0 {
+		t.Fatalf("true-dark chapter contains hardcoded rewards: %+v", ex)
 	}
 }
 
@@ -181,7 +126,7 @@ func TestChapterGachaBranchesUseTheirOwnPreviousChapter(t *testing.T) {
 	}
 }
 
-func TestLoadGachaCatalogDoesNotSynthesizeEventBoxInventory(t *testing.T) {
+func TestLoadGachaCatalogIncludesEventMetadataWithoutSynthesizedInventory(t *testing.T) {
 	if err := memorydb.Init(filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")); err != nil {
 		t.Fatal(err)
 	}
@@ -189,16 +134,28 @@ func TestLoadGachaCatalogDoesNotSynthesizeEventBoxInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hasMamaBanner := false
+	eventCount := 0
 	for _, entry := range entries {
-		if entry.GachaLabelType == model.GachaLabelEvent {
-			t.Fatalf("event gacha %d was exposed without authoritative inventory", entry.GachaId)
-		}
 		if entry.GachaLabelType == model.GachaLabelPremium && entry.IsMamaBanner {
 			t.Fatalf("premium Gacha %d was loaded from m_mom_banner", entry.GachaId)
 		}
+		if entry.GachaLabelType == model.GachaLabelEvent {
+			eventCount++
+			if len(entry.BoxItems) != 0 || entry.BoxCount != 0 || entry.RequiredConsumableItemId == 0 || entry.RelatedEventQuestChapterId == 0 {
+				t.Fatalf("event gacha metadata is incomplete or synthesized inventory: %+v", entry)
+			}
+		}
+		hasMamaBanner = hasMamaBanner || entry.IsMamaBanner
 	}
 	if len(entries) == 0 {
 		t.Fatal("non-event gachas were removed with event gachas")
+	}
+	if !hasMamaBanner {
+		t.Fatal("m_mom_banner entries were not marked as Mama banners")
+	}
+	if eventCount == 0 {
+		t.Fatal("event Gacha metadata was not loaded")
 	}
 }
 

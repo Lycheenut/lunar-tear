@@ -208,17 +208,22 @@ func (s *GachaWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case model.GachaLabelChapter, model.GachaLabelEvent:
+		if cat.GachaHandler == nil {
+			fail(http.StatusServiceUnavailable, "unavailable")
+			return
+		}
+		odds, err := cat.GachaHandler.BoxOdds(*entry, state, now)
+		if err != nil || len(odds.Items) == 0 {
+			fail(http.StatusServiceUnavailable, "unavailable")
+			return
+		}
 		page.Box = true
 		page.Kind = "EVENT GACHA"
 		if entry.GachaLabelType == model.GachaLabelChapter {
 			page.Kind = "CHAPTER GACHA"
 			page.Reset = time.UnixMilli(gametime.StartOfNextBusinessMonthAtMillis(now)).UTC().Format("2006-01-02 15:04 UTC")
 		}
-		if len(entry.BoxItems) == 0 {
-			fail(http.StatusServiceUnavailable, "unavailable")
-			return
-		}
-		for _, item := range gacha.BoxOdds(*entry, state, now) {
+		for _, item := range odds.Items {
 			page.Items = append(page.Items, gachaWebRow{gachaWebReward: gachaWebReward{Name: s.gachaPossessionName(cat, language, item.PossessionType, item.PossessionId)}, ID: item.PossessionId, Count: item.Count, Remaining: item.Remaining, Maximum: item.MaxCount, Unlimited: item.Unlimited, Rates: []float64{item.Rate}})
 		}
 	default:

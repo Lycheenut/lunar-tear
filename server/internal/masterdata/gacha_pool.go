@@ -69,6 +69,39 @@ type GachaCatalog struct {
 	TermsByStartDatetime     map[int64][]*CatalogTerm
 }
 
+func LoadGachaBoxRewardKeys() (map[[2]int32]bool, error) {
+	keys := map[[2]int32]bool{{int32(model.PossessionTypeFreeGem), 0}: true}
+	materials, err := utils.ReadTable[EntityMMaterial]("m_material")
+	if err != nil {
+		return nil, fmt.Errorf("load material rewards: %w", err)
+	}
+	for _, item := range materials {
+		keys[[2]int32{int32(model.PossessionTypeMaterial), item.MaterialId}] = true
+	}
+	weapons, err := utils.ReadTable[EntityMWeapon]("m_weapon")
+	if err != nil {
+		return nil, fmt.Errorf("load weapon rewards: %w", err)
+	}
+	for _, item := range weapons {
+		keys[[2]int32{int32(model.PossessionTypeWeapon), item.WeaponId}] = true
+	}
+	companions, err := utils.ReadTable[EntityMCompanion]("m_companion")
+	if err != nil {
+		return nil, fmt.Errorf("load companion rewards: %w", err)
+	}
+	for _, item := range companions {
+		keys[[2]int32{int32(model.PossessionTypeCompanion), item.CompanionId}] = true
+	}
+	consumables, err := utils.ReadTable[EntityMConsumableItem]("m_consumable_item")
+	if err != nil {
+		return nil, fmt.Errorf("load consumable rewards: %w", err)
+	}
+	for _, item := range consumables {
+		keys[[2]int32{int32(model.PossessionTypeConsumableItem), item.ConsumableItemId}] = true
+	}
+	return keys, nil
+}
+
 func LoadGachaPool() (*GachaCatalog, error) {
 	costumes, err := utils.ReadTable[EntityMCostume]("m_costume")
 	if err != nil {

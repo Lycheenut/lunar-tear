@@ -77,6 +77,14 @@ type Config struct {
 	LimitedSets          map[string]LimitedSetConfig `json:"limitedSets"`
 	Weapons              map[int32]WeaponConfig      `json:"weapons"`
 	Banners              map[int32]BannerConfig      `json:"banners"`
+	ChapterBanners       map[int32]BoxConfig         `json:"chapterBanners,omitempty"`
+	EventBanners         map[int32]EventBoxConfig    `json:"eventBanners,omitempty"`
+	EventSchedules       map[int32]EventSchedule     `json:"eventSchedules"`
+}
+
+type EventSchedule struct {
+	StartDatetime int64 `json:"startDatetime"`
+	EndDatetime   int64 `json:"endDatetime"`
 }
 
 type PoolItem struct {
@@ -142,6 +150,7 @@ type PremiumCatalog struct {
 type BuildOptions struct {
 	RequireComplete       bool
 	CurrentMasterDataHash string
+	ValidBoxRewards       map[[2]int32]bool
 }
 
 type groupDefinition struct {
@@ -168,6 +177,8 @@ func DefaultConfig() *Config {
 		LimitedSets:       make(map[string]LimitedSetConfig),
 		Weapons:           make(map[int32]WeaponConfig),
 		Banners:           make(map[int32]BannerConfig),
+		ChapterBanners:    make(map[int32]BoxConfig),
+		EventBanners:      make(map[int32]EventBoxConfig),
 	}
 }
 
@@ -202,6 +213,9 @@ func ReadConfig(path string) (*Config, string, bool, error) {
 	if err := ensureJSONEOF(decoder); err != nil {
 		return nil, "", true, err
 	}
+	if err := validateEventSchedules(config.EventSchedules); err != nil {
+		return nil, "", true, err
+	}
 	normalizeConfig(&config)
 	return &config, ContentHash(raw), true, nil
 }
@@ -210,6 +224,9 @@ func EncodeConfig(config *Config) ([]byte, string, error) {
 	if config == nil {
 		return nil, "", fmt.Errorf("Gacha config is nil")
 	}
+	if err := validateEventSchedules(config.EventSchedules); err != nil {
+		return nil, "", err
+	}
 	normalizeConfig(config)
 	raw, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -217,6 +234,15 @@ func EncodeConfig(config *Config) ([]byte, string, error) {
 	}
 	raw = append(raw, '\n')
 	return raw, ContentHash(raw), nil
+}
+
+func validateEventSchedules(schedules map[int32]EventSchedule) error {
+	for id, schedule := range schedules {
+		if id <= 0 || schedule.StartDatetime < 0 || schedule.EndDatetime <= schedule.StartDatetime {
+			return fmt.Errorf("invalid Event Gacha schedule: %d", id)
+		}
+	}
+	return nil
 }
 
 // ConfigWithoutAutomaticEventWeapons returns a copy that omits root weapons
@@ -707,7 +733,7 @@ func validateConfigShape(config *Config, source *masterdata.GachaCatalog, entrie
 			}
 		}
 	}
-	return nil
+	return validateBoxConfigs(config, entries, options.ValidBoxRewards)
 }
 
 func normalizeConfig(config *Config) {
@@ -742,6 +768,12 @@ func normalizeConfig(config *Config) {
 			banner.EndDatetime = DefaultBannerEndDatetime
 			config.Banners[gachaId] = banner
 		}
+	}
+	if config.ChapterBanners == nil {
+		config.ChapterBanners = make(map[int32]BoxConfig)
+	}
+	if config.EventBanners == nil {
+		config.EventBanners = make(map[int32]EventBoxConfig)
 	}
 }
 

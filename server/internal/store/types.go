@@ -1391,6 +1391,12 @@ type GachaCatalogEntry struct {
 	PromotionItems             []GachaPromotionItem
 	DescriptionTextId          int32
 	MaxStepNumber              int32
+	BoxCount                   int32
+	IsCurrentBoxResettable     bool
+	IsResettableByAllTargets   bool
+	IsInvalidReset             bool
+	EventGachaBaseId           int32
+	EventGachaTicketTier       string
 }
 
 type GachaBoxItemEntry struct {
@@ -1401,6 +1407,8 @@ type GachaBoxItemEntry struct {
 	MaxCount       int32
 	CounterId      int32
 	Weight         int32
+	IsFeatured     bool
+	IsJackpot      bool
 }
 
 type GachaUnlockConditionEntry struct {
