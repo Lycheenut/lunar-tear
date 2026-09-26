@@ -12,7 +12,7 @@ import (
 	"lunar-tear/server/internal/masterdata/memorydb"
 )
 
-func TestGachaEditorExposesTicketTiersAndActivityKeepsOneFamily(t *testing.T) {
+func TestGachaEditorAndActivityExposeTicketTiers(t *testing.T) {
 	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
 	if err := memorydb.Init(path); err != nil {
 		t.Fatal(err)
@@ -51,20 +51,22 @@ func TestGachaEditorExposesTicketTiersAndActivityKeepsOneFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseFound := false
+	found := 0
 	for _, option := range groups.Options {
 		if option.Kind != "event" {
 			continue
 		}
-		if option.ID == 329001 {
-			baseFound = true
-		}
-		if option.ID == 329011 || option.ID == 329021 {
-			t.Fatalf("activity duplicated a ticket family: %+v", option)
+		for _, banner := range catalog.BoxBanners {
+			if banner.EventGachaBaseId == 329001 && int64(banner.GachaId) == option.ID {
+				found++
+				if option.RelatedChapterID != 300 || option.Titles["en"] != banner.Titles["en"] || option.Titles["ja"] != banner.Titles["ja"] {
+					t.Fatalf("activity lost tier metadata: %+v", option)
+				}
+			}
 		}
 	}
-	if !baseFound {
-		t.Fatal("activity lost the base event")
+	if found != 3 {
+		t.Fatalf("activity exposes %d ticket tiers, want 3", found)
 	}
 }
 

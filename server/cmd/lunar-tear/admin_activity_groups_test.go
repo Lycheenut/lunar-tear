@@ -149,7 +149,7 @@ func TestActivityGroupRoutesPersistPreviewAndPublish(t *testing.T) {
 	var eventID, chapterID int32
 	var eventEnd int64
 	for _, entry := range snapshot.GachaEntries {
-		if entry.GachaLabelType == model.GachaLabelEvent {
+		if entry.GachaId == 329001 {
 			eventID, chapterID, eventEnd = entry.GachaId, entry.RelatedEventQuestChapterId, entry.EndDatetime
 			break
 		}
@@ -197,8 +197,20 @@ func TestActivityGroupRoutesPersistPreviewAndPublish(t *testing.T) {
 	if response = request("POST", base+"/schedule", "Bearer test", eventSchedule); response.Code != 200 {
 		t.Fatal(response.Body.String())
 	}
-	if holder.Get().GachaConfig.EventSchedules[eventID].EndDatetime != eventSchedule.EndDatetime+48*60*60*1000 {
-		t.Fatal("Event Gacha schedule was not saved in Gacha config with 48 hour expiry")
+	tierCount := 0
+	for _, entry := range holder.Get().GachaEntries {
+		if entry.EventGachaBaseId != eventID {
+			continue
+		}
+		tierCount++
+		wantEnd := eventSchedule.EndDatetime + 48*60*60*1000
+		persisted := holder.Get().GachaConfig.EventSchedules[entry.GachaId]
+		if persisted.StartDatetime != eventSchedule.StartDatetime || persisted.EndDatetime != wantEnd || entry.StartDatetime != persisted.StartDatetime || entry.EndDatetime != persisted.EndDatetime {
+			t.Fatalf("Event Gacha tier %d was not saved and reloaded with 48 hour expiry: %+v", entry.GachaId, persisted)
+		}
+	}
+	if tierCount != 3 {
+		t.Fatalf("reloaded %d ticket tiers, want 3", tierCount)
 	}
 	if holder.Get().ActivityConfigHash != snapshot.ActivityConfigHash {
 		t.Fatal("scheduling changed activity membership config")

@@ -226,12 +226,12 @@
       actions.append(button("放弃修改", () => { draft = clone(data.catalog.config); clearChecked(); render(); }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
     }
     function renderUnit(detail, unit) {
-      if (unit.type === 3) detail.append(el("p", "Event Gacha 仅可选择当前 Variation 副本所对应的条目。", "activity-group-note"));
+      if (unit.type === 3) detail.append(el("p", "Event Gacha 仅可添加当前 Variation 副本对应的票池；铜、银、金票池分别配置，整组改时会更新已添加的条目。", "activity-group-note"));
       for (const [label, kinds] of sectionsByType[unit.type] || []) {
         const section = el("section", null, "activity-group-member-section"); section.dataset.memberSection = kinds[0];
         const members = visibleMembers(unit).filter(member => kinds.includes(member.kind));
         const isPrimary = kinds[0] === "premium" || kinds[0] === "chapter";
-        const isSingle = isPrimary || kinds[0] === "shop" || kinds[0] === "event";
+        const isSingle = isPrimary || kinds[0] === "shop";
         const heading = el("div", null, "activity-group-section-heading"); heading.append(el("h3", label));
         if (!isSingle) heading.append(el("span", String(members.length), "activity-group-section-count")); section.append(heading);
         if (isSingle) {

@@ -102,20 +102,17 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 		}
 		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: int64(id)}, Titles: titles, StartDatetime: banner.StartDatetime, EndDatetime: banner.EndDatetime, PreviewPath: []string{"gacha", banner.BannerAssetName, "banner.png"}})
 	}
+	entries = append([]store.GachaCatalogEntry(nil), entries...)
+	gacha.ApplyEventSchedules(entries, config)
 	for _, entry := range entries {
 		if entry.GachaLabelType != model.GachaLabelEvent {
 			continue
 		}
-		// One activity member schedules the whole ticket family. Higher tiers
-		// inherit its window at runtime and are edited in the Gacha tool.
-		if entry.EventGachaBaseId != 0 && entry.EventGachaBaseId != entry.GachaId {
-			continue
+		titles := resolver.byKey("gacha.title." + entry.BannerAssetName)
+		if len(titles) == 0 {
+			titles = resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", entry.DescriptionTextId))
 		}
-		start, end := entry.StartDatetime, entry.EndDatetime
-		if schedule, ok := config.EventSchedules[entry.GachaId]; ok {
-			start, end = schedule.StartDatetime, schedule.EndDatetime
-		}
-		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: int64(entry.GachaId)}, Titles: resolver.byKey(fmt.Sprintf("quest.event.chapter_title.%d", entry.DescriptionTextId)), StartDatetime: start, EndDatetime: end, RelatedChapterID: int64(entry.RelatedEventQuestChapterId)})
+		catalog.Options = append(catalog.Options, ActivityMemberOption{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: int64(entry.GachaId)}, Titles: titles, StartDatetime: entry.StartDatetime, EndDatetime: entry.EndDatetime, RelatedChapterID: int64(entry.RelatedEventQuestChapterId)})
 	}
 	sort.Slice(catalog.Options, func(i, j int) bool {
 		if catalog.Options[i].Kind != catalog.Options[j].Kind {
@@ -321,7 +318,7 @@ func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroup
 			}
 			seen[key] = true
 			kindCounts[member.Kind]++
-			if (member.Kind == "shop" || member.Kind == "event") && kindCounts[member.Kind] > 1 {
+			if member.Kind == "shop" && kindCounts[member.Kind] > 1 {
 				return fmt.Errorf("活动单位 %s 的 %s 最多只能选择 1 个条目", unit.Name, member.Kind)
 			}
 			if !activityMemberAllowed(option, unit.Type) {
@@ -562,10 +559,18 @@ func BuildActivitySchedule(path string, groups *activitygroup.Config, config *ga
 	for id, banner := range config.Banners {
 		updated.Banners[id] = banner
 	}
-	if config.EventSchedules != nil {
-		updated.EventSchedules = make(map[int32]gacha.EventSchedule, len(config.EventSchedules))
-		for id, schedule := range config.EventSchedules {
-			updated.EventSchedules[id] = schedule
+	updated.EventSchedules = make(map[int32]gacha.EventSchedule, len(config.EventSchedules))
+	for id, schedule := range config.EventSchedules {
+		updated.EventSchedules[id] = schedule
+	}
+	// Freeze inherited windows before changing any base pool or chapter, so
+	// unselected ticket tiers keep their current effective schedules.
+	for _, option := range catalog.Options {
+		if option.Kind == "event" {
+			id := int32(option.ID)
+			if _, exists := updated.EventSchedules[id]; !exists {
+				updated.EventSchedules[id] = gacha.EventSchedule{StartDatetime: option.StartDatetime, EndDatetime: option.EndDatetime}
+			}
 		}
 	}
 	seen := make(map[string]bool)
@@ -625,9 +630,6 @@ func BuildActivitySchedule(path string, groups *activitygroup.Config, config *ga
 				updated.Banners[int32(member.ID)] = banner
 			}
 			if member.Kind == "event" {
-				if updated.EventSchedules == nil {
-					updated.EventSchedules = make(map[int32]gacha.EventSchedule)
-				}
 				updated.EventSchedules[int32(member.ID)] = gacha.EventSchedule{StartDatetime: start, EndDatetime: targetEnd}
 			}
 		}

@@ -93,7 +93,7 @@ test("Record and Variation sections restrict chapter and Event Gacha choices", a
   assert.equal(chapterPicker.value, "chapter:2");
   findText(root, "3. Variation").listeners.click();
   assert.equal(findText(root, "活动商店"), undefined);
-  const picker = descendants(root).find(node => node.tagName === "select" && node.attributes["aria-label"] === "选择Event Gacha");
+  const picker = descendants(root).find(node => node.tagName === "select" && node.attributes["aria-label"] === "添加Event Gacha");
   assert.deepEqual(picker.children.map(option => option.value), ["", "event:4"]);
   assert.equal(picker.children[1].dataset.searchLabel, "4. Event");
 });
@@ -125,11 +125,12 @@ test("changing the sole Variation chapter removes its former Event Gacha and off
   let section = descendants(root).find(node => node.dataset.memberSection === "event");
   const eventPicker = descendants(section).find(node => node.tagName === "select");
   eventPicker.value = "event:4"; eventPicker.listeners.change();
+  findText(section, "添加条目").listeners.click();
   section = descendants(root).find(node => node.dataset.memberSection === "chapter");
   assert.equal(findText(section, "移除"), undefined);
   const picker = descendants(section).find(node => node.tagName === "select");
   picker.value = "chapter:99"; picker.listeners.change();
-  const replacementPicker = descendants(root).find(node => node.attributes["aria-label"] === "选择Event Gacha");
+  const replacementPicker = descendants(root).find(node => node.attributes["aria-label"] === "添加Event Gacha");
   assert.deepEqual(replacementPicker.children.map(option => option.value), ["", "event:5"]);
   await findText(root, "保存活动组配置").listeners.click();
   assert.deepEqual(posts[0].units[2].members, [{ kind: "chapter", id: 99 }]);
@@ -149,8 +150,7 @@ test("new units choose their primary entry directly without an add button", asyn
 
 for (const [unitName, unitIndex, kind, ids] of [
   ["1. 記念ガチャ", 0, "shop", [11, 12]],
-  ["2. Record", 1, "shop", [11, 12]],
-  ["3. Variation", 2, "event", [4, 13]]
+  ["2. Record", 1, "shop", [11, 12]]
 ]) test(`${unitName} selects, replaces, and clears one ${kind} without changing other members`, async () => {
   const { root, posts } = await createEditor([], [
     { kind: "shop", id: 11, titles: { en: "Exchange" } },
@@ -171,6 +171,31 @@ for (const [unitName, unitIndex, kind, ids] of [
     assert.equal(posts.at(-1).units[unitIndex].members.filter(member => member.kind !== kind).length, 1);
   }
   assert.deepEqual(selected, [[{ kind, id: ids[0] }], [{ kind, id: ids[1] }], []]);
+});
+
+test("Variation keeps all ticket pools as independent entries and removes only the chosen tier", async () => {
+  const ids = [329001, 329011, 329021];
+  const { root, posts } = await createEditor([], ids.map((id, index) => ({
+    kind: "event", id, relatedChapterId: 3, titles: { ja: ["極光の覇王・銅", "極光の覇王・銀", "極光の覇王・金"][index] }
+  })));
+  findText(root, "3. Variation").listeners.click();
+  for (const id of ids) {
+    const section = descendants(root).find(node => node.dataset.memberSection === "event");
+    const picker = descendants(section).find(node => node.tagName === "select");
+    picker.value = `event:${id}`; picker.listeners.change();
+    findText(section, "添加条目").listeners.click();
+  }
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[0].units[2].members.slice(1), ids.map(id => ({ kind: "event", id })));
+  let section = descendants(root).find(node => node.dataset.memberSection === "event");
+  assert.equal(section.querySelectorAll(".activity-group-entry").length, 3);
+  const silver = section.querySelectorAll(".activity-group-entry").find(row => findText(row, "329011. 極光の覇王・銀"));
+  findText(silver, "移除").listeners.click();
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[1].units[2].members.slice(1), [329001, 329021].map(id => ({ kind: "event", id })));
+  section = descendants(root).find(node => node.dataset.memberSection === "event");
+  const picker = descendants(section).find(node => node.tagName === "select");
+  assert.deepEqual(picker.children.map(option => option.value), ["", "event:4", "event:329011"]);
 });
 
 for (const [unitName, unitIndex] of [["2. Record", 1], ["3. Variation", 2]]) {

@@ -9,6 +9,7 @@ import (
 
 	"lunar-tear/server/internal/activitygroup"
 	"lunar-tear/server/internal/gacha"
+	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
 	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/store"
@@ -31,9 +32,10 @@ func TestActivityGroupsValidateMembersAndReferences(t *testing.T) {
 		{ActivityMember: activitygroup.ActivityMember{Kind: "term", ID: 13}},
 		{ActivityMember: activitygroup.ActivityMember{Kind: "term", ID: 14}},
 		{ActivityMember: activitygroup.ActivityMember{Kind: "term", ID: 15}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: 16}, RelatedChapterID: 10},
 	}}
 	valid := activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{
-		{ID: "event", Name: "Event", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 1}, {Kind: "event", ID: 3}, {Kind: "term", ID: 13}, {Kind: "term", ID: 14}}},
+		{ID: "event", Name: "Event", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 1}, {Kind: "event", ID: 3}, {Kind: "event", ID: 12}, {Kind: "term", ID: 13}, {Kind: "term", ID: 14}}},
 		{ID: "premium", Name: "Premium", Type: activitygroup.TypePremium, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 4}, {Kind: "banner", ID: 5}}},
 	}, Groups: []activitygroup.ActivityGroup{{ID: "mixed", Name: "Mixed", UnitIDs: []string{"event", "premium"}}}}
 	if err := ValidateActivityGroups(&valid, catalog); err != nil {
@@ -62,8 +64,8 @@ func TestActivityGroupsValidateMembersAndReferences(t *testing.T) {
 			c.Units[0].Type = activitygroup.TypeRecord
 			c.Units[0].Members = []activitygroup.ActivityMember{{Kind: "chapter", ID: 2}, {Kind: "shop", ID: 6}, {Kind: "shop", ID: 11}}
 		},
-		"multiple event gachas": func(c *activitygroup.Config) {
-			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "event", ID: 12})
+		"unrelated event gacha": func(c *activitygroup.Config) {
+			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "event", ID: 16})
 		},
 		"variation shop": func(c *activitygroup.Config) {
 			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "shop", ID: 6})
@@ -231,6 +233,106 @@ func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.
 		if _, _, _, err := BuildActivitySchedule(path, groups, config, catalog, "combined", invalid[0], invalid[1]); err == nil {
 			t.Fatal("invalid date accepted")
 		}
+	}
+}
+
+func TestActivityEventGachaTiersSeedAndRescheduleOnlyExplicitMembers(t *testing.T) {
+	path := filepath.Join("..", "..", "assets", "release", "20240404193219.bin.e")
+	if err := memorydb.Init(path); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := masterdata.LoadGachaCatalog(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := gacha.DefaultConfig()
+	config.EventSchedules = map[int32]gacha.EventSchedule{
+		329001: {StartDatetime: 1000, EndDatetime: 2000},
+		329021: {StartDatetime: 1200, EndDatetime: 1800},
+	}
+	beforeEntries, _ := json.Marshal(entries)
+	beforeConfig, _ := json.Marshal(config)
+	generated, err := GenerateActivityGroups(path, nil, config, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unit activitygroup.ActivityUnit
+	for _, candidate := range generated.Units {
+		if candidate.ID == "chapter:300" {
+			unit = candidate
+		}
+	}
+	for _, id := range []int64{329001, 329011, 329021} {
+		assertActivityMember(t, &unit, activitygroup.ActivityMember{Kind: "event", ID: id})
+	}
+	for _, id := range []int64{6055, 6056, 6057} {
+		assertActivityMember(t, &unit, activitygroup.ActivityMember{Kind: "term", ID: id})
+	}
+	const start, end = int64(1800000000000), int64(1800100000000)
+	for _, removed := range []int64{0, 329001, 329011, 329021} {
+		groups := &activitygroup.Config{Version: activitygroup.ConfigVersion,
+			Units:  []activitygroup.ActivityUnit{{ID: unit.ID, Name: unit.Name, Type: unit.Type}},
+			Groups: []activitygroup.ActivityGroup{{ID: "tiers", Name: "Ticket tiers", UnitIDs: []string{unit.ID}}},
+		}
+		for _, member := range unit.Members {
+			if member.Kind != "event" || member.ID != removed {
+				groups.Units[0].Members = append(groups.Units[0].Members, member)
+			}
+		}
+		catalog, err := LoadActivityGroups(path, groups, config, entries)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, option := range catalog.Options {
+			if option.Kind == "event" && option.ID == 329011 && (option.StartDatetime != 1000 || option.EndDatetime != 2000) {
+				t.Fatalf("inherited silver schedule not displayed: %+v", option)
+			}
+		}
+		candidate, updated, preview, err := BuildActivitySchedule(path, groups, config, catalog, "tiers", start, end)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file, err := memorydb.OpenBytes(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []int64{6055, 6056, 6057} {
+			assertRawTimeByID(t, file, "m_consumable_item_term", 0, id, 2, end+claimRedemptionGraceMillis)
+		}
+		effective := append([]store.GachaCatalogEntry(nil), entries...)
+		gacha.ApplyEventSchedules(effective, updated)
+		for _, entry := range effective {
+			if entry.EventGachaBaseId != 329001 {
+				continue
+			}
+			want := gacha.EventSchedule{StartDatetime: start, EndDatetime: end + claimRedemptionGraceMillis}
+			if int64(entry.GachaId) == removed {
+				want = config.EventSchedules[329001]
+				if override, ok := config.EventSchedules[entry.GachaId]; ok {
+					want = override
+				}
+			}
+			if entry.StartDatetime != want.StartDatetime || entry.EndDatetime != want.EndDatetime || updated.EventSchedules[entry.GachaId] != want {
+				t.Fatalf("removed %d: tier %d schedule = %d..%d, want %+v", removed, entry.GachaId, entry.StartDatetime, entry.EndDatetime, want)
+			}
+			fields := 0
+			for _, change := range preview {
+				if change.Kind == "event" && change.ID == int64(entry.GachaId) {
+					fields++
+				}
+			}
+			if (int64(entry.GachaId) == removed && fields != 0) || (int64(entry.GachaId) != removed && fields != 2) {
+				t.Fatalf("removed %d: tier %d has %d preview fields", removed, entry.GachaId, fields)
+			}
+		}
+		if again, err := GenerateActivityGroups("missing.bin", groups, config, entries); err != nil || again != groups {
+			t.Fatalf("saved membership regenerated: %v", err)
+		}
+	}
+	afterEntries, _ := json.Marshal(entries)
+	afterConfig, _ := json.Marshal(config)
+	if string(beforeEntries) != string(afterEntries) || string(beforeConfig) != string(afterConfig) {
+		t.Fatal("building activity changes mutated the input catalog/config")
 	}
 }
 
