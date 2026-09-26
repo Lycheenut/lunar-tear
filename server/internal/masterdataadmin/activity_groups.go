@@ -121,6 +121,93 @@ func LoadActivityGroups(path string, groups *activitygroup.Config, config *gacha
 	return catalog, nil
 }
 
+// Only initial generation infers currency terms from shops, Gacha, and quest
+// drops. Saved configurations and schedule edits use explicit members.
+func initialActivityCurrencyTerms(file *memorydb.File, index *relationIndex, entries []store.GachaCatalogEntry) map[int64][]int64 {
+	termIDs := make(map[rowRef]int64)
+	for id, ref := range index.termsByID {
+		termIDs[ref] = id
+	}
+	shopTerms := make(map[rowRef][]int64)
+	for currency, shops := range index.shopsByCurrency {
+		if term, ok := index.termByCurrency[currency]; ok {
+			for _, shop := range shops {
+				shopTerms[shop] = append(shopTerms[shop], termIDs[term])
+			}
+		}
+	}
+	// Event Gacha links expose only the first ticket tier. The quest pickup
+	// chain includes the silver/gold tickets used by the same Variation.
+	tickets := make(map[int64]bool)
+	for _, row := range readRows(file, "m_consumable_item") {
+		if bonusInt(row, 1) == 200 {
+			tickets[bonusInt(row, 0)] = true
+		}
+	}
+	rewardTerms := make(map[int64]int64)
+	for _, row := range readRows(file, "m_battle_drop_reward") {
+		currency := bonusInt(row, 2)
+		if bonusInt(row, 1) == int64(model.PossessionTypeConsumableItem) && tickets[currency] {
+			if term, ok := index.termByCurrency[currency]; ok {
+				rewardTerms[bonusInt(row, 0)] = termIDs[term]
+			}
+		}
+	}
+	pickupTerms := make(map[int64][]int64)
+	for _, row := range readRows(file, "m_quest_pickup_reward_group") {
+		if term := rewardTerms[bonusInt(row, 2)]; term != 0 {
+			pickupTerms[bonusInt(row, 0)] = append(pickupTerms[bonusInt(row, 0)], term)
+		}
+	}
+	questRows := readRows(file, "m_quest")
+	chapterTerms := make(map[int64][]int64)
+	for _, quest := range questBonusQuests(file) {
+		chapterTerms[quest.ChapterID] = append(chapterTerms[quest.ChapterID], pickupTerms[bonusInt(questRows[quest.Row], 8)]...)
+	}
+	result := make(map[int64][]int64)
+	for _, chapter := range readRows(file, "m_event_quest_chapter") {
+		chapterID, _ := integerAt(chapter, 0)
+		chapterType, _ := integerAt(chapter, 1)
+		linkID, _ := integerAt(chapter, 5)
+		link := index.eventLinks[linkID]
+		domain, _ := integerAt(link, 1)
+		destination, _ := integerAt(link, 2)
+		if chapterType == 1 && domain == eventLinkDomainShop {
+			if shop, ok := index.shopsByID[destination]; ok {
+				result[chapterID] = append(result[chapterID], shopTerms[shop]...)
+			}
+		} else if chapterType == 2 && domain == int64(model.MomBannerDomainGacha) {
+			currency, _ := integerAt(link, 4)
+			if tickets[currency] {
+				result[chapterID] = append(result[chapterID], chapterTerms[chapterID]...)
+			}
+		}
+	}
+	for _, entry := range entries {
+		if entry.GachaLabelType != model.GachaLabelEvent {
+			continue
+		}
+		ids := []int64{termIDs[index.termByCurrency[int64(entry.RequiredConsumableItemId)]]}
+		for _, phase := range entry.PricePhases {
+			if phase.PriceType == int32(model.PriceTypeConsumableItem) {
+				ids = append(ids, termIDs[index.termByCurrency[int64(phase.PriceId)]])
+			}
+		}
+		chapterID := int64(entry.RelatedEventQuestChapterId)
+		result[chapterID] = append(result[chapterID], ids...)
+	}
+	for chapterID, ids := range result {
+		seen := make(map[int64]bool)
+		for _, id := range ids {
+			if id != 0 {
+				seen[id] = true
+			}
+		}
+		result[chapterID] = sortedBonusIDs(seen)
+	}
+	return result
+}
+
 func activityKey(member activitygroup.ActivityMember) string {
 	return fmt.Sprintf("%s:%d", member.Kind, member.ID)
 }
@@ -218,7 +305,8 @@ func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroup
 		}
 		units[unit.ID] = true
 		seen := make(map[string]bool)
-		hasSource := false
+		kindCounts := make(map[string]int)
+		sourceCount := 0
 		variationChapters := make(map[int64]bool)
 		for _, member := range unit.Members {
 			key := activityKey(member)
@@ -227,18 +315,22 @@ func ValidateActivityGroups(config *activitygroup.Config, catalog *ActivityGroup
 				return fmt.Errorf("活动单位 %s 的成员 %s 不存在或重复", unit.Name, key)
 			}
 			seen[key] = true
+			kindCounts[member.Kind]++
+			if (member.Kind == "shop" || member.Kind == "event") && kindCounts[member.Kind] > 1 {
+				return fmt.Errorf("活动单位 %s 的 %s 最多只能选择 1 个条目", unit.Name, member.Kind)
+			}
 			if !activityMemberAllowed(option, unit.Type) {
 				return fmt.Errorf("活动单位 %s 不支持成员类型 %s", unit.Name, member.Kind)
 			}
 			if activitySourceType(option) == unit.Type {
-				hasSource = true
+				sourceCount++
 			}
 			if member.Kind == "chapter" && option.ChapterType == 2 {
 				variationChapters[member.ID] = true
 			}
 		}
-		if !hasSource {
-			return fmt.Errorf("活动单位 %s 至少需要 1 个对应类型的 Premium Gacha、Record 或 Variation", unit.Name)
+		if sourceCount != 1 {
+			return fmt.Errorf("活动单位 %s 必须且只能选择 1 个对应类型的 Premium Gacha、Record 或 Variation 主条目", unit.Name)
 		}
 		for _, member := range unit.Members {
 			if member.Kind == "event" && !variationChapters[options[activityKey(member)].RelatedChapterID] {
@@ -289,6 +381,7 @@ func GenerateActivityGroups(path string, existing *activitygroup.Config, config 
 		return nil, err
 	}
 	groups := &activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{}, Groups: []activitygroup.ActivityGroup{}}
+	currencyTerms := initialActivityCurrencyTerms(file, index, entries)
 	byRef := make(map[rowRef]activitygroup.ActivityMember)
 	for _, option := range catalog.Options {
 		for _, kind := range activityMemberKinds {
@@ -355,6 +448,9 @@ func GenerateActivityGroups(path string, existing *activitygroup.Config, config 
 				if possessionType == int64(model.PossessionTypeConsumableItem) {
 					addCurrency(currencyID)
 				}
+			}
+			for _, id := range currencyTerms[source.ID] {
+				add(index.termsByID[id])
 			}
 			for _, term := range index.missionTermsByChapter[source.ID] {
 				add(term)

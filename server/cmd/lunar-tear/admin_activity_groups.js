@@ -18,7 +18,7 @@
   window.createActivityGroupEditor = ({ root, api, showNotice, localizedText, renderBannerPreview, hasOtherChanges, onPublished }) => {
     let data = null, draft = null, baseline = "", mode = "groups", selected = "", search = "", busy = false;
     let optionIndex = new Map();
-    const listScroll = { groups: 0, units: 0 };
+    const sidebarScroll = { groups: 0, units: 0 };
     const typeFilters = { groups: "", units: "" };
     const checkedIDs = { groups: new Set(), units: new Set() };
     const clearChecked = () => { checkedIDs.groups.clear(); checkedIDs.units.clear(); };
@@ -115,8 +115,10 @@
       root.querySelectorAll("[data-group-schedule]").forEach(node => { node.disabled = busy || dirty(); });
     }
     function render() {
-      const previousList = root.querySelector(".activity-group-list");
-      if (previousList) listScroll[previousList.dataset.mode] = previousList.scrollTop;
+      const previousSidebar = root.querySelector(".activity-group-sidebar");
+      if (previousSidebar) sidebarScroll[previousSidebar.dataset.mode] = previousSidebar.scrollTop;
+      const previousDetail = root.querySelector(".activity-group-detail");
+      const detailPosition = { selection: previousDetail?.dataset.selection, top: previousDetail?.scrollTop || 0 };
       root.replaceChildren();
       if (!draft) return;
       for (const value of ["groups", "units"]) {
@@ -136,9 +138,10 @@
       }
       toolbar.append(button(mode === "groups" ? "新建活动组" : "新建活动单位", add, "button ghost activity-group-add")); root.append(toolbar);
       const layout = el("div", null, "activity-group-layout"), sidebar = el("aside", null, "activity-group-sidebar"), detail = el("section", null, "activity-group-detail");
-      const searchInput = input(search, value => { search = value; list.scrollTop = 0; renderList(); }, "search"); searchInput.placeholder = "搜索名称或 ID"; searchInput.setAttribute("aria-label", "搜索活动组或单位");
+      sidebar.dataset.mode = mode;
+      const searchInput = input(search, value => { search = value; sidebar.scrollTop = 0; renderList(); }, "search"); searchInput.placeholder = "搜索名称或 ID"; searchInput.setAttribute("aria-label", "搜索活动组或单位");
       const typeFilter = select([["", "全部类型"], ...unitTypes], typeFilters[mode], value => {
-        typeFilters[mode] = value; list.scrollTop = 0; renderList();
+        typeFilters[mode] = value; sidebar.scrollTop = 0; renderList();
       }, "类型筛选");
       const filteredItems = () => {
         const type = Number(typeFilters[mode]), types = new Map(draft.units.map(unit => [unit.id, unit.type]));
@@ -156,7 +159,7 @@
       const selectAllLabel = el("label"); selectAllLabel.append(selectAll, el("span", "全选当前结果"));
       const deleteSelected = button("", () => remove(draft[mode].filter(item => checkedIDs[mode].has(item.id))), "button ghost activity-group-batch-delete");
       batchActions.append(selectAllLabel, deleteSelected);
-      const list = el("div", null, "activity-group-list"); list.dataset.mode = mode; sidebar.append(searchInput, field("类型筛选", typeFilter), batchActions, list);
+      const list = el("div", null, "activity-group-list"); sidebar.append(searchInput, field("类型筛选", typeFilter), batchActions, list);
       function updateSelectionState() {
         const rows = filteredItems(), count = rows.filter(item => checkedIDs[mode].has(item.id)).length;
         selectAll.checked = rows.length > 0 && count === rows.length;
@@ -166,7 +169,7 @@
         deleteSelected.disabled = busy || !checkedIDs[mode].size;
       }
       function renderList() {
-        const scrollTop = list.scrollTop;
+        const scrollTop = sidebar.scrollTop;
         list.replaceChildren();
         const rows = filteredItems();
         if (!rows.length) list.append(el("p", "暂无匹配内容"));
@@ -184,11 +187,13 @@
           });
           row.append(checkbox, choose); list.append(row);
         });
-        list.scrollTop = scrollTop;
+        sidebar.scrollTop = scrollTop;
         updateSelectionState();
       }
       renderList();
       function renderDetail() {
+        const selection = `${mode}:${selected}`, scrollTop = detail.dataset.selection === selection ? detail.scrollTop : 0;
+        detail.dataset.selection = selection;
         detail.replaceChildren();
         const item = draft[mode].find(row => row.id === selected);
         if (!item) detail.append(el("p", "选择已有内容，或新建活动组 / 活动单位。", "activity-group-note"));
@@ -209,39 +214,58 @@
           header.append(field("名称", name), button("删除", () => remove([item]))); detail.append(header);
           if (mode === "units") renderUnit(detail, item); else renderGroup(detail, item);
         }
+        detail.scrollTop = scrollTop;
       }
       renderDetail();
       layout.append(sidebar, detail); root.append(layout);
-      list.scrollTop = listScroll[mode];
+      sidebar.scrollTop = sidebarScroll[mode];
+      if (detailPosition.selection === detail.dataset.selection) detail.scrollTop = detailPosition.top;
       const footer = el("div", null, "savebar"); const summary = el("strong"); summary.dataset.groupSummary = "";
       const actions = el("div", null, "save-actions");
       const saveButton = button("保存活动组配置", () => run(save), "button primary"); saveButton.dataset.groupSave = "";
       actions.append(button("放弃修改", () => { draft = clone(data.catalog.config); clearChecked(); render(); }), saveButton); footer.append(summary, actions); root.append(footer); updateSaveState();
     }
     function renderUnit(detail, unit) {
-      detail.append(el("p", `至少添加 1 个 ${typeLabel(unit.type)}。${unit.type === 3 ? "Event Gacha 仅可选择已添加的 Variation 副本所对应的条目。" : ""}`, "activity-group-note"));
+      if (unit.type === 3) detail.append(el("p", "Event Gacha 仅可选择当前 Variation 副本所对应的条目。", "activity-group-note"));
       for (const [label, kinds] of sectionsByType[unit.type] || []) {
         const section = el("section", null, "activity-group-member-section"); section.dataset.memberSection = kinds[0];
         const members = visibleMembers(unit).filter(member => kinds.includes(member.kind));
-        const heading = el("div", null, "activity-group-section-heading"); heading.append(el("h3", label), el("span", String(members.length), "activity-group-section-count")); section.append(heading);
-        if (!members.length) section.append(el("p", "尚未添加条目", "activity-group-empty"));
+        const isPrimary = kinds[0] === "premium" || kinds[0] === "chapter";
+        const isSingle = isPrimary || kinds[0] === "shop" || kinds[0] === "event";
+        const heading = el("div", null, "activity-group-section-heading"); heading.append(el("h3", label));
+        if (!isSingle) heading.append(el("span", String(members.length), "activity-group-section-count")); section.append(heading);
+        if (isSingle) {
+          const options = data.catalog.options.filter(option => kinds.includes(option.kind) && memberAllowed(option, unit));
+          const picker = select([["", isPrimary ? `选择${label}` : "不关联"], ...options.map(option => [key(option), title(option)])], members.length === 1 ? key(members[0]) : "", value => {
+            const option = options.find(option => key(option) === value);
+            if (isPrimary && !option) return;
+            unit.members = unit.members.filter(member => !(isPrimary ? member.kind === "premium" || member.kind === "chapter" : kinds.includes(member.kind))
+              && !(isPrimary && unit.type === 3 && member.kind === "event" && optionFor(member)?.relatedChapterId !== option.id));
+            if (option) unit.members.unshift({ kind: option.kind, id: option.id });
+            render();
+          }, `选择${label}`);
+          picker.children[0].disabled = isPrimary; picker.required = isPrimary; picker.dataset.searchable = "true";
+          const selection = el("div", null, "activity-group-single-select"); selection.append(picker); section.append(selection);
+        } else if (!members.length) section.append(el("p", "尚未添加条目", "activity-group-empty"));
         const hasPreview = kinds[0] === "banner" || kinds[0] === "premium";
-        const entries = el("div", null, hasPreview ? "activity-group-banner-grid" : "");
+        const entries = el("div", null, kinds[0] === "banner" ? "activity-group-banner-grid" : "");
         for (const member of members) {
-          const option = optionFor(member), row = el("div", null, hasPreview ? "activity-group-banner-card" : "activity-group-entry"), copy = el("div", null, "activity-group-entry-copy");
+          const rowClass = member.kind === "banner" ? "activity-group-banner-card" : member.kind === "premium" ? "activity-group-entry activity-group-premium-row" : "activity-group-entry";
+          const option = optionFor(member), row = el("div", null, rowClass), copy = el("div", null, "activity-group-entry-copy");
           if (hasPreview) row.append(renderBannerPreview(option));
           copy.append(el("strong", title(member)), el("small", option ? `${formatTime(option.startDatetime)} → ${formatTime(option.endDatetime)}` : "引用已失效"));
           if (unit.type === 1 && member.kind === "term") {
             const conversion = optionFor({ kind: "medal", id: member.id });
             if (conversion) copy.append(el("small", `自动转换时间：${formatTime(conversion.endDatetime)}`));
           }
-          row.append(copy, button("移除", () => {
+          row.append(copy);
+          if (!isSingle) row.append(button("移除", () => {
             unit.members = unit.members.filter(item => key(item) !== key(member) && !(unit.type === 1 && member.kind === "term" && item.kind === "medal" && item.id === member.id));
-            if (member.kind === "chapter") unit.members = unit.members.filter(item => item.kind !== "event" || optionFor(item)?.relatedChapterId !== member.id);
             render();
           })); entries.append(row);
         }
         section.append(entries);
+        if (isSingle) { detail.append(section); continue; }
         const options = data.catalog.options.filter(option => kinds.includes(option.kind) && memberAllowed(option, unit) && !members.some(member => key(member) === key(option)));
         let memberKey = "";
         const picker = select([["", `选择${label}`], ...options.map(option => [key(option), title(option)])], "", value => { memberKey = value; addButton.disabled = busy || !value; }, `添加${label}`);

@@ -23,9 +23,17 @@ func TestActivityGroupsValidateMembersAndReferences(t *testing.T) {
 		{ActivityMember: activitygroup.ActivityMember{Kind: "banner", ID: 5}},
 		{ActivityMember: activitygroup.ActivityMember{Kind: "shop", ID: 6}},
 		{ActivityMember: activitygroup.ActivityMember{Kind: "chapter", ID: 7}, ChapterType: 10},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "premium", ID: 8}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "chapter", ID: 9}, ChapterType: 1},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "chapter", ID: 10}, ChapterType: 2},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "shop", ID: 11}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "event", ID: 12}, RelatedChapterID: 1},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "term", ID: 13}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "term", ID: 14}},
+		{ActivityMember: activitygroup.ActivityMember{Kind: "term", ID: 15}},
 	}}
 	valid := activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{
-		{ID: "event", Name: "Event", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 1}, {Kind: "event", ID: 3}}},
+		{ID: "event", Name: "Event", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 1}, {Kind: "event", ID: 3}, {Kind: "term", ID: 13}, {Kind: "term", ID: 14}}},
 		{ID: "premium", Name: "Premium", Type: activitygroup.TypePremium, Members: []activitygroup.ActivityMember{{Kind: "premium", ID: 4}, {Kind: "banner", ID: 5}}},
 	}, Groups: []activitygroup.ActivityGroup{{ID: "mixed", Name: "Mixed", UnitIDs: []string{"event", "premium"}}}}
 	if err := ValidateActivityGroups(&valid, catalog); err != nil {
@@ -36,6 +44,26 @@ func TestActivityGroupsValidateMembersAndReferences(t *testing.T) {
 		"wrong source": func(c *activitygroup.Config) { c.Units[0].Type = 2 },
 		"mixed chapter types": func(c *activitygroup.Config) {
 			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "chapter", ID: 2})
+		},
+		"multiple premium sources": func(c *activitygroup.Config) {
+			c.Units[1].Members = append(c.Units[1].Members, activitygroup.ActivityMember{Kind: "premium", ID: 8})
+		},
+		"multiple record sources": func(c *activitygroup.Config) {
+			c.Units[0].Type = activitygroup.TypeRecord
+			c.Units[0].Members = []activitygroup.ActivityMember{{Kind: "chapter", ID: 2}, {Kind: "chapter", ID: 9}}
+		},
+		"multiple variation sources": func(c *activitygroup.Config) {
+			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "chapter", ID: 10})
+		},
+		"multiple premium shops": func(c *activitygroup.Config) {
+			c.Units[1].Members = append(c.Units[1].Members, activitygroup.ActivityMember{Kind: "shop", ID: 6}, activitygroup.ActivityMember{Kind: "shop", ID: 11})
+		},
+		"multiple record shops": func(c *activitygroup.Config) {
+			c.Units[0].Type = activitygroup.TypeRecord
+			c.Units[0].Members = []activitygroup.ActivityMember{{Kind: "chapter", ID: 2}, {Kind: "shop", ID: 6}, {Kind: "shop", ID: 11}}
+		},
+		"multiple event gachas": func(c *activitygroup.Config) {
+			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "event", ID: 12})
 		},
 		"variation shop": func(c *activitygroup.Config) {
 			c.Units[0].Members = append(c.Units[0].Members, activitygroup.ActivityMember{Kind: "shop", ID: 6})
@@ -203,6 +231,120 @@ func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.
 		if _, _, _, err := BuildActivitySchedule(path, groups, config, catalog, "combined", invalid[0], invalid[1]); err == nil {
 			t.Fatal("invalid date accepted")
 		}
+	}
+}
+
+func TestActivityCurrencyTermsAreSeededIndividuallyAndOnlyExplicitMembersReschedule(t *testing.T) {
+	path, _ := linkedUpdateTestCatalog(t)
+	config := gacha.DefaultConfig()
+	// The Gacha exposes only copper; silver and gold come from the quest drops.
+	entries := []store.GachaCatalogEntry{{GachaId: 300001, GachaLabelType: model.GachaLabelEvent, RelatedEventQuestChapterId: 300,
+		RequiredConsumableItemId: 6055, PricePhases: []store.GachaPricePhaseEntry{
+			{PriceType: int32(model.PriceTypeConsumableItem), PriceId: 6055},
+			{PriceType: int32(model.PriceTypeGem), PriceId: 212},
+		}}}
+	generated, err := GenerateActivityGroups(path, nil, config, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for unitID, ids := range map[string][]int64{"chapter:505": {212, 213, 214}, "chapter:300": {6055, 6056, 6057}} {
+		var got []int64
+		for _, unit := range generated.Units {
+			if unit.ID == unitID {
+				for _, member := range unit.Members {
+					if member.Kind == "term" {
+						got = append(got, member.ID)
+					}
+				}
+			}
+		}
+		if !reflect.DeepEqual(got, ids) {
+			t.Fatalf("%s seeded currency terms = %v, want %v", unitID, got, ids)
+		}
+	}
+	groups := &activitygroup.Config{Version: activitygroup.ConfigVersion, Units: []activitygroup.ActivityUnit{
+		{ID: "record", Name: "Record", Type: activitygroup.TypeRecord, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 505}, {Kind: "term", ID: 212}, {Kind: "term", ID: 213}, {Kind: "term", ID: 214}}},
+		{ID: "variation", Name: "Variation", Type: activitygroup.TypeVariation, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 300}, {Kind: "term", ID: 6055}, {Kind: "term", ID: 6056}, {Kind: "term", ID: 6057}}},
+	}, Groups: []activitygroup.ActivityGroup{{ID: "currencies", Name: "Currencies", UnitIDs: []string{"record", "variation"}}}}
+	catalog, err := LoadActivityGroups(path, groups, config, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTerms := map[int64]bool{212: true, 213: true, 214: true, 6055: true, 6056: true, 6057: true}
+	found := 0
+	for _, option := range catalog.Options {
+		if option.Kind != "term" {
+			continue
+		}
+		if wantTerms[option.ID] {
+			found++
+			if option.Titles["ja"] == "" {
+				t.Fatalf("term %d has no localized name", option.ID)
+			}
+		}
+	}
+	if found != len(wantTerms) {
+		t.Fatalf("found %d expected terms, want %d", found, len(wantTerms))
+	}
+	before, _ := json.Marshal(groups)
+	const start, end = int64(1800000000000), int64(1800100000000)
+	candidate, _, preview, err := BuildActivitySchedule(path, groups, config, catalog, "currencies", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id := range wantTerms {
+		assertRawTimeByID(t, file, "m_consumable_item_term", 0, id, 1, start)
+		assertRawTimeByID(t, file, "m_consumable_item_term", 0, id, 2, end+claimRedemptionGraceMillis)
+	}
+	seen := make(map[string]bool)
+	for _, change := range preview {
+		if change.Kind != "term" {
+			continue
+		}
+		if _, ok := wantTerms[change.ID]; !ok {
+			t.Fatalf("unrelated term changed: %+v", change)
+		}
+		key := activityKey(change.ActivityMember) + change.Field
+		if seen[key] {
+			t.Fatalf("term changed twice: %s", key)
+		}
+		seen[key] = true
+	}
+	if len(seen) != 2*len(wantTerms) {
+		t.Fatalf("preview omitted currency terms: %+v", preview)
+	}
+	after, _ := json.Marshal(groups)
+	if string(before) != string(after) {
+		t.Fatal("scheduling mutated the saved group configuration")
+	}
+	// Removing silver keeps it excluded even while copper and gold are selected.
+	for i := range groups.Units {
+		members := groups.Units[i].Members
+		groups.Units[i].Members = append(members[:2:2], members[3:]...)
+	}
+	candidate, _, preview, err = BuildActivitySchedule(path, groups, config, catalog, "currencies", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err = memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, option := range catalog.Options {
+		if option.Kind == "term" && (option.ID == 213 || option.ID == 6056) {
+			assertRawTimeByID(t, file, "m_consumable_item_term", 0, option.ID, 1, option.StartDatetime)
+			assertRawTimeByID(t, file, "m_consumable_item_term", 0, option.ID, 2, option.EndDatetime)
+		}
+	}
+	if len(preview) != 12 {
+		t.Fatalf("removed terms were included in schedule preview: %+v", preview)
+	}
+	if again, err := GenerateActivityGroups("missing.bin", groups, config, nil); err != nil || again != groups || len(again.Units[0].Members) != 3 || len(again.Units[1].Members) != 3 {
+		t.Fatal("saved membership was automatically regenerated")
 	}
 }
 

@@ -23,7 +23,7 @@ function element(tagName = "div") {
 const findText = (root, text) => descendants(root).find(node => node.textContent === text);
 const check = (checkbox, value = true) => { checkbox.checked = value; checkbox.listeners.change(); };
 
-async function createEditor(premiumMembers = []) {
+async function createEditor(premiumMembers = [], extraOptions = []) {
   const root = element(), posts = [], confirmations = [];
   let allowDelete = true;
   const member = (kind, id) => ({ kind, id });
@@ -44,10 +44,15 @@ async function createEditor(premiumMembers = []) {
     { ...member("event", 5), titles: { en: "Unrelated" }, relatedChapterId: 99 },
     { ...member("banner", 6), titles: { en: "Summons banner" }, previewPath: ["gacha", "limited_1", "mom_banner.png"] },
     { ...member("term", 8), titles: { en: "Shards" }, endDatetime: 1800000000000 },
-    { ...member("medal", 8), titles: { en: "Shards" }, endDatetime: 1800100000000 }
+    { ...member("medal", 8), titles: { en: "Shards" }, endDatetime: 1800100000000 },
+    { ...member("premium", 9), titles: { en: "Other summons" }, previewPath: ["gacha", "limited_9", "banner.png"] },
+    { ...member("chapter", 10), titles: { en: "Other Record" }, chapterType: 1 },
+    { ...member("chapter", 99), titles: { en: "Other Variation" }, chapterType: 2 },
+    ...extraOptions
   ];
   const context = vm.createContext({
     document: { createElement: element },
+    crypto: { randomUUID: () => "new-unit" },
     Option: function(text, value) { return Object.assign(element("option"), { textContent: text, value }); },
     window: { confirm: message => { confirmations.push(message); return allowDelete; } }
   });
@@ -68,10 +73,10 @@ async function createEditor(premiumMembers = []) {
 
 test("activity selection preserves the sidebar node and scroll position, with localized ID-first names", async () => {
   const { root, editor } = await createEditor();
-  const list = root.querySelector(".activity-group-list"); list.scrollTop = 420;
+  const list = root.querySelector(".activity-group-sidebar"); list.scrollTop = 420;
   check(root.querySelector(".activity-group-list-check"));
   findText(root, "1. 記念ガチャ").listeners.click();
-  assert.equal(root.querySelector(".activity-group-list"), list);
+  assert.equal(root.querySelector(".activity-group-sidebar"), list);
   assert.equal(list.scrollTop, 420);
   assert.equal(root.querySelector(".activity-group-list-check").checked, true);
   assert.equal(root.querySelector(".activity-group-select-all").indeterminate, true);
@@ -83,14 +88,117 @@ test("Record and Variation sections restrict chapter and Event Gacha choices", a
   findText(root, "2. Record").listeners.click();
   assert.ok(findText(root, "活动商店"));
   assert.equal(findText(root, "Event Gacha"), undefined);
-  let chapterPicker = descendants(root).find(node => node.tagName === "select" && node.attributes["aria-label"] === "添加記録（Record）");
-  assert.equal(chapterPicker.children.length, 1, "selected Record is omitted and Variation is not offered");
+  const chapterPicker = descendants(root).find(node => node.tagName === "select" && node.attributes["aria-label"] === "选择記録（Record）");
+  assert.deepEqual(chapterPicker.children.map(option => option.value), ["", "chapter:2", "chapter:10"]);
+  assert.equal(chapterPicker.value, "chapter:2");
   findText(root, "3. Variation").listeners.click();
   assert.equal(findText(root, "活动商店"), undefined);
-  const picker = descendants(root).find(node => node.tagName === "select" && node.attributes["aria-label"] === "添加Event Gacha");
+  const picker = descendants(root).find(node => node.tagName === "select" && node.attributes["aria-label"] === "选择Event Gacha");
   assert.deepEqual(picker.children.map(option => option.value), ["", "event:4"]);
   assert.equal(picker.children[1].dataset.searchLabel, "4. Event");
 });
+
+test("primary selection replaces the source, keeps other members, and preserves both scroll positions", async () => {
+  const { root, posts } = await createEditor([{ kind: "banner", id: 6 }]);
+  findText(root, "1. 記念ガチャ").listeners.click();
+  const section = descendants(root).find(node => node.dataset.memberSection === "premium");
+  assert.equal(findText(section, "移除"), undefined);
+  assert.equal(findText(section, "添加条目"), undefined);
+  const picker = descendants(section).find(node => node.tagName === "select");
+  assert.equal(picker.value, "premium:1");
+  assert.equal(picker.children[0].disabled, true);
+  root.querySelector(".activity-group-sidebar").scrollTop = 420;
+  root.querySelector(".activity-group-detail").scrollTop = 180;
+  picker.value = "premium:9"; picker.listeners.change();
+  assert.equal(root.querySelector(".activity-group-sidebar").scrollTop, 420);
+  assert.equal(root.querySelector(".activity-group-detail").scrollTop, 180);
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[0].units[0].members, [{ kind: "premium", id: 9 }, { kind: "banner", id: 6 }]);
+  assert.equal(posts[0].units[0].id, "premium:1");
+  findText(root, "2. Record").listeners.click();
+  assert.equal(root.querySelector(".activity-group-detail").scrollTop, 0);
+});
+
+test("changing the sole Variation chapter removes its former Event Gacha and offers the new chapter's gacha", async () => {
+  const { root, posts } = await createEditor();
+  findText(root, "3. Variation").listeners.click();
+  let section = descendants(root).find(node => node.dataset.memberSection === "event");
+  const eventPicker = descendants(section).find(node => node.tagName === "select");
+  eventPicker.value = "event:4"; eventPicker.listeners.change();
+  section = descendants(root).find(node => node.dataset.memberSection === "chapter");
+  assert.equal(findText(section, "移除"), undefined);
+  const picker = descendants(section).find(node => node.tagName === "select");
+  picker.value = "chapter:99"; picker.listeners.change();
+  const replacementPicker = descendants(root).find(node => node.attributes["aria-label"] === "选择Event Gacha");
+  assert.deepEqual(replacementPicker.children.map(option => option.value), ["", "event:5"]);
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[0].units[2].members, [{ kind: "chapter", id: 99 }]);
+});
+
+test("new units choose their primary entry directly without an add button", async () => {
+  const { root, posts } = await createEditor();
+  findText(root, "新建活动单位").listeners.click();
+  const section = descendants(root).find(node => node.dataset.memberSection === "premium");
+  const picker = descendants(section).find(node => node.tagName === "select");
+  assert.equal(picker.value, "");
+  assert.equal(findText(section, "添加条目"), undefined);
+  picker.value = "premium:9"; picker.listeners.change();
+  await findText(root, "保存活动组配置").listeners.click();
+  assert.deepEqual(posts[0].units.at(-1).members, [{ kind: "premium", id: 9 }]);
+});
+
+for (const [unitName, unitIndex, kind, ids] of [
+  ["1. 記念ガチャ", 0, "shop", [11, 12]],
+  ["2. Record", 1, "shop", [11, 12]],
+  ["3. Variation", 2, "event", [4, 13]]
+]) test(`${unitName} selects, replaces, and clears one ${kind} without changing other members`, async () => {
+  const { root, posts } = await createEditor([], [
+    { kind: "shop", id: 11, titles: { en: "Exchange" } },
+    { kind: "shop", id: 12, titles: { en: "Other exchange" } },
+    { kind: "event", id: 13, titles: { en: "Other event" }, relatedChapterId: 3 }
+  ]);
+  findText(root, unitName).listeners.click();
+  const selected = [];
+  for (const id of [...ids, null]) {
+    const section = descendants(root).find(node => node.dataset.memberSection === kind);
+    assert.equal(findText(section, "添加条目"), undefined);
+    assert.equal(findText(section, "移除"), undefined);
+    const picker = descendants(section).find(node => node.tagName === "select");
+    assert.equal(Boolean(picker.children[0].disabled), false);
+    picker.value = id === null ? "" : `${kind}:${id}`; picker.listeners.change();
+    await findText(root, "保存活动组配置").listeners.click();
+    selected.push(posts.at(-1).units[unitIndex].members.filter(member => member.kind === kind));
+    assert.equal(posts.at(-1).units[unitIndex].members.filter(member => member.kind !== kind).length, 1);
+  }
+  assert.deepEqual(selected, [[{ kind, id: ids[0] }], [{ kind, id: ids[1] }], []]);
+});
+
+for (const [unitName, unitIndex] of [["2. Record", 1], ["3. Variation", 2]]) {
+  test(`${unitName} keeps bronze, silver, and gold terms as independent removable entries`, async () => {
+    const { root, posts } = await createEditor([], [14, 15, 16].map((id, index) => ({
+      kind: "term", id, titles: { en: ["Bronze", "Silver", "Gold"][index] }, endDatetime: 1800000000000 + index * 1000
+    })));
+    findText(root, unitName).listeners.click();
+    for (const id of [14, 15, 16]) {
+      const section = descendants(root).find(node => node.dataset.memberSection === "term");
+      const picker = descendants(section).find(node => node.tagName === "select");
+      picker.value = `term:${id}`; picker.listeners.change();
+      findText(section, "添加条目").listeners.click();
+    }
+    let section = descendants(root).find(node => node.dataset.memberSection === "term");
+    assert.equal(section.querySelectorAll(".activity-group-entry").length, 3);
+    await findText(root, "保存活动组配置").listeners.click();
+    assert.deepEqual(posts[0].units[unitIndex].members.filter(member => member.kind === "term"), [14, 15, 16].map(id => ({ kind: "term", id })));
+    section = descendants(root).find(node => node.dataset.memberSection === "term");
+    const silver = section.querySelectorAll(".activity-group-entry").find(row => findText(row, "15. Silver"));
+    findText(silver, "移除").listeners.click();
+    await findText(root, "保存活动组配置").listeners.click();
+    assert.deepEqual(posts[1].units[unitIndex].members.filter(member => member.kind === "term"), [14, 16].map(id => ({ kind: "term", id })));
+    section = descendants(root).find(node => node.dataset.memberSection === "term");
+    const picker = descendants(section).find(node => node.tagName === "select");
+    assert.deepEqual(picker.children.map(option => option.value), ["", "term:8", "term:15"]);
+  });
+}
 
 test("batch deletion can be cancelled and removes groups emptied by multiple selected units", async () => {
   const { root, editor, posts, confirmations, confirm } = await createEditor();
@@ -202,8 +310,8 @@ test("legacy conversion-only selections remain visible as shard terms and banner
   assert.equal(card.children[0].src, "gacha/limited_1/mom_banner.png");
   assert.ok(findText(card, "6. Summons banner"));
   const premiumSection = descendants(root).find(node => node.dataset.memberSection === "premium");
-  const premiumCard = premiumSection.querySelector(".activity-group-banner-card");
-  assert.equal(premiumCard.children[0].src, "gacha/limited_1/banner.png");
-  assert.ok(findText(premiumCard, "1. 記念ガチャ"));
+  const premiumRow = premiumSection.querySelector(".activity-group-premium-row");
+  assert.equal(premiumRow.children[0].src, "gacha/limited_1/banner.png");
+  assert.ok(findText(premiumRow, "1. 記念ガチャ"));
   assert.equal(editor.dirty(), false);
 });

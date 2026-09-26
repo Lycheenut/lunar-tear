@@ -3241,6 +3241,7 @@
 
   function renderMomBannerContentCell(row, gachaSchedule = false, tagName = "td") {
     const cell = document.createElement(tagName);
+    if (row.kind === "banner") cell.className = "activity-group-mom-preview";
     const tooltipParts = [
       localizedText(row.titles),
       ...(row.contentFootnotes || []).map(localizedInlineText)
