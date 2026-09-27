@@ -47,7 +47,8 @@ async function createEditor(premiumMembers = [], extraOptions = [], settings = {
     { id: "only", name: "Only premium", unitIds: ["premium:1"] },
     { id: "shared", name: "Shared", unitIds: ["premium:1", "chapter:2"] }
   ] };
-  const kinds = Object.entries({ premium: [1], chapter: [2, 3], banner: [1, 2, 3], shop: [1, 2], event: [3], term: [1, 2, 3], medal: [1], mission: [2, 3], navi: [2, 3], tip: [2, 3] }).map(([kind, types]) => ({ kind, types }));
+  const labels = { premium: "Premium Gacha", chapter: "EventQuestChapter", banner: "MomBanner", medal: "碎片自动转换期限" };
+  const kinds = Object.entries({ premium: [1], chapter: [2, 3], banner: [1, 2, 3], shop: [1, 2], event: [3], term: [1, 2, 3], medal: [1], mission: [2, 3], navi: [2, 3], tip: [2, 3] }).map(([kind, types]) => ({ kind, types, label: labels[kind] || kind }));
   const options = [
     { ...member("premium", 1), titles: { en: "Summons", ja: "記念ガチャ" }, previewPath: ["gacha", "limited_1", "banner.png"] },
     { ...member("chapter", 2), titles: { en: "Record" }, chapterType: 1 },
@@ -73,7 +74,8 @@ async function createEditor(premiumMembers = [], extraOptions = [], settings = {
     root, localizedText: titles => titles?.ja || titles?.en || "", hasOtherChanges: settings.hasOtherChanges || (() => false),
     renderBannerPreview: option => Object.assign(element("img"), { src: option.previewPath.join("/") }),
     showNotice: (text, error) => notices.push({ text, error: Boolean(error) }), onPublished: async () => {},
-    api: async (_, request) => {
+    api: async (url, request) => {
+      if (url === "/api/admin/activity-groups/schedule/preview") { requests.push(JSON.parse(request.body)); return { changes: settings.scheduleChanges }; }
       if (request) { requests.push(JSON.parse(request.body)); await settings.beforeSave?.(); config = JSON.parse(request.body).config; posts.push(config); }
       return { contentHash: "activity-hash", gachaConfigHash: "gacha-hash", masterDataHash: "master-hash", catalog: { config, kinds, options } };
     }
@@ -90,6 +92,40 @@ async function createEditor(premiumMembers = [], extraOptions = [], settings = {
   };
   return { root, body, editor, posts, requests, confirmations, notices, save, confirm: value => { allowDelete = value; } };
 }
+
+test("schedule preview distinguishes member types and shows their selected source units", async () => {
+  const scheduleChanges = [
+    { kind: "premium", id: 1, field: "StartDatetime", before: 1000, after: 2000 },
+    { kind: "banner", id: 1, field: "StartDatetime", before: 1000, after: 2000 },
+    { kind: "banner", id: 1, field: "EndDatetime", before: 3000, after: 4000 },
+    { kind: "medal", id: 8, field: "AutoConvertDatetime", before: 3000, after: 4000 }
+  ];
+  const { root, body, requests, posts } = await createEditor([{ kind: "banner", id: 1 }, { kind: "term", id: 8 }], [
+    { kind: "banner", id: 1, titles: { ja: "記念ガチャ" } }
+  ], { scheduleChanges });
+  findText(root, "活动组 · 2").listeners.click();
+  findText(root, "Only premium").listeners.click();
+  const times = descendants(root).filter(node => node.type === "datetime-local");
+  times[0].value = "2026-09-29T10:00:00"; times[1].value = "2026-10-20T09:59:59";
+  findText(root, "预览整体改时").listeners.click();
+  await new Promise(setImmediate);
+  const dialog = body.children[0], rows = previewRows(dialog);
+  assert.ok(dialog.open);
+  assert.deepEqual(rows.map(row => row.slice(0, 3)), [
+    ["1. 記念ガチャ", "Premium Gacha", "StartDatetime"],
+    ["1. 記念ガチャ", "MomBanner", "StartDatetime"],
+    ["1. 記念ガチャ", "MomBanner", "EndDatetime"],
+    ["8. Shards", "碎片自动转换期限", "AutoConvertDatetime"]
+  ]);
+  assert.match(dialog.children[1].textContent, /^1 个活动单位中的 3 个成员、4 个字段将被修改/);
+  const sources = dialog.querySelectorAll(".activity-group-preview-source");
+  assert.equal(sources.length, 4);
+  assert.ok(sources.every(node => node.textContent === "所属活动单位：1. 記念ガチャ"));
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].groupId, "only");
+  findText(dialog, "取消").listeners.click();
+  assert.equal(posts.length, 0);
+});
 
 test("save preview shows names, types and member changes and cancellation preserves the draft", async () => {
   const { root, body, editor, posts, requests, save } = await createEditor();

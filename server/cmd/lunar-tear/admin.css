@@ -98,6 +98,7 @@ dialog.activity-group-dialog { width: min(1100px, 95vw); max-width: 1100px; }
 .activity-group-preview-scroll table { width: 100%; min-width: 0; table-layout: fixed; }
 .activity-group-preview-scroll td, .activity-group-preview-scroll th { white-space: normal; overflow-wrap: anywhere; }
 .activity-group-preview-scroll td:first-child, .activity-group-preview-scroll th:first-child { position: static; width: 32%; min-width: 0; }
+.activity-group-preview-source { display: block; margin-top: 6px; color: var(--muted); }
 .activity-group-config-preview td { white-space: pre-line; }
 .activity-group-unit-list { overflow-x: auto; }
 .activity-group-unit-table { min-width: 580px; table-layout: fixed; }

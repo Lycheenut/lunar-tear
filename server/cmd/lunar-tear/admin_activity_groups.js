@@ -377,10 +377,20 @@
     }
     function showPreview(group, request, changes) {
       const dialog = el("dialog", null, "confirm-dialog activity-group-dialog");
-      dialog.append(el("h2", `${itemTitle(group)}：改时预览`), el("p", `${changes.length} 个字段将被修改。共享成员只更新一次，也会影响使用这些成员的其他活动组。`));
+      const units = data.catalog.config.units.filter(unit => group.unitIds.includes(unit.id));
+      const memberCount = new Set(changes.map(key)).size;
+      dialog.append(el("h2", `${itemTitle(group)}：改时预览`), el("p", `${units.length} 个活动单位中的 ${memberCount} 个成员、${changes.length} 个字段将被修改。成员 ID 按类型区分。共享成员只更新一次，也会影响使用这些成员的其他活动组。`));
       const scroll = el("div", null, "activity-group-preview-scroll"), table = el("table");
-      const header = el("tr"); ["成员", "字段", "修改前", "修改后"].forEach(text => header.append(el("th", text))); table.append(header);
-      changes.forEach(change => { const row = el("tr"); [title(change), change.field, formatTime(change.before), formatTime(change.after)].forEach(text => row.append(el("td", text))); table.append(row); });
+      const header = el("tr"); ["成员", "类型", "字段", "修改前", "修改后"].forEach(text => header.append(el("th", text))); table.append(header);
+      changes.forEach(change => {
+        const row = el("tr"), member = el("td", title(change));
+        const sources = units.filter(unit => unit.members.some(item => key(item) === key(change)
+          || (unit.type === 1 && item.id === change.id && ["term", "medal"].includes(item.kind) && ["term", "medal"].includes(change.kind))));
+        member.append(el("small", `所属活动单位：${sources.map(itemTitle).join("、")}`, "activity-group-preview-source"));
+        row.append(member);
+        [data.catalog.kinds.find(kind => kind.kind === change.kind)?.label || change.kind, change.field, formatTime(change.before), formatTime(change.after)].forEach(text => row.append(el("td", text)));
+        table.append(row);
+      });
       scroll.append(table); dialog.append(scroll);
       const errorMessage = el("p", "", "notice error hidden"); dialog.append(errorMessage);
       const actions = el("div", null, "save-actions");

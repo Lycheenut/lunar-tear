@@ -163,6 +163,88 @@ func assertActivityMember(t *testing.T, unit *activitygroup.ActivityUnit, expect
 	t.Fatalf("%s missing member %+v", unit.ID, expected)
 }
 
+func TestActivityRecord513ScheduleMatchesConfiguredMembers(t *testing.T) {
+	path, _ := linkedUpdateTestCatalog(t)
+	before, err := memorydb.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The reported online configuration: one unit, eight members in distinct tables.
+	members := []activitygroup.ActivityMember{
+		{Kind: "chapter", ID: 513}, {Kind: "banner", ID: 101},
+		{Kind: "shop", ID: 6010}, {Kind: "term", ID: 29},
+		{Kind: "mission", ID: 38}, {Kind: "banner", ID: 102},
+		{Kind: "navi", ID: 26}, {Kind: "tip", ID: 9019},
+	}
+	const start, end = int64(1790647200000), int64(1792461599000)
+	for _, count := range []int{len(members), 1} {
+		groups := &activitygroup.Config{Version: activitygroup.ConfigVersion,
+			Units: []activitygroup.ActivityUnit{
+				{ID: "chapter:513", Name: "Record 513", Type: activitygroup.TypeRecord, Members: members[:count]},
+				{ID: "chapter:512", Name: "Other Record", Type: activitygroup.TypeRecord, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 512}, {Kind: "banner", ID: 401}, {Kind: "mission", ID: 203}}},
+			},
+			Groups: []activitygroup.ActivityGroup{{ID: "record", Name: "Record", UnitIDs: []string{"chapter:513"}}},
+		}
+		config := gacha.DefaultConfig()
+		catalog, err := LoadActivityGroups(path, groups, config, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidate, updated, preview, err := BuildActivitySchedule(path, groups, config, catalog, "record", start, end)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(preview) != count*2 || !reflect.DeepEqual(updated.Banners, config.Banners) || len(updated.EventSchedules) != 0 {
+			t.Fatalf("%d members: unexpected changes: %+v", count, preview)
+		}
+		selected := make(map[activitygroup.ActivityMember]bool)
+		for _, member := range members[:count] {
+			selected[member] = true
+		}
+		for _, change := range preview {
+			if !selected[change.ActivityMember] {
+				t.Fatalf("unconfigured member in preview: %+v", change)
+			}
+		}
+		after, err := memorydb.OpenBytes(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range []struct {
+			name, kind       string
+			startCol, endCol int
+			grace            int64
+		}{
+			{"m_event_quest_chapter", "chapter", 8, 9, 0},
+			{"m_mom_banner", "banner", 6, 7, 0},
+			{"m_shop", "shop", 9, 10, 48 * 60 * 60 * 1000},
+			{"m_consumable_item_term", "term", 1, 2, 48 * 60 * 60 * 1000},
+			{"m_mission_term", "mission", 1, 2, 48 * 60 * 60 * 1000},
+			{"m_navi_cut_in", "navi", 3, 4, 0},
+			{"m_tip", "tip", 5, 6, 0},
+			{"m_gacha_medal", "medal", -1, 4, 0},
+		} {
+			want, _, err := before.TableRows(table.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, row := range want {
+				id, _ := integerAt(row, 0)
+				if selected[activitygroup.ActivityMember{Kind: table.kind, ID: id}] {
+					row[table.startCol], row[table.endCol] = start, end+table.grace
+				}
+			}
+			got, _, err := after.TableRows(table.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("%d members: %s differs from the explicitly configured time edits", count, table.name)
+			}
+		}
+	}
+}
+
 func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.T) {
 	path, _ := linkedUpdateTestCatalog(t)
 	config := gacha.DefaultConfig()
