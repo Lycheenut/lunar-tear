@@ -269,7 +269,7 @@ func (g *PossessionGranter) GrantFull(user *UserState, possessionType model.Poss
 			return GrantResult{Status: GrantStatusInvalid}
 		}
 		for range count {
-			g.grantEnhancedParts(user, enhanced, nowMillis)
+			g.grantEnhancedParts(user, enhanced, g.enhancedPartsSubStatusCount(enhanced), nowMillis)
 		}
 	case model.PossessionTypeThought:
 		for range count {
@@ -389,7 +389,7 @@ func (g *PossessionGranter) GrantOrSellPartsDrop(user *UserState, requestedParts
 		return requestedPartsId, g.grantBareParts(user, requestedPartsId, nowMillis), false
 	}
 	rarity := chosenRef.RarityType
-	rank := chosenRef.PartsInitialLotteryId
+	rank := max(int32(2), chosenRef.PartsInitialLotteryId)
 	if price, ok := g.PartsSellPriceL1ByRarity[rarity]; ok && raritySet[rarity] && rankSet[rank] {
 		user.ConsumableItems[g.GoldConsumableItemId] += price
 		log.Printf("[GrantParts] auto-sold chosen=%d rarity=%d rank=%d -> %d gold", chosenPartsId, rarity, rank, price)
@@ -410,8 +410,9 @@ func (g *PossessionGranter) grantBareParts(user *UserState, partsId int32, nowMi
 	return key
 }
 
-// rollPartsVariant picks one of a parts group's 5 variants at random; the five
-// carry distinct PartsInitialLotteryId 1..5, which is the part's rank.
+// Although the client's filters support total ranks 1..5, its thumbnails treat
+// empty sub-status arrays as previews. As a server-only compatibility measure,
+// exclude lottery 1 and roll total ranks 2..5 (one main plus 1..4 sub-statuses).
 // Campaign drop rate multiplies only the highest rank's weight.
 func (g *PossessionGranter) rollPartsVariant(requestedPartsId int32, highestRankWeight int32) (int32, PartsRef, bool) {
 	ref, refOk := g.PartsById[requestedPartsId]
@@ -420,15 +421,24 @@ func (g *PossessionGranter) rollPartsVariant(requestedPartsId int32, highestRank
 	}
 	chosenPartsId := requestedPartsId
 	chosenRef := ref
-	if variants := g.PartsVariantsByGroupRarity[ref.PartsGroupId][ref.RarityType]; len(variants) == 5 {
-		highestWeight := int64(highestRankWeight)
-		roll := rand.Int63n(4000 + highestWeight)
-		for _, id := range variants {
-			weight := int64(1000)
-			if g.PartsById[id].PartsInitialLotteryId == 5 {
-				weight = highestWeight
-			}
-			roll -= weight
+	variants := g.PartsVariantsByGroupRarity[ref.PartsGroupId][ref.RarityType]
+	weights := make([]int64, len(variants))
+	var total int64
+	for i, id := range variants {
+		rank := g.PartsById[id].PartsInitialLotteryId
+		if rank < 2 {
+			continue
+		}
+		weights[i] = 1000
+		if rank == 5 {
+			weights[i] = int64(highestRankWeight)
+		}
+		total += weights[i]
+	}
+	if total > 0 {
+		roll := rand.Int63n(total)
+		for i, id := range variants {
+			roll -= weights[i]
 			if roll < 0 {
 				chosenPartsId = id
 				break
@@ -436,7 +446,7 @@ func (g *PossessionGranter) rollPartsVariant(requestedPartsId int32, highestRank
 		}
 		chosenRef = g.PartsById[chosenPartsId]
 	} else {
-		log.Printf("[GrantParts] no 5-variant set for group=%d rarity=%d (have %d), granting requested=%d", ref.PartsGroupId, ref.RarityType, len(variants), requestedPartsId)
+		log.Printf("[GrantParts] no eligible variants for group=%d rarity=%d, granting requested=%d", ref.PartsGroupId, ref.RarityType, requestedPartsId)
 	}
 	return chosenPartsId, chosenRef, true
 }
@@ -484,33 +494,14 @@ func (g *PossessionGranter) createParts(user *UserState, chosenPartsId int32, ch
 		AcquisitionDatetime: nowMillis,
 	}
 
-	initialCount := chosenRef.PartsInitialLotteryId
-	pool := g.PartsSubStatusPool[chosenRef.PartsStatusSubLotteryGroupId]
-	if initialCount > 1 && len(pool) > 0 {
-		for i := int32(0); i < initialCount-1; i++ {
-			pickId, picked := PickUniquePartsSubStatus(pool, user, key)
-			if !picked {
-				break
-			}
-			def, ok := g.PartsSubStatusDefs[pickId]
-			if !ok {
-				continue
-			}
-			val := def.Initial.Roll()
-			user.PartsStatusSubs[PartsStatusSubKey{UserPartsUuid: key, StatusIndex: i + 1}] = PartsStatusSubState{
-				UserPartsUuid:           key,
-				StatusIndex:             i + 1,
-				PartsStatusSubLotteryId: pickId,
-				Level:                   1,
-				StatusKindType:          def.StatusKindType,
-				StatusCalculationType:   def.StatusCalculationType,
-				StatusChangeValue:       val,
-				LatestVersion:           nowMillis,
-			}
+	initialCount := max(int32(1), chosenRef.PartsInitialLotteryId-1)
+	for slot := int32(1); slot <= initialCount; slot++ {
+		if !g.grantInitialPartsSubStatus(user, key, chosenRef, slot, nowMillis) {
+			break
 		}
 	}
 
-	log.Printf("[GrantParts] chosen=%d group=%d rarity=%d preUnlockedSubs=%d", chosenPartsId, chosenRef.PartsGroupId, chosenRef.RarityType, initialCount-1)
+	log.Printf("[GrantParts] chosen=%d group=%d rarity=%d preUnlockedSubs=%d", chosenPartsId, chosenRef.PartsGroupId, chosenRef.RarityType, initialCount)
 	return key
 }
 

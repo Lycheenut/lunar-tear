@@ -36,7 +36,7 @@ func (g *PossessionGranter) validEnhancedParts(enhanced PartsEnhancedRef) bool {
 		}
 		usedSlots[sub.StatusIndex], usedIDs[sub.PartsStatusSubLotteryId] = true, true
 	}
-	count := enhanced.SubStatusCount
+	count := max(int32(1), enhanced.SubStatusCount)
 	if enhanced.IsRandomSubStatusCount {
 		count = model.PartsMaxSubStatusCount
 	}
@@ -52,14 +52,21 @@ func (g *PossessionGranter) validEnhancedParts(enhanced PartsEnhancedRef) bool {
 	return len(usedIDs) >= int(count)
 }
 
-func (g *PossessionGranter) grantEnhancedParts(user *UserState, enhanced PartsEnhancedRef, nowMillis int64) {
-	part := g.PartsById[enhanced.PartsId]
-	count := enhanced.SubStatusCount
+func (g *PossessionGranter) enhancedPartsSubStatusCount(enhanced PartsEnhancedRef) int32 {
+	count := max(int32(1), enhanced.SubStatusCount)
 	if enhanced.IsRandomSubStatusCount {
 		// Use the ordinary rank lottery for the count, while retaining the template's item and main status.
 		_, rolled, _ := g.rollPartsVariant(enhanced.PartsId, 1000)
-		count = max(0, rolled.PartsInitialLotteryId-1)
+		count = max(1, rolled.PartsInitialLotteryId-1)
 	}
+	for _, sub := range enhanced.SubStatuses {
+		count = max(count, sub.StatusIndex)
+	}
+	return count
+}
+
+func (g *PossessionGranter) grantEnhancedParts(user *UserState, enhanced PartsEnhancedRef, count int32, nowMillis int64) {
+	part := g.PartsById[enhanced.PartsId]
 	key := uuid.New().String()
 	user.Parts[key] = PartsState{
 		UserPartsUuid: key, PartsId: enhanced.PartsId, Level: enhanced.Level,
@@ -73,7 +80,6 @@ func (g *PossessionGranter) grantEnhancedParts(user *UserState, enhanced PartsEn
 	for _, sub := range enhanced.SubStatuses {
 		sub.UserPartsUuid, sub.LatestVersion = key, nowMillis
 		user.PartsStatusSubs[PartsStatusSubKey{UserPartsUuid: key, StatusIndex: sub.StatusIndex}] = sub
-		count = max(count, sub.StatusIndex)
 	}
 	pool := g.PartsSubStatusPool[part.PartsStatusSubLotteryGroupId]
 	for slot := int32(1); slot <= count; slot++ {
@@ -101,12 +107,15 @@ func (g *PossessionGranter) GrantOrSellEnhancedPartsDrop(user *UserState, enhanc
 		return enhancedID, false
 	}
 	part := g.PartsById[enhanced.PartsId]
+	count := g.enhancedPartsSubStatusCount(enhanced)
 	price := g.PartsSellPriceByRarity[part.RarityType]
-	if price != nil && raritySet[part.RarityType] && rankSet[part.PartsInitialLotteryId] {
+	if price != nil && raritySet[part.RarityType] && rankSet[count+1] {
 		user.ConsumableItems[g.GoldConsumableItemId] += price(enhanced.Level)
 		AddMissionCount(user, int32(model.MissionClearConditionTypePossessionAddByCount), 1, enhancedID, int32(model.PossessionTypePartsEnhanced))
 		return enhanced.PartsId, true
 	}
-	g.GrantFull(user, model.PossessionTypePartsEnhanced, enhancedID, 1, nowMillis)
+	// Use the same rolled count for the sale decision and the kept instance.
+	g.grantEnhancedParts(user, enhanced, count, nowMillis)
+	AddMissionCount(user, int32(model.MissionClearConditionTypePossessionAddByCount), 1, enhancedID, int32(model.PossessionTypePartsEnhanced))
 	return enhanced.PartsId, false
 }

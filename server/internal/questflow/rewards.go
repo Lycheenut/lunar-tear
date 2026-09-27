@@ -173,8 +173,8 @@ func (h *QuestHandler) evaluateFinishOutcome(user *store.UserState, questId int3
 
 var autoSaleRarityTiers = map[int32]bool{10: true, 20: true, 30: true, 40: true, 50: true}
 
-// The client sends rarity tiers (10..50) and zero-based sub-status counts
-// (0..4). Convert the latter to the parts lottery ranks (1..5) used for sales.
+// The client displays total stat counts (1..5), then sends rank-1 (0..4),
+// alongside rarity tiers (10..50). Convert back to total ranks for sales.
 func parseAutoSaleRules(settings map[int32]store.AutoSaleSettingState) (raritySet, rankSet map[int32]bool) {
 	raritySet = map[int32]bool{}
 	rankSet = map[int32]bool{}
@@ -203,11 +203,11 @@ func extractInts(s string) []int32 {
 }
 
 func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGrant, raritySet, rankSet map[int32]bool, nowMillis int64) []RewardGrant {
-	// Ordinary parts roll their rank independently, so each copy needs its own
+	// Parts can roll their rank independently, so each copy needs its own
 	// inventory grant and auto-sale result, including count/guaranteed bonuses.
 	expanded := make([]RewardGrant, 0, len(drops))
 	for _, drop := range drops {
-		if drop.PossessionType == model.PossessionTypeParts {
+		if drop.PossessionType == model.PossessionTypeParts || drop.PossessionType == model.PossessionTypePartsEnhanced {
 			count := drop.Count
 			drop.Count = 1
 			for range count {
@@ -221,13 +221,11 @@ func (h *QuestHandler) grantDropRewards(user *store.UserState, drops []RewardGra
 	for i := range drops {
 		d := drops[i]
 		if d.PossessionType == model.PossessionTypePartsEnhanced {
-			for range d.Count {
-				partsID, sold := h.Granter.GrantOrSellEnhancedPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis)
-				if sold {
-					drops[i].PossessionType = model.PossessionTypeParts
-					drops[i].PossessionId = partsID
-					drops[i].IsAutoSale = true
-				}
+			partsID, sold := h.Granter.GrantOrSellEnhancedPartsDrop(user, d.PossessionId, raritySet, rankSet, nowMillis)
+			if sold {
+				drops[i].PossessionType = model.PossessionTypeParts
+				drops[i].PossessionId = partsID
+				drops[i].IsAutoSale = true
 			}
 			continue
 		}

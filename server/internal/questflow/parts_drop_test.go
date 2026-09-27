@@ -297,8 +297,8 @@ func TestPartsDropCampaignRankWeightReachesInventoryAndAutoSale(t *testing.T) {
 	if len(drops) != count || len(user.Parts)+sold != count || user.ConsumableItems[99] != int32(sold)*100 {
 		t.Fatalf("drops=%d inventory=%d sold=%d gold=%d", len(drops), len(user.Parts), sold, user.ConsumableItems[99])
 	}
-	if got := float64(sold) / count; math.Abs(got-1.0/3.0) > 0.03 {
-		t.Fatalf("highest-rank rate=%f, want 1/3", got)
+	if got := float64(sold) / count; math.Abs(got-2.0/5.0) > 0.03 {
+		t.Fatalf("highest-rank rate=%f, want 2/5", got)
 	}
 }
 
@@ -341,7 +341,7 @@ func TestPartsDropRewardsMatchIndependentlyRolledInventory(t *testing.T) {
 			h.Granter = BuildGranter(h.QuestCatalog, h.Config)
 			h.Campaigns = campaigns
 			h.BattleDropRewardById[1001] = masterdata.EntityMBattleDropReward{
-				PossessionType: int32(model.PossessionTypeParts), PossessionId: 16, Count: 1,
+				PossessionType: int32(model.PossessionTypeParts), PossessionId: 36, Count: 1,
 			}
 			h.DropRewardsByQuestID = map[int32][]questdrop.Reward{10: {{BattleDropRewardID: 1001, Weight: 1}}}
 			user := store.SeedUserState(99, "parts", 1, model.ClientPlatform{})
@@ -385,6 +385,9 @@ func TestPartsDropRewardsMatchIndependentlyRolledInventory(t *testing.T) {
 							t.Fatalf("drop sub-status %+v does not match initial range %+v", sub, r)
 						}
 					}
+				}
+				if subCount == 0 {
+					t.Fatalf("parts %d has no sub statuses: client would hide rank and details", part.PartsId)
 				}
 				if want := parts.PartsById[part.PartsId].PartsInitialLotteryId - 1; subCount != want {
 					t.Fatalf("parts %d has %d sub statuses, rank requires %d", part.PartsId, subCount, want)

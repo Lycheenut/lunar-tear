@@ -152,7 +152,8 @@ func TestPartsSubStatusGrowthFromEveryInitialRank(t *testing.T) {
 			granter := questflow.BuildGranter(&masterdata.QuestCatalog{PartsCatalog: catalog}, nil)
 			user := store.SeedUserState(1, "parts", 1, model.ClientPlatform{})
 			granter.GrantParts(user, 1, 1000)
-			if len(user.PartsStatusSubs) != int(rank-1) {
+			initialCount := max(int32(1), rank-1)
+			if len(user.PartsStatusSubs) != int(initialCount) {
 				t.Fatalf("initial count = %d", len(user.PartsStatusSubs))
 			}
 			for uuid, part := range user.Parts {
@@ -170,8 +171,9 @@ func TestPartsSubStatusGrowthFromEveryInitialRank(t *testing.T) {
 				seen[sub.PartsStatusSubLotteryId] = true
 				total += sub.StatusChangeValue
 			}
-			if len(user.PartsStatusSubs) != 4 || total != 4*13+rank*77 {
-				t.Fatalf("final count=%d total=%d, want 4 initial rolls plus %d growth rolls", len(user.PartsStatusSubs), total, rank)
+			growthCount := initialCount + 1
+			if len(user.PartsStatusSubs) != 4 || total != 4*13+growthCount*77 {
+				t.Fatalf("final count=%d total=%d, want 4 initial rolls plus %d growth rolls", len(user.PartsStatusSubs), total, growthCount)
 			}
 		})
 	}
