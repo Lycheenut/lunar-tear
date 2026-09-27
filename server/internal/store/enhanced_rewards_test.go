@@ -172,3 +172,57 @@ func TestEnhancedPartsInvalidDefinitionDoesNotPartiallyGrant(t *testing.T) {
 		}
 	}
 }
+
+func TestEnhancedPartsMinimumCountAndAutoSaleUseActualTotalRank(t *testing.T) {
+	for _, count := range []int32{0, 1, 3, 4} {
+		for selected := int32(1); selected <= 5; selected++ {
+			g := enhancedPartsTestGranter()
+			enhanced := g.PartsEnhancedById[9001]
+			enhanced.SubStatusCount, enhanced.SubStatuses = count, nil
+			g.PartsEnhancedById[9001] = enhanced
+			g.PartsSellPriceByRarity = map[int32]func(int32) int32{40: func(int32) int32 { return 100 }}
+			g.GoldConsumableItemId = 99
+			user := SeedUserState(1, "parts", 1, model.ClientPlatform{})
+			_, sold := g.GrantOrSellEnhancedPartsDrop(user, 9001, map[int32]bool{40: true}, map[int32]bool{selected: true}, 1000)
+			wantCount := max(int32(1), count)
+			if sold != (selected == wantCount+1) {
+				t.Fatalf("sub-count=%d selected-total=%d sold=%v", count, selected, sold)
+			}
+			if sold {
+				if len(user.Parts)+len(user.PartsStatusSubs) != 0 || user.ConsumableItems[99] != 100 {
+					t.Fatal("auto-sale left equipment or failed to award gold")
+				}
+			} else if len(user.Parts) != 1 || len(user.PartsStatusSubs) != int(wantCount) {
+				t.Fatalf("sub-count=%d kept parts=%d subs=%d", count, len(user.Parts), len(user.PartsStatusSubs))
+			}
+		}
+	}
+}
+
+func TestEnhancedPartsRandomSaleDoesNotRerollKeptCount(t *testing.T) {
+	g := enhancedPartsTestGranter()
+	for rank := int32(1); rank <= 5; rank++ {
+		g.PartsById[101+rank] = PartsRef{PartsInitialLotteryId: rank}
+	}
+	enhanced := g.PartsEnhancedById[9001]
+	enhanced.IsRandomSubStatusCount = true
+	enhanced.SubStatuses = nil
+	g.PartsEnhancedById[9001] = enhanced
+	g.PartsSellPriceByRarity = map[int32]func(int32) int32{40: func(int32) int32 { return 100 }}
+	var soldCount, keptCount int
+	for range 200 {
+		user := SeedUserState(1, "parts", 1, model.ClientPlatform{})
+		_, sold := g.GrantOrSellEnhancedPartsDrop(user, 9001, map[int32]bool{40: true}, map[int32]bool{5: true}, 1000)
+		if sold {
+			soldCount++
+		} else {
+			keptCount++
+			if len(user.PartsStatusSubs) < 1 || len(user.PartsStatusSubs) > 3 {
+				t.Fatalf("kept sub-count=%d despite selling total rank 5", len(user.PartsStatusSubs))
+			}
+		}
+	}
+	if soldCount == 0 || keptCount == 0 {
+		t.Fatalf("sold=%d kept=%d, want both", soldCount, keptCount)
+	}
+}

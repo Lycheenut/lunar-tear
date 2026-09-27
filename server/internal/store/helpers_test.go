@@ -25,10 +25,13 @@ func TestPartsDropRateWeightsOnlyHighestRank(t *testing.T) {
 			}
 			counts[part.PartsInitialLotteryId]++
 		}
-		for rank := int32(1); rank <= 5; rank++ {
-			want := 1000.0 / float64(4000+weight)
+		if counts[1] != 0 {
+			t.Fatalf("rolled %d zero-sub-status parts that the client cannot display", counts[1])
+		}
+		for rank := int32(2); rank <= 5; rank++ {
+			want := 1000.0 / float64(3000+weight)
 			if rank == 5 {
-				want = float64(weight) / float64(4000+weight)
+				want = float64(weight) / float64(3000+weight)
 			}
 			if got := float64(counts[rank]) / trials; math.Abs(got-want) > 0.02 {
 				t.Fatalf("weight=%d rank=%d rate=%f, want %f", weight, rank, got, want)
