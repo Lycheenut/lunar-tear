@@ -110,11 +110,37 @@ commit. Inventory and other deck types are preserved. See
 
 ### Resetting Enhanced Memoirs for All Players
 
-The `repair-parts` tool resets every owned memoir above level 1, keeps its
+The `reset-parts` tool resets every owned memoir above level 1, keeps its
 existing sub-stat types and slots, rerolls their initial values using the current
 rules, and refunds one successful enhancement cost per level gained. It defaults
 to a read-only preview; apply while the server is stopped. See
 [memoir repair instructions](server/cmd/repair-parts/README.md).
+
+### Repairing Memoirs Without Sub-stats
+
+The client's filter numbers count the main stat plus sub-stats, but its thumbnail
+details require at least one sub-stat. New rewards use total ranks 2–5 for client
+compatibility. Existing memoirs with no sub-stat rows can be repaired separately;
+login does not modify them.
+
+Stop the game server and back up the database before applying repairs. From
+`server/`, preview the affected memoirs, then add `--apply` to write them:
+
+```bash
+go run ./cmd/repair-parts --db db/game.db --user-id 1
+go run ./cmd/repair-parts --db db/game.db --user-id 1 --apply
+```
+
+Omit `--user-id` to select all players. Release archives include the same tool as
+`bin/repair-parts` (`bin/repair-parts.exe` on Windows). Use `--master` to override
+the default master data file, `assets/release/20240404193219.bin.e`.
+
+Each repair adds four distinct initial sub-stats in slots 1–4, changing the total
+count from 1 to 5. It preserves the main stat, level, lock, acquisition time, and
+all existing sub-stats. Missing definitions or pools unable to supply four unique
+sub-stats are reported and skipped without inserting a partial set.
+All inserts commit in one transaction; repeated runs leave repaired memoirs
+unchanged. Restart the server and reconnect the client to load the repaired data.
 
 ### Exporting a Player Snapshot
 

@@ -1,10 +1,41 @@
 package store
 
 import (
+	"maps"
 	"testing"
 
 	"lunar-tear/server/internal/model"
 )
+
+func TestPartsRepairRequiresFourUniqueSubStatuses(t *testing.T) {
+	for _, test := range []struct {
+		pool       []int32
+		wantRepair bool
+	}{{[]int32{1, 2, 3, 4}, true}, {[]int32{1, 1, 2, 3}, false}, {[]int32{99}, false}} {
+		g := &PossessionGranter{
+			PartsById:          map[int32]PartsRef{36: {PartsStatusSubLotteryGroupId: 4}},
+			PartsSubStatusPool: map[int32][]int32{4: test.pool},
+			PartsSubStatusDefs: map[int32]model.PartsStatusSubDef{},
+		}
+		for id := int32(1); id <= 4; id++ {
+			g.PartsSubStatusDefs[id] = model.PartsStatusSubDef{Initial: model.PartsSubStatusRange{Min: 10, Max: 10, Step: 1}}
+		}
+		user := SeedUserState(1, "repair", 1, model.ClientPlatform{})
+		user.Parts["empty"] = PartsState{UserPartsUuid: "empty", PartsId: 36, PartsStatusMainId: 28, Level: 1}
+		before := maps.Clone(user.Parts)
+		repaired := g.RepairPartsWithoutSubStatuses(user, 1000)
+		if test.wantRepair {
+			if repaired != 1 || len(user.PartsStatusSubs) != 4 {
+				t.Fatalf("repair=%d sub-count=%d, want one complete repair with four sub-stats", repaired, len(user.PartsStatusSubs))
+			}
+		} else if repaired != 0 || len(user.PartsStatusSubs) != 0 {
+			t.Fatalf("incomplete pool %v partially repaired data: repaired=%d subs=%v", test.pool, repaired, user.PartsStatusSubs)
+		}
+		if !maps.Equal(before, user.Parts) {
+			t.Fatal("repair changed the part")
+		}
+	}
+}
 
 func TestPartsInitializationAlwaysHasSubStatus(t *testing.T) {
 	// The reported Sincerity instances had partsId=36, main status=28 and

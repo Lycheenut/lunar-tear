@@ -1,8 +1,10 @@
 package store
 
+import "lunar-tear/server/internal/model"
+
 // RepairPartsWithoutSubStatuses is the offline compatibility repair used by
-// cmd/repair-parts. Add one sub-status so the unmodified client's thumbnails
-// show details; keep the item and main status and never reroll existing stats.
+// cmd/repair-parts. Fill all four sub-status slots; keep the item and main status
+// and never reroll existing stats. An incomplete roll leaves the part untouched.
 func (g *PossessionGranter) RepairPartsWithoutSubStatuses(user *UserState, nowMillis int64) int {
 	hasSubs := make(map[string]bool)
 	for key := range user.PartsStatusSubs {
@@ -14,9 +16,19 @@ func (g *PossessionGranter) RepairPartsWithoutSubStatuses(user *UserState, nowMi
 		if !ok || part.PartsStatusMainId <= 0 || hasSubs[uuid] {
 			continue
 		}
-		if g.grantInitialPartsSubStatus(user, uuid, ref, 1, nowMillis) {
-			repaired++
+		pending := &UserState{PartsStatusSubs: make(map[PartsStatusSubKey]PartsStatusSubState)}
+		for slot := int32(1); slot <= model.PartsMaxSubStatusCount; slot++ {
+			if !g.grantInitialPartsSubStatus(pending, uuid, ref, slot, nowMillis) {
+				break
+			}
 		}
+		if len(pending.PartsStatusSubs) != int(model.PartsMaxSubStatusCount) {
+			continue
+		}
+		for key, sub := range pending.PartsStatusSubs {
+			user.PartsStatusSubs[key] = sub
+		}
+		repaired++
 	}
 	return repaired
 }
