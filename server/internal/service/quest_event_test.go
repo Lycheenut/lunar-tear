@@ -386,6 +386,20 @@ func TestFinishEventQuestReleasesAllCharacterDecksAfterFinalVictory(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
+			deckNumbers := make(map[int32]bool)
+			var activeDeckNumber int32
+			for chapterId, contents := range cat.LimitContent.ContentsByChapter {
+				for sortOrder, questIds := range cat.Quest.EventQuestIdsByChapterSortOrder[chapterId] {
+					number := contents[0].DeckGroupNumber*100 + sortOrder
+					deckNumbers[number] = chapterId/10 == tt.chapterId/10
+					if slices.Contains(questIds, tt.questId) {
+						activeDeckNumber = number
+					}
+				}
+			}
+			if activeDeckNumber == 0 {
+				t.Fatal("final quest has no client deck number")
+			}
 			if _, err := repo.UpdateUser(userId, func(user *store.UserState) {
 				for _, id := range cat.Quest.EventUnlockQuestIdsForChapter(tt.chapterId) {
 					user.Quests[id] = store.UserQuestState{QuestId: id, QuestStateType: model.UserQuestStateTypeCleared}
@@ -404,16 +418,20 @@ func TestFinishEventQuestReleasesAllCharacterDecksAfterFinalVictory(t *testing.T
 				}
 				quest := user.Quests[tt.questId]
 				quest.QuestStateType = model.UserQuestStateTypeActive
-				quest.UserDeckNumber = 1
+				quest.UserDeckNumber = activeDeckNumber
 				if tt.firstClear {
 					quest.ClearCount = 0
 				}
 				user.Quests[tt.questId] = quest
 				user.EventQuest = store.EventQuestState{CurrentEventQuestChapterId: tt.chapterId, CurrentQuestId: tt.questId}
-				user.Decks[store.DeckKey{DeckType: model.DeckTypeRestrictedLimitContentQuest, UserDeckNumber: 1}] = store.DeckState{UserDeckCharacterUuid01: "dc"}
-				user.DeckCharacters["dc"] = store.DeckCharacterState{UserDeckCharacterUuid: "dc", UserCostumeUuid: "costume", MainUserWeaponUuid: "weapon"}
+				slots := []store.DeckCharacterInput{{UserCostumeUuid: "costume", MainUserWeaponUuid: "weapon", SubWeaponUuids: []string{"sub"}, PartsUuids: []string{"parts"}, DressupCostumeId: 1}}
+				for number := range deckNumbers {
+					store.ApplyDeckReplacement(user, model.DeckTypeRestrictedLimitContentQuest, number, slots, 1)
+				}
+				store.ApplyDeckReplacement(user, model.DeckTypeQuest, activeDeckNumber, slots, 1)
 				user.Costumes["costume"] = store.CostumeState{UserCostumeUuid: "costume"}
 				user.Weapons["weapon"] = store.WeaponState{UserWeaponUuid: "weapon"}
+				user.Weapons["sub"] = store.WeaponState{UserWeaponUuid: "sub"}
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -444,6 +462,52 @@ func TestFinishEventQuestReleasesAllCharacterDecksAfterFinalVictory(t *testing.T
 			}
 			if !maps.Equal(after.DeckLimitContentRestricted, wantLocks) {
 				t.Fatalf("persisted restrictions = %d, want %d with only the expected locks removed", len(after.DeckLimitContentRestricted), len(wantLocks))
+			}
+			var deletedDecks int
+			for key, deck := range before.Decks {
+				wantRemoved := tt.wantAll && key.DeckType == model.DeckTypeRestrictedLimitContentQuest && deckNumbers[key.UserDeckNumber]
+				got, exists := after.Decks[key]
+				if wantRemoved {
+					deletedDecks++
+					if exists {
+						t.Fatalf("completed character deck %v is still saved", key)
+					}
+				} else if !exists || got != deck {
+					t.Fatalf("unrelated deck %v changed", key)
+				}
+				for _, id := range []string{deck.UserDeckCharacterUuid01, deck.UserDeckCharacterUuid02, deck.UserDeckCharacterUuid03} {
+					if id == "" {
+						continue
+					}
+					character, exists := after.DeckCharacters[id]
+					if wantRemoved {
+						if exists || len(after.DeckSubWeapons[id]) != 0 || len(after.DeckParts[id]) != 0 {
+							t.Fatalf("deleted deck left character or equipment links for %s", id)
+						}
+					} else if !exists || character != before.DeckCharacters[id] || !slices.Equal(after.DeckSubWeapons[id], before.DeckSubWeapons[id]) || !slices.Equal(after.DeckParts[id], before.DeckParts[id]) {
+						t.Fatalf("unrelated deck character %s changed", id)
+					}
+				}
+			}
+			changes := userdata.ComputeDelta(&before, &after, userdata.ChangedTables(&before, &after))
+			for _, table := range []string{"IUserDeck", "IUserDeckCharacter", "IUserDeckSubWeaponGroup", "IUserDeckPartsGroup", "IUserDeckCharacterDressupCostume"} {
+				delta := changes[table]
+				if deletedDecks == 0 {
+					if delta != nil {
+						t.Fatalf("unexpected %s delta: %+v", table, delta)
+					}
+					continue
+				}
+				if delta == nil || delta.UpdateRecordsJson != "[]" {
+					t.Fatalf("missing %s deletion delta: %+v", table, delta)
+				}
+				var deletes []map[string]any
+				if err := json.Unmarshal([]byte(delta.DeleteKeysJson), &deletes); err != nil {
+					t.Fatal(err)
+				}
+				if len(deletes) != deletedDecks {
+					t.Fatalf("%s deletion count = %d, want %d", table, len(deletes), deletedDecks)
+				}
 			}
 			for id, quest := range before.Quests {
 				if id != tt.questId && after.Quests[id] != quest {

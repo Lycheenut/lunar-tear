@@ -149,6 +149,14 @@ func releaseCompletedLimitContentDecks(user *store.UserState, quests *masterdata
 				delete(user.DeckLimitContentRestricted, id)
 			}
 		}
+		// The client stores these decks by deck group and quest sort order,
+		// independently of the possession restrictions removed above.
+		for id := range chapterIds {
+			for sortOrder := range quests.EventQuestIdsByChapterSortOrder[id] {
+				deckNumber := current.DeckGroupNumber*100 + sortOrder
+				store.RemoveDeckData(user, model.DeckTypeRestrictedLimitContentQuest, deckNumber)
+			}
+		}
 	}
 }
 
