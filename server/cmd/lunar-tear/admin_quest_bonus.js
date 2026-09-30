@@ -49,6 +49,8 @@
     targetGroups(chapterID) {
       const groups = new Map();
       for (const q of this.quests(chapterID)) {
+        // Bonus-free challenge quests without medals retain their original configuration.
+        if (String(q.bonusId) === "0" && !(q.medalIds || []).length) continue;
         const medals = [...(q.medalIds || [])].sort((a, b) => a - b).join(",");
         const bonus = this.bonuses.get(String(q.bonusId));
         const signature = JSON.stringify([bonus ? Object.entries(bonus).filter(([name]) => name !== "QuestBonusId").sort() : q.bonusId, medals]);
@@ -111,9 +113,10 @@
     replace(chapterID, bonusID) {
       const key = String(chapterID);
       if (bonusID === "") { this.selections.delete(key); return; }
-      if (!this.quests(key).length) throw new Error("该活动没有可还原的关卡。");
+      const groups = this.targetGroups(key);
+      if (!groups.length) throw new Error("该活动没有可还原的关卡。");
       if (!this.bonuses.has(String(bonusID))) throw new Error("请选择一个已有加成条目。");
-      const ids = new Set(this.quests(key).map(q => q.questId));
+      const ids = new Set(groups.flatMap(group => group.quests.map(q => q.questId)));
       if (this.catalog.quests.some(q => String(q.chapterId) !== key && ids.has(q.questId))) throw new Error("此活动与其他活动共用关卡，需先分离关卡引用才能使用独立活动期限。");
       const selected = { sourceBonusID: String(bonusID), ruleChapterID: this.selections.get(key)?.ruleChapterID || key, members: new Set(this.mode(key) === "replace" ? this.members([bonusID]).keys() : []), choices: {}, groups: {}, currencies: {} };
       this.selections.set(key, selected); this.setReference(key, selected.ruleChapterID);
@@ -333,6 +336,8 @@
       const activity = node("div");
       activity.append(node("h2", chapterTitle(chapterID)), node("p", range(chapter(chapterID).values.StartDatetime, chapter(chapterID).values.EndDatetime), "bonus-note bonus-activity-dates"));
       heading.append(activity, modes, node("span", `${chapterID} · ${draft.quests(chapterID).length} 关卡`, "row-badge")); main.append(heading);
+      const preserved = draft.quests(chapterID).length - groups.reduce((count, group) => count + group.quests.length, 0);
+      if (preserved) main.append(node("p", `${preserved} 个无加成且不掉落奖章的关卡将保留原配置。`, "bonus-note"));
       const pickers = node("div", undefined, "bonus-source-picker");
       const sources = [...draft.bonuses].sort(([a], [b]) => Number(a) - Number(b)).map(([id, bonus]) => {
         const members = [...draft.members([id]).values()];

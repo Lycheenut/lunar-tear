@@ -500,7 +500,8 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 		}
 		quests := make(map[int64]QuestBonusQuest)
 		for _, q := range p.quests {
-			if q.ChapterID == chapterID {
+			// Bonus-free challenge quests without medals retain their original configuration.
+			if q.ChapterID == chapterID && (q.BonusID != 0 || len(p.medals[q.QuestID]) > 0) {
 				quests[q.QuestID] = q
 			}
 		}

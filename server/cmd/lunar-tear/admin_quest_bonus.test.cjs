@@ -78,6 +78,35 @@ test("zero-bonus activity requires explicit reference phase and currency mapping
   assert.deepEqual(plain(input.currencies),[{fromId:181,toId:249},{fromId:182,toId:250},{fromId:183,toId:251}]);
 });
 
+test("quests without bonuses or medals do not block local rules or require external mappings", () => {
+  for (const mode of ["replace","append"]) for (const external of [false,true]) {
+    const data=catalog(), chapterID=external?589:501;
+    data.quests.push({questId:7,row:6,chapterId:chapterID,difficulty:4,bonusId:0,medalIds:[]});
+    const snapshot=JSON.stringify(data), draft=new Draft(data);
+    draft.setMode(chapterID,mode); draft.replace(chapterID,30);
+    if (external) draft.setReference(chapterID,501);
+    const selected=draft.selections.get(String(chapterID)); selected.members=new Set(["武器:4"]); selected.choices["武器:4"]="101";
+    if (external) {
+      for (const [key,value] of [["0:249","10"],["0:249,250","11"],["0:249,250,251","12"]]) selected.groups[key]=value;
+      selected.currencies={181:"249",182:"250",183:"251"};
+    }
+    assert.equal(draft.payload().questBonusRestores[0].weapons.length,1);
+    assert.equal(draft.targetGroups(chapterID).length,3);
+    assert.equal(JSON.stringify(data),snapshot,"excluded quests remain in the catalog unchanged");
+  }
+});
+
+test("only zero-bonus quests without medals are excluded", () => {
+  const data=catalog();
+  data.quests.push({questId:7,row:6,chapterId:501,difficulty:4,bonusId:0,medalIds:[181]});
+  data.quests.push({questId:8,row:7,chapterId:501,difficulty:4,bonusId:10,medalIds:[]});
+  data.quests.push({questId:9,row:8,chapterId:999,difficulty:4,bonusId:0});
+  const draft=new Draft(data); draft.replace(501,30);
+  assert.throws(()=>draft.payload(),/缺少现有加成/);
+  assert.ok(draft.targetGroups(501).some(group=>group.quests.some(q=>q.questId===8)),"existing bonuses without medals must remain editable");
+  assert.throws(()=>draft.replace(999,30),/没有可还原/);
+});
+
 function partialCatalog() {
   const data=catalog();
   const weapons=data.tables.find(t=>t.name==="m_quest_bonus_weapon_group");
@@ -183,10 +212,13 @@ test("phase dialog composes partial templates without expanding the activity pag
   await page.setContent('<div id="search"></div><div class="table-scroll"><div id="root"></div></div>');
   await page.addStyleTag({path:path.join(__dirname,"admin.css")});
   for (const name of ["admin_search_select.js","admin_quest_bonus.js"]) await page.addScriptTag({path:path.join(__dirname,name)});
+  const data=partialCatalog();
+  data.quests.push({questId:8,row:7,chapterId:501,difficulty:4,sortOrder:6,bonusId:0,medalIds:[]});
   await page.evaluate(data=>{
     window.editor=window.createQuestBonusEditor({root:document.querySelector("#root"),searchRoot:document.querySelector("#search"),onChange:()=>{},localizedText:titles=>titles?.ja,showError:message=>{throw new Error(message);}});
     window.editor.load(data); window.editor.selectChapter(501); window.editor.render();
-  },partialCatalog());
+  },data);
+  assert.equal(await page.getByText("1 个无加成且不掉落奖章的关卡将保留原配置。",{exact:true}).count(),1);
   await page.getByRole("combobox",{name:"历史名单来源",exact:true}).fill("30");
   await page.getByRole("option",{name:/^30 ·/}).click();
   const rule=page.getByRole("combobox",{name:"武器规则 401",exact:true});

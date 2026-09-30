@@ -318,6 +318,88 @@ func TestQuestBonusMedalsFollowPickupReferences(t *testing.T) {
 	}
 }
 
+func TestQuestBonusRestorePreservesBonusFreeChallengeQuests(t *testing.T) {
+	path, file := bonusTestFile(t)
+	_, medals := questBonusMedals(file)
+	quests := questBonusQuests(file)
+	for _, tc := range []struct {
+		chapter, challenge, template, bronze int64
+	}{{502, 201210, 210031, 152}, {510, 201204, 240011, 149}} {
+		for _, mode := range []string{"replace", "append", "external", "costumes only"} {
+			t.Run(bonusString(tc.chapter)+"/"+mode, func(t *testing.T) {
+				input := QuestBonusRestoreInput{ChapterID: tc.chapter, SourceBonusID: 201121, RuleChapterID: tc.chapter,
+					Mode: "replace", CostumeIDs: []int64{31029}, Weapons: []QuestBonusWeaponInput{{310621, tc.template}}}
+				if mode == "append" {
+					input.Mode = "append"
+				}
+				if mode == "costumes only" {
+					input.Weapons = nil
+				}
+				if mode == "external" {
+					input.RuleChapterID = 501
+					input.Weapons[0].TemplateWeaponID = 250011
+					input.Currencies = []QuestBonusCurrencyInput{{181, tc.bronze}}
+					for _, q := range quests {
+						if q.ChapterID == tc.chapter && q.QuestID != tc.challenge {
+							input.Groups = append(input.Groups, QuestBonusRuleInput{QuestIDs: []int64{q.QuestID}, RuleBonusID: 201080 + int64(len(medals[q.QuestID]))})
+						}
+					}
+				}
+				request := UpdateRequest{ExpectedVersion: file.Version(), QuestBonusRestores: []QuestBonusRestoreInput{input}}
+				preview, err := PreviewUpdate(path, request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(preview.QuestBonusRestores) != 1 || len(preview.QuestBonusRestores[0].Groups) != 3 {
+					t.Fatalf("wrong activity phases: %+v", preview.QuestBonusRestores)
+				}
+				planned := make(map[int64]int64)
+				for _, group := range preview.QuestBonusRestores[0].Groups {
+					for _, id := range group.QuestIDs {
+						planned[id] = group.AfterBonusID
+					}
+					if mode != "costumes only" {
+						found := false
+						for _, weapon := range group.Weapons {
+							found = found || weapon.WeaponID == 310621 && len(weapon.Rewards) > 0
+						}
+						if !found {
+							t.Fatal("restored weapon is missing from an eligible phase")
+						}
+					}
+				}
+				if len(planned) != 35 || planned[tc.challenge] != 0 {
+					t.Fatalf("wrong target quests: %v", planned)
+				}
+				candidate, _, err := BuildUpdate(path, request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rebuilt, err := memorydb.OpenBytes(candidate)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before, after := readRows(file, questTable), readRows(rebuilt, questTable)
+				for i, row := range before {
+					id := bonusInt(row, 0)
+					if bonusID, ok := planned[id]; ok {
+						if bonusInt(after[i], 19) != bonusID || bonusID == bonusInt(row, 19) {
+							t.Fatalf("quest %d does not match the restoration preview", id)
+						}
+					} else if !reflect.DeepEqual(row, after[i]) {
+						t.Fatalf("non-target quest %d changed", id)
+					}
+				}
+				for _, table := range []string{"m_quest_first_clear_reward_group", "m_quest_pickup_reward_group", "m_battle_drop_reward"} {
+					if !reflect.DeepEqual(readRows(file, table), readRows(rebuilt, table)) {
+						t.Fatalf("quest rewards changed: %s", table)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestQuestBonusRestoreExternalRulesRemapActualMedals(t *testing.T) {
 	path, file := bonusTestFile(t)
 	input := originalDenRestore()
