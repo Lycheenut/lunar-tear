@@ -687,8 +687,7 @@ func questOptionMatches(catalogs *runtime.Catalogs, option, questId int32) bool 
 	case questClearOptionMainQuest:
 		return catalogs.Quest.RouteIdByQuestId[questId] != 0
 	case questClearOptionSubquest, questClearOptionSubquestAlt:
-		return eventQuestTypeMatches(catalogs.Quest, eventQuestTypeMarathon, questId) ||
-			eventQuestTypeMatches(catalogs.Quest, eventQuestTypeHunt, questId)
+		return eventQuestSelectorMatchesAnyChapter(catalogs.Quest, eventQuestSelector{all: true}, questId)
 	case questClearOptionMainQuestHard, questClearOptionMainQuestHardAlt:
 		return catalogs.Quest.MainQuestDifficultyTypeByQuestId[questId] == mainQuestDifficultyHard
 	case questClearOptionMainQuestHardOrVeryHard:
@@ -768,6 +767,11 @@ func eventQuestChapterIds(catalogs *runtime.Catalogs, mission masterdata.EntityM
 
 func missionScopedEventQuestChapterId(catalogs *runtime.Catalogs, mission masterdata.EntityMMission) int32 {
 	if catalogs.Mission == nil || catalogs.Quest == nil {
+		return 0
+	}
+	if option := mission.MissionClearConditionOptionGroupId; option == questClearOptionSubquest || option == questClearOptionSubquestAlt {
+		// Generic subquest conditions include every event quest category, even
+		// when a collaboration mission group uses a particular chapter's asset.
 		return 0
 	}
 	if link, ok := catalogs.Mission.LinkById[mission.MissionLinkId]; ok && link.DestinationDomainType == missionLinkDestinationQuest {
