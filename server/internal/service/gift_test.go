@@ -111,6 +111,34 @@ func TestGrantGiftGrantsAssetsAndRejectsOverflow(t *testing.T) {
 	}
 }
 
+func TestGrantGiftConvertsFragmentsAndRollsBackMaterialOverflow(t *testing.T) {
+	for _, item := range []struct{ fragmentId, materialId int32 }{
+		{501001, 322002}, {501002, 312003},
+	} {
+		user := store.SeedUserState(1, "fragments", 1, model.ClientPlatform{})
+		user.Materials[item.fragmentId] = 9
+		user.Materials[item.materialId] = 10
+		gift := store.GiftCommonState{
+			PossessionType: int32(model.PossessionTypeMaterial), PossessionId: item.fragmentId, Count: 21,
+		}
+		granter := &store.PossessionGranter{}
+		config := &masterdata.GameConfig{PossessionCountLimitMaterial: 10}
+		if result := grantGift(user, gift, granter, config, 1000); result.Status != store.GrantStatusOverflow {
+			t.Fatalf("overflowing converted gift status = %v, want overflow", result.Status)
+		}
+		if user.Materials[item.fragmentId] != 9 || user.Materials[item.materialId] != 10 || len(user.PendingMissionEvents) != 0 {
+			t.Fatal("rejected conversion changed inventory or mission counts")
+		}
+		user.Materials[item.materialId] = 7
+		if result := grantGift(user, gift, granter, config, 1000); result.Status != store.GrantStatusGranted {
+			t.Fatalf("converted gift at inventory limit status = %v, want granted", result.Status)
+		}
+		if user.Materials[item.fragmentId] != 0 || user.Materials[item.materialId] != 10 {
+			t.Fatal("gift did not convert all 30 fragments into 3 materials")
+		}
+	}
+}
+
 func TestGrantGiftPreservesEnhancedTemplatesAndRollsBackOverflow(t *testing.T) {
 	g := &store.PossessionGranter{
 		WeaponById:            map[int32]store.WeaponRef{101: {}},

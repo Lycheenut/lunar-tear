@@ -313,6 +313,10 @@ func restoreClearedAfterRetire(user *store.UserState, questId int32, isRetired b
 
 func clearBattleCheckpoint(user *store.UserState) {
 	user.BattleBinary = nil
+	// A new or finished quest also ends the accumulated wave mission results.
+	user.Battle.MissionDetail = store.BattleMissionDetailState{}
+	user.Battle.LastFinishedAt = 0
+	user.Battle.IsActive = false
 }
 
 func (h *QuestHandler) HandleQuestFinish(user *store.UserState, questId int32, isRetired, isAnnihilated bool, nowMillis int64) FinishOutcome {

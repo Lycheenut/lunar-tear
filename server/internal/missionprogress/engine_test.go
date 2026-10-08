@@ -939,8 +939,8 @@ func TestQuestOptionMatchesKnownCategoryParameters(t *testing.T) {
 	}{
 		{name: "Event Quest matches Marathon", option: questClearOptionSubquest, questId: 1001, want: true},
 		{name: "Event Quest alias matches Hunt", option: questClearOptionSubquestAlt, questId: 2001, want: true},
-		{name: "Event Quest rejects Dungeon", option: questClearOptionSubquest, questId: 3001},
-		{name: "Event Quest alias rejects Dungeon", option: questClearOptionSubquestAlt, questId: 3001},
+		{name: "Event Quest matches Dungeon", option: questClearOptionSubquest, questId: 3001, want: true},
+		{name: "Event Quest alias matches Dungeon", option: questClearOptionSubquestAlt, questId: 3001, want: true},
 		{name: "Dark Memory direct type", option: eventQuestTypeCharacter, questId: 6001, want: true},
 		{name: "Dark Memory alias", option: questClearOptionDarkMemory, questId: 6001, want: true},
 		{name: "Dark Memory recurring option", option: 421, questId: 6001, want: true},

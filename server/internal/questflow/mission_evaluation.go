@@ -74,7 +74,7 @@ func (h *QuestHandler) questMissionSatisfied(user *store.UserState, questId int3
 	values := h.MissionConditionValuesByGroupId[mission.QuestMissionConditionValueGroupId]
 	units := h.questDeckUnits(user, questId)
 	detail := user.Battle.MissionDetail
-	freshBattle := detail.IsValid && user.Battle.LastFinishedAt >= user.Quests[questId].LatestStartDatetime
+	freshBattle := detail.IsValid && !user.Battle.IsActive && user.Battle.LastFinishedAt >= user.Quests[questId].LatestStartDatetime
 	switch t {
 	case model.QuestMissionConditionTypeLessThanOrEqualXPeopleNotAlive:
 		return freshBattle && detail.CharacterDeathCount <= value
@@ -102,7 +102,7 @@ func (h *QuestHandler) questMissionSatisfied(user *store.UserState, questId int3
 		return freshBattle && detail.CompanionSkillUseCount >= value
 	case model.QuestMissionConditionTypeCostumeSkillfulWeaponAnyCharacter:
 		for _, unit := range units {
-			if unit.costume.SkillfulWeaponType == unit.weapon.WeaponType {
+			if unit.costume.SkillfulWeaponType == value {
 				return true
 			}
 		}

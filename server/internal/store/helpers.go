@@ -131,7 +131,27 @@ func DeductPossessions(user *UserState, costs []PossessionCost) error {
 func GrantPossession(user *UserState, possessionType model.PossessionType, possessionId, count int32) {
 	switch possessionType {
 	case model.PossessionTypeMaterial:
-		user.Materials[possessionId] += count
+		// Piece: Zenith's Brilliance and Piece: Black Pearl convert 10:1.
+		var targetId int32
+		switch possessionId {
+		case 501001:
+			targetId = 322002
+		case 501002:
+			targetId = 312003
+		}
+		if targetId == 0 || count <= 0 {
+			user.Materials[possessionId] += count
+			break
+		}
+		total := int64(user.Materials[possessionId]) + int64(count)
+		user.Materials[possessionId] = int32(total % 10)
+		if converted := int32(total / 10); converted > 0 {
+			if user.Materials[possessionId] == 0 {
+				delete(user.Materials, possessionId)
+			}
+			user.Materials[targetId] += converted
+			AddMissionCount(user, int32(model.MissionClearConditionTypePossessionAddByCount), converted, targetId, int32(model.PossessionTypeMaterial))
+		}
 	case model.PossessionTypeConsumableItem:
 		user.ConsumableItems[possessionId] += count
 	case model.PossessionTypePaidGem:
