@@ -113,7 +113,6 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 		return nil, status.Error(codes.InvalidArgument, "unknown big hunt quest")
 	}
 	bossQuest := catalog.BossQuestById[req.BigHuntBossQuestId]
-	boss := catalog.BossByBossId[bossQuest.BigHuntBossId]
 
 	var scoreInfo *pb.BigHuntScoreInfo
 	var scoreRewards []*pb.BigHuntReward
@@ -197,19 +196,7 @@ func (s *BigHuntServiceServer) FinishBigHuntQuest(ctx context.Context, req *pb.F
 			}
 		}
 
-		weeklyVersion := gametime.BusinessWeeklyVersion(nowMillis)
-		weekKey := store.BigHuntWeeklyScoreKey{
-			BigHuntWeeklyVersion: weeklyVersion,
-			AttributeType:        boss.AttributeType,
-		}
-		oldWeeklyMax := user.BigHuntWeeklyMaxScores[weekKey].MaxScore
-		if userScore > oldWeeklyMax {
-			user.BigHuntWeeklyMaxScores[weekKey] = store.BigHuntWeeklyMaxScore{
-				MaxScore:      userScore,
-				LatestVersion: nowMillis,
-			}
-		}
-		ensureBigHuntWeeklyStatuses(user, nowMillis)
+		ensureBigHuntWeeklyStatuses(catalog, user, nowMillis)
 
 		assetGradeIconId := catalog.ResolveGradeIconId(bossQuest.BigHuntBossId, userScore)
 
@@ -405,6 +392,7 @@ func (s *BigHuntServiceServer) SkipBigHuntQuest(ctx context.Context, req *pb.Ski
 		if maxScore <= 0 {
 			return
 		}
+		ensureBigHuntWeeklyStatuses(catalog, user, nowMillis)
 		items := catalog.CollectNewRewards(rewardGroupId, 0, maxScore)
 		for n := int32(0); n < req.SkipCount; n++ {
 			for _, item := range items {
@@ -493,20 +481,18 @@ func (s *BigHuntServiceServer) GetBigHuntTopData(ctx context.Context, _ *emptypb
 	nowMillis := gametime.NowMillis()
 	weeklyVersion := gametime.BusinessWeeklyVersion(nowMillis)
 
-	weeklyScoreResults := buildBigHuntWeeklyScoreResults(catalog, user, weeklyVersion)
+	weeklyScoreResults := buildBigHuntWeeklyScoreResults(catalog, user)
 
 	lastWeekVersion := weeklyVersion - bigHuntWeekMillis
 	ws := user.BigHuntWeeklyStatuses[lastWeekVersion]
 
-	weeklyRewards := resolveBigHuntWeeklyRewards(catalog, user, weeklyVersion, nowMillis)
-
-	lastWeekRewards := resolveBigHuntWeeklyRewards(catalog, user, lastWeekVersion, weeklyVersion-1)
+	weeklyRewards := resolveBigHuntWeeklyRewards(catalog, user, nowMillis)
 
 	return &pb.GetBigHuntTopDataResponse{
 		WeeklyScoreResult:           weeklyScoreResults,
 		WeeklyScoreReward:           weeklyRewards,
 		IsReceivedWeeklyScoreReward: ws.IsReceivedWeeklyReward,
-		LastWeekWeeklyScoreReward:   lastWeekRewards,
+		LastWeekWeeklyScoreReward:   weeklyRewards,
 	}, nil
 }
 
@@ -551,62 +537,58 @@ func resolveBigHuntCostumeId(user *store.UserState, userDeckNumber, deckCharacte
 
 const bigHuntWeekMillis int64 = 7 * 24 * 60 * 60 * 1000
 
-func buildBigHuntWeeklyScoreResults(catalog *masterdata.BigHuntCatalog, user store.UserState, currentWeek int64) []*pb.WeeklyScoreResult {
+func buildBigHuntWeeklyScoreResults(catalog *masterdata.BigHuntCatalog, user store.UserState) []*pb.WeeklyScoreResult {
 	results := make([]*pb.WeeklyScoreResult, 0, len(catalog.BossByBossId))
 	for _, boss := range catalog.BossByBossId {
-		// These fields match the client's BigHuntAttributeData: compare the
-		// last two completed weeks, alongside the current season's best score.
-		before := user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: currentWeek - 2*bigHuntWeekMillis, AttributeType: boss.AttributeType}].MaxScore
-		after := user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: currentWeek - bigHuntWeekMillis, AttributeType: boss.AttributeType}].MaxScore
-		current := user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: catalog.ActiveScheduleId, BigHuntBossId: boss.BigHuntBossId}].MaxScore
-		result := &pb.WeeklyScoreResult{AttributeType: boss.AttributeType, BeforeMaxScore: before, AfterMaxScore: after, CurrentMaxScore: current}
-		if before > 0 {
-			result.BeforeAssetGradeIconId = catalog.ResolveGradeIconId(boss.BigHuntBossId, before)
-		}
-		if after > 0 {
-			result.AfterAssetGradeIconId = catalog.ResolveGradeIconId(boss.BigHuntBossId, after)
-		}
-		if current > 0 {
-			result.CurrentAssetGradeIconId = catalog.ResolveGradeIconId(boss.BigHuntBossId, current)
+		// The legacy comparison fields all show the season score used for this
+		// weekly grant; no weekly score snapshots are required.
+		score := user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: catalog.ActiveScheduleId, BigHuntBossId: boss.BigHuntBossId}].MaxScore
+		result := &pb.WeeklyScoreResult{AttributeType: boss.AttributeType, BeforeMaxScore: score, AfterMaxScore: score, CurrentMaxScore: score}
+		if score > 0 {
+			grade := catalog.ResolveGradeIconId(boss.BigHuntBossId, score)
+			result.BeforeAssetGradeIconId = grade
+			result.AfterAssetGradeIconId = grade
+			result.CurrentAssetGradeIconId = grade
 		}
 		results = append(results, result)
 	}
 	return results
 }
 
-// The client discovers pending rewards from IUserBigHuntWeeklyStatus before
-// calling ReceiveBigHuntReward. Also repair scores saved without a status by
-// older servers, while preserving every existing receipt.
-func ensureBigHuntWeeklyStatuses(user *store.UserState, nowMillis int64) {
-	for key, score := range user.BigHuntWeeklyMaxScores {
-		if score.MaxScore <= 0 {
-			continue
-		}
-		if _, exists := user.BigHuntWeeklyStatuses[key.BigHuntWeeklyVersion]; !exists {
-			user.BigHuntWeeklyStatuses[key.BigHuntWeeklyVersion] = store.BigHuntWeeklyStatus{LatestVersion: nowMillis}
-		}
+// The client discovers pending rewards through the previous week's status key.
+// Keep that convention for compatibility with existing receipts, but eligibility
+// depends only on the active season's best scores.
+func ensureBigHuntWeeklyStatuses(catalog *masterdata.BigHuntCatalog, user *store.UserState, nowMillis int64) {
+	version := gametime.BusinessWeeklyVersion(nowMillis) - bigHuntWeekMillis
+	if _, exists := user.BigHuntWeeklyStatuses[version]; exists {
+		return
 	}
+	if len(resolveBigHuntWeeklyRewards(catalog, *user, nowMillis)) == 0 {
+		return
+	}
+	user.BigHuntWeeklyStatuses[version] = store.BigHuntWeeklyStatus{LatestVersion: nowMillis}
 }
 
-func resolveBigHuntWeeklyRewards(catalog *masterdata.BigHuntCatalog, user store.UserState, weeklyVersion, nowMillis int64) []*pb.BigHuntReward {
+func resolveBigHuntWeeklyRewards(catalog *masterdata.BigHuntCatalog, user store.UserState, nowMillis int64) []*pb.BigHuntReward {
+	scores := make(map[int32]int64)
+	for _, boss := range catalog.BossByBossId {
+		score := user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: catalog.ActiveScheduleId, BigHuntBossId: boss.BigHuntBossId}].MaxScore
+		scores[boss.AttributeType] = max(scores[boss.AttributeType], score)
+	}
 	var rewards []*pb.BigHuntReward
 	for attributeType := range catalog.WeeklyRewardSchedulesByAttr {
 		rewardGroupId := catalog.ResolveActiveWeeklyRewardGroupIdByAttr(attributeType, nowMillis)
 		if rewardGroupId == 0 {
 			continue
 		}
-		weekKey := store.BigHuntWeeklyScoreKey{
-			BigHuntWeeklyVersion: weeklyVersion,
-			AttributeType:        attributeType,
-		}
-		score, exists := user.BigHuntWeeklyMaxScores[weekKey]
-		if !exists || score.MaxScore <= 0 {
+		score := scores[attributeType]
+		if score <= 0 {
 			continue
 		}
 		// Weekly tiers contain the full reward for that rank, not increments.
 		var items []masterdata.RewardItem
 		for _, threshold := range catalog.ScoreRewardThresholds[rewardGroupId] {
-			if threshold.NecessaryScore > score.MaxScore {
+			if threshold.NecessaryScore > score {
 				break
 			}
 			items = catalog.RewardItems[threshold.BigHuntRewardGroupId]

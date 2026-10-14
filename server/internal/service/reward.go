@@ -77,7 +77,7 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 			user.BigHuntStatuses[bossQuestId] = st
 		}
 
-		weeklyScoreResults = buildBigHuntWeeklyScoreResults(bhCatalog, *user, weeklyVersion)
+		weeklyScoreResults = buildBigHuntWeeklyScoreResults(bhCatalog, *user)
 
 		weeklyRewards, isReceived = receiveBigHuntWeeklyReward(cat, user, nowMillis)
 	})
@@ -99,20 +99,20 @@ func (s *RewardServiceServer) ReceiveBigHuntReward(ctx context.Context, _ *empty
 		WeeklyScoreResult:           weeklyScoreResults,
 		WeeklyScoreReward:           weeklyRewards,
 		IsReceivedWeeklyScoreReward: isReceived,
-		LastWeekWeeklyScoreReward:   resolveBigHuntWeeklyRewards(bhCatalog, user, weeklyVersion-bigHuntWeekMillis, weeklyVersion-1),
+		LastWeekWeeklyScoreReward:   resolveBigHuntWeeklyRewards(bhCatalog, user, nowMillis),
 	}, nil
 }
 
 func receiveBigHuntWeeklyReward(cat *runtime.Catalogs, user *store.UserState, nowMillis int64) ([]*pb.BigHuntReward, bool) {
 	currentWeek := gametime.BusinessWeeklyVersion(nowMillis)
+	// Preserve the client's previous-week receipt key for this claim window.
 	lastWeek := currentWeek - bigHuntWeekMillis
 	ws := user.BigHuntWeeklyStatuses[lastWeek]
 	if ws.IsReceivedWeeklyReward {
 		return nil, true
 	}
 
-	// Settle only the completed week, using the reward schedule before rollover.
-	rewards := resolveBigHuntWeeklyRewards(cat.BigHunt, *user, lastWeek, currentWeek-1)
+	rewards := resolveBigHuntWeeklyRewards(cat.BigHunt, *user, nowMillis)
 	if len(rewards) == 0 {
 		return nil, false
 	}

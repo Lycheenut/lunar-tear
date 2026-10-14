@@ -22,7 +22,7 @@ import (
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestReceiveBigHuntRewardClaimsCompletedWeekOnce(t *testing.T) {
+func TestReceiveBigHuntRewardClaimsSeasonBestOncePerWeek(t *testing.T) {
 	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -52,16 +52,14 @@ func TestReceiveBigHuntRewardClaimsCompletedWeekOnce(t *testing.T) {
 	currentWeek := gametime.BusinessWeeklyVersion(gametime.NowMillis())
 	lastWeek := currentWeek - 7*24*60*60*1000
 	if _, err := repo.UpdateUser(userId, func(user *store.UserState) {
-		user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: lastWeek, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: 100}
-		user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: currentWeek, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: 200}
 		user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: 100}
 	}); err != nil {
 		t.Fatal(err)
 	}
 	rewardServer := NewRewardServiceServer(repo, repo, holder)
 	topServer := NewBigHuntServiceServer(repo, repo, holder)
-	// Existing accounts have scores but no pending status. The client will not
-	// call ReceiveBigHuntReward until login repairs the status sent by GetUserData.
+	// Season-only accounts must discover the weekly reward on login, without
+	// replaying or skipping a battle to register a weekly score.
 	userServer := NewUserServiceServer(repo, repo, holder, "", false)
 	if _, err := userServer.Auth(context.Background(), &pb.AuthUserRequest{Uuid: "weekly-reward"}); err != nil {
 		t.Fatal(err)
@@ -79,17 +77,20 @@ func TestReceiveBigHuntRewardClaimsCompletedWeekOnce(t *testing.T) {
 	if err := json.Unmarshal([]byte(data.UserDataJson["IUserBigHuntWeeklyStatus"]), &statuses); err != nil {
 		t.Fatal(err)
 	}
-	if len(statuses) != 2 || statuses[0].Week != lastWeek || statuses[0].Received || statuses[1].Week != currentWeek || statuses[1].Received {
-		t.Fatalf("client cannot discover the unclaimed completed week: %+v", statuses)
+	if len(statuses) != 1 || statuses[0].Week != lastWeek || statuses[0].Received {
+		t.Fatalf("client cannot discover the weekly reward: %+v", statuses)
 	}
 	top, err := topServer.GetBigHuntTopData(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if top.IsReceivedWeeklyScoreReward {
-		t.Fatal("unclaimed completed week is shown as received")
+		t.Fatal("unclaimed weekly reward is shown as received")
 	}
-	assertBigHuntWeeklyScoreResults(t, top.WeeklyScoreResult, 0, 100, 100)
+	assertBigHuntWeeklyScoreResults(t, top.WeeklyScoreResult, 100, 100, 100)
+	if len(top.WeeklyScoreReward) != 1 || top.WeeklyScoreReward[0].Count != 3 || len(top.LastWeekWeeklyScoreReward) != 1 || top.LastWeekWeeklyScoreReward[0].Count != 3 {
+		t.Fatalf("reward previews do not use the season best: %+v", top)
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		if _, err := userServer.Auth(context.Background(), &pb.AuthUserRequest{Uuid: "weekly-reward"}); err != nil {
 			t.Fatal(err)
@@ -103,7 +104,7 @@ func TestReceiveBigHuntRewardClaimsCompletedWeekOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got := user.Materials[999]; got != 3 {
-			t.Fatalf("attempt %d: weekly reward count = %d, want 3 from the completed week", attempt, got)
+			t.Fatalf("attempt %d: weekly reward count = %d, want 3 from the season best", attempt, got)
 		}
 		if got := user.Materials[998]; got != 2 {
 			t.Fatalf("attempt %d: daily reward count = %d, want 2", attempt, got)
@@ -114,16 +115,19 @@ func TestReceiveBigHuntRewardClaimsCompletedWeekOnce(t *testing.T) {
 		if !user.BigHuntWeeklyStatuses[lastWeek].IsReceivedWeeklyReward || user.BigHuntWeeklyStatuses[currentWeek].IsReceivedWeeklyReward {
 			t.Fatalf("wrong week marked as received: %+v", user.BigHuntWeeklyStatuses)
 		}
-		if !response.IsReceivedWeeklyScoreReward || len(response.LastWeekWeeklyScoreReward) != 1 || response.LastWeekWeeklyScoreReward[0].Count != 3 {
-			t.Fatalf("incorrect completed-week response: %+v", response)
+		if len(user.BigHuntWeeklyMaxScores) != 0 {
+			t.Fatalf("weekly scores were unexpectedly registered: %+v", user.BigHuntWeeklyMaxScores)
 		}
-		assertBigHuntWeeklyScoreResults(t, response.WeeklyScoreResult, 0, 100, 100)
+		if !response.IsReceivedWeeklyScoreReward || len(response.LastWeekWeeklyScoreReward) != 1 || response.LastWeekWeeklyScoreReward[0].Count != 3 {
+			t.Fatalf("incorrect weekly reward response: %+v", response)
+		}
+		assertBigHuntWeeklyScoreResults(t, response.WeeklyScoreResult, 100, 100, 100)
 		top, err := topServer.GetBigHuntTopData(context.Background(), &emptypb.Empty{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !top.IsReceivedWeeklyScoreReward || len(top.LastWeekWeeklyScoreReward) != 1 || top.LastWeekWeeklyScoreReward[0].Count != 3 {
-			t.Fatalf("top data disagrees with completed-week claim: %+v", top)
+			t.Fatalf("top data disagrees with weekly claim: %+v", top)
 		}
 	}
 }
@@ -135,7 +139,7 @@ func assertBigHuntWeeklyScoreResults(t *testing.T, results []*pb.WeeklyScoreResu
 	}
 }
 
-func TestBigHuntWeeklyScoreResultsCompareCompletedWeeks(t *testing.T) {
+func TestBigHuntWeeklyScoreResultsUseSeasonBest(t *testing.T) {
 	rollover := time.Date(2026, time.September, 21, 8, 0, 0, 0, time.UTC).UnixMilli()
 	catalog := bigHuntWeeklyRewardTestCatalog()
 	catalog.BossByBossId[1] = masterdata.BigHuntBossRow{BigHuntBossId: 1, AttributeType: 2, BigHuntBossGradeGroupId: 1}
@@ -148,12 +152,12 @@ func TestBigHuntWeeklyScoreResultsCompareCompletedWeeks(t *testing.T) {
 	user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: rollover - 2*bigHuntWeekMillis, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: 50}
 	user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: rollover - bigHuntWeekMillis, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: 100}
 	user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: 200}
-	results := buildBigHuntWeeklyScoreResults(catalog, *user, rollover)
-	assertBigHuntWeeklyScoreResults(t, results, 50, 100, 200)
-	if result := results[0]; result.BeforeAssetGradeIconId != 1 || result.AfterAssetGradeIconId != 2 || result.CurrentAssetGradeIconId != 3 {
-		t.Fatalf("grade icons do not match the score periods: %+v", result)
+	results := buildBigHuntWeeklyScoreResults(catalog, *user)
+	assertBigHuntWeeklyScoreResults(t, results, 200, 200, 200)
+	if result := results[0]; result.BeforeAssetGradeIconId != 3 || result.AfterAssetGradeIconId != 3 || result.CurrentAssetGradeIconId != 3 {
+		t.Fatalf("grade icons do not match the season score: %+v", result)
 	}
-	results = buildBigHuntWeeklyScoreResults(catalog, *store.SeedUserState(1, "empty", 1, model.ClientPlatform{}), rollover)
+	results = buildBigHuntWeeklyScoreResults(catalog, *store.SeedUserState(1, "empty", 1, model.ClientPlatform{}))
 	assertBigHuntWeeklyScoreResults(t, results, 0, 0, 0)
 	if result := results[0]; result.BeforeAssetGradeIconId != 0 || result.AfterAssetGradeIconId != 0 || result.CurrentAssetGradeIconId != 0 {
 		t.Fatalf("missing score was assigned a grade: %+v", result)
@@ -162,25 +166,52 @@ func TestBigHuntWeeklyScoreResultsCompareCompletedWeeks(t *testing.T) {
 
 func TestEnsureBigHuntWeeklyStatusesPreservesReceipts(t *testing.T) {
 	rollover := time.Date(2026, time.September, 21, 8, 0, 0, 0, time.UTC).UnixMilli()
+	catalog := bigHuntWeeklyRewardTestCatalog()
 	user := store.SeedUserState(1, "weekly", 1, model.ClientPlatform{})
-	for _, week := range []int64{rollover, rollover - bigHuntWeekMillis, rollover - 2*bigHuntWeekMillis} {
-		for _, attr := range []int32{2, 3} {
-			user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: week, AttributeType: attr}] = store.BigHuntWeeklyMaxScore{MaxScore: 100}
-		}
-	}
-	user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: rollover - 3*bigHuntWeekMillis, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{}
+	user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: 100}
 	claimed := store.BigHuntWeeklyStatus{IsReceivedWeeklyReward: true, LatestVersion: rollover - 1}
 	user.BigHuntWeeklyStatuses[rollover-2*bigHuntWeekMillis] = claimed
-	for _, now := range []int64{rollover, rollover + 1} {
-		ensureBigHuntWeeklyStatuses(user, now)
-		if len(user.BigHuntWeeklyStatuses) != 3 || user.BigHuntWeeklyStatuses[rollover-2*bigHuntWeekMillis] != claimed {
-			t.Fatalf("receipt changed or empty score got a status: %+v", user.BigHuntWeeklyStatuses)
+	for _, now := range []int64{rollover - 1, rollover, rollover + 1} {
+		ensureBigHuntWeeklyStatuses(catalog, user, now)
+		if user.BigHuntWeeklyStatuses[rollover-2*bigHuntWeekMillis] != claimed {
+			t.Fatal("existing receipt was changed")
 		}
-		for _, week := range []int64{rollover, rollover - bigHuntWeekMillis} {
-			if got := user.BigHuntWeeklyStatuses[week]; got.IsReceivedWeeklyReward || got.LatestVersion != rollover {
-				t.Fatalf("pending status was not created idempotently: %+v", got)
+	}
+	pending := user.BigHuntWeeklyStatuses[rollover-bigHuntWeekMillis]
+	if len(user.BigHuntWeeklyStatuses) != 2 || pending.IsReceivedWeeklyReward || pending.LatestVersion != rollover || len(user.BigHuntWeeklyMaxScores) != 0 {
+		t.Fatalf("pending status was not created idempotently: %+v", user.BigHuntWeeklyStatuses)
+	}
+	user.BigHuntWeeklyStatuses[rollover-bigHuntWeekMillis] = claimed
+	ensureBigHuntWeeklyStatuses(catalog, user, rollover+1)
+	if user.BigHuntWeeklyStatuses[rollover-bigHuntWeekMillis] != claimed {
+		t.Fatal("login reset the current claim window's receipt")
+	}
+}
+
+func TestBigHuntWeeklyRewardRequiresEligibleActiveSeasonScore(t *testing.T) {
+	rollover := time.Date(2026, time.October, 12, 8, 0, 0, 0, time.UTC).UnixMilli()
+	for _, tc := range []struct {
+		name   string
+		season int32
+		score  int64
+	}{
+		{name: "no score"},
+		{name: "below threshold", season: 1, score: 99},
+		{name: "previous season only", season: 2, score: 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := bigHuntWeeklyRewardTestCatalog()
+			user := store.SeedUserState(1, "weekly", 1, model.ClientPlatform{})
+			user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: tc.season, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: tc.score}
+			// Old weekly records must not make an account eligible.
+			user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: rollover - bigHuntWeekMillis, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: 200}
+			ensureBigHuntWeeklyStatuses(catalog, user, rollover)
+			cat := &runtime.Catalogs{BigHunt: catalog, QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}}}
+			rewards, received := receiveBigHuntWeeklyReward(cat, user, rollover)
+			if len(user.BigHuntWeeklyStatuses) != 0 || len(rewards) != 0 || received || user.Materials[999] != 0 {
+				t.Fatalf("ineligible account received a weekly reward: rewards=%v received=%v statuses=%v", rewards, received, user.BigHuntWeeklyStatuses)
 			}
-		}
+		})
 	}
 }
 
@@ -196,29 +227,28 @@ func TestReceiveBigHuntWeeklyRewardRollover(t *testing.T) {
 		wantCount      int32
 		wantReceived   bool
 	}{
-		{name: "before rollover", now: rollover - 1, score: 100},
-		{name: "at rollover", now: rollover, score: 100, wantCount: 3, wantReceived: true},
-		{name: "late in claim week", now: rollover + 6*24*60*60*1000, score: 100, wantCount: 3, wantReceived: true},
-		{name: "no completed-week score", now: rollover},
+		{name: "before rollover", now: rollover - 1, score: 100, wantCount: 3, wantReceived: true},
+		{name: "at rollover", now: rollover, score: 100, wantCount: 5, wantReceived: true},
+		{name: "late in claim week", now: rollover + 6*24*60*60*1000, score: 100, wantCount: 5, wantReceived: true},
+		{name: "no season score", now: rollover},
 		{name: "below reward threshold", now: rollover, score: 99},
 		{name: "already claimed", now: rollover, score: 100, alreadyClaimed: true, wantReceived: true},
 		{name: "reward schedule not yet active", now: rollover, score: 100, futureOnly: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			catalog := bigHuntWeeklyRewardTestCatalog()
-			// The new reward group must not replace the completed week's rewards.
+			// Resolve the reward schedule active when the weekly reward is claimed.
 			catalog.WeeklyRewardSchedulesByAttr[2] = []masterdata.ScoreRewardScheduleEntry{
 				{BigHuntScoreRewardGroupId: 2, StartDatetime: rollover},
 				{BigHuntScoreRewardGroupId: 1, StartDatetime: lastWeek},
 			}
 			catalog.ScoreRewardThresholds[2] = []masterdata.ScoreRewardThreshold{{NecessaryScore: 100, BigHuntRewardGroupId: 2}}
 			if tc.futureOnly {
-				catalog.WeeklyRewardSchedulesByAttr[2] = catalog.WeeklyRewardSchedulesByAttr[2][:1]
+				catalog.WeeklyRewardSchedulesByAttr[2] = []masterdata.ScoreRewardScheduleEntry{{BigHuntScoreRewardGroupId: 2, StartDatetime: rollover + 1}}
 			}
 			cat := &runtime.Catalogs{BigHunt: catalog, QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}}}
 			user := store.SeedUserState(1, "weekly", 1, model.ClientPlatform{})
-			user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: lastWeek, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: tc.score}
-			user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: rollover, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: 200}
+			user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: tc.score}
 			if tc.alreadyClaimed {
 				user.BigHuntWeeklyStatuses[lastWeek] = store.BigHuntWeeklyStatus{IsReceivedWeeklyReward: true, LatestVersion: rollover}
 			}
@@ -230,7 +260,7 @@ func TestReceiveBigHuntWeeklyRewardRollover(t *testing.T) {
 				t.Fatal("unfinished week was marked as received")
 			}
 			if tc.wantReceived {
-				ws := user.BigHuntWeeklyStatuses[lastWeek]
+				ws := user.BigHuntWeeklyStatuses[gametime.BusinessWeeklyVersion(tc.now)-bigHuntWeekMillis]
 				wantVersion := tc.now
 				if tc.alreadyClaimed {
 					wantVersion = rollover
@@ -245,23 +275,70 @@ func TestReceiveBigHuntWeeklyRewardRollover(t *testing.T) {
 	}
 }
 
-func TestReceiveBigHuntWeeklyRewardEmptyClaimDoesNotConsumeFollowingWeek(t *testing.T) {
+func TestReceiveBigHuntWeeklyRewardEmptyClaimDoesNotConsumeWeek(t *testing.T) {
 	rollover := time.Date(2026, time.September, 14, 8, 0, 0, 0, time.UTC).UnixMilli()
 	cat := &runtime.Catalogs{BigHunt: bigHuntWeeklyRewardTestCatalog(), QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}}}
 	user := store.SeedUserState(1, "weekly", 1, model.ClientPlatform{})
 	receiveBigHuntWeeklyReward(cat, user, rollover)
-	user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: rollover, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: 200}
+	user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: 200}
 	for range 2 {
-		_, received := receiveBigHuntWeeklyReward(cat, user, rollover+7*24*60*60*1000)
+		_, received := receiveBigHuntWeeklyReward(cat, user, rollover+1)
 		if !received || user.Materials[999] != 5 {
-			t.Fatalf("next week's reward count=%d, received=%v; want 5, true", user.Materials[999], received)
+			t.Fatalf("reward after earning a season score: count=%d, received=%v; want 5, true", user.Materials[999], received)
 		}
+	}
+}
+
+func TestBigHuntWeeklyRewardRefreshesAtMondayMidnightPST(t *testing.T) {
+	for _, month := range []time.Month{time.January, time.July} {
+		t.Run(month.String(), func(t *testing.T) {
+			day := 5
+			if month == time.July {
+				day = 6
+			}
+			rollover := time.Date(2026, month, day, 8, 0, 0, 0, time.UTC).UnixMilli()
+			cat := &runtime.Catalogs{BigHunt: bigHuntWeeklyRewardTestCatalog(), QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}}}
+			user := store.SeedUserState(1, "weekly", 1, model.ClientPlatform{})
+			key := store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 1}
+			user.BigHuntScheduleMaxScores[key] = store.BigHuntScheduleMaxScore{MaxScore: 100}
+			for _, tc := range []struct {
+				now       int64
+				wantCount int32
+				wantGrant int
+			}{
+				{now: rollover - 1, wantCount: 3, wantGrant: 1},
+				{now: rollover, wantCount: 6, wantGrant: 1},
+				{now: rollover + 1, wantCount: 6},
+				{now: rollover + bigHuntWeekMillis - 1, wantCount: 6},
+				{now: rollover + bigHuntWeekMillis, wantCount: 9, wantGrant: 1},
+				{now: rollover + bigHuntWeekMillis + 1, wantCount: 9},
+			} {
+				ensureBigHuntWeeklyStatuses(cat.BigHunt, user, tc.now)
+				rewards, received := receiveBigHuntWeeklyReward(cat, user, tc.now)
+				if !received || len(rewards) != tc.wantGrant || user.Materials[999] != tc.wantCount {
+					t.Fatalf("at %s: reward entries=%d total=%d received=%v, want %d/%d/true", time.UnixMilli(tc.now), len(rewards), user.Materials[999], received, tc.wantGrant, tc.wantCount)
+				}
+			}
+			// Improving the season score or changing seasons cannot grant twice
+			// within the same weekly claim window.
+			user.BigHuntScheduleMaxScores[key] = store.BigHuntScheduleMaxScore{MaxScore: 200}
+			cat.BigHunt.ActiveScheduleId = 2
+			user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 2, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: 200}
+			ensureBigHuntWeeklyStatuses(cat.BigHunt, user, rollover+bigHuntWeekMillis+2)
+			rewards, received := receiveBigHuntWeeklyReward(cat, user, rollover+bigHuntWeekMillis+2)
+			if !received || len(rewards) != 0 || user.Materials[999] != 9 {
+				t.Fatal("season score change allowed a duplicate weekly claim")
+			}
+			rewards, received = receiveBigHuntWeeklyReward(cat, user, rollover+2*bigHuntWeekMillis)
+			if !received || len(rewards) != 1 || user.Materials[999] != 14 || len(user.BigHuntWeeklyMaxScores) != 0 {
+				t.Fatal("next week did not use the new season best without weekly scores")
+			}
+		})
 	}
 }
 
 func TestBigHuntWeeklyRewardUsesHighestTierPerAttribute(t *testing.T) {
 	rollover := time.Date(2026, time.September, 21, 8, 0, 0, 0, time.UTC).UnixMilli()
-	lastWeek := rollover - bigHuntWeekMillis
 	for _, tc := range []struct {
 		name      string
 		score     int64
@@ -281,7 +358,8 @@ func TestBigHuntWeeklyRewardUsesHighestTierPerAttribute(t *testing.T) {
 			catalog.WeeklyRewardSchedulesByAttr[3] = catalog.WeeklyRewardSchedulesByAttr[2]
 			catalog.BossByBossId[3] = masterdata.BigHuntBossRow{BigHuntBossId: 3, AttributeType: 3}
 			user := store.SeedUserState(1, "weekly", 1, model.ClientPlatform{})
-			user.BigHuntWeeklyMaxScores[store.BigHuntWeeklyScoreKey{BigHuntWeeklyVersion: lastWeek, AttributeType: 2}] = store.BigHuntWeeklyMaxScore{MaxScore: tc.score}
+			user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 1}] = store.BigHuntScheduleMaxScore{MaxScore: tc.score}
+			user.BigHuntScheduleMaxScores[store.BigHuntScheduleScoreKey{BigHuntScheduleId: 1, BigHuntBossId: 2}] = store.BigHuntScheduleMaxScore{MaxScore: tc.score / 2}
 			cat := &runtime.Catalogs{BigHunt: catalog, QuestHandler: &questflow.QuestHandler{Granter: &store.PossessionGranter{}}}
 			for attempt := 0; attempt < 2; attempt++ {
 				_, received := receiveBigHuntWeeklyReward(cat, user, rollover)
