@@ -245,6 +245,34 @@ func TestActivityRecord513ScheduleMatchesConfiguredMembers(t *testing.T) {
 	}
 }
 
+func TestActivityGroupScheduleSynchronizesQuestBonusTerms(t *testing.T) {
+	path, before := bonusTestFile(t)
+	config := gacha.DefaultConfig()
+	groups := &activitygroup.Config{Version: activitygroup.ConfigVersion,
+		Units: []activitygroup.ActivityUnit{
+			{ID: "prayer", Name: "Prayer", Type: activitygroup.TypeRecord, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 515}}},
+			{ID: "other", Name: "Other", Type: activitygroup.TypeRecord, Members: []activitygroup.ActivityMember{{Kind: "chapter", ID: 501}}},
+		},
+		Groups: []activitygroup.ActivityGroup{{ID: "prayer", Name: "Prayer", UnitIDs: []string{"prayer"}}},
+	}
+	catalog, err := LoadActivityGroups(path, groups, config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const start, end = int64(1791943200000), int64(1793757599000)
+	candidate, _, _, err := BuildActivitySchedule(path, groups, config, catalog, "prayer", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := memorydb.OpenBytes(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRawTimeByID(t, after, "m_event_quest_chapter", 0, 515, 8, start)
+	assertRawTimeByID(t, after, "m_event_quest_chapter", 0, 515, 9, end)
+	assertChapterBonusSchedule(t, before, after, 515, start, end)
+}
+
 func TestActivityGroupScheduleUsesExplicitMembersAndRedemptionWindow(t *testing.T) {
 	path, _ := linkedUpdateTestCatalog(t)
 	config := gacha.DefaultConfig()

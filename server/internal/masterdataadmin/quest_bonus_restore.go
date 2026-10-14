@@ -431,7 +431,7 @@ func (p *bonusRestorePlanner) weaponPreview(gid int64) []QuestBonusWeaponTierPre
 }
 
 // Both preview and apply expand the same semantic request against its locked
-// snapshot. Only explicitly requested restorations adjust resonance terms.
+// snapshot. Activity date edits synchronize existing bonus terms without changing members.
 func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRequest, []QuestBonusRestorePreview, error) {
 	inputs := make(map[int64]*QuestBonusRestoreInput)
 	for i := range request.QuestBonusRestores {
@@ -469,6 +469,11 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 		}
 		pair[column] = n
 		dates[id] = pair
+		if n != bonusInt(row, 8+column) {
+			if _, exists := inputs[id]; !exists {
+				inputs[id] = nil
+			}
+		}
 	}
 	if len(inputs) == 0 {
 		return request, nil, nil
@@ -477,7 +482,7 @@ func planQuestBonusUpdates(file *memorydb.File, request UpdateRequest) (UpdateRe
 		return request, nil, fmt.Errorf("一次最多处理 100 个活动")
 	}
 	if len(request.QuestBonusGroups) > 0 {
-		return request, nil, fmt.Errorf("活动还原不能与加成组原始编辑同时提交")
+		return request, nil, fmt.Errorf("活动还原或时间联动不能与加成组原始编辑同时提交")
 	}
 	p := newBonusRestorePlanner(file)
 	active := make(map[int64]bool)

@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-func TestIndividualScheduleEditsNeverCascade(t *testing.T) {
+func TestIndividualNonChapterScheduleEditsNeverCascade(t *testing.T) {
 	path, catalog := linkedUpdateTestCatalog(t)
-	for _, tableName := range []string{"m_event_quest_chapter", "m_mom_banner", "m_navi_cut_in", "m_shop", "m_consumable_item_term", "m_mission_term", "m_gacha_medal", "m_tip", "m_login_bonus"} {
+	for _, tableName := range []string{"m_mom_banner", "m_navi_cut_in", "m_shop", "m_consumable_item_term", "m_mission_term", "m_gacha_medal", "m_tip", "m_login_bonus"} {
 		t.Run(tableName, func(t *testing.T) {
 			table := catalogTableByName(t, catalog, tableName)
 			row := table.Rows[0]

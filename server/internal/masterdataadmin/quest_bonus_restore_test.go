@@ -276,8 +276,8 @@ func TestQuestBonusRestorePreservesPhasesAndSynchronizesDates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := bonusTestGroup(updated, bonusTerms, plan.TermGroupID).Rows[0]; got[2] != bonusString(plan.StartDatetime) || got[3] != bonusString(plan.EndDatetime) {
-		t.Fatalf("individual date edit changed bonus term: %v", got)
+	if got := bonusTestGroup(updated, bonusTerms, plan.TermGroupID).Rows[0]; got[2] != bonusString(plan.StartDatetime) || got[3] != bonusString(newEnd) {
+		t.Fatalf("individual date edit did not synchronize bonus term: %v", got)
 	}
 	if !reflect.DeepEqual(readRows(rebuilt, questTable), readRows(updated, questTable)) {
 		t.Fatal("private term synchronization unnecessarily reassigned quests")
@@ -461,35 +461,124 @@ func TestQuestBonusRestoreExternalRulesRemapActualMedals(t *testing.T) {
 	}
 }
 
-func TestQuestBonusIndividualDateEditPreservesMemberTerms(t *testing.T) {
+func assertChapterBonusSchedule(t *testing.T, before, after *memorydb.File, chapterID, start, end int64) {
+	t.Helper()
+	original, updated := newBonusRestorePlanner(before), newBonusRestorePlanner(after)
+	count := 0
+	for _, quest := range original.quests {
+		bonusID := updated.questBonuses[quest.QuestID]
+		if quest.ChapterID != chapterID {
+			if bonusID != quest.BonusID {
+				t.Fatalf("another activity's quest %d changed bonus", quest.QuestID)
+			}
+			for termID := range original.terms(quest.BonusID) {
+				if !reflect.DeepEqual(original.groups[bonusTerms][termID], updated.groups[bonusTerms][termID]) {
+					t.Fatalf("another activity's term %d changed", termID)
+				}
+			}
+			continue
+		}
+		if quest.BonusID == 0 {
+			if bonusID != 0 {
+				t.Fatalf("bonus-free quest %d acquired a bonus", quest.QuestID)
+			}
+			continue
+		}
+		count++
+		terms := updated.terms(bonusID)
+		if len(terms) != 1 || terms[0] {
+			t.Fatalf("quest %d has unsynchronized terms: %v", quest.QuestID, terms)
+		}
+		for termID := range terms {
+			rows := updated.groups[bonusTerms][termID]
+			if len(rows) != 1 || bonusNumber(rows[0][2]) != start || bonusNumber(rows[0][3]) != end {
+				t.Fatalf("quest %d term = %v, want %d..%d", quest.QuestID, rows, start, end)
+			}
+		}
+		oldBonus := original.groups[questBonusTable][quest.BonusID][0]
+		newBonus := updated.groups[questBonusTable][bonusID][0]
+		for _, link := range timedBonusLinks {
+			oldRows := original.groups[link.table][bonusNumber(oldBonus[link.column])]
+			newRows := updated.groups[link.table][bonusNumber(newBonus[link.column])]
+			if len(oldRows) != len(newRows) {
+				t.Fatalf("quest %d changed %s membership", quest.QuestID, link.table)
+			}
+			for i, row := range oldRows {
+				for column := 1; column < len(row); column++ {
+					if column != link.term && row[column] != newRows[i][column] {
+						t.Fatalf("quest %d changed %s bonus rules", quest.QuestID, link.table)
+					}
+				}
+			}
+		}
+	}
+	if count == 0 {
+		t.Fatal("fixture contains no target bonus quests")
+	}
+	for _, table := range []string{bonusEffects, bonusDrops, "m_quest_bonus_ability", "m_quest_bonus_exp"} {
+		if !reflect.DeepEqual(readRows(before, table), readRows(after, table)) {
+			t.Fatalf("bonus effect definitions changed: %s", table)
+		}
+	}
+}
+
+func TestQuestBonusIndividualDateEditSynchronizesMemberTerms(t *testing.T) {
 	path, file := bonusTestFile(t)
 	var index int
-	var end int64
+	var start, end int64
 	for i, row := range readRows(file, "m_event_quest_chapter") {
 		if bonusInt(row, 0) == 501 {
-			index, end = i, bonusInt(row, 9)
+			index, start, end = i, bonusInt(row, 8), bonusInt(row, 9)
 		}
 	}
-	request := UpdateRequest{ExpectedVersion: file.Version(), Changes: []Change{{Table: "m_event_quest_chapter", Row: index, Field: "EndDatetime", Value: bonusString(end + 86400000)}}}
-	preview, err := PreviewUpdate(path, request)
-	if err != nil {
-		t.Fatal(err)
+	for _, fields := range [][]string{{"StartDatetime"}, {"EndDatetime"}, {"StartDatetime", "EndDatetime"}} {
+		t.Run(strings.Join(fields, "+"), func(t *testing.T) {
+			request := UpdateRequest{ExpectedVersion: file.Version()}
+			wantStart, wantEnd := start, end
+			for _, field := range fields {
+				value := end + 86400000
+				if field == "StartDatetime" {
+					value = start - 86400000
+					wantStart = value
+				} else {
+					wantEnd = value
+				}
+				request.Changes = append(request.Changes, Change{Table: "m_event_quest_chapter", Row: index, Field: field, Value: bonusString(value)})
+			}
+			preview, err := PreviewUpdate(path, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(preview.QuestBonusRestores) != 1 || !preview.QuestBonusRestores[0].ScheduleOnly {
+				t.Fatalf("missing schedule-only bonus preview: %+v", preview.QuestBonusRestores)
+			}
+			plan := preview.QuestBonusRestores[0]
+			if plan.StartDatetime != wantStart || plan.EndDatetime != wantEnd {
+				t.Fatalf("preview dates differ: %+v", plan)
+			}
+			candidate, _, err := BuildUpdate(path, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rebuilt, err := memorydb.OpenBytes(candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertChapterBonusSchedule(t, file, rebuilt, 501, wantStart, wantEnd)
+			updated := newBonusRestorePlanner(rebuilt)
+			for _, group := range plan.Groups {
+				for _, id := range group.QuestIDs {
+					if updated.questBonuses[id] != group.AfterBonusID {
+						t.Fatal("preview and build disagree on quest bonus")
+					}
+				}
+			}
+		})
 	}
-	if len(preview.QuestBonusRestores) != 0 {
-		t.Fatal("schedule unexpectedly restores bonuses")
-	}
-	candidate, _, err := BuildUpdate(path, request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rebuilt, err := memorydb.OpenBytes(candidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, table := range []string{questTable, questBonusTable, bonusTerms} {
-		if !reflect.DeepEqual(readRows(file, table), readRows(rebuilt, table)) {
-			t.Fatalf("individual schedule edit changed %s", table)
-		}
+	request := UpdateRequest{Changes: []Change{{Table: "m_event_quest_chapter", Row: index, Field: "EndDatetime", Value: end}}}
+	planned, previews, err := planQuestBonusUpdates(file, request)
+	if err != nil || len(previews) != 0 || !reflect.DeepEqual(planned, request) {
+		t.Fatalf("unchanged dates triggered bonus synchronization: %+v %v", previews, err)
 	}
 }
 
