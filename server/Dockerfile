@@ -1,5 +1,10 @@
 FROM golang:1.26.10-alpine AS builder
 
+ENV GOPROXY=https://goproxy.cn \
+    GOSUMDB=sum.golang.org
+
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
+
 WORKDIR /usr/local/src
 COPY . .
 
