@@ -14,7 +14,7 @@ Prebuilt binaries are published for Linux, macOS, and Windows on the [Releases p
 
 ### Prerequisites (build from source)
 
-- Go 1.25+
+- Go 1.26.10+
 - [goose](https://github.com/pressly/goose) migration tool
 - Populated `server/assets/` directory
 

@@ -1,4 +1,4 @@
-FROM alpine:latest AS builder
+FROM golang:1.26.10-alpine AS builder
 
 WORKDIR /usr/local/src
 COPY . .
@@ -8,7 +8,6 @@ RUN apk add --no-cache \
     protobuf-dev \
     protoc \
     make \
-    go \
     libcap
 
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest &&\
@@ -27,7 +26,7 @@ RUN chown 1000:1000 /opt/lunar-tear
 USER 1000
 
 COPY --from=builder /usr/local/src/lunar-tear .
-COPY --from=builder /root/go/bin/goose /usr/local/bin/goose
+COPY --from=builder /go/bin/goose /usr/local/bin/goose
 COPY --from=builder /usr/local/src/migrations ./migrations
 
 COPY entrypoint.sh .
