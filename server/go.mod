@@ -1,6 +1,6 @@
 module lunar-tear/server
 
-go 1.25.8
+go 1.26.10
 
 require (
 	charm.land/huh/v2 v2.0.3

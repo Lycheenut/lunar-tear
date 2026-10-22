@@ -1,12 +1,9 @@
-FROM alpine:latest AS builder
+FROM golang:1.26.10-alpine AS builder
 
 WORKDIR /usr/local/src
 COPY . .
 
-RUN apk add --no-cache go
-
-RUN go build -trimpath -ldflags="-s -w" -o auth-server ./cmd/auth-server && \
-    go build -trimpath -ldflags="-s -w" -o account-admin ./cmd/account-admin
+RUN go build -o auth-server ./cmd/auth-server
 
 FROM alpine:latest
 
