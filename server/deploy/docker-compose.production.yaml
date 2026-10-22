@@ -7,10 +7,10 @@ x-service-defaults: &service-defaults
   cap_drop:
     - ALL
   logging:
-    driver: gcplogs
+    driver: local
     options:
-      gcp-project: ${GCP_PROJECT_ID:?set GCP_PROJECT_ID}
-      labels: environment,service
+      max-size: "20m"
+      max-file: "5"
       mode: non-blocking
       max-buffer-size: 4m
 

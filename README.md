@@ -444,7 +444,8 @@ non-Korean replacement rules apply only to English.
 The production start, restart, and deploy targets use `LUNAR_ADMIN_TOKEN`
 from the shell environment or `server/deploy/.env.production`, with the shell
 environment taking precedence. Compose rejects a missing or empty token.
-Google Cloud credentials are still required for the `gcplogs` logging driver.
+Production container logs use Docker's `local` driver with automatic rotation.
+See [production logging](server/deploy/README.md#container-logs) for log queries.
 
 ### Client Localization CSV
 

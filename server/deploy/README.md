@@ -124,82 +124,26 @@ remains bound to loopback.
 Set `OCTO_RESOURCES_BASE_URL` to the R2 custom domain used in step 1, not the
 ECS `octo` hostname.
 
-### Configure Cloud Logging
+### Container logs
 
-The production Compose template sends container stdout and stderr directly to
-Google Cloud Logging with Docker's `gcplogs` driver. Set `GCP_PROJECT_ID` in
-`.env.production` to the logging project. The Docker host identity needs
-`roles/logging.logWriter` in that project.
+The production Compose template stores container stdout and stderr on the
+Docker host using the [`local` logging driver](https://docs.docker.com/engine/logging/drivers/local/).
+Each container keeps up to five 20 MB log files, with automatic rotation and
+compression. Logs need no cloud account or credentials. A 4 MB non-blocking
+buffer prevents slow log writes from blocking the application; new messages
+are dropped if that buffer fills.
 
-On Compute Engine, grant that role to the VM's attached service account. On a
-host outside Google Cloud, configure Application Default Credentials for the
-Docker daemon itself; setting credentials only inside the application
-containers does not authenticate the logging driver. Protect any credential
-configuration as a root-readable secret and restart Docker after changing the
-daemon environment.
-
-The logging driver includes the `environment` and `service` container labels.
-It uses a 4 MB non-blocking buffer per container so a temporary logging outage
-does not block application stdout or stderr. When that buffer fills, Docker
-drops new log messages, so monitor ingestion and alert on sustained failures.
-
-### Query production logs through the local MCP server
-
-The repository includes a read-only STDIO MCP server. It uses local Application
-Default Credentials and calls Cloud Logging directly; it does not expose a
-network port and does not run in the production Compose stack.
-
-Build it locally from the `server` directory:
+From the `server` directory on the production host, query recent logs:
 
 ```sh
-make build-log-mcp
+docker compose --env-file deploy/.env.production \
+  -f deploy/docker-compose.production.yaml logs --since 15m --tail 200 server
 ```
 
-If GNU Make is not installed, use PowerShell:
-
-```powershell
-New-Item -ItemType Directory -Force .\bin | Out-Null
-go build -o .\bin\log-mcp.exe .\cmd\log-mcp
-```
-
-The credential used on the workstation needs `logging.logEntries.list`, which
-is included in `roles/logging.viewer`. Keep the project fixed in the MCP
-process configuration rather than accepting it as a tool argument. Add a
-project-level `.codex/config.toml` using absolute paths:
-
-```toml
-[mcp_servers.production_logs]
-command = '/absolute/path/to/lunar-tear/server/bin/log-mcp'
-args = ["--project", "your-google-cloud-project"]
-startup_timeout_sec = 20
-tool_timeout_sec = 45
-```
-
-On Windows, point `command` to the absolute `log-mcp.exe` path. Restart Codex
-after adding the configuration, then verify that these tools are available:
-
-- `list_services` lists the fixed production service allowlist.
-- `search_logs` searches one service, defaults to 15 minutes, and limits a
-  query to one hour and 200 entries.
-- `get_log_context` returns entries around an RFC3339 timestamp.
-
-Before starting Codex, verify the exact ADC identity used by the MCP process:
-
-```sh
-gcloud auth application-default print-access-token
-```
-
-This is separate from the credential used by a normal `gcloud logging read`
-command. If ADC impersonates a service account, the calling identity also
-needs `roles/iam.serviceAccountTokenCreator` on that service account. Do not
-put an access token in `.codex/config.toml`; let the Google client refresh ADC.
-
-Docker's `gcplogs` driver stores configured container labels inside the JSON
-payload. The MCP server therefore filters on
-`jsonPayload.container.metadata.environment` and
-`jsonPayload.container.metadata.service`, not `labels.environment` or
-`labels.service`. Returned messages are size-limited and common token-like
-values are redacted before they reach the MCP client.
+Use `auth` or `cdn` to select another service, omit the service to read all
+three, or add `--follow` to stream new entries. Logs are local to each container
+and are removed when that container is removed; export any needed history
+before recreating containers.
 
 ## 4. Validate and start
 
@@ -211,12 +155,11 @@ make prod-deploy
 
 Omit the `export` command if the token is already set in `.env.production`.
 `prod-start` and `prod-restart` pass the configured `LUNAR_ADMIN_TOKEN` to the
-server through Compose; a missing or empty token prevents startup. These
-targets do not fetch secrets from Google Cloud. `prod-build` uses a placeholder
-token and does not pass the real token to the image build. `GCP_PROJECT_ID` is
-still required for the `gcplogs` logging driver.
+server through Compose; a missing or empty token prevents startup.
+`prod-build` uses a placeholder token and does not pass the real token to the
+image build.
 
-After the containers start, verify the driver before querying Logs Explorer:
+After the containers start, verify the logging driver:
 
 ```sh
 docker inspect --format '{{json .HostConfig.LogConfig}}' \
@@ -224,10 +167,9 @@ docker inspect --format '{{json .HostConfig.LogConfig}}' \
     -f deploy/docker-compose.production.yaml ps -q server)"
 ```
 
-The output should report `gcplogs`, the configured GCP project, and the
-`environment,service` label list. Because logging-driver changes require
-container recreation, use `make prod-restart` when applying this change to an
-existing deployment.
+The output should report `local` with `max-size=20m` and `max-file=5`.
+Because logging-driver changes require container recreation, use
+`make prod-restart` when applying this change to an existing deployment.
 
 The auth token secret is generated once at `${DATA_DIR}/db/auth.secret` with
 mode 0600 and reused after restarts. Do not delete it while users have active
