@@ -50,15 +50,9 @@ DEV_STOP_TIMEOUT ?= 30
 
 # Production lifecycle via Docker Compose. Paths are relative to server/.
 DOCKER_COMPOSE ?= docker compose
-GCLOUD ?= gcloud
 PROD_ENV_FILE ?= deploy/.env.production
 PROD_COMPOSE_FILE ?= deploy/docker-compose.production.yaml
 PROD_COMPOSE = $(DOCKER_COMPOSE) --env-file "$(PROD_ENV_FILE)" -f "$(PROD_COMPOSE_FILE)"
-PROD_ADMIN_TOKEN_SECRET ?= LUNAR_ADMIN_TOKEN
-PROD_ADMIN_TOKEN_VERSION ?= 1
-GCP_PROJECT_ID ?=
-PROD_GCP_PROJECT_ARG = $(if $(strip $(GCP_PROJECT_ID)),--project "$(GCP_PROJECT_ID)")
-PROD_ADMIN_TOKEN_COMMAND = $(GCLOUD) secrets versions access "$(PROD_ADMIN_TOKEN_VERSION)" --secret="$(PROD_ADMIN_TOKEN_SECRET)" $(PROD_GCP_PROJECT_ARG)
 
 GRPC_ADDR ?= 10.0.2.2:8003
 GRPC_TLS ?= false
@@ -232,10 +226,7 @@ prod-build:
 	@LUNAR_ADMIN_TOKEN=unused-during-build $(PROD_COMPOSE) build
 
 prod-start:
-	@LUNAR_ADMIN_TOKEN="$$($(PROD_ADMIN_TOKEN_COMMAND))" || exit $$?; \
-		test -n "$$LUNAR_ADMIN_TOKEN" || { echo "Secret $(PROD_ADMIN_TOKEN_SECRET) version $(PROD_ADMIN_TOKEN_VERSION) is empty" >&2; exit 1; }; \
-		export LUNAR_ADMIN_TOKEN; \
-		$(PROD_COMPOSE) up -d --no-build
+	@$(PROD_COMPOSE) up -d --no-build
 
 prod-stop:
 	@LUNAR_ADMIN_TOKEN=unused-during-stop $(PROD_COMPOSE) stop
@@ -244,10 +235,7 @@ prod-account:
 	@LUNAR_ADMIN_TOKEN=unused-during-account $(PROD_COMPOSE) run --rm --no-deps --entrypoint ./account-admin auth $(ARGS)
 
 prod-restart:
-	@LUNAR_ADMIN_TOKEN="$$($(PROD_ADMIN_TOKEN_COMMAND))" || exit $$?; \
-		test -n "$$LUNAR_ADMIN_TOKEN" || { echo "Secret $(PROD_ADMIN_TOKEN_SECRET) version $(PROD_ADMIN_TOKEN_VERSION) is empty" >&2; exit 1; }; \
-		export LUNAR_ADMIN_TOKEN; \
-		$(PROD_COMPOSE) up -d --no-build --force-recreate
+	@$(PROD_COMPOSE) up -d --no-build --force-recreate
 
 prod-deploy: prod-build
 	@$(MAKE) --no-print-directory prod-start

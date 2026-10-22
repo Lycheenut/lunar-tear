@@ -110,8 +110,8 @@ chmod 600 .env.production
 ```
 
 Replace every example domain in `.env.production` and
-`nginx/lunar-tear.conf`. `LUNAR_ADMIN_TOKEN` is read from Google Cloud Secret
-Manager at deployment time and must not be added to `.env.production`. The
+`nginx/lunar-tear.conf`. Set `LUNAR_ADMIN_TOKEN` in the shell environment or in
+the protected `.env.production` file; the shell environment takes precedence. The
 Android WebView login flow uses
 `fbconnect://success`, which is already set in the example. If another client
 uses a different login path, set `AUTH_ALLOWED_REDIRECT_URIS` to its exact
@@ -128,9 +128,8 @@ ECS `octo` hostname.
 
 The production Compose template sends container stdout and stderr directly to
 Google Cloud Logging with Docker's `gcplogs` driver. Set `GCP_PROJECT_ID` in
-`.env.production` to the same project passed to the production Makefile
-targets. The Docker host identity needs `roles/logging.logWriter` in that
-project.
+`.env.production` to the logging project. The Docker host identity needs
+`roles/logging.logWriter` in that project.
 
 On Compute Engine, grant that role to the VM's attached service account. On a
 host outside Google Cloud, configure Application Default Credentials for the
@@ -206,18 +205,16 @@ values are redacted before they reach the MCP client.
 
 ```sh
 cd ..
-make prod-deploy \
-  GCP_PROJECT_ID=your-google-cloud-project \
-  PROD_ADMIN_TOKEN_VERSION=1
+export LUNAR_ADMIN_TOKEN='replace-with-a-high-entropy-token'
+make prod-deploy
 ```
 
-The VM service account must have `roles/secretmanager.secretAccessor` on the
-`LUNAR_ADMIN_TOKEN` secret. `prod-build` never reads the secret or passes it to
-the image build. `prod-start` reads it immediately before creating containers,
-and `prod-restart` reads it again before recreating them. Set
-`PROD_ADMIN_TOKEN_SECRET` only when the Secret Manager secret uses another ID.
-The same `GCP_PROJECT_ID` must be present in `.env.production` so Compose can
-configure `gcplogs`.
+Omit the `export` command if the token is already set in `.env.production`.
+`prod-start` and `prod-restart` pass the configured `LUNAR_ADMIN_TOKEN` to the
+server through Compose; a missing or empty token prevents startup. These
+targets do not fetch secrets from Google Cloud. `prod-build` uses a placeholder
+token and does not pass the real token to the image build. `GCP_PROJECT_ID` is
+still required for the `gcplogs` logging driver.
 
 After the containers start, verify the driver before querying Logs Explorer:
 
@@ -290,8 +287,8 @@ Then:
 1. Under **SSL/TLS > Overview**, select **Full (strict)**.
 2. Confirm the installed origin certificate includes `admin.example.com` (or a
    matching `*.example.com` SAN), then reload nginx.
-3. Open `https://admin.example.com/admin/` and enter the token sourced from
-   Secret Manager. A request without the token should receive HTTP 401 from the
+3. Open `https://admin.example.com/admin/` and enter the configured
+   `LUNAR_ADMIN_TOKEN`. A request without the token should receive HTTP 401 from the
    data API.
 4. Under **Zero Trust > Access controls > Applications**, create a
    **Self-hosted** public-hostname application for `admin.example.com`, and add

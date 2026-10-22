@@ -414,7 +414,7 @@ All targets run from the `server/` directory.
 | `make prod-deploy`            | Build images, read the admin token, and start services  |
 | `make prod-start`             | Read the admin token and start production services      |
 | `make prod-stop`              | Stop the production services                           |
-| `make prod-restart`           | Reload the admin token and recreate production services |
+| `make prod-restart`           | Recreate production services with the configured admin token |
 | `make client-check`           | Validate Android client build inputs and tools         |
 | `make client`                 | Patch, rebuild, align, and sign the Android client     |
 | `make build-import`           | Build the import-snapshot tool                         |
@@ -441,11 +441,10 @@ picture-book font asset and use their serialized default material for Japanese;
 Korean and English retain their dedicated font/material paths. Other worldwide
 non-Korean replacement rules apply only to English.
 
-The production start, restart, and deploy targets read `LUNAR_ADMIN_TOKEN`
-directly from Google Cloud Secret Manager without writing it to disk. They use
-secret `LUNAR_ADMIN_TOKEN`, version `1`, and the active `gcloud` project by
-default. Override these with `PROD_ADMIN_TOKEN_SECRET`,
-`PROD_ADMIN_TOKEN_VERSION`, and `GCP_PROJECT_ID`.
+The production start, restart, and deploy targets use `LUNAR_ADMIN_TOKEN`
+from the shell environment or `server/deploy/.env.production`, with the shell
+environment taking precedence. Compose rejects a missing or empty token.
+Google Cloud credentials are still required for the `gcplogs` logging driver.
 
 ### Client Localization CSV
 
