@@ -50,6 +50,7 @@ DEV_STOP_TIMEOUT ?= 30
 
 # Production lifecycle via Docker Compose. Paths are relative to server/.
 DOCKER_COMPOSE ?= docker compose
+PROD_BUILDER ?= default
 PROD_ENV_FILE ?= deploy/.env.production
 PROD_COMPOSE_FILE ?= deploy/docker-compose.production.yaml
 PROD_COMPOSE = $(DOCKER_COMPOSE) --env-file "$(PROD_ENV_FILE)" -f "$(PROD_COMPOSE_FILE)"
@@ -223,7 +224,7 @@ restart:
 	$(PYTHON) "$(DEV_MANAGER)" --go "$(GO)" --binary "bin/dev$(EXE)" --pid-file "$(DEV_PID_FILE)" --ready-file "$(DEV_READY_FILE)" --stop-file "$(DEV_STOP_FILE)" --args-file "$(DEV_ARGS_FILE)" --log-file "$(DEV_LOG_FILE)" --start-timeout "$(DEV_START_TIMEOUT)" --stop-timeout "$(DEV_STOP_TIMEOUT)" --auto-public-addr restart -- $(ARGS)
 
 prod-build:
-	@LUNAR_ADMIN_TOKEN=unused-during-build $(PROD_COMPOSE) build
+	@LUNAR_ADMIN_TOKEN=unused-during-build $(PROD_COMPOSE) build --builder "$(PROD_BUILDER)"
 
 prod-start:
 	@$(PROD_COMPOSE) up -d --no-build
