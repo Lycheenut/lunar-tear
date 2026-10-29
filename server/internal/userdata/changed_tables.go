@@ -177,6 +177,9 @@ func ChangedTables(before, after *store.UserState) []string {
 	if !mapsEqualSimple(before.Materials, after.Materials) {
 		add("IUserMaterial")
 	}
+	if !mapsEqualStruct(before.MaterialConversions, after.MaterialConversions) {
+		add("IUserPossessionAutoConvert")
+	}
 	if !mapsEqualSimple(before.ImportantItems, after.ImportantItems) {
 		add("IUserImportantItem")
 	}
@@ -349,6 +352,12 @@ func ChangedTables(before, after *store.UserState) []string {
 func ComputeDelta(before, after *store.UserState, changedTables []string) map[string]*pb.DiffData {
 	diff := make(map[string]*pb.DiffData, len(changedTables))
 	for _, table := range changedTables {
+		if table == "IUserPossessionAutoConvert" {
+			if conversion := MaterialConversionDiff(before, after); conversion != nil {
+				diff[table] = conversion
+			}
+			continue
+		}
 		afterJSON := projectTable(table, *after)
 		updates := afterJSON
 		deleteKeys := "[]"

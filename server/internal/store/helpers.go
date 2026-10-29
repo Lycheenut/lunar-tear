@@ -150,6 +150,14 @@ func GrantPossession(user *UserState, possessionType model.PossessionType, posse
 				delete(user.Materials, possessionId)
 			}
 			user.Materials[targetId] += converted
+			if user.MaterialConversions == nil {
+				user.MaterialConversions = make(map[int32]MaterialConversionState)
+			}
+			conversion := user.MaterialConversions[possessionId]
+			conversion.ToMaterialId = targetId
+			conversion.ConvertedCount += int64(converted)
+			conversion.ConvertDatetime = gametime.NowMillis()
+			user.MaterialConversions[possessionId] = conversion
 			AddMissionCount(user, int32(model.MissionClearConditionTypePossessionAddByCount), converted, targetId, int32(model.PossessionTypeMaterial))
 		}
 	case model.PossessionTypeConsumableItem:

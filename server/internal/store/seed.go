@@ -127,6 +127,7 @@ func SeedUserState(userId int64, uuid string, nowMillis int64, platform model.Cl
 		LabyrinthStages:            make(map[LabyrinthStageKey]LabyrinthStageState),
 		ConsumableItems:            make(map[int32]int32),
 		Materials:                  make(map[int32]int32),
+		MaterialConversions:        make(map[int32]MaterialConversionState),
 		Thoughts:                   make(map[string]ThoughtState),
 		Parts:                      make(map[string]PartsState),
 		PartsGroupNotes:            make(map[int32]PartsGroupNoteState),

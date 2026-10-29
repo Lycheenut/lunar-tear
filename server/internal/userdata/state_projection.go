@@ -42,6 +42,7 @@ func FullClientTableMap(user store.UserState) map[string]string {
 		"IUserGimmickSequence":                    projectTable("IUserGimmickSequence", user),
 		"IUserGimmickUnlock":                      projectTable("IUserGimmickUnlock", user),
 		"IUserMaterial":                           projectTable("IUserMaterial", user),
+		"IUserPossessionAutoConvert":              projectTable("IUserPossessionAutoConvert", user),
 		"IUserConsumableItem":                     projectTable("IUserConsumableItem", user),
 		"IUserParts":                              projectTable("IUserParts", user),
 		"IUserImportantItem":                      projectTable("IUserImportantItem", user),

@@ -76,6 +76,7 @@ func initMaps(u *store.UserState) {
 	u.DeckTypeNotes = make(map[model.DeckType]store.DeckTypeNoteState)
 	u.ConsumableItems = make(map[int32]int32)
 	u.Materials = make(map[int32]int32)
+	u.MaterialConversions = make(map[int32]store.MaterialConversionState)
 	u.ImportantItems = make(map[int32]int32)
 	u.PremiumItems = make(map[int32]int64)
 	u.NaviCutInPlayed = make(map[int32]bool)
@@ -619,6 +620,13 @@ func loadMapTables(db *sql.DB, uid int64, u *store.UserState) {
 
 	loadSimpleMap(db, uid, `SELECT consumable_item_id, count FROM user_consumable_items WHERE user_id=?`, u.ConsumableItems)
 	loadSimpleMap(db, uid, `SELECT material_id, count FROM user_materials WHERE user_id=?`, u.Materials)
+	queryRows(db, `SELECT material_id, to_material_id, converted_count, convert_datetime FROM user_material_conversions WHERE user_id=?`, uid,
+		func(rows *sql.Rows) {
+			var id int32
+			var v store.MaterialConversionState
+			rows.Scan(&id, &v.ToMaterialId, &v.ConvertedCount, &v.ConvertDatetime)
+			u.MaterialConversions[id] = v
+		})
 	loadSimpleMap(db, uid, `SELECT important_item_id, count FROM user_important_items WHERE user_id=?`, u.ImportantItems)
 
 	queryRows(db, `SELECT premium_item_id, count FROM user_premium_items WHERE user_id=?`, uid,

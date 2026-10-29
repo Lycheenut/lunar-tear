@@ -46,6 +46,7 @@ func CloneUserState(u UserState) UserState {
 	out.LabyrinthStages = maps.Clone(u.LabyrinthStages)
 	out.ConsumableItems = maps.Clone(u.ConsumableItems)
 	out.Materials = maps.Clone(u.Materials)
+	out.MaterialConversions = maps.Clone(u.MaterialConversions)
 	out.Parts = maps.Clone(u.Parts)
 	out.PartsGroupNotes = maps.Clone(u.PartsGroupNotes)
 	out.PartsPresets = maps.Clone(u.PartsPresets)

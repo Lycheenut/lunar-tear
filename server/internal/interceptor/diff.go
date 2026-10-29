@@ -76,6 +76,11 @@ func NewDiffInterceptor(
 
 		if getter, ok := resp.(diffUserDataGetter); ok {
 			if existing := getter.GetDiffUserData(); len(existing) > 0 {
+				if after, err := users.LoadUser(userId); err == nil {
+					if conversion := userdata.MaterialConversionDiff(&before, &after); conversion != nil {
+						existing["IUserPossessionAutoConvert"] = conversion
+					}
+				}
 				setUpdateNamesTrailer(ctx, existing)
 				return resp, nil
 			}
