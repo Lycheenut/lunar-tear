@@ -420,6 +420,12 @@ func writeUserState(tx *sql.Tx, uid int64, u *store.UserState) error {
 			return err
 		}
 	}
+	for k, v := range u.MaterialConversions {
+		if err := exec(`INSERT INTO user_material_conversions (user_id, material_id, to_material_id, converted_count, convert_datetime) VALUES (?,?,?,?,?)`,
+			uid, k, v.ToMaterialId, v.ConvertedCount, v.ConvertDatetime); err != nil {
+			return err
+		}
+	}
 	for k, v := range u.ImportantItems {
 		if err := exec(`INSERT INTO user_important_items (user_id, important_item_id, count) VALUES (?,?,?)`, uid, k, v); err != nil {
 			return err
@@ -1165,6 +1171,12 @@ func diffAndSave(tx *sql.Tx, uid int64, before, after *store.UserState) error {
 		return err
 	}
 	if err := diffSimpleMap(tx, uid, before.Materials, after.Materials, "user_materials", "material_id", "count"); err != nil {
+		return err
+	}
+	if err := diffMapInt32(tx, uid, before.MaterialConversions, after.MaterialConversions, "user_material_conversions", "material_id",
+		func(v store.MaterialConversionState) []any {
+			return []any{0, v.ToMaterialId, v.ConvertedCount, v.ConvertDatetime}
+		}, "material_id, to_material_id, converted_count, convert_datetime"); err != nil {
 		return err
 	}
 	if err := diffSimpleMap(tx, uid, before.ImportantItems, after.ImportantItems, "user_important_items", "important_item_id", "count"); err != nil {

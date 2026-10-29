@@ -118,6 +118,10 @@ func TestGrantGiftConvertsFragmentsAndRollsBackMaterialOverflow(t *testing.T) {
 		user := store.SeedUserState(1, "fragments", 1, model.ClientPlatform{})
 		user.Materials[item.fragmentId] = 9
 		user.Materials[item.materialId] = 10
+		user.MaterialConversions[item.fragmentId] = store.MaterialConversionState{
+			ToMaterialId: item.materialId, ConvertedCount: 2, ConvertDatetime: 100,
+		}
+		previousConversion := user.MaterialConversions[item.fragmentId]
 		gift := store.GiftCommonState{
 			PossessionType: int32(model.PossessionTypeMaterial), PossessionId: item.fragmentId, Count: 21,
 		}
@@ -129,12 +133,18 @@ func TestGrantGiftConvertsFragmentsAndRollsBackMaterialOverflow(t *testing.T) {
 		if user.Materials[item.fragmentId] != 9 || user.Materials[item.materialId] != 10 || len(user.PendingMissionEvents) != 0 {
 			t.Fatal("rejected conversion changed inventory or mission counts")
 		}
+		if user.MaterialConversions[item.fragmentId] != previousConversion {
+			t.Fatal("rejected conversion changed the notification counters")
+		}
 		user.Materials[item.materialId] = 7
 		if result := grantGift(user, gift, granter, config, 1000); result.Status != store.GrantStatusGranted {
 			t.Fatalf("converted gift at inventory limit status = %v, want granted", result.Status)
 		}
 		if user.Materials[item.fragmentId] != 0 || user.Materials[item.materialId] != 10 {
 			t.Fatal("gift did not convert all 30 fragments into 3 materials")
+		}
+		if user.MaterialConversions[item.fragmentId].ConvertedCount != 5 {
+			t.Fatal("successful gift did not record exactly 3 new conversions")
 		}
 	}
 }

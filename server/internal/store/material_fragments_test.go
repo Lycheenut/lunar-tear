@@ -45,6 +45,13 @@ func TestGrantPossessionConvertsMaterialFragments(t *testing.T) {
 					if got := user.Materials[item.materialId]; got != 4+test.converted {
 						t.Fatalf("materials = %d, want %d", got, 4+test.converted)
 					}
+					conversion := user.MaterialConversions[item.fragmentId]
+					if conversion.ConvertedCount != int64(test.converted) {
+						t.Fatalf("conversion counter = %d, want %d", conversion.ConvertedCount, test.converted)
+					}
+					if test.converted > 0 && (conversion.ToMaterialId != item.materialId || conversion.ConvertDatetime <= 0) {
+						t.Fatalf("invalid conversion notification state: %+v", conversion)
+					}
 					var obtained int32
 					for _, event := range user.PendingMissionEvents {
 						if event.ConditionType == int32(model.MissionClearConditionTypePossessionAddByCount) &&

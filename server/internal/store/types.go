@@ -99,6 +99,7 @@ type UserState struct {
 	LabyrinthStages            map[LabyrinthStageKey]LabyrinthStageState
 	ConsumableItems            map[int32]int32
 	Materials                  map[int32]int32
+	MaterialConversions        map[int32]MaterialConversionState
 	Parts                      map[string]PartsState
 	PartsGroupNotes            map[int32]PartsGroupNoteState
 	PartsPresets               map[int32]PartsPresetState
@@ -325,6 +326,9 @@ func (u *UserState) EnsureMaps() {
 	}
 	if u.Materials == nil {
 		u.Materials = make(map[int32]int32)
+	}
+	if u.MaterialConversions == nil {
+		u.MaterialConversions = make(map[int32]MaterialConversionState)
 	}
 	if u.Parts == nil {
 		u.Parts = make(map[string]PartsState)
@@ -1597,4 +1601,12 @@ type CostumeLotteryEffectPendingState struct {
 	SlotNumber      int32
 	OddsNumber      int32
 	LatestVersion   int64
+}
+
+// MaterialConversionState keeps a cumulative count so response diffs can report
+// all conversions performed during a request, independently of inventory use.
+type MaterialConversionState struct {
+	ToMaterialId    int32
+	ConvertedCount  int64
+	ConvertDatetime int64
 }

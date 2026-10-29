@@ -45,6 +45,7 @@ var userOwnedTables = []string{
 	"user_premium_items",
 	"user_important_items",
 	"user_materials",
+	"user_material_conversions",
 	"user_consumable_items",
 	"user_gimmick_unlocks",
 	"user_gimmick_sequences",
