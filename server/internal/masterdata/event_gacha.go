@@ -32,6 +32,20 @@ var eventGachaTickets = map[int32][]int32{
 
 func eventGachaTierEntries(base store.GachaCatalogEntry) []store.GachaCatalogEntry {
 	base.EventGachaBaseId = base.GachaId
+	// Nelgel's later volumes share the first volume's quest, ticket and schedule,
+	// but have their own assets and box counters. Only Vol.1 has a quest link.
+	if base.GachaId == 333001 {
+		entries := make([]store.GachaCatalogEntry, 0, 3)
+		for _, id := range []int32{333001, 334001, 335001} {
+			entry := base
+			entry.GachaId = id
+			entry.GroupId = id
+			entry.BannerAssetName = fmt.Sprintf("event_%d_01", id/1000)
+			entry.PricePhases = buildChapterPricePhases(id, base.RequiredConsumableItemId)
+			entries = append(entries, entry)
+		}
+		return entries
+	}
 	tickets := eventGachaTickets[base.GachaId]
 	if len(tickets) == 0 {
 		return []store.GachaCatalogEntry{base}

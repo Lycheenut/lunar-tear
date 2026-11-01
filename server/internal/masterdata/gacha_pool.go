@@ -58,6 +58,7 @@ type GachaCatalog struct {
 	Materials                []GachaPoolItem
 	CostumeById              map[int32]GachaPoolItem
 	WeaponById               map[int32]GachaPoolItem
+	ThoughtById              map[int32]EntityMThought
 	ConfigurableWeaponById   map[int32]GachaPoolItem // catalog root weapons with a supported Gacha rarity
 	EligibleWeaponById       map[int32]GachaPoolItem // configurable weapons allowed to enter a configured pool
 	CostumeWeaponMap         map[int32]int32         // costumeId -> paired weaponId
@@ -98,6 +99,13 @@ func LoadGachaBoxRewardKeys() (map[[2]int32]bool, error) {
 	}
 	for _, item := range consumables {
 		keys[[2]int32{int32(model.PossessionTypeConsumableItem), item.ConsumableItemId}] = true
+	}
+	thoughts, err := utils.ReadTable[EntityMThought]("m_thought")
+	if err != nil {
+		return nil, fmt.Errorf("load Debris rewards: %w", err)
+	}
+	for _, item := range thoughts {
+		keys[[2]int32{int32(model.PossessionTypeThought), item.ThoughtId}] = true
 	}
 	return keys, nil
 }
@@ -187,6 +195,7 @@ func LoadGachaPool() (*GachaCatalog, error) {
 		WeaponsByRarity:        make(map[int32][]GachaPoolItem),
 		CostumeById:            make(map[int32]GachaPoolItem),
 		WeaponById:             make(map[int32]GachaPoolItem),
+		ThoughtById:            make(map[int32]EntityMThought),
 		ConfigurableWeaponById: make(map[int32]GachaPoolItem),
 		EligibleWeaponById:     make(map[int32]GachaPoolItem),
 		CostumeWeaponMap:       make(map[int32]int32),
@@ -194,6 +203,13 @@ func LoadGachaPool() (*GachaCatalog, error) {
 		FeaturedByGacha:        make(map[int32]FeaturedSet),
 		TermById:               make(map[int32]*CatalogTerm),
 		TermsByStartDatetime:   make(map[int64][]*CatalogTerm),
+	}
+	thoughts, err := utils.ReadTable[EntityMThought]("m_thought")
+	if err != nil {
+		return nil, fmt.Errorf("load Debris table: %w", err)
+	}
+	for _, thought := range thoughts {
+		pool.ThoughtById[thought.ThoughtId] = thought
 	}
 	for _, t := range terms {
 		ct := &CatalogTerm{TermId: t.CatalogTermId, StartDatetime: t.StartDatetime}
