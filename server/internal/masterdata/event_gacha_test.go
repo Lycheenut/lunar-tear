@@ -66,3 +66,29 @@ func TestEventCatalogIncludesAllTiersWithoutInventingSingleTicketTiers(t *testin
 		}
 	}
 }
+
+func TestNelgelVolumesShareTicketsAndActivityMetadata(t *testing.T) {
+	chapters := map[int32]EntityMEventQuestChapter{333001: {EventQuestChapterId: 333, StartDatetime: 10, EndDatetime: 20, DisplaySortOrder: 940}}
+	links := map[int32]EntityMEventQuestLink{333001: {PossessionType: 6, PossessionId: 6066}}
+	entries := buildEventGachaEntries(chapters, links)
+	if len(entries) != 3 {
+		t.Fatalf("Nelgel volume count = %d, want 3", len(entries))
+	}
+	for i, entry := range entries {
+		id := int32(333001 + i*1000)
+		if entry.GachaId != id || entry.GroupId != id || entry.EventGachaBaseId != 333001 || entry.RequiredConsumableItemId != 6066 {
+			t.Fatalf("incorrect volume identity: %+v", entry)
+		}
+		if entry.RelatedEventQuestChapterId != 333 || entry.StartDatetime != 10 || entry.EndDatetime != 20 || entry.SortOrder != 940 {
+			t.Fatalf("incorrect volume activity: %+v", entry)
+		}
+		if entry.BannerAssetName != fmt.Sprintf("event_%d_01", id/1000) {
+			t.Fatalf("incorrect volume asset: %s", entry.BannerAssetName)
+		}
+		for _, phase := range entry.PricePhases {
+			if phase.PriceId != 6066 || phase.Price != phase.DrawCount || phase.PhaseId/10 != id {
+				t.Fatalf("incorrect volume price: %+v", phase)
+			}
+		}
+	}
+}

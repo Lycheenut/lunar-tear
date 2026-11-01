@@ -134,7 +134,7 @@ func validateRewardGroup(gachaId int32, boxNumber int, group string, rewards []B
 func supportedBoxPossessionType(possessionType int32) bool {
 	switch model.PossessionType(possessionType) {
 	case model.PossessionTypeMaterial, model.PossessionTypeWeapon, model.PossessionTypeCompanion,
-		model.PossessionTypeConsumableItem, model.PossessionTypeFreeGem:
+		model.PossessionTypeConsumableItem, model.PossessionTypeFreeGem, model.PossessionTypeThought:
 		return true
 	default:
 		return false

@@ -327,6 +327,12 @@ func (s *GachaWebHandler) gachaPossessionName(cat *runtime.Catalogs, language st
 			v := cat.Companion.CompanionById[id]
 			key = fmt.Sprintf("companion.name.cm%03d%03d", v.ActorSkeletonId, v.AssetVariationId)
 		}
+	case model.PossessionTypeThought:
+		kind = "Debris"
+		if cat.GachaPool != nil {
+			v := cat.GachaPool.ThoughtById[id]
+			key = fmt.Sprintf("thought.name.%d", v.ThoughtAssetId)
+		}
 	case model.PossessionTypeFreeGem, model.PossessionTypePaidGem:
 		return gachaWebText[language]["gems"]
 	}

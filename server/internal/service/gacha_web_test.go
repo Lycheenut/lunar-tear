@@ -82,6 +82,21 @@ func requestGachaPage(web http.Handler, path string) *httptest.ResponseRecorder 
 	return recorder
 }
 
+func TestGachaWebDebrisUsesThoughtAssetName(t *testing.T) {
+	web := &GachaWebHandler{names: assettext.Index{
+		"en": {"thought.name.999008": "Debris: Vigor Chunk"},
+		"ja": {"thought.name.999008": "デブリ：気勢の大塊"},
+	}}
+	cat := &runtime.Catalogs{GachaPool: &masterdata.GachaCatalog{
+		ThoughtById: map[int32]masterdata.EntityMThought{79100832: {ThoughtAssetId: 999008}},
+	}}
+	for language, want := range map[string]string{"en": "Debris: Vigor Chunk", "ja": "デブリ：気勢の大塊"} {
+		if got := web.gachaPossessionName(cat, language, int32(model.PossessionTypeThought), 79100832); got != want {
+			t.Fatalf("Debris name in %s = %q, want %q", language, got, want)
+		}
+	}
+}
+
 func TestGachaWebPremiumRatesAndRequestValidation(t *testing.T) {
 	web, repo, session, cat := newGachaWebTestServer(t)
 	auth := "&sessionKey=" + url.QueryEscape(session.SessionKey)

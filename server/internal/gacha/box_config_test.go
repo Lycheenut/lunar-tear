@@ -101,3 +101,42 @@ func TestEventPromotionsDistinguishFeaturedAndJackpotRewards(t *testing.T) {
 		t.Fatalf("Event featured/jackpot promotions = %+v", promotions)
 	}
 }
+
+func TestEventBoxValidatesAndGrantsDebris(t *testing.T) {
+	const thoughtID = 79100832
+	config := DefaultConfig()
+	config.EventBanners[334001] = EventBoxConfig{Boxes: []BoxConfig{{
+		GroupWeights: BoxGroupWeights{Limited: GroupWeightTotal},
+		LimitedRewards: []BoxRewardConfig{{PossessionType: int32(model.PossessionTypeThought), PossessionId: thoughtID,
+			Count: 1, MaxCount: 1, Featured: true, Jackpot: true}},
+	}}}
+	entries := []store.GachaCatalogEntry{{GachaId: 334001, GachaLabelType: model.GachaLabelEvent,
+		PricePhases: []store.GachaPricePhaseEntry{{PhaseId: 1, PriceType: model.PriceTypeConsumableItem, PriceId: 6066, Price: 1, DrawCount: 1}}}}
+	valid := map[[2]int32]bool{{int32(model.PossessionTypeThought), thoughtID}: true}
+	if err := validateBoxConfigs(config, entries, valid); err != nil {
+		t.Fatalf("valid Debris rejected: %v", err)
+	}
+	if err := validateBoxConfigs(config, entries, map[[2]int32]bool{}); err == nil {
+		t.Fatal("unknown Debris accepted")
+	}
+	ApplyConfiguredBoxes(entries, config)
+	h := &GachaHandler{Premium: &PremiumCatalog{Config: config}, Granter: &store.PossessionGranter{}}
+	user := &store.UserState{}
+	user.EnsureMaps()
+	user.ConsumableItems[6066] = 1
+	result, err := h.HandleDraw(user, entries[0], 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].PossessionId != thoughtID || !result.Items[0].IsTarget || len(user.Thoughts) != 1 || user.ConsumableItems[6066] != 0 {
+		t.Fatalf("Debris was not granted: %+v / %+v", result, user.Thoughts)
+	}
+	for _, thought := range user.Thoughts {
+		if thought.ThoughtId != thoughtID {
+			t.Fatalf("wrong Debris: %+v", thought)
+		}
+	}
+	if err := h.HandleResetBox(user, entries[0]); err != nil {
+		t.Fatalf("completed Debris box did not reset: %v", err)
+	}
+}
