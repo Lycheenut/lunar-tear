@@ -1,5 +1,7 @@
 package model
 
+const MaterialIdDarkKarmaStone int32 = 315002
+
 type MaterialType int32
 
 const (

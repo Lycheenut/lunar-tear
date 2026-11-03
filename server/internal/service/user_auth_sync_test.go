@@ -13,8 +13,8 @@ func TestBuildAuthMainQuestDiffDeletesCachedReplayStatus(t *testing.T) {
 	user.MainQuest.CurrentQuestFlowType = int32(model.QuestFlowTypeMainFlow)
 	user.PortalCageStatus.IsCurrentProgress = true
 
-	diff := buildAuthMainQuestDiff(user)
-	for _, table := range authMainQuestSyncTables {
+	diff := buildAuthDiff(user)
+	for _, table := range authSyncTables {
 		if _, ok := diff[table]; !ok {
 			t.Fatalf("missing authoritative auth diff for %s", table)
 		}
@@ -41,7 +41,7 @@ func TestBuildAuthMainQuestDiffKeepsActiveReplayStatus(t *testing.T) {
 	user.MainQuest.ReplayFlowCurrentQuestSceneId = 848
 	user.MainQuest.ReplayFlowHeadQuestSceneId = 848
 
-	replay := buildAuthMainQuestDiff(user)["IUserMainQuestReplayFlowStatus"]
+	replay := buildAuthDiff(user)["IUserMainQuestReplayFlowStatus"]
 	if replay.UpdateRecordsJson == "[]" {
 		t.Fatal("active replay status was not included in auth diff")
 	}

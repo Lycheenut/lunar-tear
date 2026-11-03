@@ -212,6 +212,7 @@ type PartsRef struct {
 
 type PossessionGranter struct {
 	CostumeById           map[int32]CostumeRef
+	DarkKarmaSlotCosts    map[int32]map[int32]int32 // costume ID -> slot number -> unlock cost
 	CostumeEnhancedById   map[int32]CostumeEnhancedRef
 	CompanionEnhancedById map[int32]CompanionEnhancedRef
 	WeaponEnhancedById    map[int32]WeaponEnhancedRef
@@ -360,6 +361,9 @@ func (g *PossessionGranter) grantCostume(user *UserState, costumeId, level, exp 
 		UserCostumeUuid:     key,
 		Level:               1,
 		AcquisitionDatetime: nowMillis,
+	}
+	if len(g.DarkKarmaSlotCosts[costumeId]) > 0 {
+		g.GrantFull(user, model.PossessionTypeMaterial, model.MaterialIdDarkKarmaStone, darkCostumeKarmaGrant, nowMillis)
 	}
 }
 
