@@ -29,7 +29,8 @@ import (
 
 const missionOptionTitleScreen int32 = 395
 
-var authMainQuestSyncTables = []string{
+var authSyncTables = []string{
+	"IUserMaterial",
 	"IUserMainQuestFlowStatus",
 	"IUserMainQuestMainFlowStatus",
 	"IUserMainQuestProgressStatus",
@@ -88,6 +89,7 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	nowMillis := gametime.NowMillis()
 	catalogs := s.holder.Get()
 	user, err := s.users.UpdateUser(session.UserId, func(user *store.UserState) {
+		catalogs.QuestHandler.Granter.ReconcileDarkKarma(user)
 		if removed := catalogs.QuestHandler.RemoveReplayQuestMissionResidue(user); removed > 0 {
 			log.Printf("[UserService] removed %d replay quest mission rows for userId=%d", removed, user.UserId)
 		}
@@ -106,12 +108,12 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 		return nil, fmt.Errorf("update login state: %w", err)
 	}
 
-	diff := buildAuthMainQuestDiff(user)
+	diff := buildAuthDiff(user)
 	if err := grpc.SetTrailer(ctx, metadata.Pairs(
 		"x-apb-update-user-data-names",
-		userdata.SortedChangedNames(authMainQuestSyncTables),
+		userdata.SortedChangedNames(authSyncTables),
 	)); err != nil {
-		log.Printf("[UserService] failed to set auth main quest sync trailer: %v", err)
+		log.Printf("[UserService] failed to set auth sync trailer: %v", err)
 	}
 
 	return &pb.AuthUserResponse{
@@ -123,9 +125,18 @@ func (s *UserServiceServer) Auth(ctx context.Context, req *pb.AuthUserRequest) (
 	}, nil
 }
 
-func buildAuthMainQuestDiff(user store.UserState) map[string]*pb.DiffData {
-	tables := userdata.ProjectTables(user, authMainQuestSyncTables)
+func buildAuthDiff(user store.UserState) map[string]*pb.DiffData {
+	// Send only the authoritative stone row, also on a retried login.
+	count := user.Materials[model.MaterialIdDarkKarmaStone]
+	user.Materials = nil
+	if count > 0 {
+		user.Materials = map[int32]int32{model.MaterialIdDarkKarmaStone: count}
+	}
+	tables := userdata.ProjectTables(user, authSyncTables)
 	diff := userdata.NewDiffSet(tables)
+	if count == 0 {
+		diff.WithDeletes("IUserMaterial", fmt.Sprintf(`[{"userId":%d,"materialId":%d}]`, user.UserId, model.MaterialIdDarkKarmaStone))
+	}
 	if tables["IUserMainQuestReplayFlowStatus"] == "[]" {
 		diff.WithDeletes(
 			"IUserMainQuestReplayFlowStatus",

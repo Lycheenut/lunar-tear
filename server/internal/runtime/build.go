@@ -9,6 +9,7 @@ import (
 	"lunar-tear/server/internal/importantitem"
 	"lunar-tear/server/internal/masterdata"
 	"lunar-tear/server/internal/masterdata/memorydb"
+	"lunar-tear/server/internal/model"
 	"lunar-tear/server/internal/questdrop"
 	"lunar-tear/server/internal/questflow"
 	"lunar-tear/server/internal/userdata"
@@ -146,6 +147,21 @@ func buildCatalogs(gachaConfig *gacha.Config, questDropConfig *questdrop.Config)
 		return nil, fmt.Errorf("load costume catalog: %w", err)
 	}
 	log.Printf("costume catalog loaded: %d costumes, %d materials, %d rarity curves", len(costumeCatalog.Costumes), len(costumeCatalog.Materials), len(costumeCatalog.ExpByRarity))
+	darkSlots := make(map[int32]map[int32]int32)
+	for _, slot := range costumeCatalog.LotteryEffects {
+		for _, material := range costumeCatalog.LotteryEffectMats[slot.CostumeLotteryEffectUnlockMaterialGroupId] {
+			if material.MaterialId == model.MaterialIdDarkKarmaStone {
+				if darkSlots[slot.CostumeId] == nil {
+					darkSlots[slot.CostumeId] = make(map[int32]int32)
+				}
+				darkSlots[slot.CostumeId][slot.SlotNumber] += material.Count
+			}
+		}
+	}
+	if len(darkSlots) == 0 {
+		return nil, fmt.Errorf("missing dark karma unlock costs required for inventory reconciliation")
+	}
+	questHandler.Granter.DarkKarmaSlotCosts = darkSlots
 
 	weaponCatalog, err := masterdata.LoadWeaponCatalog(materialCatalog)
 	if err != nil {
