@@ -56,6 +56,40 @@ func TestGuaranteedGachaIsVisibleOnlyWithMatchingTicket(t *testing.T) {
 	}
 }
 
+func TestEventGachaWithoutTicketsRequiresBothSchedules(t *testing.T) {
+	const chapterID = 317
+	cat := &runtime.Catalogs{Quest: &masterdata.QuestCatalog{
+		EventChapterById: map[int32]masterdata.EntityMEventQuestChapter{
+			chapterID: {StartDatetime: 20, EndDatetime: 40},
+		},
+	}}
+	entry := store.GachaCatalogEntry{
+		GachaId: 324001, GachaLabelType: model.GachaLabelEvent, BoxCount: 1,
+		RelatedEventQuestChapterId: chapterID, RequiredConsumableItemId: 6042,
+	}
+	user := &store.UserState{}
+	for _, tt := range []struct {
+		name       string
+		start, end int64
+		now        int64
+		visible    bool
+	}{
+		{"chapter not started", 10, 50, 19, false},
+		{"chapter starts", 10, 50, 20, true},
+		{"chapter ends", 10, 50, 40, false},
+		{"pool not started", 25, 35, 24, false},
+		{"pool starts", 25, 35, 25, true},
+		{"pool ends", 25, 35, 35, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			entry.StartDatetime, entry.EndDatetime = tt.start, tt.end
+			if got := gachaVisibleForUser(cat, user, entry, tt.now); got != tt.visible {
+				t.Fatalf("visible at %d = %v, want %v", tt.now, got, tt.visible)
+			}
+		})
+	}
+}
+
 func TestDailyGachaIsVisibleOnlyAfterItsUnlockQuest(t *testing.T) {
 	cat := &runtime.Catalogs{}
 	entry := store.GachaCatalogEntry{

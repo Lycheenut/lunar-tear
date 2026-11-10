@@ -241,7 +241,7 @@ func (h *GachaHandler) HandleResetBox(
 	if entry.GachaLabelType != model.GachaLabelEvent || entry.BoxCount <= 0 {
 		return fmt.Errorf("event Gacha %d has no configured boxes", entry.GachaId)
 	}
-	boxNumber := currentBoxNumber(&bs, entry.BoxCount)
+	boxNumber := CurrentBoxNumber(&bs, entry.BoxCount)
 	if !boxResettable(entry.BoxItems, &bs, boxNumber == entry.BoxCount) {
 		if boxNumber == entry.BoxCount {
 			return fmt.Errorf("last Event Gacha box can only reset after all limited rewards are drawn")
