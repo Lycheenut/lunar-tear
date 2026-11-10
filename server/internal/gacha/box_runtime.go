@@ -20,14 +20,15 @@ func (h *GachaHandler) configuredBox(entry store.GachaCatalogEntry, state *store
 		if !ok || len(event.Boxes) == 0 {
 			return BoxConfig{}, 0, false
 		}
-		boxNumber := currentBoxNumber(state, int32(len(event.Boxes)))
+		boxNumber := CurrentBoxNumber(state, int32(len(event.Boxes)))
 		return event.Boxes[boxNumber-1], int32(len(event.Boxes)), true
 	default:
 		return BoxConfig{}, 0, false
 	}
 }
 
-func currentBoxNumber(state *store.GachaBannerState, boxCount int32) int32 {
+// CurrentBoxNumber resolves new users and saved progress beyond the current configuration.
+func CurrentBoxNumber(state *store.GachaBannerState, boxCount int32) int32 {
 	boxNumber := int32(1)
 	if state != nil && state.BoxNumber > 0 {
 		boxNumber = state.BoxNumber
@@ -50,7 +51,7 @@ func (h *GachaHandler) EntryForState(entry store.GachaCatalogEntry, state *store
 	if entry.GachaLabelType != model.GachaLabelEvent || entry.BoxCount <= 0 {
 		return entry
 	}
-	boxNumber := currentBoxNumber(state, entry.BoxCount)
+	boxNumber := CurrentBoxNumber(state, entry.BoxCount)
 	entry.IsCurrentBoxResettable = boxResettable(entry.BoxItems, state, boxNumber == entry.BoxCount)
 	entry.IsResettableByAllTargets = true
 	entry.IsInvalidReset = !entry.IsCurrentBoxResettable

@@ -135,5 +135,5 @@ func (h *GachaHandler) BoxOdds(entry store.GachaCatalogEntry, state store.GachaB
 			item.Rate = limitedShare * float64(item.Remaining) / float64(limited)
 		}
 	}
-	return BoxOdds{BoxNumber: currentBoxNumber(&state, boxCount), Items: items}, nil
+	return BoxOdds{BoxNumber: CurrentBoxNumber(&state, boxCount), Items: items}, nil
 }

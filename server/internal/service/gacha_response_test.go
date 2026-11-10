@@ -116,8 +116,129 @@ func TestEventBoxResponseReportsProgressionAndResetState(t *testing.T) {
 	}
 	state := &store.GachaBannerState{BoxNumber: 2}
 	mode := toProtoGacha(entry, state).GetGachaModeBoxComposition()
-	if mode == nil || mode.BoxNumber != 3 || mode.CurrentBoxNumber != 2 || !mode.IsCurrentBoxResettable || !mode.IsResettableByDrawingAllTargets || mode.IsInvalidReset {
+	if mode == nil || mode.BoxNumber != 2 || mode.CurrentBoxNumber != 2 || !mode.IsCurrentBoxResettable || !mode.IsResettableByDrawingAllTargets || mode.IsInvalidReset {
 		t.Fatalf("event box response = %+v", mode)
+	}
+	state.BoxNumber = 4 // A previous configuration had more boxes.
+	mode = toProtoGacha(entry, state).GetGachaModeBoxComposition()
+	if mode.BoxNumber != 3 || mode.CurrentBoxNumber != 3 {
+		t.Fatalf("out-of-range event box = %+v", mode)
+	}
+}
+
+func TestEventGachaListAndProgressionWithoutTickets(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(filepath.Join(t.TempDir(), "game.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrations.Up(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	repo := sqlite.New(db, nil)
+	userID, err := repo.CreateUser("event-gacha-boxes", model.ClientPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	holder := newGachaResponseTestHolder(t)
+	cat := holder.Get()
+	const id = 329001
+	entry := findCatalogEntry(cat.GachaEntries, id)
+	if entry == nil || len(entry.PricePhases) == 0 {
+		t.Fatal("event ticket pool is missing from the catalog")
+	}
+	now := gametime.NowMillis()
+	entry.StartDatetime, entry.EndDatetime = now-60000, now+60000
+	chapter := cat.Quest.EventChapterById[entry.RelatedEventQuestChapterId]
+	chapter.StartDatetime, chapter.EndDatetime = entry.StartDatetime, entry.EndDatetime
+	cat.Quest.EventChapterById[chapter.EventQuestChapterId] = chapter
+	config := cat.GachaHandler.Premium.Config
+	var boxes []gacha.BoxConfig
+	for _, reward := range []int32{100004, 200004} {
+		boxes = append(boxes, gacha.BoxConfig{
+			GroupWeights: gacha.BoxGroupWeights{Limited: 10000},
+			LimitedRewards: []gacha.BoxRewardConfig{{
+				PossessionType: int32(model.PossessionTypeMaterial), PossessionId: reward,
+				Count: 1, MaxCount: 1, Jackpot: true,
+			}},
+		})
+	}
+	config.EventBanners[id] = gacha.EventBoxConfig{Boxes: boxes}
+	gacha.ApplyConfiguredBoxes(cat.GachaEntries, config)
+	server := NewGachaServiceServer(repo, repo, holder)
+	questIDs := cat.Quest.EventUnlockQuestIdsForChapter(chapter.EventQuestChapterId)
+	if _, err := repo.UpdateUser(userID, func(user *store.UserState) {
+		for _, questID := range questIDs {
+			user.Quests[questID] = store.UserQuestState{QuestId: questID, QuestStateType: model.UserQuestStateTypeCleared}
+		}
+		delete(user.ConsumableItems, entry.RequiredConsumableItemId)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// CreateEventGacha selects the current box by number, then indexes each
+	// box's pickups by that number when the player pages through the group.
+	checkList := func(current int32, currentDrew int32) {
+		t.Helper()
+		list, err := server.GetGachaList(ctx, &pb.GetGachaListRequest{GachaLabelType: []int32{model.GachaLabelEvent}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[int32]bool{}
+		for _, row := range list.Gacha {
+			box := row.GetGachaModeBoxComposition()
+			if box.GetGachaBoxGroupId() != entry.GroupId {
+				continue
+			}
+			n := box.BoxNumber
+			if row.GachaId != id || !row.IsUserGachaUnlock || seen[n] || n < 1 || n > int32(len(boxes)) || box.CurrentBoxNumber != current {
+				t.Fatalf("invalid event box group member: %+v", row)
+			}
+			seen[n] = true
+			wantDrew := int32(0)
+			if n == current {
+				wantDrew = currentDrew
+			}
+			items := box.PromotionGachaOddsItem
+			if len(items) != 1 || items[0].GetGachaItem().GetPossessionId() != boxes[n-1].LimitedRewards[0].PossessionId || items[0].DrewCount != wantDrew {
+				t.Fatalf("box %d, current %d: pickups = %v", n, current, items)
+			}
+		}
+		if len(seen) != len(boxes) {
+			t.Fatalf("received boxes %v, want both boxes including current %d", seen, current)
+		}
+	}
+	checkList(1, 0)
+	draw := &pb.DrawRequest{GachaId: id, GachaPricePhaseId: entry.PricePhases[0].PhaseId, ExecCount: 1}
+	if _, err := server.Draw(ctx, draw); err == nil {
+		t.Fatal("event draw succeeded without a ticket")
+	}
+	if _, err := repo.UpdateUser(userID, func(user *store.UserState) {
+		user.ConsumableItems[entry.RequiredConsumableItemId] = 1
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := server.Draw(ctx, draw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if box := result.GetNextGacha().GetGachaModeBoxComposition(); box.GetBoxNumber() != 1 || box.GetCurrentBoxNumber() != 1 || !box.GetIsCurrentBoxResettable() {
+		t.Fatalf("draw returned an unusable current box: %v", box)
+	}
+	checkList(1, 1)
+	reset, err := server.ResetBoxGacha(ctx, &pb.ResetBoxGachaRequest{GachaId: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if box := reset.GetGacha().GetGachaModeBoxComposition(); box.GetBoxNumber() != 2 || box.GetCurrentBoxNumber() != 2 {
+		t.Fatalf("reset returned an unusable current box: %v", box)
+	}
+	checkList(2, 0)
+	lookup, err := server.GetGacha(ctx, &pb.GetGachaRequest{GachaId: []int32{id}})
+	if err != nil || !proto.Equal(lookup.GetGacha()[id], reset.Gacha) {
+		t.Fatalf("lookup after reset differs from current box: %v, %v", lookup, err)
 	}
 }
 

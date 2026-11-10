@@ -70,6 +70,21 @@ func (s *GachaServiceServer) GetGachaList(ctx context.Context, req *pb.GetGachaL
 		}
 		entry = gachaForUser(cat, &user, entry, nowMillis)
 		bs := gachaBannerStateForUser(entry, user.Gacha.BannerStates[entry.GachaId], nowMillis)
+		if entry.GachaLabelType == model.GachaLabelEvent {
+			// CreateEventGacha groups by GachaBoxGroupId and indexes previews by
+			// BoxNumber. All boxes of a ticket pool use its existing draw/reset ID.
+			current := gacha.CurrentBoxNumber(&bs, entry.BoxCount)
+			for n := int32(1); n <= entry.BoxCount; n++ {
+				boxState := bs
+				if n != current {
+					boxState = store.GachaBannerState{BoxNumber: n}
+				}
+				row := toProtoGacha(handler.EntryForState(entry, &boxState), &boxState)
+				row.GetGachaModeBoxComposition().CurrentBoxNumber = current
+				gachaList = append(gachaList, row)
+			}
+			continue
+		}
 		gachaList = append(gachaList, toProtoGacha(handler.EntryForState(entry, &bs), &bs))
 	}
 
@@ -506,7 +521,13 @@ func gachaVisibleForUser(cat *runtime.Catalogs, user *store.UserState, entry sto
 		}
 		return false
 	}
-	return entry.RequiredConsumableItemId == 0 || user.ConsumableItems[entry.RequiredConsumableItemId] > 0
+	return hasGachaUnlockItem(user, entry)
+}
+
+// Event tickets pay for draws. Ticket-only banners also require their item for access.
+func hasGachaUnlockItem(user *store.UserState, entry store.GachaCatalogEntry) bool {
+	return entry.GachaLabelType == model.GachaLabelEvent || entry.RequiredConsumableItemId == 0 ||
+		user.ConsumableItems[entry.RequiredConsumableItemId] > 0
 }
 
 func gachaForUser(cat *runtime.Catalogs, user *store.UserState, entry store.GachaCatalogEntry, nowMillis int64) store.GachaCatalogEntry {
@@ -534,7 +555,7 @@ func gachaUnlocked(cat *runtime.Catalogs, user *store.UserState, entry store.Gac
 	if !chapterGachaRouteSelected(cat, user, entry) {
 		return false
 	}
-	if entry.RequiredConsumableItemId != 0 && user.ConsumableItems[entry.RequiredConsumableItemId] <= 0 {
+	if !hasGachaUnlockItem(user, entry) {
 		return false
 	}
 	if entry.RelatedEventQuestChapterId != 0 {
@@ -610,9 +631,10 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 
 	switch entry.GachaModeType {
 	case model.GachaModeBox:
-		boxNumber := int32(1)
-		if bs != nil && bs.BoxNumber > 0 {
-			boxNumber = bs.BoxNumber
+		current := gacha.CurrentBoxNumber(bs, entry.BoxCount)
+		boxNumber := max(entry.BoxCount, 1)
+		if entry.GachaLabelType == model.GachaLabelEvent {
+			boxNumber = current
 		}
 		phaseId := int32(0)
 		if len(entry.PricePhases) > 0 {
@@ -621,8 +643,8 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 		g.GachaMode = &pb.Gacha_GachaModeBoxComposition{
 			GachaModeBoxComposition: &pb.GachaModeBoxComposition{
 				GachaBoxGroupId:                 entry.GroupId,
-				BoxNumber:                       max(entry.BoxCount, 1),
-				CurrentBoxNumber:                boxNumber,
+				BoxNumber:                       boxNumber,
+				CurrentBoxNumber:                current,
 				IsCurrentBoxResettable:          entry.IsCurrentBoxResettable,
 				NaviCharacterCommentAssetName:   "production",
 				GachaAssetName:                  entry.BannerAssetName,
