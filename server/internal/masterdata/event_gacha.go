@@ -50,6 +50,11 @@ func eventGachaTierEntries(base store.GachaCatalogEntry) []store.GachaCatalogEnt
 	if len(tickets) == 0 {
 		return []store.GachaCatalogEntry{base}
 	}
+	assetFamily := base.GachaId / 1000
+	if base.GachaId == 324001 {
+		// The Puppets rerun has event_324 title strings but reuses the event_317 artwork.
+		assetFamily = 317
+	}
 	names := []string{"bronze", "silver", "gold"}
 	entries := make([]store.GachaCatalogEntry, 0, len(tickets))
 	for i, ticketId := range tickets {
@@ -61,7 +66,7 @@ func eventGachaTierEntries(base store.GachaCatalogEntry) []store.GachaCatalogEnt
 		entry.EventGachaTicketTier = names[i]
 		entry.RequiredConsumableItemId = ticketId
 		entry.PricePhases = buildChapterPricePhases(entry.GachaId, ticketId)
-		entry.BannerAssetName = fmt.Sprintf("event_%d_%02d", base.GachaId/1000, 1+i*10)
+		entry.BannerAssetName = fmt.Sprintf("event_%d_%02d", assetFamily, 1+i*10)
 		entries = append(entries, entry)
 	}
 	return entries
