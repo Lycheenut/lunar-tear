@@ -633,8 +633,11 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 	case model.GachaModeBox:
 		current := gacha.CurrentBoxNumber(bs, entry.BoxCount)
 		boxNumber := max(entry.BoxCount, 1)
+		descriptionTextId := entry.DescriptionTextId
 		if entry.GachaLabelType == model.GachaLabelEvent {
 			boxNumber = current
+			// Event entries store the quest chapter title ID. The client uses 0 for the default box description.
+			descriptionTextId = 0
 		}
 		phaseId := int32(0)
 		if len(entry.PricePhases) > 0 {
@@ -652,7 +655,7 @@ func toProtoGacha(entry store.GachaCatalogEntry, bs *store.GachaBannerState) *pb
 				PromotionGachaOddsItem:          promotionItems,
 				IsResettableByDrawingAllTargets: entry.IsResettableByAllTargets,
 				IsInvalidReset:                  entry.IsInvalidReset,
-				GachaDescriptionTextId:          entry.DescriptionTextId,
+				GachaDescriptionTextId:          descriptionTextId,
 			},
 		}
 	case model.GachaModeStepup:

@@ -102,6 +102,24 @@ func TestPremiumPickupPromotionPairsCostumeAndWeaponOrder(t *testing.T) {
 	}
 }
 
+func TestEventBoxResponseUsesLocalizedArtAndDefaultDescription(t *testing.T) {
+	cat := newGachaResponseTestHolder(t).Get()
+	for id, wantAsset := range map[int32]string{
+		324001: "event_317_01", 324011: "event_317_11", 324021: "event_317_21",
+		333001: "event_333_01", 334001: "event_334_01", 335001: "event_335_01",
+	} {
+		entry := findCatalogEntry(cat.GachaEntries, id)
+		if entry == nil {
+			t.Fatalf("missing event pool %d", id)
+		}
+		box := toProtoGacha(*entry, nil).GetGachaModeBoxComposition()
+		if box == nil || box.GachaAssetName != wantAsset || box.GachaDescriptionTextId != 0 {
+			t.Errorf("pool %d: got asset %q, description %d, want %q and default description (0)",
+				id, box.GetGachaAssetName(), box.GetGachaDescriptionTextId(), wantAsset)
+		}
+	}
+}
+
 func TestEventBoxResponseReportsProgressionAndResetState(t *testing.T) {
 	entry := store.GachaCatalogEntry{
 		GachaId:                  300001,
